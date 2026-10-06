@@ -797,6 +797,53 @@ async def download_backup(name: str, ctx: Backups, db: DB) -> Response:
     return FileResponse(path, media_type="application/octet-stream", filename=name)
 
 
+# ---------------------------------------------------------------- updates from the panel (OPS-07)
+
+
+@router.get("/updates")
+async def update_status(ctx: Backups) -> dict[str, Any]:
+    from paurubot.ops import updater
+
+    return (await updater.status()).as_dict()
+
+
+class UpdateBody(BaseModel):
+    action: Literal["update", "rollback"]
+    channel: Literal["stable", "beta"] | None = None
+    version: str | None = Field(default=None, max_length=40)
+
+
+@router.post("/updates")
+async def request_update(body: UpdateBody, ctx: Backups, db: DB) -> dict[str, Any]:
+    from paurubot.ops import updater
+
+    try:
+        sent = await updater.request(body.action, body.channel, body.version or None)
+    except updater.UpdateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action=f"system.{body.action}_requested",
+        entity="system",
+        after=sent,
+    )
+    return {"requested": sent}
+
+
+@router.delete("/updates")
+async def cancel_update(ctx: Backups, db: DB) -> dict[str, bool]:
+    from paurubot.ops import updater
+
+    canceled = await updater.cancel()
+    if canceled:
+        await record(
+            db, shop_id=ctx.shop_id, actor=ctx.actor, action="system.update_canceled", entity="system"
+        )
+    return {"canceled": canceled}
+
+
 # ---------------------------------------------------------------- moving from another bot (MIG-01)
 
 MAX_IMPORT_BYTES = 300 * 1024 * 1024

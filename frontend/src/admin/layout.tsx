@@ -51,6 +51,7 @@ export const NAV_GROUPS: { key: string; items: NavItem[] }[] = [
       { to: "/health", key: "nav_health", icon: "jobs", permission: "settings.write" },
       { to: "/backups", key: "nav_backups", icon: "backup", permission: "backups.manage" },
       { to: "/migration", key: "nav_migration", icon: "backup", permission: "backups.manage" },
+      { to: "/updates", key: "nav_updates", icon: "refresh", permission: "backups.manage" },
     ],
   },
 ];
