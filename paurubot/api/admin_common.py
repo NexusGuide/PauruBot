@@ -1,0 +1,70 @@
+"""Helpers shared by admin routers: ownership checks, paging and serialisation."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from enum import Enum
+from typing import Any
+
+from fastapi import HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import Select, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import DeclarativeBase
+
+from paurubot.api.deps import StaffContext
+from paurubot.db.models import ResellerProfile, Service
+
+
+async def owned[M: DeclarativeBase](db: AsyncSession, model: type[M], obj_id: int, ctx: StaffContext) -> M:
+    """Load a row of the staff member's shop or answer 404 (never 403, to avoid confirming existence)."""
+    row = await db.get(model, obj_id)
+    if row is None or getattr(row, "shop_id", None) != ctx.shop_id:
+        raise HTTPException(status_code=404, detail="not_found")
+    return row
+
+
+class Page(BaseModel):
+    limit: int = Field(default=25, ge=1, le=200)
+    offset: int = Field(default=0, ge=0)
+
+
+def page_params(limit: int = Query(25, ge=1, le=200), offset: int = Query(0, ge=0)) -> Page:
+    return Page(limit=limit, offset=offset)
+
+
+async def paginate(db: AsyncSession, stmt: Select[Any], page: Page) -> tuple[list[Any], int]:
+    total = await db.scalar(select(func.count()).select_from(stmt.order_by(None).subquery()))
+    rows = (await db.scalars(stmt.limit(page.limit).offset(page.offset))).all()
+    return list(rows), int(total or 0)
+
+
+def plain(obj: Any, fields: list[str]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for name in fields:
+        value = getattr(obj, name)
+        if isinstance(value, datetime):
+            value = value.isoformat()
+        elif isinstance(value, Enum):
+            value = value.value
+        out[name] = value
+    return out
+
+
+async def reseller_customer_id(db: AsyncSession, ctx: StaffContext) -> int | None:
+    """The customer behind a reseller staff account; resellers only ever see that customer's services."""
+    if not ctx.scoped:
+        return None
+    if ctx.staff.reseller_profile_id is None:
+        raise HTTPException(status_code=403, detail="forbidden")
+    profile = await db.get(ResellerProfile, ctx.staff.reseller_profile_id)
+    if profile is None or not profile.is_active:
+        raise HTTPException(status_code=403, detail="forbidden")
+    return profile.customer_id
+
+
+async def scope_services(db: AsyncSession, stmt: Select[Any], ctx: StaffContext) -> Select[Any]:
+    owner = await reseller_customer_id(db, ctx)
+    if owner is not None:
+        stmt = stmt.where(Service.customer_id == owner)
+    return stmt

@@ -5,7 +5,20 @@ import importlib
 from fastapi import FastAPI
 
 # Routers added phase by phase; each module exposes `router`.
-OPTIONAL_ROUTERS: list[str] = ["pay", "webhooks", "telegram", "webapp"]
+OPTIONAL_ROUTERS: list[str] = [
+    "pay",
+    "webhooks",
+    "telegram",
+    "webapp",
+    "admin.dashboard",
+    "admin.customers",
+    "admin.commerce",
+    "admin.catalog",
+    "admin.panels",
+    "admin.growth",
+    "admin.people",
+    "admin.system",
+]
 
 
 def register_optional(app: FastAPI) -> None:
