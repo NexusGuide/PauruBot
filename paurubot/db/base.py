@@ -64,3 +64,8 @@ def str_enum(cls: type[enum.Enum], length: int = 24) -> Enum:
         create_constraint=False,
         values_callable=lambda members: [m.value for m in members],
     )
+
+
+def affected(result: object) -> int:
+    """Rows touched by an UPDATE/DELETE result (typed helper around CursorResult.rowcount)."""
+    return int(getattr(result, "rowcount", 0) or 0)

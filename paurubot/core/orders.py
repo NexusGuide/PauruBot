@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core import pricing
 from paurubot.core import settings as shop_settings
-from paurubot.db.base import utcnow
+from paurubot.db.base import affected, utcnow
 from paurubot.db.models import (
     Customer,
     DiscountCode,
@@ -174,7 +174,7 @@ async def _redeem(session: AsyncSession, order: Order) -> None:
         )
         .values(used_count=DiscountCode.used_count + 1)
     )
-    if not result.rowcount:
+    if not affected(result):
         raise OrderError("discount_used_up")
     session.add(
         DiscountRedemption(
@@ -223,7 +223,7 @@ async def cancel(session: AsyncSession, order_id: int, customer_id: int | None =
     if customer_id is not None:
         stmt = stmt.where(Order.customer_id == customer_id)
     result = await session.execute(stmt.values(status=OrderStatus.CANCELED, error="canceled"))
-    return bool(result.rowcount)
+    return bool(affected(result))
 
 
 async def expire_stale(session: AsyncSession) -> int:
@@ -232,7 +232,7 @@ async def expire_stale(session: AsyncSession) -> int:
         .where(Order.status == OrderStatus.PENDING, Order.expires_at < utcnow())
         .values(status=OrderStatus.CANCELED, error="expired")
     )
-    return int(result.rowcount or 0)
+    return affected(result)
 
 
 async def refund_failed(session: AsyncSession, order: Order, reason: str, actor: str = "system") -> None:
