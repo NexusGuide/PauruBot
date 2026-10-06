@@ -7,6 +7,7 @@ import { useSession } from "../session";
 import {
   Async,
   Badge,
+  Bytes,
   Button,
   Empty,
   Facts,
@@ -835,6 +836,85 @@ export function Account() {
           </Button>
         </div>
       </Section>
+    </Page>
+  );
+}
+
+// ---------------------------------------------------------------- backups
+
+interface BackupData {
+  items: { name: string; size: number; created_at: string }[];
+  schedule: { hour: number; keep: number; telegram: boolean; passphrase_set: boolean; timezone: string };
+}
+
+export function Backups() {
+  const { t, locale, toast, errorText } = useSession();
+  const { data, error, reload } = useLoad<BackupData>("/api/admin/backups");
+  const [busy, run] = useAction();
+  const start = async () => {
+    try {
+      await run(() => call("/api/admin/backups", { method: "POST" }));
+      toast(t("backup_started"));
+      window.setTimeout(() => void reload(), 8000);
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <Page
+      title={t("nav_backups")}
+      actions={
+        <Button tone="primary" busy={busy} disabled={!data?.schedule.passphrase_set} onClick={() => void start()}>
+          {t("backup_now")}
+        </Button>
+      }
+    >
+      <Async data={data} error={error} reload={reload}>
+        {(value) => (
+          <>
+            {!value.schedule.passphrase_set && (
+              <p className="rounded-2xl bg-anar-100 px-4 py-3 text-[0.88rem] font-semibold text-anar-700">{t("backup_no_passphrase")}</p>
+            )}
+            <Section>
+              <p className="leading-relaxed">
+                {t("backup_schedule", {
+                  hour: money(value.schedule.hour, locale),
+                  keep: money(value.schedule.keep, locale),
+                })}{" "}
+                {value.schedule.telegram ? t("backup_schedule_telegram") : ""}
+              </p>
+              <p className="mt-2 text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("backup_contents_hint")}</p>
+            </Section>
+            <Section flush title={t("backup_files")}>
+              {value.items.length === 0 ? (
+                <Empty title={t("backup_none")} />
+              ) : (
+                <ul className="divide-y divide-[var(--line)]">
+                  {value.items.map((item) => (
+                    <li key={item.name} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                      <span className="flex flex-col">
+                        <span className="font-mono text-[0.82rem]" dir="ltr">
+                          {item.name}
+                        </span>
+                        <span className="text-[0.78rem] text-[var(--hint)]">
+                          <When iso={item.created_at} time /> — <Bytes value={item.size} />
+                        </span>
+                      </span>
+                      <a
+                        className="inline-flex min-h-8 items-center rounded-lg px-2.5 text-[0.8rem] font-semibold ring-1 ring-[var(--line)] hover:bg-[var(--bg)]"
+                        href={`/api/admin/backups/${encodeURIComponent(item.name)}`}
+                        download
+                      >
+                        {t("download")}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Section>
+          </>
+        )}
+      </Async>
     </Page>
   );
 }

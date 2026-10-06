@@ -139,6 +139,7 @@ def endpoints(env: Env) -> list[tuple[str, str, str, Any]]:
         ("audit.read", "GET", "/api/admin/audit", None),
         ("staff.manage", "GET", "/api/admin/staff", None),
         ("resellers.manage", "GET", "/api/admin/resellers", None),
+        ("backups.manage", "GET", "/api/admin/backups", None),
     ]
 
 

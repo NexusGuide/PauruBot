@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 
 from sqlalchemy import text
@@ -209,4 +210,145 @@ async def bot(_: argparse.Namespace) -> int:
     await telegram_bot.delete_webhook(drop_pending_updates=False)
     dispatcher = build_dispatcher()
     await dispatcher.start_polling(telegram_bot, allowed_updates=dispatcher.resolve_used_update_types())
+    return 0
+
+
+# --- backups (OPS-05) --------------------------------------------------------------
+
+
+@command(
+    "backup",
+    "write an encrypted backup now (add --send to post it to Telegram)",
+    lambda p: p.add_argument("--send", action="store_true"),
+)
+async def backup_cmd(args: argparse.Namespace) -> int:
+    from paurubot.ops import backup
+
+    try:
+        info = await backup.create(label="cli")
+    except backup.BackupError as exc:
+        print(f"backup failed: {exc}")
+        return 1
+    backup.prune(get_settings().backup_keep)
+    print(f"{info.path} ({info.size} bytes)")
+    if args.send:
+        from paurubot.ops.delivery import send_backup
+
+        print(f"sent to {await send_backup(info)} chat(s)")
+    return 0
+
+
+@command("backups", "list backups in the backup directory")
+async def backups_cmd(_: argparse.Namespace) -> int:
+    from paurubot.ops import backup
+
+    for info in backup.listing():
+        print(f"{info.created_at:%Y-%m-%d %H:%M}  {info.size:>12}  {info.name}")
+    return 0
+
+
+def _backup_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("file", help="path to a .pbak archive")
+    parser.add_argument(
+        "--passphrase-env",
+        default="BACKUP_PASSPHRASE",
+        help="environment variable holding the passphrase (default BACKUP_PASSPHRASE)",
+    )
+
+
+def _passphrase(args: argparse.Namespace) -> str:
+    import os
+
+    return os.environ.get(args.passphrase_env, "") or get_settings().backup_passphrase.get_secret_value()
+
+
+def _verify_args(parser: argparse.ArgumentParser) -> None:
+    _backup_args(parser)
+    parser.add_argument("--full", action="store_true", help="also restore into a scratch database")
+
+
+@command(
+    "backup-verify",
+    "check a backup's hashes and, with --full, restore it into a scratch database",
+    _verify_args,
+)
+async def backup_verify(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from paurubot.ops import backup
+
+    try:
+        result = await backup.verify(Path(args.file), passphrase=_passphrase(args), full=args.full)
+    except backup.BackupError as exc:
+        _print(False, "backup", str(exc))
+        return 1
+    manifest = result["manifest"]
+    _print(True, "decrypted and hashes match", manifest["created_at"])
+    _print(True, "database dump readable", f"{result['objects']} objects")
+    _print(result["master_key_included"], "master key included")
+    if "restored" in result:
+        restored = result["restored"]
+        _print(True, "test restore", ", ".join(f"{k}={v}" for k, v in restored.items()))
+    return 0
+
+
+def _restore_args(parser: argparse.ArgumentParser) -> None:
+    _backup_args(parser)
+    parser.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+    parser.add_argument(
+        "--write-env", metavar="PATH", help="put the backup's MASTER_KEY into this .env file when it differs"
+    )
+
+
+@command("restore", "replace the database with a backup (stop api, bot and worker first)", _restore_args)
+async def restore_cmd(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from alembic.script import ScriptDirectory
+
+    from paurubot.db.migrate import alembic_config, upgrade_database
+    from paurubot.db.session import dispose_engine
+    from paurubot.ops import backup
+
+    path = Path(args.file)
+    try:
+        info = await backup.verify(path, passphrase=_passphrase(args))
+    except backup.BackupError as exc:
+        _print(False, "backup", str(exc))
+        return 1
+    manifest = info["manifest"]
+    revision = manifest.get("alembic_revision")
+    known = {rev.revision for rev in ScriptDirectory.from_config(alembic_config()).walk_revisions()}
+    if revision and revision not in known:
+        _print(False, "schema", f"backup is from a newer PauruBot (revision {revision}); update first")
+        return 1
+    if not args.yes:
+        question = f"Replace the current database with the backup from {manifest['created_at']}? [y/N] "
+        answer = await asyncio.to_thread(input, question)
+        if answer.strip().lower() not in {"y", "yes"}:
+            print("canceled")
+            return 1
+    try:
+        contents = await backup.restore(path, passphrase=_passphrase(args))
+    except backup.BackupError as exc:
+        _print(False, "restore", str(exc))
+        return 1
+    _print(True, "database restored", manifest["created_at"])
+    await upgrade_database()
+    await dispose_engine()
+    _print(True, "migrations applied")
+    if args.print_master_key and contents.master_key:
+        print(f"MASTER_KEY={contents.master_key}")
+        return 0
+    if contents.master_key and not backup.master_key_matches(contents):
+        if args.write_env:
+            backup.write_env_master_key(Path(args.write_env), contents.master_key)
+            _print(True, "MASTER_KEY", f"written to {args.write_env}; restart the services")
+        else:
+            _print(
+                False,
+                "MASTER_KEY",
+                "differs from this server; rerun with --write-env .env or panel passwords stay unreadable",
+            )
+            return 3
     return 0

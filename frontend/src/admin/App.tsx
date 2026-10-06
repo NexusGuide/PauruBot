@@ -10,7 +10,7 @@ import { Home } from "./screens/Home";
 import { Panels } from "./screens/Panels";
 import { Resellers, Staff, TicketPage, Tickets } from "./screens/People";
 import { Services } from "./screens/Services";
-import { Account, Audit, Channels, Jobs, Reports, Settings, Texts } from "./screens/System";
+import { Account, Audit, Backups, Channels, Jobs, Reports, Settings, Texts } from "./screens/System";
 import { SessionProvider, useSession } from "./session";
 import { ConfirmProvider, Empty, Loading, Page, Section, Toasts } from "./ui";
 
@@ -57,6 +57,7 @@ function Routed() {
         <Route path="/staff" element={g("staff.manage", <Staff />)} />
         <Route path="/audit" element={g("audit.read", <Audit />)} />
         <Route path="/jobs" element={g("settings.write", <Jobs />)} />
+        <Route path="/backups" element={g("backups.manage", <Backups />)} />
         <Route path="/account" element={<Account />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

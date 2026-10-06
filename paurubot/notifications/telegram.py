@@ -72,3 +72,8 @@ async def send_text(chat_id: int, text: str, **kwargs: Any) -> None:
 async def send_photo(chat_id: int, photo: Any, caption: str | None = None, **kwargs: Any) -> None:
     bot = get_bot()
     await deliver(lambda: bot.send_photo(chat_id, photo, caption=caption, **kwargs))
+
+
+async def send_document(chat_id: int, document: Any, caption: str | None = None, **kwargs: Any) -> None:
+    bot = get_bot()
+    await deliver(lambda: bot.send_document(chat_id, document, caption=caption, **kwargs))

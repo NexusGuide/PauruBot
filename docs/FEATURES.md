@@ -14,7 +14,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | ARC-02 | Redis-backed FSM state, locks and callback payloads | MVP | wip |
 | ARC-03 | Panel driver registry (one interface, many panel types) | MVP | done |
 | ARC-04 | Structured logging with tags and Telegram log channels | v1.1 | todo |
-| ARC-05 | Ops CLI: status, logs, health, backup, restore, migrate, doctor | MVP | wip |
+| ARC-05 | Ops CLI: status, logs, health, backup, restore, migrate, doctor | MVP | done |
 | ARC-06 | Modular monolith with domain/service/adapter layers | MVP | done |
 
 ## Identity, Auth & Security
@@ -207,12 +207,12 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| OPS-01 | One-line installer with menu | MVP | todo |
-| OPS-02 | Release channels and version pinning (beta/release, --version) | MVP | todo |
-| OPS-03 | Docker Compose stack | MVP | todo |
-| OPS-04 | Automatic SSL (ACME) | MVP | todo |
-| OPS-05 | Backup with manifest hashes and validated restore | MVP | todo |
-| OPS-06 | Scheduled backup sent to Telegram | MVP | todo |
+| OPS-01 | One-line installer with menu | MVP | done |
+| OPS-02 | Release channels and version pinning (beta/release, --version) | MVP | done |
+| OPS-03 | Docker Compose stack | MVP | done |
+| OPS-04 | Automatic SSL (ACME) | MVP | done |
+| OPS-05 | Backup with manifest hashes and validated restore | MVP | done |
+| OPS-06 | Scheduled backup sent to Telegram | MVP | done |
 | OPS-07 | Panel-based update with rollback UI | v1.1 | todo |
 | OPS-08 | SQLite → PostgreSQL migration tool | v1.1 | todo |
 
@@ -234,7 +234,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| NEW-01 | Master key escrow inside encrypted backups (restores recover panel credentials) | MVP | todo |
+| NEW-01 | Master key escrow inside encrypted backups (restores recover panel credentials) | MVP | done |
 | NEW-02 | TLS certificate pinning for self-signed panels instead of disabling verification | MVP | done |
 | NEW-03 | Periodic usage sync for panels without webhooks | MVP | done |
 | NEW-04 | Refund and service cancellation policy | MVP | done |

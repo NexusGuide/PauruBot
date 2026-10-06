@@ -285,5 +285,7 @@
   "wallet_debited": "💰 {amount} تومان از کیف پولت کسر شد.",
   "wallet_home": "💰 <b>کیف پول</b>\n\nموجودی: <b>{balance} تومان</b>\nشناسه: <code>{id}</code>",
   "welcome": "سلام {name} 👋\nبه <b>{shop}</b> خوش اومدی.\nاز منوی پایین یکی از گزینه‌ها رو انتخاب کن.",
-  "yes": "بله"
+  "yes": "بله",
+  "backup_caption": "🗄 پشتیبان {name}\nحجم: {size}\nبرای بازگردانی به رمز پشتیبان (BACKUP_PASSPHRASE) نیاز داری.",
+  "backup_too_large": "🗄 پشتیبان {name} ({size}) برای ارسال در تلگرام بزرگ است و روی سرور ذخیره شد."
 }
