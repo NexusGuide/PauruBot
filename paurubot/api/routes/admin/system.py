@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 from datetime import date, datetime, time, timedelta
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import Date, cast, delete, func, select
@@ -27,6 +28,7 @@ from paurubot.db.models import (
     LogChannel,
     Order,
     OrderStatus,
+    Panel,
     Payment,
     PaymentStatus,
     Plan,
@@ -793,3 +795,79 @@ async def download_backup(name: str, ctx: Backups, db: DB) -> Response:
     )
     await db.commit()
     return FileResponse(path, media_type="application/octet-stream", filename=name)
+
+
+# ---------------------------------------------------------------- moving from another bot (MIG-01)
+
+MAX_IMPORT_BYTES = 300 * 1024 * 1024
+Owner = Annotated[StaffContext, Depends(require("backups.manage"))]
+
+
+@router.post("/migration/upload")
+async def migration_upload(ctx: Owner, file: UploadFile = File(...)) -> dict[str, Any]:
+    """Store a MySQL dump or SQLite file and describe what it holds."""
+    import secrets as _secrets
+
+    from paurubot.migration import runner
+
+    token = _secrets.token_hex(12)
+    path = runner.upload_path(token)
+    await asyncio.to_thread(path.parent.mkdir, parents=True, exist_ok=True)
+    size = 0
+    with path.open("wb") as handle:  # noqa: ASYNC230  chunks are small and the disk is local
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_IMPORT_BYTES:
+                handle.close()
+                path.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail="import_too_large")
+            handle.write(chunk)
+    try:
+        extract = await runner.load(token, None)
+    except (ValueError, UnicodeDecodeError) as exc:
+        path.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail="unknown_source") from exc
+    return {"token": token, "size": size, **runner.summary(extract)}
+
+
+class MigrationRunBody(BaseModel):
+    token: str = Field(pattern=r"^[a-f0-9]{24}$")
+    source: Literal["mirza", "faoxima", "wizwiz"] | None = None
+    panel_map: dict[str, int] = Field(default_factory=dict)
+    dry_run: bool = True
+
+
+@router.post("/migration/run")
+async def migration_run(body: MigrationRunBody, ctx: Owner, db: DB) -> dict[str, Any]:
+    from paurubot.migration import runner
+
+    if not await asyncio.to_thread(runner.upload_path(body.token).is_file):
+        raise HTTPException(status_code=404, detail="upload_missing")
+    for panel_id in set(body.panel_map.values()):
+        await owned(db, Panel, panel_id, ctx)
+    job_id = await queue.enqueue(
+        db,
+        "ops",
+        "migrate",
+        {
+            "token": body.token,
+            "source": body.source,
+            "panel_map": body.panel_map,
+            "dry_run": body.dry_run,
+            "shop_id": ctx.shop_id,
+            "staff_id": ctx.staff.id,
+        },
+        shop_id=ctx.shop_id,
+        max_attempts=2,
+    )
+    return {"job_id": job_id}
+
+
+@router.get("/migration/last")
+async def migration_last(ctx: Owner) -> dict[str, Any]:
+    import json as _json
+
+    from paurubot import kv
+
+    raw = await kv.get_redis().get(f"migration:{ctx.shop_id}:last")
+    return {"report": _json.loads(raw) if raw else None}
