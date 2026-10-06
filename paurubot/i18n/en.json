@@ -367,5 +367,7 @@
   "alert_removed_by_staff": "🗑 Your service <b>{name}</b> was deleted by support.",
   "alert_disabled_by_staff": "⏸ Your service <b>{name}</b> was disabled by support.",
   "alert_reason": "Reason: {reason}",
-  "trial_unavailable": "A free trial isn't available for your account. Message support for details."
+  "trial_unavailable": "A free trial isn't available for your account. Message support for details.",
+  "staff_login_code": "🔐 Panel login code: <code>{code}</code>\nValid for 5 minutes. Requested from IP {ip}; if this wasn't you, ignore it and change your password.",
+  "report_job_dead": "☠️ Job #{id} in queue {queue} ({kind}) failed after all retries.\nError: {error}\nIt can be retried from the Jobs page in the panel."
 }

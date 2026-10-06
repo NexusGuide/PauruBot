@@ -1,15 +1,26 @@
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from paurubot import __version__
-from paurubot.api.middleware import CorrelationMiddleware, OriginCheckMiddleware, SecurityHeadersMiddleware
+from paurubot.api.middleware import (
+    CorrelationMiddleware,
+    MetricsMiddleware,
+    OriginCheckMiddleware,
+    SecurityHeadersMiddleware,
+)
 from paurubot.logs import correlation_id
+
+PRIVATE_NETWORKS = [
+    ipaddress.ip_network(net)
+    for net in ("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "::1/128", "fc00::/7")
+]
 
 
 @asynccontextmanager
@@ -34,6 +45,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     # Starlette runs middlewares in reverse order of registration: correlation is outermost.
+    app.add_middleware(MetricsMiddleware)
     app.add_middleware(OriginCheckMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(CorrelationMiddleware)
@@ -53,6 +65,32 @@ def create_app() -> FastAPI:
             {"error": "validation_error", "fields": fields, "correlation_id": correlation_id.get()},
             status_code=422,
         )
+
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics_endpoint(request: Request) -> Response:
+        """Prometheus scrape target (JOB-05): a bearer token, or a private address when none is set."""
+        from paurubot.api.deps import request_ip
+        from paurubot.config import get_settings
+        from paurubot.db.session import session_scope
+        from paurubot.ops import metrics
+        from paurubot.security.tokens import constant_equals
+
+        token = get_settings().metrics_token.get_secret_value()
+        if token:
+            given = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+            if not constant_equals(given, token):
+                return JSONResponse({"error": "forbidden"}, status_code=403)
+        else:
+            try:
+                address = ipaddress.ip_address(request_ip(request))
+            except ValueError:
+                address = None
+            private = address is not None and any(address in net for net in PRIVATE_NETWORKS)
+            if not private:
+                return JSONResponse({"error": "forbidden"}, status_code=403)
+        async with session_scope() as session:
+            body = await metrics.render(session)
+        return Response(body, media_type="text/plain; version=0.0.4")
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz() -> dict:

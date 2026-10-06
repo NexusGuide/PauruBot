@@ -421,6 +421,24 @@ async def report_job(session: AsyncSession, job: queue.Claimed) -> None:
     await report(session, shop.id, str(job.payload["topic"]), t(str(job.payload["key"]), **params))
 
 
+async def job_dead(session: AsyncSession, job: queue.Claimed) -> None:
+    """A job ran out of retries (JOB-05): tell the errors log channel so nothing fails silently."""
+    shop_ids = [job.shop_id] if job.shop_id else list(await session.scalars(select(Shop.id)))
+    for shop_id in shop_ids:
+        shop = await session.get(Shop, shop_id)
+        if shop is None:
+            continue
+        t = await texts_for(session, shop.id, shop.default_locale)
+        text = t(
+            "report_job_dead",
+            id=job.payload.get("job_id"),
+            queue=esc(str(job.payload.get("queue"))),
+            kind=esc(str(job.payload.get("kind"))),
+            error=esc(str(job.payload.get("error") or "-")),
+        )
+        await report(session, shop.id, "errors", text)
+
+
 async def panel_alert(session: AsyncSession, job: queue.Claimed) -> None:
     """Panel down / back up, node changes and quota warnings, to panel staff and the log channel."""
     from paurubot.db.models import Panel
@@ -480,6 +498,7 @@ register_queue(
         {
             "reseller_notice": reseller_notice,
             "panel_alert": panel_alert,
+            "job_dead": job_dead,
             "order_completed": order_completed,
             "order_failed": order_failed,
             "payment_fulfilled": payment_fulfilled,

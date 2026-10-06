@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_json: bool = True
     sentry_dsn: SecretStr = SecretStr("")
+    # Bearer token for GET /metrics (JOB-05); empty means only private addresses may read it.
+    metrics_token: SecretStr = SecretStr("")
+    # Forward ERROR logs to the "errors" Telegram log channel (ARC-04).
+    log_errors_to_telegram: bool = True
 
     @field_validator("owner_telegram_ids", mode="before")
     @classmethod

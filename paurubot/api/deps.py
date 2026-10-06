@@ -59,7 +59,27 @@ class StaffContext:
         return permission in self.permissions
 
 
+async def _api_key_staff(request: Request, db: AsyncSession, token: str) -> StaffContext:
+    resolved = await staff_service.resolve_api_key(db, token)
+    if resolved is None:
+        raise HTTPException(status_code=401, detail="invalid_api_key")
+    staff, key = resolved
+    if key.read_only and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        raise HTTPException(status_code=403, detail="read_only_key")
+    allow_list = await staff_service.reseller_allow_list(db, staff)
+    perms = frozenset(rbac.permissions_for(staff.role, allow_list))
+    # Keys never manage staff or other keys, whatever the role allows.
+    perms = perms - {"staff.manage", "panels.secrets", "backups.manage"}
+    session = sessions.StaffSession(
+        staff.id, staff.shop_id, staff.session_version, "", 0.0, request_ip(request)
+    )
+    return StaffContext(staff, staff.shop_id, session, f"apikey:{key.id}", request_ip(request), perms)
+
+
 async def current_staff(request: Request, db: DB) -> StaffContext:
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        return await _api_key_staff(request, db, authorization[7:].strip())
     session_id = request.cookies.get(SESSION_COOKIE)
     data = await sessions.load(session_id)
     if data is None or session_id is None:

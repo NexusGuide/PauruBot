@@ -99,3 +99,24 @@ def origin_allowed(request: Request) -> bool:
         return any(referer == base or referer.startswith(base + "/") for base in allowed)
     # Non-browser clients (CLI, tests) send neither header; CSRF tokens still protect them.
     return True
+
+
+class MetricsMiddleware(BaseHTTPMiddleware):
+    """Count API requests by route template and status class (JOB-05)."""
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        import time
+
+        from paurubot.ops import metrics
+
+        started = time.perf_counter()
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/api/") or path.startswith("/s/"):
+            route = getattr(request.scope.get("route"), "path", None) or "unmatched"
+            if route.startswith("/s/{token}"):
+                route = "/s/{token}"
+            await metrics.count_http(
+                request.method, route, response.status_code, time.perf_counter() - started
+            )
+        return response

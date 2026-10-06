@@ -28,6 +28,11 @@ async def enqueue(
     max_attempts: int = 8,
 ) -> int | None:
     """Add a job in the caller's transaction. With a dedupe key, a duplicate enqueue is a no-op."""
+    from paurubot.logs import correlation_id
+
+    cid = correlation_id.get()
+    if cid and "_cid" not in payload:
+        payload = {**payload, "_cid": cid}  # follow one request through the jobs it starts (JOB-05)
     stmt = insert(Job).values(
         shop_id=shop_id,
         queue=queue,

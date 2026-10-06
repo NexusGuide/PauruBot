@@ -58,6 +58,7 @@ from paurubot.db.models.tenancy import (
     Shop,
     ShopSetting,
     Staff,
+    StaffApiKey,
 )
 
 __all__ = [
@@ -97,6 +98,7 @@ __all__ = [
     "ResellerProfile",
     "Service",
     "Settlement",
+    "StaffApiKey",
     "PanelCheck",
     "ResellerBillingSnapshot",
     "ServiceStatus",

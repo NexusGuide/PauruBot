@@ -25,9 +25,11 @@ function Frame({ title, intro, children }: { title: string; intro: string; child
 }
 
 export function Login() {
-  const { t, login, errorText } = useSession();
+  const { t, login, loginWithCode, errorText } = useSession();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<"password" | "code" | "code_sent">("password");
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,9 +38,18 @@ export function Login() {
     setBusy(true);
     setError(null);
     try {
-      await login(username.trim(), password);
+      if (mode === "password") {
+        await login(username.trim(), password);
+      } else if (mode === "code") {
+        await call("/api/auth/code", { method: "POST", body: { username: username.trim() } });
+        setMode("code_sent");
+      } else {
+        await loginWithCode(username.trim(), code.trim());
+      }
     } catch (err) {
-      setError(err instanceof ApiError && err.code === "invalid_credentials" ? t("login_wrong") : errorText(err));
+      if (err instanceof ApiError && err.code === "invalid_credentials") setError(t("login_wrong"));
+      else if (err instanceof ApiError && err.code === "invalid_code") setError(t("login_code_wrong"));
+      else setError(errorText(err));
     } finally {
       setBusy(false);
     }
@@ -59,27 +70,56 @@ export function Login() {
             />
           )}
         </Field>
-        <Field label={t("password")}>
-          {(id) => (
-            <Input
-              id={id}
-              type="password"
-              autoComplete="current-password"
-              dir="ltr"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-            />
-          )}
-        </Field>
+        {mode === "password" && (
+          <Field label={t("password")}>
+            {(id) => (
+              <Input
+                id={id}
+                type="password"
+                autoComplete="current-password"
+                dir="ltr"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+              />
+            )}
+          </Field>
+        )}
+        {mode === "code_sent" && (
+          <Field label={t("login_code")} hint={t("login_code_sent")}>
+            {(id) => (
+              <Input
+                id={id}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                dir="ltr"
+                maxLength={6}
+                value={code}
+                onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
+                required
+              />
+            )}
+          </Field>
+        )}
         {error && (
           <p role="alert" className="rounded-xl bg-anar-100 px-3 py-2 text-[0.85rem] font-semibold text-anar-700">
             {error}
           </p>
         )}
-        <Button type="submit" tone="primary" busy={busy} className="mt-2">
-          {t("login_submit")}
+        <Button type="submit" tone="primary" busy={busy} className="mt-2" disabled={mode === "code_sent" && code.length !== 6}>
+          {mode === "password" ? t("login_submit") : mode === "code" ? t("login_send_code") : t("login_submit")}
         </Button>
+        <button
+          type="button"
+          className="text-[0.85rem] font-semibold text-firouzeh-700"
+          onClick={() => {
+            setError(null);
+            setCode("");
+            setMode(mode === "password" ? "code" : "password");
+          }}
+        >
+          {mode === "password" ? t("login_use_code") : t("login_use_password")}
+        </button>
       </form>
     </Frame>
   );

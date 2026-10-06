@@ -67,6 +67,21 @@ def every(
 
 
 async def run_job(name: str, spec: QueueSpec, job: queue.Claimed) -> None:
+    from paurubot.logs import correlation_id, log_tags
+
+    cid = str(job.payload.get("_cid") or f"job-{job.id}")
+    cid_token = correlation_id.set(cid)
+    tags_token = log_tags.set({"job": job.id, "queue": name, "kind": job.kind, "shop": job.shop_id})
+    try:
+        await _run_job(name, spec, job)
+    finally:
+        correlation_id.reset(cid_token)
+        log_tags.reset(tags_token)
+
+
+async def _run_job(name: str, spec: QueueSpec, job: queue.Claimed) -> None:
+    from paurubot.ops import metrics
+
     handler = spec.handlers.get(job.kind)
     maker = get_sessionmaker()
     async with maker() as session:
@@ -76,6 +91,7 @@ async def run_job(name: str, spec: QueueSpec, job: queue.Claimed) -> None:
             await handler(session, job)
             await queue.complete(session, job)
             await session.commit()
+            await metrics.count_job(name, "done")
             return
         except Retry as exc:
             error, retry = str(exc) or "retry", True
@@ -89,6 +105,16 @@ async def run_job(name: str, spec: QueueSpec, job: queue.Claimed) -> None:
     async with maker() as session:
         dead = await queue.fail(session, job, error, retry=retry)
         await session.commit()
+        await metrics.count_job(name, "dead" if dead else "retry")
+        if dead and name != "notify":
+            await queue.enqueue(
+                session,
+                "notify",
+                "job_dead",
+                {"job_id": job.id, "queue": name, "kind": job.kind, "error": error[:300]},
+                shop_id=job.shop_id,
+            )
+            await session.commit()
         if dead and spec.on_dead is not None:
             try:
                 await spec.on_dead(session, job, error)

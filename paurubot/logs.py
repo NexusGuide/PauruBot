@@ -7,10 +7,13 @@ import json
 import logging
 import sys
 from datetime import UTC, datetime
+from typing import Any
 
 from paurubot.security.redact import RedactingFilter
 
 correlation_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("correlation_id", default=None)
+# Extra fields added to every log line of the current task: job, queue, shop, customer (ARC-04).
+log_tags: contextvars.ContextVar[dict[str, object] | None] = contextvars.ContextVar("log_tags", default=None)
 
 _RESERVED = set(vars(logging.makeLogRecord({}))) | {"message", "asctime"}
 
@@ -26,6 +29,9 @@ class JsonFormatter(logging.Formatter):
         cid = correlation_id.get()
         if cid:
             payload["cid"] = cid
+        for key, value in (log_tags.get() or {}).items():
+            if value is not None:
+                payload.setdefault(key, value)
         for key, value in record.__dict__.items():
             if key not in _RESERVED and not key.startswith("_"):
                 payload[key] = value
@@ -45,12 +51,67 @@ class TextFormatter(logging.Formatter):
         return text
 
 
-def setup_logging(level: str = "INFO", json_output: bool = True) -> None:
+class TelegramErrorHandler(logging.Handler):
+    """Queue ERROR records in Redis; the worker posts them to the "errors" log channel (ARC-04).
+
+    Logging is synchronous, so this uses a tiny blocking Redis client with short timeouts and
+    gives up quietly: losing an error notification must never break the code that logged it.
+    """
+
+    KEY = "errors:pending"
+    MAX_PENDING = 200
+
+    def __init__(self, process: str) -> None:
+        super().__init__(level=logging.ERROR)
+        self.process = process
+        self._client: Any = None
+        self.addFilter(RedactingFilter())
+
+    def _redis(self):  # type: ignore[no-untyped-def]
+        if self._client is None:
+            import redis
+
+            from paurubot.config import get_settings
+
+            self._client = redis.Redis.from_url(
+                get_settings().redis_url, socket_timeout=0.5, socket_connect_timeout=0.5
+            )
+        return self._client
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.name.startswith(("paurubot.notifications", "redis")):
+            return  # never loop on our own delivery failures
+        try:
+            entry = {
+                "process": self.process,
+                "logger": record.name,
+                "msg": record.getMessage()[:500],
+                "exc": (record.exc_text or "")[-1500:] if record.exc_info or record.exc_text else "",
+                "cid": correlation_id.get(),
+                "ts": record.created,
+            }
+            if record.exc_info and not entry["exc"]:
+                entry["exc"] = logging.Formatter().formatException(record.exc_info)[-1500:]
+            client = self._redis()
+            pipe = client.pipeline()
+            pipe.rpush(self.KEY, json.dumps(entry, default=str))
+            pipe.ltrim(self.KEY, -self.MAX_PENDING, -1)
+            pipe.execute()
+        except Exception:  # noqa: BLE001
+            return
+
+
+def setup_logging(level: str = "INFO", json_output: bool = True, process: str | None = None) -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.addFilter(RedactingFilter())
     handler.setFormatter(JsonFormatter() if json_output else TextFormatter())
     root = logging.getLogger()
     root.handlers[:] = [handler]
+    if process:
+        from paurubot.config import get_settings
+
+        if get_settings().log_errors_to_telegram:
+            root.addHandler(TelegramErrorHandler(process))
     root.setLevel(level.upper())
     for noisy in (
         "httpx",
