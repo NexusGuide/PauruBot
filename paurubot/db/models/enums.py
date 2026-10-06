@@ -90,6 +90,7 @@ class LedgerAccountKind(enum.StrEnum):
     ADJUSTMENTS = "adjustments"
     REFUNDS = "refunds"
     BANK = "bank"
+    COMMISSIONS = "commissions"
 
 
 class JobStatus(enum.StrEnum):

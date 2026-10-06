@@ -74,13 +74,29 @@ async def reseller_customer_id(db: AsyncSession, ctx: StaffContext) -> int | Non
     if ctx.staff.reseller_profile_id is None:
         raise HTTPException(status_code=403, detail="forbidden")
     profile = await db.get(ResellerProfile, ctx.staff.reseller_profile_id)
-    if profile is None or not profile.is_active:
+    if profile is None or not profile.is_current:
         raise HTTPException(status_code=403, detail="forbidden")
     return profile.customer_id
 
 
+async def reseller_profile(db: AsyncSession, ctx: StaffContext) -> ResellerProfile | None:
+    if await reseller_customer_id(db, ctx) is None:
+        return None
+    return await db.get(ResellerProfile, ctx.staff.reseller_profile_id)
+
+
+async def reseller_scope(db: AsyncSession, ctx: StaffContext) -> list[int] | None:
+    """Customers a reseller sees: itself plus its level-2 resellers (TEN-01). None for shop staff."""
+    profile = await reseller_profile(db, ctx)
+    if profile is None:
+        return None
+    from paurubot.core.resellers import scope_customer_ids
+
+    return await scope_customer_ids(db, profile)
+
+
 async def scope_services(db: AsyncSession, stmt: Select[Any], ctx: StaffContext) -> Select[Any]:
-    owner = await reseller_customer_id(db, ctx)
-    if owner is not None:
-        stmt = stmt.where(Service.customer_id == owner)
+    scope = await reseller_scope(db, ctx)
+    if scope is not None:
+        stmt = stmt.where(Service.customer_id.in_(scope))
     return stmt

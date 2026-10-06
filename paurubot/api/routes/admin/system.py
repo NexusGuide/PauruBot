@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Date, cast, delete, func, select
 
 from paurubot import i18n
-from paurubot.api.admin_common import Page, owned, page_params, paginate, plain, reseller_customer_id
+from paurubot.api.admin_common import Page, owned, page_params, paginate, plain, reseller_scope
 from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record
 from paurubot.core import settings as shop_settings
@@ -36,7 +36,7 @@ from paurubot.worker import queue
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-LOG_TOPICS = ("all", "orders", "payments", "users", "errors", "services", "reports", "backups")
+LOG_TOPICS = ("all", "orders", "payments", "users", "errors", "services", "reports", "backups", "resellers")
 CHANNEL_FIELDS = ["id", "chat_id", "title", "url", "sort"]
 LOG_FIELDS = ["id", "topic", "chat_id", "thread_id"]
 CONTACT_FIELDS = ["id", "title", "url", "sort"]
@@ -498,15 +498,15 @@ def _range(start: date | None, end: date | None) -> tuple[datetime, datetime, da
 
 
 async def _sales(db: DB, ctx: StaffContext, lo: datetime, hi: datetime) -> dict[str, Any]:
-    owner = await reseller_customer_id(db, ctx)
+    scope = await reseller_scope(db, ctx)
     base = [
         Order.shop_id == ctx.shop_id,
         Order.status.in_(SOLD),
         Order.completed_at >= lo,
         Order.completed_at < hi,
     ]
-    if owner is not None:
-        base.append(Order.customer_id == owner)
+    if scope is not None:
+        base.append(Order.customer_id.in_(scope))
     day = cast(Order.completed_at, Date)
     by_day = (
         await db.execute(
@@ -534,7 +534,7 @@ async def _sales(db: DB, ctx: StaffContext, lo: datetime, hi: datetime) -> dict[
             "amount": sum(int(a) for _, _, a in by_day),
         },
     }
-    if owner is None:
+    if scope is None:
         by_provider = (
             await db.execute(
                 select(Payment.provider, func.count(Payment.id), func.coalesce(func.sum(Payment.amount), 0))

@@ -17,7 +17,7 @@ class TicketError(Exception):
         self.key = key
 
 
-async def open_ticket(session: AsyncSession, customer: Customer, subject: str) -> Ticket:
+async def open_ticket(session: AsyncSession, customer: Customer, subject: str, source: str = "bot") -> Ticket:
     open_count = await session.scalar(
         select(func.count(Ticket.id)).where(
             Ticket.customer_id == customer.id, Ticket.status != TicketStatus.CLOSED
@@ -25,7 +25,9 @@ async def open_ticket(session: AsyncSession, customer: Customer, subject: str) -
     )
     if int(open_count or 0) >= MAX_OPEN_PER_CUSTOMER:
         raise TicketError("ticket_limit")
-    ticket = Ticket(shop_id=customer.shop_id, customer_id=customer.id, subject=subject.strip()[:128] or "-")
+    ticket = Ticket(
+        shop_id=customer.shop_id, customer_id=customer.id, subject=subject.strip()[:128] or "-", source=source
+    )
     session.add(ticket)
     await session.flush()
     return ticket

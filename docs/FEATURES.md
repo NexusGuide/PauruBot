@@ -41,14 +41,14 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| TEN-01 | Org hierarchy Owner → Level-1 → Level-2 with visible scope | v1.1 | todo |
+| TEN-01 | Org hierarchy Owner → Level-1 → Level-2 with visible scope | v1.1 | done |
 | TEN-02 | Per-shop wallet isolation | MVP | done |
 | TEN-03 | Reseller feature permissions (deny by default) | MVP | done |
 | TEN-04 | Dedicated reseller bot with its own token | v2 | todo |
-| TEN-05 | Reseller billing: PAYG, hourly and usage-based with snapshots | v1.1 | todo |
-| TEN-06 | Reseller low-balance warning and auto-suspend | v1.1 | todo |
-| TEN-07 | Reseller usage cap and capacity limits | v1.1 | todo |
-| TEN-08 | Agent expiry and max-buy limits | v1.1 | todo |
+| TEN-05 | Reseller billing: PAYG, hourly and usage-based with snapshots | v1.1 | done |
+| TEN-06 | Reseller low-balance warning and auto-suspend | v1.1 | done |
+| TEN-07 | Reseller usage cap and capacity limits | v1.1 | done |
+| TEN-08 | Agent expiry and max-buy limits | v1.1 | done |
 | TEN-09 | Reseller application / approval workflow | v1.1 | done |
 | TEN-10 | Import existing panel users into a reseller | v1.1 | todo |
 | TEN-11 | Move users between panel admins | v2 | todo |
@@ -189,7 +189,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
 | SUP-01 | Tickets user↔admin with attachments | MVP | done |
-| SUP-02 | Internal panel tickets reseller↔owner | v1.1 | todo |
+| SUP-02 | Internal panel tickets reseller↔owner | v1.1 | done |
 | SUP-03 | Report channel split by topics | MVP | done |
 | SUP-04 | Support contacts | MVP | done |
 

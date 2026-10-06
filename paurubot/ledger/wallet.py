@@ -9,7 +9,17 @@ from paurubot.db.models import LedgerAccount, LedgerEntry, LedgerJournal
 from paurubot.ledger.accounts import system_account, wallet_account
 from paurubot.ledger.posting import InsufficientFunds, Posted, transfer
 
-__all__ = ["InsufficientFunds", "adjust", "charge", "history", "refund", "reward", "topup"]
+__all__ = [
+    "InsufficientFunds",
+    "adjust",
+    "charge",
+    "commission",
+    "history",
+    "refund",
+    "reward",
+    "topup",
+    "usage_charge",
+]
 
 
 async def topup(
@@ -91,6 +101,43 @@ async def reward(
         kind="reward",
         idempotency_key=key,
         memo=memo,
+    )
+
+
+async def commission(
+    session: AsyncSession, shop_id: int, customer_id: int, amount: int, *, key: str, memo: str | None = None
+) -> Posted:
+    """A level-1 reseller's margin on a level-2 reseller's sale (TEN-01)."""
+    wallet = await wallet_account(session, shop_id, customer_id)
+    commissions = await system_account(session, shop_id, "commissions")
+    return await transfer(
+        session,
+        shop_id=shop_id,
+        source_id=commissions.id,
+        target_id=wallet.id,
+        amount=amount,
+        kind="commission",
+        idempotency_key=key,
+        memo=memo,
+    )
+
+
+async def usage_charge(
+    session: AsyncSession, shop_id: int, customer_id: int, amount: int, *, key: str
+) -> Posted | None:
+    """Metered reseller billing: usage or service-hours (TEN-05)."""
+    if amount <= 0:
+        return None
+    wallet = await wallet_account(session, shop_id, customer_id)
+    revenue = await system_account(session, shop_id, "revenue")
+    return await transfer(
+        session,
+        shop_id=shop_id,
+        source_id=wallet.id,
+        target_id=revenue.id,
+        amount=amount,
+        kind="usage",
+        idempotency_key=key,
     )
 
 

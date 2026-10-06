@@ -14,7 +14,7 @@ from typing import Any
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from paurubot.core import pricing
+from paurubot.core import pricing, resellers
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import affected, utcnow
 from paurubot.db.models import (
@@ -118,6 +118,11 @@ async def draft(
     params: dict[str, Any] = {}
     if label:
         params["label"] = label[:48]
+    add_gb = extra_gb if kind == OrderKind.EXTRA_VOLUME else (custom_gb if plan is None else plan.data_gb)
+    try:
+        await resellers.check_purchase(session, customer, kind=kind, add_gb=add_gb)
+    except resellers.ResellerError as exc:
+        raise OrderError(exc.key, **exc.params) from exc
     if kind in {OrderKind.RENEW, OrderKind.EXTRA_VOLUME, OrderKind.EXTRA_DAYS, OrderKind.UPGRADE}:
         if service is None or service.customer_id != customer.id or service.status == ServiceStatus.DELETED:
             raise OrderError("service_not_found")
@@ -171,11 +176,17 @@ async def create(
     code: DiscountCode | None = None,
     source: str = "bot",
 ) -> Order:
+    if resellers.metered(customer):
+        code = None  # nothing to discount: the order itself is free
     if code is not None:
         await pricing.validate_code(
             session, code, customer, plan_id=d.plan.id if d.plan else None, amount=d.base_price
         )
     q = pricing.quote(d.base_price, customer, code)
+    if code is None and resellers.metered(customer):
+        # Metered resellers pay for usage or service-hours instead of per order (TEN-05).
+        q = pricing.Quote(d.base_price, d.base_price, 0, 0)
+        d.params = {**d.params, "metered": True}
     minutes = int(await shop_settings.get(session, customer.shop_id, "order_expire_minutes") or 60)
     order = Order(
         shop_id=customer.shop_id,

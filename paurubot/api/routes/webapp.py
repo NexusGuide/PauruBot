@@ -140,7 +140,7 @@ async def me(ctx: WebApp) -> dict[str, Any]:
             "count": await customers.referral_count(ctx.session, customer.id),
         },
         "reseller": {
-            "active": bool(profile and profile.is_active),
+            "active": bool(profile and profile.is_current),
             "discount_percent": profile.discount_percent if profile else 0,
         },
         "extras": {

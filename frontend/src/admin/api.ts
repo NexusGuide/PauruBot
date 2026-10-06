@@ -81,6 +81,17 @@ export interface Dashboard {
   open_tickets?: number;
   series?: { day: string; revenue: number; orders: number }[];
   panels?: PanelHealth[];
+  reseller?: {
+    balance: number;
+    billing_mode: string;
+    debt: number;
+    credit_limit: number;
+    suspended: boolean;
+    discount_percent: number;
+    expires_at: string | null;
+    level: number;
+    sub_resellers: number;
+  };
 }
 
 export type InboxType = "payment" | "ticket" | "order" | "job" | "application";
@@ -305,8 +316,59 @@ export interface ResellerProfile {
   is_active: boolean;
   expires_at: string | null;
   max_purchases_per_day: number | null;
+  parent_id: number | null;
+  discount_override: number | null;
+  max_subresellers: number | null;
+  billing_mode: "prepaid" | "usage" | "hourly";
+  gb_price: number;
+  hourly_price: number;
+  credit_limit: number;
+  billing_debt: number;
+  last_billed_at: string | null;
+  low_balance_threshold: number | null;
+  max_active_services: number | null;
+  max_total_gb: number | null;
+  suspended_at: string | null;
+  suspend_reason: string | null;
   created_at: string;
   customer: string;
+  telegram_id: number;
+  balance: number;
+  discount_percent: number;
+  is_current: boolean;
+}
+
+export interface BillingSnapshot {
+  id: number;
+  period_start: string;
+  period_end: string;
+  used_bytes: number;
+  service_hours: number;
+  active_services: number;
+  amount: number;
+  charged: number;
+  debt_after: number;
+}
+
+export interface BillingView {
+  billing_mode: string;
+  debt: number;
+  credit_limit: number;
+  suspended_at: string | null;
+  items: BillingSnapshot[];
+}
+
+export interface SubReseller {
+  id: number;
+  customer_id: number;
+  customer: string | null;
+  telegram_id: number | null;
+  discount_override: number | null;
+  discount_percent: number;
+  is_active: boolean;
+  expires_at: string | null;
+  balance: number;
+  created_at: string;
 }
 
 export interface ResellerData {
@@ -332,6 +394,7 @@ export interface Ticket {
   id: number;
   subject: string;
   status: string;
+  source: string;
   customer_id: number;
   created_at: string;
   updated_at: string;

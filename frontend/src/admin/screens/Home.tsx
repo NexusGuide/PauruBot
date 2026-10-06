@@ -25,18 +25,60 @@ function Figure({ label, value, hint }: { label: string; value: ReactNode; hint?
 }
 
 function Overview({ data }: { data: Dashboard }) {
-  const { t, locale } = useSession();
+  const { t, locale, can } = useSession();
   const n = (value: number | undefined) => money(value ?? 0, locale);
   if (data.revenue_today === undefined) {
     // A reseller's own figures.
+    const r = data.reseller;
     return (
-      <Section>
-        <div className="grid grid-cols-2 divide-x divide-[var(--line)] rtl:divide-x-reverse sm:grid-cols-3">
-          <Figure label={t("dash_active_services")} value={n(data.active_services)} />
-          <Figure label={t("dash_orders_month")} value={n(data.orders_month)} />
-          <Figure label={t("dash_spent_month")} value={<Money amount={data.spent_month ?? 0} />} />
-        </div>
-      </Section>
+      <div className="flex flex-col gap-4">
+        {r?.suspended && (
+          <div role="alert" className="rounded-2xl bg-anar-100 px-4 py-3 text-[0.9rem] font-semibold text-anar-700">
+            {t("reseller_suspended_banner", { debt: n(r.debt) })}
+          </div>
+        )}
+        <Section>
+          <div className="grid grid-cols-2 divide-x divide-[var(--line)] rtl:divide-x-reverse sm:grid-cols-3">
+            <Figure label={t("dash_active_services")} value={n(data.active_services)} />
+            <Figure label={t("dash_orders_month")} value={n(data.orders_month)} />
+            <Figure label={t("dash_spent_month")} value={<Money amount={data.spent_month ?? 0} />} />
+          </div>
+        </Section>
+        {r && (
+          <Section
+            title={t("my_reseller_account")}
+            actions={
+              <div className="flex gap-3">
+                {r.billing_mode !== "prepaid" && (
+                  <Link className="text-[0.85rem] font-semibold text-firouzeh-700" to="/billing">
+                    {t("billing_history")}
+                  </Link>
+                )}
+                {r.level === 1 && can("resellers.sub") && (
+                  <Link className="text-[0.85rem] font-semibold text-firouzeh-700" to="/sub-resellers">
+                    {t("nav_sub_resellers")}
+                  </Link>
+                )}
+              </div>
+            }
+          >
+            <div className="grid grid-cols-2 divide-x divide-[var(--line)] rtl:divide-x-reverse sm:grid-cols-4">
+              <Figure label={t("balance")} value={<Money amount={r.balance} />} />
+              <Figure label={t("discount")} value={`${n(r.discount_percent)}٪`} />
+              <Figure
+                label={t("billing_mode")}
+                value={<span className="text-base">{t(`billing_mode_${r.billing_mode}`)}</span>}
+                hint={r.debt > 0 ? t("debt_hint", { debt: n(r.debt) }) : undefined}
+              />
+              <Figure
+                label={t("reseller_expires")}
+                value={<span className="text-base">{r.expires_at ? <When iso={r.expires_at} /> : t("never")}</span>}
+                hint={r.level === 1 && r.sub_resellers > 0 ? t("sub_count", { n: n(r.sub_resellers) }) : undefined}
+              />
+            </div>
+          </Section>
+        )}
+      </div>
     );
   }
   const series = (data.series ?? []).map((point) => ({

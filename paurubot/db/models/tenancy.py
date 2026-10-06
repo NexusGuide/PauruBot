@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
@@ -69,7 +69,7 @@ class Customer(Base, TimestampMixin):
     @property
     def is_reseller(self) -> bool:
         profile = self.reseller_profile
-        return profile is not None and profile.is_active
+        return profile is not None and profile.is_current
 
 
 class Staff(Base, TimestampMixin):
@@ -114,6 +114,25 @@ class ResellerProfile(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     expires_at: Mapped[datetime | None] = mapped_column()
     max_purchases_per_day: Mapped[int | None] = mapped_column(Integer)
+    # Level-2 resellers hang under a level-1 reseller, who sees their sales and earns the margin (TEN-01).
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("reseller_profiles.id", ondelete="SET NULL"), index=True
+    )
+    discount_override: Mapped[int | None] = mapped_column(Integer)
+    max_subresellers: Mapped[int | None] = mapped_column(Integer)
+    # Billing (TEN-05): prepaid pays per order; usage pays per GB used; hourly per active service-hour.
+    billing_mode: Mapped[str] = mapped_column(String(16), default="prepaid", server_default="prepaid")
+    gb_price: Mapped[int] = mapped_column(default=0, server_default="0")
+    hourly_price: Mapped[int] = mapped_column(default=0, server_default="0")
+    credit_limit: Mapped[int] = mapped_column(default=0, server_default="0")
+    billing_debt: Mapped[int] = mapped_column(default=0, server_default="0")
+    last_billed_at: Mapped[datetime | None] = mapped_column()
+    # Limits and warnings (TEN-06, TEN-07)
+    low_balance_threshold: Mapped[int | None] = mapped_column()
+    max_active_services: Mapped[int | None] = mapped_column(Integer)
+    max_total_gb: Mapped[int | None] = mapped_column(Integer)
+    suspended_at: Mapped[datetime | None] = mapped_column()
+    suspend_reason: Mapped[str | None] = mapped_column(String(32))
 
     customer: Mapped[Customer] = relationship(
         back_populates="reseller_profile", foreign_keys=[customer_id], lazy="raise"
@@ -122,9 +141,41 @@ class ResellerProfile(Base, TimestampMixin):
 
     @property
     def discount_percent(self) -> int:
+        if self.discount_override is not None:
+            return max(0, min(100, int(self.discount_override)))
         if self.group is None or not self.group.is_active:
             return 0
         return max(0, min(100, int(self.group.discount_percent)))
+
+    @property
+    def is_metered(self) -> bool:
+        return self.billing_mode in {"usage", "hourly"}
+
+    @property
+    def is_current(self) -> bool:
+        """Active and not past its expiry date (TEN-08)."""
+        if not self.is_active:
+            return False
+        return self.expires_at is None or self.expires_at > datetime.now(UTC)
+
+
+class ResellerBillingSnapshot(Base, TimestampMixin):
+    """One metered billing run for a reseller: what was used and what it cost (TEN-05)."""
+
+    __tablename__ = "reseller_billing_snapshots"
+    __table_args__ = (Index("ix_reseller_billing_profile_created", "profile_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"), index=True)
+    profile_id: Mapped[int] = mapped_column(ForeignKey("reseller_profiles.id", ondelete="CASCADE"))
+    period_start: Mapped[datetime] = mapped_column()
+    period_end: Mapped[datetime] = mapped_column()
+    used_bytes: Mapped[int] = mapped_column(default=0)
+    service_hours: Mapped[int] = mapped_column(default=0)
+    active_services: Mapped[int] = mapped_column(Integer, default=0)
+    amount: Mapped[int] = mapped_column(default=0)
+    charged: Mapped[int] = mapped_column(default=0)
+    debt_after: Mapped[int] = mapped_column(default=0)
 
 
 class ResellerApplication(Base, TimestampMixin):

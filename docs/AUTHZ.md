@@ -35,6 +35,7 @@ Legend: ✅ allowed · 🔸 allowed, scoped to the actor's own customers/service
 | `audit.read`         | ✅ | ✅ | — | — | — |
 | `staff.manage`       | ✅ | — | — | — | — |
 | `resellers.manage`   | ✅ | ✅ | — | — | — |
+| `resellers.sub`      | ✅ | ✅ | — | — | 🔸 |
 | `backups.manage`     | ✅ | — | — | — | — |
 
 Rules:
@@ -44,5 +45,8 @@ Rules:
    allow-list stored on the reseller profile. Owners can only narrow a reseller, never widen past this table.
 3. 🔸 scoping is enforced in the query layer (`owner_customer_id` / reseller scope filters), not in the UI.
 4. `panels.secrets` (reading or replacing panel passwords, payment merchant keys) is owner-only and audited.
-5. Customers (bot and Mini App users) have no staff permissions. Their actions are limited to their
+5. `resellers.sub` lets a level-1 reseller add and manage its own level-2 resellers. It is never part
+   of the default allow-list given on approval; an owner grants it per reseller. Level-2 resellers
+   can never hold it, and their discount can never exceed their parent's (TEN-01).
+6. Customers (bot and Mini App users) have no staff permissions. Their actions are limited to their
    own customer row, services, orders, payments and tickets; every handler loads by `(shop_id, customer_id)`.

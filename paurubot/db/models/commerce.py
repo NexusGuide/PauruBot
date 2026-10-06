@@ -50,6 +50,8 @@ class Service(Base, UpdatedMixin):
     disabled_reason: Mapped[str | None] = mapped_column(String(32))
     # Opaque token of the shop-branded subscription link /s/<token> (SVC-08).
     sub_token: Mapped[str | None] = mapped_column(String(48), unique=True)
+    # Usage already billed to a metered reseller (TEN-05).
+    billed_bytes: Mapped[int] = mapped_column(default=0, server_default="0")
 
     customer: Mapped[Customer] = relationship(lazy="selectin")
     panel: Mapped[Panel] = relationship(lazy="selectin")

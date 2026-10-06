@@ -92,30 +92,44 @@ async def dashboard(ctx: Viewer, db: DB) -> dict[str, Any]:
     }
     if ctx.scoped:
         # Resellers see their own numbers only; shop-wide figures stay private.
-        from paurubot.api.admin_common import reseller_customer_id
+        from paurubot.api.admin_common import reseller_profile, reseller_scope
+        from paurubot.ledger.accounts import wallet_balance
 
-        owner = await reseller_customer_id(db, ctx)
+        scope = await reseller_scope(db, ctx) or []
+        profile = await reseller_profile(db, ctx)
         data = {
             "active_services": await count(
                 select(func.count(Service.id)).where(
-                    Service.customer_id == owner, Service.status == ServiceStatus.ACTIVE
+                    Service.customer_id.in_(scope), Service.status == ServiceStatus.ACTIVE
                 )
             ),
             "orders_month": await count(
                 select(func.count(Order.id)).where(
-                    Order.customer_id == owner,
+                    Order.customer_id.in_(scope),
                     Order.status == OrderStatus.COMPLETED,
                     Order.completed_at >= month,
                 )
             ),
             "spent_month": await count(
                 select(func.coalesce(func.sum(Order.amount), 0)).where(
-                    Order.customer_id == owner,
+                    Order.customer_id.in_(scope),
                     Order.status == OrderStatus.COMPLETED,
                     Order.completed_at >= month,
                 )
             ),
         }
+        if profile is not None:
+            data["reseller"] = {
+                "balance": await wallet_balance(db, profile.shop_id, profile.customer_id),
+                "billing_mode": profile.billing_mode,
+                "debt": profile.billing_debt,
+                "credit_limit": profile.credit_limit,
+                "suspended": profile.suspended_at is not None,
+                "discount_percent": profile.discount_percent,
+                "expires_at": profile.expires_at.isoformat() if profile.expires_at else None,
+                "level": 1 if profile.parent_id is None else 2,
+                "sub_resellers": len(scope) - 1,
+            }
     return data
 
 

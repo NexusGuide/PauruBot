@@ -64,6 +64,8 @@ class Ticket(Base, UpdatedMixin):
     subject: Mapped[str] = mapped_column(String(128))
     status: Mapped[TicketStatus] = mapped_column(str_enum(TicketStatus), default=TicketStatus.OPEN)
     assigned_staff_id: Mapped[int | None] = mapped_column(ForeignKey("staff.id", ondelete="SET NULL"))
+    # "bot" for customer tickets, "panel" for a reseller writing to the owner from the web panel (SUP-02).
+    source: Mapped[str] = mapped_column(String(16), default="bot", server_default="bot")
 
 
 class TicketMessage(Base, TimestampMixin):

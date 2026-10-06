@@ -8,7 +8,7 @@ import { CustomerPage, Customers } from "./screens/Customers";
 import { Broadcasts, Discounts } from "./screens/Growth";
 import { Home } from "./screens/Home";
 import { Panels } from "./screens/Panels";
-import { Resellers, Staff, TicketPage, Tickets } from "./screens/People";
+import { MyBilling, Resellers, Staff, SubResellers, TicketPage, Tickets } from "./screens/People";
 import { Services } from "./screens/Services";
 import { Account, Audit, Backups, Channels, Jobs, Reports, Settings, Texts } from "./screens/System";
 import { SessionProvider, useSession } from "./session";
@@ -50,6 +50,8 @@ function Routed() {
         <Route path="/discounts" element={g("discounts.write", <Discounts />)} />
         <Route path="/broadcasts" element={g("broadcast.send", <Broadcasts />)} />
         <Route path="/resellers" element={g("resellers.manage", <Resellers />)} />
+        <Route path="/sub-resellers" element={g("resellers.sub", <SubResellers />)} />
+        <Route path="/billing" element={g("dashboard.view", <MyBilling />)} />
         <Route path="/reports" element={g("reports.read", <Reports />)} />
         <Route path="/settings" element={g("settings.read", <Settings />)} />
         <Route path="/texts" element={g("texts.write", <Texts />)} />

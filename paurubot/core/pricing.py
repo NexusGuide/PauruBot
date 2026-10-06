@@ -42,7 +42,7 @@ def round_price(value: float) -> int:
 
 
 def reseller_percent(customer: Customer | None) -> int:
-    if customer is None or customer.reseller_profile is None or not customer.reseller_profile.is_active:
+    if customer is None or customer.reseller_profile is None or not customer.reseller_profile.is_current:
         return 0
     return customer.reseller_profile.discount_percent
 

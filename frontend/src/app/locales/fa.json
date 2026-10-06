@@ -184,5 +184,11 @@
   "badge_best": "به‌صرفه",
   "badge_sale": "تخفیف",
   "renew_queued_hint": "تمدید ثبت شد و {date}، وقتی دوره‌ی فعلی تموم شد، خودکار اعمال می‌شه.",
-  "extras_unavailable": "برای این سرویس حجم یا زمان اضافه فروخته نمی‌شه"
+  "extras_unavailable": "برای این سرویس حجم یا زمان اضافه فروخته نمی‌شه",
+  "err_reseller_suspended_error": "نمایندگیت معلقه؛ اول کیف پولت رو شارژ کن.",
+  "err_reseller_daily_limit": "سقف خرید امروزت پر شده.",
+  "err_reseller_service_limit": "به سقف سرویس‌های فعالت رسیدی.",
+  "err_reseller_volume_limit": "این خرید از سقف حجم کل نمایندگیت بیشتره.",
+  "err_custom_unavailable": "خرید دلخواه الان فعال نیست.",
+  "err_custom_out_of_range": "حجم یا مدت خارج از محدوده‌ی مجازه."
 }

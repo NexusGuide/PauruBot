@@ -64,7 +64,7 @@ async def topup_bounds(session: AsyncSession, customer: Customer) -> tuple[int, 
     cfg = await shop_settings.load(session, customer.shop_id)
     low = int(cfg["min_topup"] or 0)
     profile = customer.reseller_profile
-    if profile is not None and profile.is_active and profile.group is not None:
+    if profile is not None and profile.is_current and profile.group is not None:
         low = max(low, int(profile.group.min_topup or 0))
     return low, int(cfg["max_topup"] or 10**12)
 

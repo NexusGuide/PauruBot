@@ -100,7 +100,7 @@ async def reseller_allow_list(session: AsyncSession, staff: Staff) -> list[str] 
     if staff.role != StaffRole.RESELLER or staff.reseller_profile_id is None:
         return None
     profile = await session.get(ResellerProfile, staff.reseller_profile_id)
-    if profile is None or not profile.is_active:
+    if profile is None or not profile.is_current:
         return []
     return list(profile.permissions or [])
 

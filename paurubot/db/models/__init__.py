@@ -51,6 +51,7 @@ from paurubot.db.models.ops import (
 from paurubot.db.models.tenancy import (
     Customer,
     ResellerApplication,
+    ResellerBillingSnapshot,
     ResellerGroup,
     ResellerProfile,
     Shop,
@@ -95,6 +96,7 @@ __all__ = [
     "ResellerProfile",
     "Service",
     "Settlement",
+    "ResellerBillingSnapshot",
     "ServiceStatus",
     "Shop",
     "ShopSetting",
