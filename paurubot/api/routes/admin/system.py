@@ -36,7 +36,7 @@ from paurubot.worker import queue
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-LOG_TOPICS = ("all", "orders", "payments", "users", "errors", "services", "reports")
+LOG_TOPICS = ("all", "orders", "payments", "users", "errors", "services", "reports", "backups")
 CHANNEL_FIELDS = ["id", "chat_id", "title", "url", "sort"]
 LOG_FIELDS = ["id", "topic", "chat_id", "thread_id"]
 CONTACT_FIELDS = ["id", "title", "url", "sort"]
@@ -554,3 +554,69 @@ async def sales_csv(
 def _csv_safe(value: str) -> str:
     """Neutralise spreadsheet formulas in admin-supplied text (CSV injection)."""
     return "'" + value if value[:1] in {"=", "+", "-", "@", "\t", "\r"} else value
+
+
+# ---------------------------------------------------------------- backups (OPS-05, OPS-06)
+
+Backups = Annotated[StaffContext, Depends(require("backups.manage"))]
+
+
+@router.get("/backups")
+async def list_backups(ctx: Backups) -> dict[str, Any]:
+    from paurubot.config import get_settings
+    from paurubot.ops import backup
+
+    settings = get_settings()
+    return {
+        "items": [
+            {"name": b.name, "size": b.size, "created_at": b.created_at.isoformat()} for b in backup.listing()
+        ],
+        "schedule": {
+            "hour": settings.backup_hour,
+            "keep": settings.backup_keep,
+            "telegram": settings.backup_to_telegram,
+            "passphrase_set": bool(settings.backup_passphrase.get_secret_value()),
+            "timezone": settings.timezone,
+        },
+    }
+
+
+@router.post("/backups")
+async def start_backup(ctx: Backups, db: DB) -> dict[str, Any]:
+    from paurubot.config import get_settings
+
+    if not get_settings().backup_passphrase.get_secret_value():
+        raise HTTPException(status_code=409, detail="backup_passphrase_missing")
+    job_id = await queue.enqueue(
+        db,
+        "ops",
+        "backup",
+        {"label": f"staff:{ctx.staff.id}"},
+        shop_id=ctx.shop_id,
+        dedupe_key=f"backup:manual:{utcnow():%Y%m%d%H%M}",
+        max_attempts=2,
+    )
+    await record(db, shop_id=ctx.shop_id, actor=ctx.actor, action="backup.requested", entity="backup")
+    return {"queued": job_id is not None}
+
+
+@router.get("/backups/{name}")
+async def download_backup(name: str, ctx: Backups, db: DB) -> Response:
+    from fastapi.responses import FileResponse
+
+    from paurubot.ops import backup
+
+    try:
+        path = backup.resolve(name)
+    except backup.BackupError as exc:
+        raise HTTPException(status_code=404, detail="not_found") from exc
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="backup.downloaded",
+        entity="backup",
+        after={"name": name},
+    )
+    await db.commit()
+    return FileResponse(path, media_type="application/octet-stream", filename=name)

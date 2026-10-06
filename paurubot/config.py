@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     master_key: SecretStr = SecretStr("")
     backup_passphrase: SecretStr = SecretStr("")
     backup_dir: str = "/var/lib/paurubot/backups"
+    backup_hour: int = Field(default=4, ge=0, le=23)
+    backup_keep: int = Field(default=14, ge=1, le=365)
+    backup_to_telegram: bool = True
 
     allow_private_panel_hosts: bool = False
     http_connect_timeout: float = 5.0

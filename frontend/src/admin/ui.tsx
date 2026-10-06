@@ -37,6 +37,7 @@ const ICONS: Record<string, string> = {
   audit: "M9 4h6v3H9zM6 6h12v15H6zM9 12h6M9 16h4",
   jobs: "M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18",
   reports: "M4 20V10M10 20V4M16 20v-7M22 20H2",
+  backup: "M4 7h16v13H4zM3 4h18v3H3zM10 11h4",
   account: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M4 21a8 8 0 0 1 16 0",
   more: "M5 12h.01M12 12h.01M19 12h.01",
   close: "M6 6l12 12M18 6 6 18",

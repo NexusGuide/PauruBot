@@ -49,7 +49,7 @@ services:
         condition: service_completed_successfully
 
   postgres:
-    image: postgres:16-alpine
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-paurubot}
@@ -64,7 +64,7 @@ services:
       retries: 10
 
   redis:
-    image: redis:7-alpine
+    image: ${REDIS_IMAGE:-redis:7-alpine}
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
     volumes:
@@ -76,7 +76,7 @@ services:
       retries: 10
 
   caddy:
-    image: caddy:2-alpine
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
     restart: unless-stopped
     environment:
       DOMAIN: ${DOMAIN:?set DOMAIN}

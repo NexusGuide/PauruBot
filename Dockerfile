@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-
 FROM node:22-alpine AS frontend
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json ./
@@ -18,8 +16,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
+# pg_dump must match the PostgreSQL 16 server, so the client comes from the PGDG repository.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends postgresql-client curl tini \
+    && apt-get install -y --no-install-recommends ca-certificates curl gnupg tini \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+        | gpg --dearmor -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg \
+    && . /etc/os-release \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+        > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client-16 \
+    && apt-get purge -y gnupg && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --home /app paurubot
 WORKDIR /app

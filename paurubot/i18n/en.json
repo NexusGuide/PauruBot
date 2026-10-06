@@ -285,5 +285,7 @@
   "wallet_debited": "💰 {amount} Toman was deducted from your wallet.",
   "wallet_home": "💰 <b>Wallet</b>\n\nBalance: <b>{balance} Toman</b>\nID: <code>{id}</code>",
   "welcome": "Hi {name} 👋\nWelcome to <b>{shop}</b>.\nPick an option from the menu below.",
-  "yes": "Yes"
+  "yes": "Yes",
+  "backup_caption": "🗄 Backup {name}\nSize: {size}\nRestoring it needs the BACKUP_PASSPHRASE.",
+  "backup_too_large": "🗄 Backup {name} ({size}) is too large for Telegram and is kept on the server."
 }

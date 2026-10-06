@@ -164,3 +164,48 @@ async def cleanup_jobs() -> None:
                 Job.finished_at < utcnow() - timedelta(days=14),
             )
         )
+
+
+# --- backups (OPS-05, OPS-06) --------------------------------------------------
+
+
+async def run_backup(label: str) -> None:
+    from paurubot.config import get_settings
+    from paurubot.ops import backup, delivery
+
+    settings = get_settings()
+    info = await backup.create(label=label)
+    removed = backup.prune(settings.backup_keep)
+    log.info("backup %s written (%s bytes), pruned %s", info.name, info.size, len(removed))
+    if settings.backup_to_telegram:
+        await delivery.send_backup(info)
+
+
+async def backup_now(session: AsyncSession, job: queue.Claimed) -> None:
+    from paurubot.ops.backup import BackupError
+
+    try:
+        await run_backup(str(job.payload.get("label") or "manual"))
+    except BackupError as exc:
+        raise Permanent(str(exc)) from exc
+
+
+register_queue("ops", QueueSpec({"backup": backup_now}, batch=1, lease_seconds=1800))
+
+
+@every(600, "backups.daily")
+async def daily_backup() -> None:
+    from datetime import timedelta
+
+    from paurubot.config import get_settings
+    from paurubot.ops import backup
+
+    settings = get_settings()
+    if not settings.backup_passphrase.get_secret_value():
+        return
+    if utcnow().astimezone(settings.tz).hour != settings.backup_hour:
+        return
+    newest = backup.listing()[:1]
+    if newest and utcnow() - newest[0].created_at < timedelta(hours=20):
+        return
+    await run_backup("daily")
