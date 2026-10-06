@@ -51,6 +51,22 @@ def plain(obj: Any, fields: list[str]) -> dict[str, Any]:
     return out
 
 
+def sort_params(sort: str | None = Query(None, max_length=32, pattern=r"^-?[a-z_]+$")) -> str | None:
+    return sort
+
+
+def apply_sort(stmt: Select[Any], sort: str | None, columns: dict[str, Any], tiebreak: Any) -> Select[Any]:
+    """Order by an allow-listed column (`name` ascending, `-name` descending), newest first by default."""
+    if not sort:
+        return stmt.order_by(tiebreak.desc())
+    descending = sort.startswith("-")
+    column = columns.get(sort.lstrip("-"))
+    if column is None:
+        raise HTTPException(status_code=422, detail="bad_sort")
+    ordered = column.desc().nulls_last() if descending else column.asc().nulls_last()
+    return stmt.order_by(ordered, tiebreak.desc())
+
+
 async def reseller_customer_id(db: AsyncSession, ctx: StaffContext) -> int | None:
     """The customer behind a reseller staff account; resellers only ever see that customer's services."""
     if not ctx.scoped:

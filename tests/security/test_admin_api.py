@@ -123,6 +123,12 @@ def endpoints(env: Env) -> list[tuple[str, str, str, Any]]:
         ("customers.ban", "POST", f"/api/admin/customers/{cid}/ban", {"banned": False}),
         ("wallet.adjust", "POST", f"/api/admin/customers/{cid}/adjust", {"delta": 1000, "memo": "gift"}),
         ("services.read", "GET", "/api/admin/services", None),
+        (
+            "services.write",
+            "POST",
+            "/api/admin/services/bulk",
+            {"action": "disable", "ids": [env.reseller_service_id]},
+        ),
         ("orders.read", "GET", "/api/admin/orders", None),
         ("payments.read", "GET", "/api/admin/payments", None),
         ("discounts.write", "GET", "/api/admin/discounts", None),

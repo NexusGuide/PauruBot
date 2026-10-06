@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -355,3 +356,20 @@ async def links(session: AsyncSession, service: Service) -> list[str]:
     panel = await session.get(Panel, service.panel_id)
     assert panel is not None
     return await (await driver_for(panel)).fetch_links(service.subscription_url)
+
+
+async def extend(session: AsyncSession, service: Service, *, days: int = 0, gb: int = 0) -> None:
+    """Add time and/or volume to a service without charging (staff gifts, outage compensation)."""
+    panel = await session.get(Panel, service.panel_id)
+    assert panel is not None
+    driver = await driver_for(panel)
+    expire: Any = UNSET
+    if days and service.expire_at:
+        now = utcnow().replace(microsecond=0)
+        expire = (service.expire_at if service.expire_at > now else now) + timedelta(days=days)
+    limit = int(service.data_limit) + gb * GB if gb and service.data_limit else None
+    if expire is UNSET and limit is None:
+        return
+    info = await driver.update_user(ref(service), expire_at=expire, data_limit=limit, enabled=True)
+    apply_panel_user(service, info)
+    await session.flush()
