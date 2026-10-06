@@ -157,9 +157,9 @@ async def approve(
     payment_id: int, ctx: Annotated[StaffContext, Depends(require("payments.review"))], db: DB
 ) -> dict[str, Any]:
     payment = await owned(db, Payment, payment_id, ctx)
-    if payment.provider != "card":
+    if not payments.manually_reviewable(payment):
         raise HTTPException(status_code=400, detail="not_manual")
-    if not await payments.approve_card(db, payment.id, ctx.staff.id):
+    if not await payments.approve_manual(db, payment.id, ctx.staff.id):
         raise HTTPException(status_code=409, detail="payment_already_reviewed")
     await record(
         db,
@@ -240,3 +240,69 @@ async def refund_order(
         shop_id=ctx.shop_id,
     )
     return {"order": plain(order, ORDER_FIELDS)}
+
+
+# --- settlements (PAY-03) ----------------------------------------------------------
+
+
+class SettlementBody(BaseModel):
+    provider: str = Field(min_length=2, max_length=32, pattern=r"^[a-z0-9_]+$")
+    amount: int = Field(ge=1, le=10**12)
+    reference: str | None = Field(default=None, max_length=128)
+    note: str | None = Field(default=None, max_length=255)
+
+
+@router.get("/settlements")
+async def settlements_view(
+    ctx: Annotated[StaffContext, Depends(require("reports.read"))], db: DB
+) -> dict[str, Any]:
+    if ctx.scoped:
+        raise HTTPException(status_code=403, detail="forbidden")
+    from paurubot.core import settlements
+
+    rows = await settlements.history(db, ctx.shop_id)
+    return {
+        "balances": [
+            {
+                "provider": b.provider,
+                "collected": b.collected,
+                "settled": b.settled,
+                "outstanding": b.outstanding,
+            }
+            for b in await settlements.balances(db, ctx.shop_id)
+        ],
+        "items": [
+            plain(r, ["id", "provider", "amount", "reference", "note", "staff_id", "created_at"])
+            for r in rows
+        ],
+    }
+
+
+@router.post("/settlements")
+async def record_settlement(
+    body: SettlementBody, ctx: Annotated[StaffContext, Depends(require("payments.refund"))], db: DB
+) -> dict[str, Any]:
+    from paurubot.core import settlements
+    from paurubot.payments.engine import PROVIDERS
+
+    if body.provider not in PROVIDERS:
+        raise HTTPException(status_code=422, detail="unknown_provider")
+    row = await settlements.record(
+        db,
+        ctx.shop_id,
+        provider=body.provider,
+        amount=body.amount,
+        reference=body.reference,
+        note=body.note,
+        staff_id=ctx.staff.id,
+    )
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="settlement.record",
+        entity="settlement",
+        entity_id=row.id,
+        after=body.model_dump(),
+    )
+    return {"id": row.id}

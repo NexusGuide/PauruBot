@@ -262,3 +262,34 @@ async def daily_report() -> None:
                 await telegram.send_text(chat_id, text, message_thread_id=thread_id)
             except telegram.Undeliverable:
                 log.warning("daily report to %s was not delivered", chat_id)
+
+
+# --- exchange rates and on-chain payments (PAY-11, PAY-13) ----------------------
+
+
+@every(300, "fx.refresh")
+async def refresh_rates() -> None:
+    from paurubot.core import settings as shop_settings
+    from paurubot.payments import fx
+
+    uses_nobitex = False
+    async with session_scope() as session:
+        for shop_id in list(await session.scalars(select(Shop.id))):
+            cfg = await shop_settings.load(session, shop_id)
+            if cfg.get("fx_source") == "nobitex" and (
+                cfg.get("crypto_enabled") or cfg.get("nowpayments_enabled") or cfg.get("plisio_enabled")
+            ):
+                uses_nobitex = True
+                break
+    if uses_nobitex:
+        await fx.refresh()
+
+
+@every(30, "crypto.scan")
+async def scan_crypto() -> None:
+    from paurubot.payments import watch
+
+    async with session_scope() as session:
+        paid = await watch.scan(session)
+    if paid:
+        log.info("crypto scan credited %s payment(s)", paid)

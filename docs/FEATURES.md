@@ -109,18 +109,18 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 |----|---------|-------|--------|
 | PAY-01 | Payment provider interface | MVP | done |
 | PAY-02 | Fulfillment state machine with leases / claim tokens | MVP | done |
-| PAY-03 | Payment settlements | v1.1 | todo |
+| PAY-03 | Payment settlements | v1.1 | done |
 | PAY-04 | Card-to-card with receipt upload and admin approval | MVP | done |
-| PAY-05 | Card auto-approve rules | v1.1 | todo |
+| PAY-05 | Card auto-approve rules | v1.1 | done |
 | PAY-06 | Duplicate receipt detection (image hash) | MVP* | done |
 | PAY-07 | Zarinpal | MVP | done |
 | PAY-08 | Aqayepardakht, IranPay/Tetra98, Variza | v2 | todo |
 | PAY-09 | AbanGateway, AtlasPay, Blupal, Tronado, CubePay | v2 | todo |
-| PAY-10 | NowPayments and Plisio | v1.1 | todo |
-| PAY-11 | Direct on-chain USDT-TRC20 / TRX / TON | v1.1 | todo |
+| PAY-10 | NowPayments and Plisio | v1.1 | done |
+| PAY-11 | Direct on-chain USDT-TRC20 / TRX / TON | v1.1 | done |
 | PAY-12 | Telegram Stars | MVP* | done |
-| PAY-13 | FX / crypto price sync | v1.1 | todo |
-| PAY-14 | Payment bonus / cashback per method | v1.1 | todo |
+| PAY-13 | FX / crypto price sync | v1.1 | done |
+| PAY-14 | Payment bonus / cashback per method | v1.1 | done |
 | PAY-15 | Direct pay (invoice without wallet top-up) | MVP | done |
 | PAY-16 | Payment expiry job | MVP | done |
 
@@ -130,7 +130,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 |----|---------|-------|--------|
 | FIN-01 | Wallet top-up and balance | MVP | done |
 | FIN-02 | Append-only ledger with reconciliation | MVP | done |
-| FIN-03 | Charge / gift codes | v1.1 | todo |
+| FIN-03 | Charge / gift codes | v1.1 | done |
 | FIN-04 | Finance reports and daily report | MVP | done |
 | FIN-05 | Excel export | v1.1 | todo |
 | FIN-06 | Top customers report | v1.1 | todo |

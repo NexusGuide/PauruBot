@@ -164,6 +164,154 @@ function CodeSheet({ draft, onClose, onSaved }: { draft: CodeDraft; onClose: () 
   );
 }
 
+interface Gift {
+  id: number;
+  code: string;
+  amount: number;
+  max_uses: number | null;
+  used_count: number;
+  new_customers_only: boolean;
+  expires_at: string | null;
+  is_active: boolean;
+  note: string | null;
+  created_at: string;
+}
+
+type GiftDraft = Omit<Gift, "id" | "used_count" | "created_at"> & { id?: number };
+
+function randomCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(10));
+  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
+}
+
+function GiftSheet({ draft, onClose, onSaved }: { draft: GiftDraft; onClose: () => void; onSaved: () => void }) {
+  const { t, toast, errorText } = useSession();
+  const [form, setForm] = useState<GiftDraft>(draft);
+  const [busy, run] = useAction();
+  const redemptions = useLoad<{ items: { id: number; customer_id: number; customer: string; amount: number; at: string }[] }>(
+    draft.id ? `/api/admin/gift-codes/${draft.id}/redemptions` : null,
+  );
+  const save = async () => {
+    const { id, ...body } = form;
+    try {
+      await run(() => call(id ? `/api/admin/gift-codes/${id}` : "/api/admin/gift-codes", { method: id ? "PUT" : "POST", body }));
+      toast(t("saved"));
+      onSaved();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title={form.id ? t("edit_gift") : t("new_gift")}
+      footer={
+        <Button tone="primary" busy={busy} disabled={!/^[A-Za-z0-9_-]{4,32}$/.test(form.code) || form.amount < 1000} onClick={() => void save()}>
+          {t("save")}
+        </Button>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <Field label={t("code")} hint={t("gift_code_hint")}>
+          {(id) => (
+            <div className="flex gap-2">
+              <Input id={id} dir="ltr" value={form.code} maxLength={32} onChange={(e) => setForm({ ...form, code: e.target.value.replace(/\s/g, "") })} />
+              {!form.id && (
+                <Button small onClick={() => setForm({ ...form, code: randomCode() })}>
+                  {t("generate")}
+                </Button>
+              )}
+            </div>
+          )}
+        </Field>
+        <Field label={t("amount_toman")}>{(id) => <NumberInput id={id} value={form.amount} onChange={(v) => setForm({ ...form, amount: v ?? 0 })} />}</Field>
+        <Field label={t("max_uses")} hint={t("empty_no_limit")}>
+          {(id) => <NumberInput id={id} value={form.max_uses} onChange={(v) => setForm({ ...form, max_uses: v || null })} allowEmpty />}
+        </Field>
+        <Field label={t("expires_at")}>
+          {(id) => (
+            <Input id={id} type="datetime-local" value={toLocalInput(form.expires_at)} onChange={(e) => setForm({ ...form, expires_at: fromLocalInput(e.target.value) })} />
+          )}
+        </Field>
+        <Toggle checked={form.new_customers_only} onChange={(v) => setForm({ ...form, new_customers_only: v })} label={t("gift_new_only")} />
+        <Toggle checked={form.is_active} onChange={(v) => setForm({ ...form, is_active: v })} label={t("active")} />
+        <Field label={t("staff_note")}>
+          {(id) => <Input id={id} value={form.note ?? ""} maxLength={255} onChange={(e) => setForm({ ...form, note: e.target.value || null })} />}
+        </Field>
+        {redemptions.data && redemptions.data.items.length > 0 && (
+          <div>
+            <p className="mb-2 text-[0.82rem] font-semibold">{t("gift_redemptions")}</p>
+            <ul className="divide-y divide-[var(--line)] text-[0.85rem]">
+              {redemptions.data.items.map((r) => (
+                <li key={r.id} className="flex justify-between py-2">
+                  <span>{r.customer}</span>
+                  <When iso={r.at} time />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
+function GiftCodes() {
+  const { t, can, locale } = useSession();
+  const list = useLoad<{ items: Gift[]; total: number }>("/api/admin/gift-codes?limit=200");
+  const [editing, setEditing] = useState<GiftDraft | null>(null);
+  const columns: Column<Gift>[] = [
+    {
+      key: "code",
+      label: t("code"),
+      mobile: "title",
+      render: (g) => (
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="font-mono font-bold" dir="ltr">{g.code}</span>
+          {!g.is_active && <Badge>{t("inactive")}</Badge>}
+        </span>
+      ),
+    },
+    { key: "amount", label: t("col_amount"), mobile: "end", render: (g) => <Money amount={g.amount} /> },
+    {
+      key: "uses",
+      label: t("uses"),
+      mobile: "meta",
+      render: (g) => <span className="num">{money(g.used_count, locale)}{g.max_uses ? ` / ${money(g.max_uses, locale)}` : ""}</span>,
+    },
+    { key: "expires", label: t("expires_at"), mobile: "meta", render: (g) => (g.expires_at ? <When iso={g.expires_at} time /> : t("never")) },
+  ];
+  return (
+    <Section
+      flush
+      title={t("gift_codes")}
+      actions={
+        can("wallet.adjust") && (
+          <Button small icon="plus" onClick={() => setEditing({ code: randomCode(), amount: 50_000, max_uses: 1, new_customers_only: false, expires_at: null, is_active: true, note: null })}>
+            {t("new_gift")}
+          </Button>
+        )
+      }
+    >
+      <Async data={list.data} error={list.error} reload={list.reload}>
+        {(data) => <Table columns={columns} rows={data.items} onRow={can("wallet.adjust") ? (g) => setEditing({ ...g }) : undefined} />}
+      </Async>
+      {editing && (
+        <GiftSheet
+          draft={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            void list.reload();
+          }}
+        />
+      )}
+    </Section>
+  );
+}
+
 export function Discounts() {
   const { t, locale } = useSession();
   const list = useList<Discount>("/api/admin/discounts", []);
@@ -223,6 +371,7 @@ export function Discounts() {
           )}
         </Async>
       </Section>
+      <GiftCodes />
       {editing && (
         <CodeSheet
           draft={editing}

@@ -184,6 +184,8 @@ async def payment_fulfilled(session: AsyncSession, job: queue.Claimed) -> None:
         return
     t = await _texts(session, customer)
     text = t("payment_approved", amount=money(payment.amount))
+    if int(job.payload.get("bonus") or 0) > 0:
+        text += "\n" + t("payment_bonus", bonus=money(int(job.payload["bonus"])))
     if payment.order_id:
         text += "\n" + (
             t("order_processing") if job.payload.get("order_settled") else t("order_after_payment_failed")

@@ -182,7 +182,8 @@ def wallet_kb(t: Texts) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text=t("btn_topup"), callback_data=Wallet(action="topup"))
     kb.button(text=t("btn_history"), callback_data=Wallet(action="history"))
-    kb.adjust(2)
+    kb.button(text=t("btn_redeem_gift"), callback_data=Wallet(action="gift"))
+    kb.adjust(2, 1)
     return kb.as_markup()
 
 

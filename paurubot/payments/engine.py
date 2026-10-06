@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +25,10 @@ from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.payments import receipts
 from paurubot.payments.base import Checkout, PaymentError, PaymentProvider
+from paurubot.payments.bonus import bonus_for
 from paurubot.payments.providers.card import CardProvider
+from paurubot.payments.providers.crypto import PROVIDERS as CRYPTO_PROVIDERS
+from paurubot.payments.providers.invoices import NowPaymentsProvider, PlisioProvider
 from paurubot.payments.providers.stars import StarsProvider
 from paurubot.payments.providers.zarinpal import ZarinpalProvider
 from paurubot.security.tokens import new_token
@@ -37,6 +40,9 @@ PROVIDERS: dict[str, PaymentProvider] = {
     "card": CardProvider(),
     "zarinpal": ZarinpalProvider(),
     "stars": StarsProvider(),
+    **CRYPTO_PROVIDERS,
+    "nowpayments": NowPaymentsProvider(),
+    "plisio": PlisioProvider(),
 }
 OPEN_STATUSES = (PaymentStatus.CREATED, PaymentStatus.PENDING, PaymentStatus.VERIFYING)
 LEASE_SECONDS = 120
@@ -148,11 +154,40 @@ async def attach_receipt(
         payment.duplicate_of_id = duplicate.id if duplicate else None
     payment.status = PaymentStatus.VERIFYING
     await session.flush()
+    cfg = await shop_settings.load(session, payment.shop_id)
     if duplicate is not None and duplicate.receipt_sha256 == payment.receipt_sha256:
-        cfg = await shop_settings.load(session, payment.shop_id)
         if cfg["receipt_duplicate_block"]:
             await reject(session, payment.id, staff_id=None, note="duplicate receipt")
+        return duplicate
+    if duplicate is None and await auto_approvable(session, payment, cfg):
+        payment.review_note = "auto-approved"
+        await mark_paid(session, payment.id, provider_tx_id=f"card:{payment.id}")
     return duplicate
+
+
+async def auto_approvable(session: AsyncSession, payment: Payment, cfg: dict[str, Any]) -> bool:
+    """Card auto-approve rules (PAY-05): small amounts from customers with a clean card history."""
+    if not cfg.get("card_auto_approve") or payment.receipt_file_id is None:
+        return False
+    if payment.amount > int(cfg.get("card_auto_max_amount") or 0):
+        return False
+    history = await session.scalar(
+        select(func.count(Payment.id)).where(
+            Payment.customer_id == payment.customer_id,
+            Payment.provider == "card",
+            Payment.status == PaymentStatus.PAID,
+            Payment.reviewed_by_staff_id.is_not(None),
+        )
+    )
+    rejected = await session.scalar(
+        select(func.count(Payment.id)).where(
+            Payment.customer_id == payment.customer_id,
+            Payment.provider == "card",
+            Payment.status.in_([PaymentStatus.FAILED, PaymentStatus.DISPUTED]),
+            Payment.reviewed_at.is_not(None),
+        )
+    )
+    return int(history or 0) >= int(cfg.get("card_auto_min_history") or 0) and not rejected
 
 
 async def mark_paid(
@@ -211,6 +246,21 @@ async def mark_paid(
 
 async def approve_card(session: AsyncSession, payment_id: int, staff_id: int) -> bool:
     return await mark_paid(session, payment_id, provider_tx_id=f"card:{payment_id}", reviewer_id=staff_id)
+
+
+def manually_reviewable(payment: Payment) -> bool:
+    """Card receipts, and crypto transfers that arrived after the payment expired."""
+    return payment.provider == "card" or bool((payment.meta or {}).get("late_tx"))
+
+
+async def approve_manual(session: AsyncSession, payment_id: int, staff_id: int) -> bool:
+    payment = await session.get(Payment, payment_id)
+    if payment is None or not manually_reviewable(payment):
+        return False
+    if payment.provider == "card":
+        return await approve_card(session, payment_id, staff_id)
+    tx = str(payment.meta["late_tx"])
+    return await mark_paid(session, payment_id, provider_tx_id=tx, reviewer_id=staff_id)
 
 
 async def reject(session: AsyncSession, payment_id: int, *, staff_id: int | None, note: str = "") -> bool:
@@ -285,6 +335,19 @@ async def fulfill_one(session: AsyncSession, payment_id: int) -> Fulfilled | Non
         provider=payment.provider,
         payment_id=payment.id,
     )
+    bonus = 0
+    if payment.purpose == PaymentPurpose.TOPUP:
+        cfg = await shop_settings.load(session, payment.shop_id)
+        bonus = bonus_for(cfg.get("topup_bonus_rules"), payment.provider, payment.amount)
+        if bonus > 0:
+            await wallet.reward(
+                session,
+                payment.shop_id,
+                payment.customer_id,
+                bonus,
+                key=f"payment:{payment.id}:bonus",
+                memo=f"bonus for payment #{payment.id}",
+            )
     settled, error = False, None
     if payment.order_id:
         try:
@@ -305,7 +368,7 @@ async def fulfill_one(session: AsyncSession, payment_id: int) -> Fulfilled | Non
         session,
         "notify",
         "payment_fulfilled",
-        {"payment_id": payment.id, "order_settled": settled, "order_error": error},
+        {"payment_id": payment.id, "order_settled": settled, "order_error": error, "bonus": bonus},
         shop_id=payment.shop_id,
         dedupe_key=f"payment:{payment.id}:notify",
     )

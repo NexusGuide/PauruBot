@@ -12,6 +12,7 @@ class ShopStates(StatesGroup):
 class WalletStates(StatesGroup):
     amount = State()
     receipt = State()
+    gift = State()
 
 
 class ServiceStates(StatesGroup):
