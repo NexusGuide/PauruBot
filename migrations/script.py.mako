@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from alembic import op
 import sqlalchemy as sa
-import paurubot.db.base
+import paurubot.db.base  # noqa: F401
 ${imports if imports else ""}
 
 revision = ${repr(up_revision)}

@@ -16,8 +16,8 @@ from paurubot.panels.base import (
     PanelUser,
     UserSpec,
 )
-from paurubot.panels.marzban import MarzbanClient, PasarGuardClient
-from paurubot.panels.xui import XuiClient
+from paurubot.panels.drivers.marzban import MarzbanClient, PasarGuardClient
+from paurubot.panels.drivers.xui import XuiClient
 
 CLIENTS: dict[PanelKind, type[PanelClient]] = {
     PanelKind.PASARGUARD: PasarGuardClient,
@@ -30,7 +30,9 @@ _registry: dict[int, tuple[datetime, PanelClient]] = {}
 
 def build_client(panel: Panel) -> PanelClient:
     cls = CLIENTS[PanelKind(panel.kind)]
-    return cls(panel.base_url, panel.username, panel.password, panel.options or {})
+    from paurubot.security.secretbox import decrypt
+
+    return cls(panel.base_url, panel.username, decrypt("panel", panel.password_enc), panel.options or {})
 
 
 async def get_client(panel: Panel) -> PanelClient:

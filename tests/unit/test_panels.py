@@ -8,8 +8,8 @@ import pytest
 
 from paurubot.panels import GB, PanelRef, UserSpec
 from paurubot.panels.base import decode_subscription, parse_expire
-from paurubot.panels.marzban import MarzbanClient, PasarGuardClient
-from paurubot.panels.xui import XuiClient
+from paurubot.panels.drivers.marzban import MarzbanClient, PasarGuardClient
+from paurubot.panels.drivers.xui import XuiClient
 
 
 def _attach(client, handler) -> None:  # type: ignore[no-untyped-def]
@@ -77,8 +77,14 @@ async def test_pasarguard_falls_back_to_legacy_path() -> None:
             return httpx.Response(404, json={"detail": "Not Found"})
         return httpx.Response(
             200,
-            json={"username": "u1", "status": "active", "used_traffic": 5, "data_limit": 0,
-                  "expire": "2031-05-01T00:00:00Z", "subscription_url": "https://s/x"},
+            json={
+                "username": "u1",
+                "status": "active",
+                "used_traffic": 5,
+                "data_limit": 0,
+                "expire": "2031-05-01T00:00:00Z",
+                "subscription_url": "https://s/x",
+            },
         )
 
     client = PasarGuardClient("https://pg.example.com", "u", "p", {"group_ids": [1]})
@@ -123,13 +129,16 @@ async def test_xui_create_and_get() -> None:
         if path.startswith("/panel/api/inbounds/getClientTraffics/"):
             return httpx.Response(
                 200,
-                json={"success": True, "obj": {"up": GB, "down": GB, "total": 5 * GB,
-                                               "expiryTime": 0, "enable": True}},
+                json={
+                    "success": True,
+                    "obj": {"up": GB, "down": GB, "total": 5 * GB, "expiryTime": 0, "enable": True},
+                },
             )
         return httpx.Response(404)
 
-    client = XuiClient("https://x.example.com", "u", "p",
-                       {"inbound_id": 3, "sub_base_url": "https://sub.example.com/sub/"})
+    client = XuiClient(
+        "https://x.example.com", "u", "p", {"inbound_id": 3, "sub_base_url": "https://sub.example.com/sub/"}
+    )
     _attach(client, handler)
     user = await client.create_user(UserSpec(username="mail1", data_limit=5 * GB))
     assert added["email"] == "mail1" and added["totalGB"] == 5 * GB and "id" in added
