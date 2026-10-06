@@ -40,9 +40,16 @@ jobs:
       - name: types
         run: mypy paurubot
       - name: security suite
-        run: pytest -q -m security
+        run: |
+          set -o pipefail
+          pytest -q -m security -rf --tb=short 2>&1 | tee security.log
       - name: full test suite
-        run: pytest -q
+        run: |
+          set -o pipefail
+          pytest -q -rf --tb=short 2>&1 | tee tests.log
+      - name: Show failures as annotations
+        if: failure()
+        run: grep -hE "^(FAILED|ERROR|E  )" security.log tests.log 2>/dev/null | head -40 | sed 's/^/::error::/' || true
 
   frontend:
     runs-on: ubuntu-latest
