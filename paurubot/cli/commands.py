@@ -159,3 +159,12 @@ async def reconcile(_: argparse.Namespace) -> int:
     for item in drift:
         print(f"DRIFT account={item.code} cached={item.cached} actual={item.actual}")
     return 1
+
+
+@command("worker", "run queues and periodic tasks")
+async def worker(_: argparse.Namespace) -> int:
+    from paurubot.worker import jobs  # noqa: F401  (registers queues and periodic tasks)
+    from paurubot.worker.runner import Worker
+
+    await Worker().run()
+    return 0
