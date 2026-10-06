@@ -287,5 +287,6 @@
   "welcome": "Hi {name} 👋\nWelcome to <b>{shop}</b>.\nPick an option from the menu below.",
   "yes": "Yes",
   "backup_caption": "🗄 Backup {name}\nSize: {size}\nRestoring it needs the BACKUP_PASSPHRASE.",
-  "backup_too_large": "🗄 Backup {name} ({size}) is too large for Telegram and is kept on the server."
+  "backup_too_large": "🗄 Backup {name} ({size}) is too large for Telegram and is kept on the server.",
+  "daily_report": "📊 <b>Daily report {date}</b>\n\n🛒 Sales: {orders} orders, {revenue} Toman (renewals: {renewals})\n👤 New users: {new_customers}, trials: {trials}\n🟢 Active services: {active_services}, expiring within 3 days: {expiring_soon}\n💳 Receipts waiting: {pending_receipts}, open tickets: {open_tickets}\n🖥 Panels down: {panels_down}\n👛 Wallets total: {wallet_total} Toman"
 }

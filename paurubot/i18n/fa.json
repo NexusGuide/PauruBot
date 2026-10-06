@@ -287,5 +287,6 @@
   "welcome": "سلام {name} 👋\nبه <b>{shop}</b> خوش اومدی.\nاز منوی پایین یکی از گزینه‌ها رو انتخاب کن.",
   "yes": "بله",
   "backup_caption": "🗄 پشتیبان {name}\nحجم: {size}\nبرای بازگردانی به رمز پشتیبان (BACKUP_PASSPHRASE) نیاز داری.",
-  "backup_too_large": "🗄 پشتیبان {name} ({size}) برای ارسال در تلگرام بزرگ است و روی سرور ذخیره شد."
+  "backup_too_large": "🗄 پشتیبان {name} ({size}) برای ارسال در تلگرام بزرگ است و روی سرور ذخیره شد.",
+  "daily_report": "📊 <b>گزارش روزانه {date}</b>\n\n🛒 فروش: {orders} سفارش، {revenue} تومان (تمدید: {renewals})\n👤 کاربر جدید: {new_customers} — تست: {trials}\n🟢 سرویس فعال: {active_services} — انقضا تا ۳ روز: {expiring_soon}\n💳 رسید در انتظار: {pending_receipts} — تیکت باز: {open_tickets}\n🖥 پنل قطع: {panels_down}\n👛 جمع کیف پول‌ها: {wallet_total} تومان"
 }

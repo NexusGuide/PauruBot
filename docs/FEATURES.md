@@ -11,7 +11,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
 | ARC-01 | Modular Python core: FastAPI + aiogram + SQLAlchemy 2 + Alembic + PostgreSQL | MVP | done |
-| ARC-02 | Redis-backed FSM state, locks and callback payloads | MVP | wip |
+| ARC-02 | Redis-backed FSM state, locks and callback payloads | MVP | done |
 | ARC-03 | Panel driver registry (one interface, many panel types) | MVP | done |
 | ARC-04 | Structured logging with tags and Telegram log channels | v1.1 | todo |
 | ARC-05 | Ops CLI: status, logs, health, backup, restore, migrate, doctor | MVP | done |
@@ -31,7 +31,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | SEC-08 | First-run setup wizard protected by one-time gate token | MVP | done |
 | SEC-09 | Secrets encrypted at rest (Fernet + HKDF domain separation) | MVP | done |
 | SEC-10 | SSRF guard for panel base URLs | MVP | done |
-| SEC-11 | Webhook secret-token authentication (constant-time compare) | MVP | todo |
+| SEC-11 | Webhook secret-token authentication (constant-time compare) | MVP | done |
 | SEC-12 | Log redaction of tokens and passwords | MVP | done |
 | SEC-13 | Terms-of-service acceptance gate | v1.1 | done |
 | SEC-14 | Ban, anti-flood and maintenance middlewares | MVP | done |
@@ -43,7 +43,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 |----|---------|-------|--------|
 | TEN-01 | Org hierarchy Owner → Level-1 → Level-2 with visible scope | v1.1 | todo |
 | TEN-02 | Per-shop wallet isolation | MVP | done |
-| TEN-03 | Reseller feature permissions (deny by default) | MVP | wip |
+| TEN-03 | Reseller feature permissions (deny by default) | MVP | done |
 | TEN-04 | Dedicated reseller bot with its own token | v2 | todo |
 | TEN-05 | Reseller billing: PAYG, hourly and usage-based with snapshots | v1.1 | todo |
 | TEN-06 | Reseller low-balance warning and auto-suspend | v1.1 | todo |
@@ -131,7 +131,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | FIN-01 | Wallet top-up and balance | MVP | done |
 | FIN-02 | Append-only ledger with reconciliation | MVP | done |
 | FIN-03 | Charge / gift codes | v1.1 | todo |
-| FIN-04 | Finance reports and daily report | MVP | todo |
+| FIN-04 | Finance reports and daily report | MVP | done |
 | FIN-05 | Excel export | v1.1 | todo |
 | FIN-06 | Top customers report | v1.1 | todo |
 | FIN-07 | Shop bundle export / import | v2 | todo |
@@ -198,7 +198,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
 | JOB-01 | Job registry and scheduler | MVP | done |
-| JOB-02 | Daily status report | MVP | todo |
+| JOB-02 | Daily status report | MVP | done |
 | JOB-03 | IP block notification | v2 | todo |
 | JOB-04 | Log cleanup | MVP | done |
 | JOB-05 | Metrics, tracing and dead-letter queues | v1.1 | todo |
@@ -226,7 +226,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| QA-01 | Curated security regression suite in CI | MVP | wip |
+| QA-01 | Curated security regression suite in CI | MVP | done |
 | QA-02 | Ruff lint/format + compile in CI, Dependabot | MVP | done |
 | QA-03 | Docs generated from source | v1.1 | todo |
 
@@ -238,4 +238,4 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | NEW-02 | TLS certificate pinning for self-signed panels instead of disabling verification | MVP | done |
 | NEW-03 | Periodic usage sync for panels without webhooks | MVP | done |
 | NEW-04 | Refund and service cancellation policy | MVP | done |
-| NEW-05 | Error monitoring hook (Sentry DSN, optional) | MVP | todo |
+| NEW-05 | Error monitoring hook (Sentry DSN, optional) | MVP | done |
