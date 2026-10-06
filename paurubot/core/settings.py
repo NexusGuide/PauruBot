@@ -61,6 +61,12 @@ SPECS: dict[str, Spec] = {
     "warn_days": Spec(int, 2, "services"),
     "delete_expired_after_days": Spec(int, 7, "services"),
     "usage_sync_minutes": Spec(int, 10, "services"),
+    "extras_enabled": Spec(bool, True, "services"),
+    "extra_gb_price": Spec(int, 3_000, "services"),
+    "extra_day_price": Spec(int, 2_000, "services"),
+    "upgrade_enabled": Spec(bool, True, "services"),
+    "username_method": Spec(str, "telegram_id", "services"),
+    "username_prefix": Spec(str, "", "services"),
     # resellers
     "reseller_applications_enabled": Spec(bool, True, "resellers"),
     # reports

@@ -76,21 +76,21 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| CAT-01 | Plans, categories and products with per-location availability | MVP | todo |
+| CAT-01 | Plans, categories and products with per-location availability | MVP | done |
 | CAT-02 | Plan audience, add-ons, per-plan naming and button styles | v1.1 | todo |
 | CAT-03 | Custom buy: user chooses volume and days | v1.1 | todo |
-| CAT-04 | Trial accounts with quota generations and reservations | MVP | todo |
+| CAT-04 | Trial accounts with quota generations and reservations | MVP | done |
 | CAT-05 | Manual config stock / inventory sale | v2 | todo |
 | CAT-06 | Manual service creation by admin | v1.1 | todo |
 | CAT-07 | Bulk purchase | v2 | todo |
 | CAT-08 | Guest purchase (no prior registration) | v2 | todo |
-| CAT-09 | Configurable username generation methods | MVP | todo |
+| CAT-09 | Configurable username generation methods | MVP | done |
 
 ## Service Lifecycle
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| SVC-01 | Renew, extra volume, extra time, upgrade | MVP | todo |
+| SVC-01 | Renew, extra volume, extra time, upgrade | MVP | done |
 | SVC-02 | Queued renewal processor | v1.1 | todo |
 | SVC-03 | On-hold services (start on first connection) | v1.1 | todo |
 | SVC-04 | Location / panel change for an existing service | v2 | todo |
@@ -121,14 +121,14 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | PAY-12 | Telegram Stars | MVP* | todo |
 | PAY-13 | FX / crypto price sync | v1.1 | todo |
 | PAY-14 | Payment bonus / cashback per method | v1.1 | todo |
-| PAY-15 | Direct pay (invoice without wallet top-up) | MVP | todo |
+| PAY-15 | Direct pay (invoice without wallet top-up) | MVP | wip |
 | PAY-16 | Payment expiry job | MVP | todo |
 
 ## Wallet, Billing & Finance
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| FIN-01 | Wallet top-up and balance | MVP | wip |
+| FIN-01 | Wallet top-up and balance | MVP | done |
 | FIN-02 | Append-only ledger with reconciliation | MVP | done |
 | FIN-03 | Charge / gift codes | v1.1 | todo |
 | FIN-04 | Finance reports and daily report | MVP | todo |
@@ -144,7 +144,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | GRW-02 | Loyalty tiers, rules and rewards | v2 | todo |
 | GRW-03 | Lucky wheel | v2 | todo |
 | GRW-04 | Lottery | v2 | todo |
-| GRW-05 | Discount codes incl. sticky discount | MVP | todo |
+| GRW-05 | Discount codes incl. sticky discount | MVP | done |
 | GRW-06 | Broadcast with rate-limited queue and job tracking | MVP | todo |
 | GRW-07 | Forced channel join | MVP | todo |
 | GRW-08 | Trust channel | v2 | todo |
@@ -197,7 +197,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| JOB-01 | Job registry and scheduler | MVP | todo |
+| JOB-01 | Job registry and scheduler | MVP | wip |
 | JOB-02 | Daily status report | MVP | todo |
 | JOB-03 | IP block notification | v2 | todo |
 | JOB-04 | Log cleanup | MVP | todo |
