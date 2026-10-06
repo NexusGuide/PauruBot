@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -34,6 +35,17 @@ STATUS_MAP = {
     "expired": ServiceStatus.EXPIRED,
     "disabled": ServiceStatus.DISABLED,
 }
+
+
+def new_sub_token() -> str:
+    return secrets.token_urlsafe(24)
+
+
+async def ensure_sub_token(session: AsyncSession, service: Service) -> str:
+    if not service.sub_token:
+        service.sub_token = new_sub_token()
+        await session.flush()
+    return service.sub_token
 
 
 class ProvisionError(Exception):
@@ -102,6 +114,14 @@ async def claim(session: AsyncSession, order_id: int) -> Order | None:
 async def _panel_for_new(session: AsyncSession, order: Order) -> Panel:
     if order.kind == OrderKind.TRIAL:
         panel = await session.get(Panel, int(order.params.get("panel_id") or 0))
+    elif order.params.get("custom"):
+        if order.params.get("panel_id"):
+            panel = await session.get(Panel, int(order.params["panel_id"]))
+        else:
+            cfg = await shop_settings.load(session, order.shop_id)
+            panel = await catalog.pick_panel_for(
+                session, order.shop_id, cfg["custom_panel_id"], cfg["custom_location_id"]
+            )
     else:
         plan = await session.get(Plan, order.plan_id) if order.plan_id else None
         if plan is None:
@@ -125,22 +145,35 @@ async def _create_service(session: AsyncSession, order: Order) -> Service:
     # crash adopts the account it already created instead of creating a second one.
     if not params.get("panel_username") or params.get("panel_id") != panel.id:
         params["panel_id"] = panel.id
-        params["panel_username"] = await usernames.generate(session, panel, customer, params.get("label"))
+        params["panel_username"] = await usernames.generate(
+            session, panel, customer, params.get("label"), plan.username_prefix if plan else None
+        )
         order.params = params
         await session.commit()
     username = params["panel_username"]
+    on_hold = False
+    options: dict[str, Any] = {}
     if order.kind == OrderKind.TRIAL:
         days, data_gb, ip_limit = int(params.get("days") or 1), int(params.get("gb") or 1), 0
+    elif params.get("custom"):
+        custom = params["custom"]
+        days, data_gb, ip_limit = int(custom.get("days") or 0), int(custom.get("gb") or 0), 0
     else:
         assert plan is not None
         days, data_gb, ip_limit = plan.days, plan.data_gb, plan.ip_limit
-    expire_at = datetime.now(UTC).replace(microsecond=0) + timedelta(days=days) if days > 0 else None
+        on_hold = bool(plan.on_hold) and days > 0
+        options = {k: v for k, v in (plan.panel_options or {}).items() if v not in (None, "", [], {})}
+    expire_at = (
+        datetime.now(UTC).replace(microsecond=0) + timedelta(days=days) if days > 0 and not on_hold else None
+    )
     spec = UserSpec(
         username=username,
         data_limit=data_gb * GB if data_gb > 0 else 0,
         expire_at=expire_at,
         note=f"tg:{customer.telegram_id}",
         ip_limit=ip_limit,
+        on_hold_days=days if on_hold else None,
+        options=options,
     )
     driver = await driver_for(panel)
     existing_service = await session.scalar(
@@ -162,7 +195,8 @@ async def _create_service(session: AsyncSession, order: Order) -> Service:
         is_trial=order.kind == OrderKind.TRIAL,
         data_limit=spec.data_limit,
         expire_at=expire_at,
-        status=ServiceStatus.ACTIVE,
+        status=ServiceStatus.ON_HOLD if on_hold else ServiceStatus.ACTIVE,
+        sub_token=new_sub_token(),
     )
     apply_panel_user(service, info)
     service.expire_at = service.expire_at or expire_at
@@ -220,7 +254,8 @@ async def _modify_service(session: AsyncSession, order: Order) -> Service:
     params = dict(order.params or {})
     if "target" not in params:
         cfg = await shop_settings.load(session, order.shop_id)
-        params["target"] = _target_for(service, order, plan, bool(cfg["renew_resets_usage"]))
+        resets = bool(cfg["renew_resets_usage"]) or bool(params.get("queued"))
+        params["target"] = _target_for(service, order, plan, resets)
         order.params = params
         await session.commit()
     target = params["target"]
@@ -246,6 +281,7 @@ async def _modify_service(session: AsyncSession, order: Order) -> Service:
         service.plan_id = plan.id
         service.is_trial = False
     service.status = ServiceStatus.ACTIVE
+    service.disabled_reason = None
     service.alerts_sent = {}
     await session.flush()
     return service
@@ -334,13 +370,19 @@ async def refresh(session: AsyncSession, service: Service) -> PanelUser | None:
     return info
 
 
-async def set_enabled(session: AsyncSession, service: Service, enabled: bool) -> None:
+async def set_enabled(
+    session: AsyncSession, service: Service, enabled: bool, reason: str | None = None
+) -> None:
+    """Turn a service on or off on its panel. `reason` records why the bot disabled it (SVC-06)."""
     panel = await session.get(Panel, service.panel_id)
     assert panel is not None
     info = await (await driver_for(panel)).update_user(ref(service), enabled=enabled)
     apply_panel_user(service, info)
-    if not enabled:
+    if enabled:
+        service.disabled_reason = None
+    else:
         service.status = ServiceStatus.DISABLED
+        service.disabled_reason = (reason or "staff")[:32]
     await session.flush()
 
 
@@ -349,6 +391,7 @@ async def revoke(session: AsyncSession, service: Service) -> None:
     assert panel is not None
     info = await (await driver_for(panel)).revoke_subscription(ref(service))
     apply_panel_user(service, info)
+    service.sub_token = new_sub_token()  # the old branded link must stop working too
     await session.flush()
 
 

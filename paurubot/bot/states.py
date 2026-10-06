@@ -7,6 +7,8 @@ class ShopStates(StatesGroup):
     label = State()
     discount = State()
     extra_amount = State()
+    custom_gb = State()
+    custom_days = State()
 
 
 class WalletStates(StatesGroup):

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.audit.log import Actor, record
 from paurubot.db.base import utcnow
-from paurubot.db.models import Customer
+from paurubot.db.models import Customer, Service, ServiceStatus
 
 
 async def upsert_from_telegram(
@@ -92,6 +92,36 @@ async def set_ban(
         before=before,
         after={"is_banned": customer.is_banned, "ban_reason": customer.ban_reason},
     )
+    if before["is_banned"] != banned:
+        await sync_services_with_ban(session, customer, banned)
+
+
+async def sync_services_with_ban(session: AsyncSession, customer: Customer, banned: bool) -> int:
+    """Disable a banned customer's services and re-enable only those a ban disabled (SVC-06)."""
+    from paurubot.core import settings as shop_settings
+    from paurubot.worker import queue
+
+    if not await shop_settings.get(session, customer.shop_id, "ban_disables_services"):
+        return 0
+    stmt = select(Service.id).where(Service.customer_id == customer.id)
+    if banned:
+        stmt = stmt.where(
+            Service.status.in_([ServiceStatus.ACTIVE, ServiceStatus.ON_HOLD, ServiceStatus.LIMITED])
+        )
+    else:
+        stmt = stmt.where(Service.status == ServiceStatus.DISABLED, Service.disabled_reason == "ban")
+    ids = list(await session.scalars(stmt))
+    stamp = utcnow().strftime("%Y%m%d%H%M%S")
+    for service_id in ids:
+        await queue.enqueue(
+            session,
+            "bulk",
+            "service",
+            {"service_id": service_id, "action": "disable" if banned else "enable", "reason": "ban"},
+            shop_id=customer.shop_id,
+            dedupe_key=f"ban:{service_id}:{int(banned)}:{stamp}",
+        )
+    return len(ids)
 
 
 async def search(

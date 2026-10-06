@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { money } from "@shared/format";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { dateTime, money } from "@shared/format";
 import { api, type Order } from "../api";
 import { errorText, useApp } from "../state";
 import { haptic, openExternal, openInvoice } from "../telegram";
@@ -35,6 +35,8 @@ export function Checkout() {
         service_id: Number(params.get("service")) || undefined,
         extra_gb: Number(params.get("gb")) || undefined,
         extra_days: Number(params.get("days")) || undefined,
+        custom_gb: Number(params.get("cgb")) || undefined,
+        custom_days: Number(params.get("cdays")) || undefined,
         code: discount || undefined,
       };
       const result = await api.createOrder(body);
@@ -109,6 +111,12 @@ export function Checkout() {
   return (
     <Screen title={t(`checkout_${order.kind}`)}>
       <Panel className="mb-4">
+        {extra.custom ? (
+          <>
+            <Line label={t("custom_data")} value={`${money(extra.custom.gb, locale)} ${t("gb")}`} />
+            <Line label={t("custom_time")} value={t("n_days", { days: money(extra.custom.days, locale) })} />
+          </>
+        ) : null}
         {extra.extra_gb ? <Line label={t("extra_data")} value={`${money(extra.extra_gb, locale)} ${t("gb")}`} /> : null}
         {extra.extra_days ? <Line label={t("extra_time")} value={t("n_days", { days: money(extra.extra_days, locale) })} /> : null}
         <Line label={t("price")} value={money(order.base_price, locale)} />
@@ -164,8 +172,16 @@ export function Checkout() {
 }
 
 export function Done() {
-  const { t } = useApp();
+  const { t, locale } = useApp();
   const navigate = useNavigate();
+  const { id } = useParams();
+  const [queuedUntil, setQueuedUntil] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .order(Number(id))
+      .then((r) => setQueuedUntil(r.order.params.queued ? (r.order.params.queued_until ?? null) : null))
+      .catch(() => undefined);
+  }, [id]);
   return (
     <Screen>
       <div className="flex min-h-[60dvh] flex-col items-center justify-center gap-4 text-center">
@@ -176,7 +192,11 @@ export function Done() {
           </svg>
         </div>
         <h1 className="text-2xl font-extrabold">{t("paid_title")}</h1>
-        <p className="max-w-xs text-[var(--hint)]">{t("paid_hint")}</p>
+        <p className="max-w-xs text-[var(--hint)]">
+          {queuedUntil
+            ? t("renew_queued_hint", { date: dateTime(queuedUntil, locale) })
+            : t("paid_hint")}
+        </p>
         <div className="mt-2 w-full max-w-xs">
           <Button onClick={() => navigate("/services", { replace: true })}>{t("go_services")}</Button>
         </div>

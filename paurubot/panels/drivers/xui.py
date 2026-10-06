@@ -33,7 +33,10 @@ class XuiDriver(PanelDriver):
 
     @property
     def inbound_id(self) -> int:
-        value = self.options.get("inbound_id")
+        return self.inbound_for({})
+
+    def inbound_for(self, overrides: dict[str, Any]) -> int:
+        value = overrides.get("inbound_id") or self.options.get("inbound_id")
         if not value:
             raise PanelError("inbound_id is not configured for this panel")
         return int(value)
@@ -114,7 +117,9 @@ class XuiDriver(PanelDriver):
         client: dict[str, Any] = {
             "email": spec.username,
             "enable": True,
-            "limitIp": int(spec.ip_limit or self.options.get("limit_ip") or 0),
+            "limitIp": int(
+                spec.ip_limit or spec.options.get("limit_ip") or self.options.get("limit_ip") or 0
+            ),
             "totalGB": int(spec.data_limit),
             "expiryTime": expiry,
             "tgId": "",
@@ -126,8 +131,9 @@ class XuiDriver(PanelDriver):
             client["password"] = secrets.token_urlsafe(12)
         else:
             client["id"] = str(uuid.uuid4())
-        if protocol == "vless" and self.options.get("flow"):
-            client["flow"] = self.options["flow"]
+        flow = spec.options.get("flow") or self.options.get("flow")
+        if protocol == "vless" and flow:
+            client["flow"] = flow
         if protocol == "vmess":
             client["security"] = "auto"
         return client
@@ -180,7 +186,7 @@ class XuiDriver(PanelDriver):
         ]
 
     async def create_user(self, spec: UserSpec) -> PanelUser:
-        inbound_id = self.inbound_id
+        inbound_id = self.inbound_for(spec.options)
         protocol = await self._protocol(inbound_id)
         client = self.build_client(protocol, spec)
         await self.call(

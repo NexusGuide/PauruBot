@@ -169,6 +169,7 @@ async def test_other_shops_rows_are_invisible(http, env) -> None:  # type: ignor
     assert (await staff.call("GET", f"/api/admin/customers/{env.customer_id}")).status_code == 404
     assert (await staff.call("GET", f"/api/admin/services/{env.other_service_id}")).status_code == 404
     assert (await staff.call("POST", f"/api/admin/panels/{env.panel.id}/test")).status_code == 404
+    assert (await staff.call("GET", f"/api/admin/plans/panel-options/{env.panel.id}")).status_code == 404
     listed = (await staff.call("GET", "/api/admin/panels")).json()["items"]
     assert [p["id"] for p in listed] == [env.other_panel.id]
     adjust = await staff.call(

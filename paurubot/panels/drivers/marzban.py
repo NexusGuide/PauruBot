@@ -21,11 +21,14 @@ class MarzbanDriver(TokenApiDriver):
                     options.append(PanelOption(id=f"{protocol}:{tag}", title=f"{protocol} · {tag}"))
         return options
 
-    def proxies_and_inbounds(self) -> tuple[dict[str, Any], dict[str, list[str]] | None]:
-        selected: list[str] = [str(item) for item in self.options.get("inbounds") or []]
-        flow = self.options.get("flow")
+    def proxies_and_inbounds(
+        self, overrides: dict[str, Any] | None = None
+    ) -> tuple[dict[str, Any], dict[str, list[str]] | None]:
+        opts = {**self.options, **(overrides or {})}
+        selected: list[str] = [str(item) for item in opts.get("inbounds") or []]
+        flow = opts.get("flow")
         if not selected:
-            default_proxies: dict[str, Any] = dict(self.options.get("proxies") or {"vless": {}})
+            default_proxies: dict[str, Any] = dict(opts.get("proxies") or {"vless": {}})
             if flow and "vless" in default_proxies:
                 default_proxies["vless"] = {"flow": flow}
             return default_proxies, None
@@ -39,7 +42,7 @@ class MarzbanDriver(TokenApiDriver):
         return proxies, inbounds
 
     async def create_user(self, spec: UserSpec) -> PanelUser:
-        proxies, inbounds = self.proxies_and_inbounds()
+        proxies, inbounds = self.proxies_and_inbounds(spec.options)
         payload: dict[str, Any] = {
             "username": spec.username,
             "proxies": proxies,

@@ -171,5 +171,18 @@
   "err_gift_already_used": "You already used this code.",
   "err_gift_new_only": "This code is for a first purchase only.",
   "err_gift_too_many_attempts": "Too many attempts. Try again in an hour.",
-  "err_rate_unavailable": "The exchange rate is unavailable. Pick another method."
+  "err_rate_unavailable": "The exchange rate is unavailable. Pick another method.",
+  "continue": "Continue",
+  "custom_plan": "Custom plan",
+  "custom_plan_hint": "Pick your own data and days",
+  "custom_data": "Data",
+  "custom_time": "Duration",
+  "custom_unavailable": "Custom plans are not available right now",
+  "starts_on_first_use": "Time starts on the first connection",
+  "badge_hot": "Popular",
+  "badge_new": "New",
+  "badge_best": "Best value",
+  "badge_sale": "Sale",
+  "renew_queued_hint": "Renewal saved. It applies automatically on {date}, when the current period ends.",
+  "extras_unavailable": "Extra data or time isn't sold for this service"
 }

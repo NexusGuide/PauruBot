@@ -118,28 +118,51 @@ def locations_kb(t: Texts, items: Sequence[Location]) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def categories_kb(t: Texts, items: Sequence[Category], loc: int, other: bool) -> InlineKeyboardMarkup:
+def categories_kb(
+    t: Texts, items: Sequence[Category], loc: int, other: bool, custom: bool = False
+) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for cat in items:
         kb.button(text=cat.title, callback_data=Shop(step="cat", loc=loc, cat=cat.id))
     if other:
         kb.button(text=t("btn_other_plans"), callback_data=Shop(step="cat", loc=loc, cat=0))
     kb.adjust(2)
+    if custom:
+        kb.row(InlineKeyboardButton(text=t("btn_custom_plan"), callback_data=Shop(step="custom").pack()))
     kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Shop(step="start").pack()))
     return kb.as_markup()
 
 
+def plan_title(t: Texts, plan: Plan) -> str:
+    """Plan name with its own emoji and badge (CAT-02)."""
+    style = plan.button_style if isinstance(plan.button_style, dict) else {}
+    title = plan.title
+    if style.get("emoji"):
+        title = f"{style['emoji']} {title}"
+    if style.get("badge"):
+        title = f"{title} {t('badge_' + str(style['badge']))}"
+    return title
+
+
 def plans_kb(
-    t: Texts, items: Sequence[tuple[Plan, int]], *, back_cb: str, svc: int = 0, kind: str = ""
+    t: Texts,
+    items: Sequence[tuple[Plan, int]],
+    *,
+    back_cb: str,
+    svc: int = 0,
+    kind: str = "",
+    custom: bool = False,
 ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for plan, price in items:
         kb.row(
             InlineKeyboardButton(
-                text=t("plan_button", title=plan.title, price=money(price)),
+                text=t("plan_button", title=plan_title(t, plan), price=money(price)),
                 callback_data=Shop(step="plan", plan=plan.id, svc=svc, kind=kind).pack(),
             )
         )
+    if custom:
+        kb.row(InlineKeyboardButton(text=t("btn_custom_plan"), callback_data=Shop(step="custom").pack()))
     kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=back_cb))
     return kb.as_markup()
 

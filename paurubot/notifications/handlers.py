@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.auth import rbac
 from paurubot.config import get_settings
-from paurubot.core.formatting import esc, money
+from paurubot.core.formatting import esc, money, processing_key
 from paurubot.db.base import utcnow
 from paurubot.db.models import (
     Broadcast,
@@ -122,20 +122,26 @@ async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
         return
     t = await _texts(session, customer)
     from paurubot.core import settings as shop_settings
+    from paurubot.core.orders import extra_prices
 
     cfg = await shop_settings.load(session, customer.shop_id)
     heading = (
         t("service_ready") if order.kind in {OrderKind.PURCHASE, OrderKind.TRIAL} else t("service_updated")
     )
     markup = keyboards.service_kb(
-        t, service, extras=bool(cfg["extras_enabled"]), upgrade=bool(cfg["upgrade_enabled"])
+        t, service, extras=extra_prices(cfg, service.plan) is not None, upgrade=bool(cfg["upgrade_enabled"])
     )
-    await _to_customer(session, customer, heading + "\n\n" + service_card(t, service), reply_markup=markup)
-    if service.subscription_url and order.kind in {OrderKind.PURCHASE, OrderKind.TRIAL}:
+    from paurubot.provisioning.subscription import customer_link
+
+    link = customer_link(service, cfg)
+    await _to_customer(
+        session, customer, heading + "\n\n" + service_card(t, service, link), reply_markup=markup
+    )
+    if link and order.kind in {OrderKind.PURCHASE, OrderKind.TRIAL}:
         try:
             await telegram.send_photo(
                 customer.telegram_id,
-                BufferedInputFile(qr_png(service.subscription_url), "qr.png"),
+                BufferedInputFile(qr_png(link), "qr.png"),
                 caption=t("qr_caption"),
             )
         except telegram.Undeliverable:
@@ -187,9 +193,12 @@ async def payment_fulfilled(session: AsyncSession, job: queue.Claimed) -> None:
     if int(job.payload.get("bonus") or 0) > 0:
         text += "\n" + t("payment_bonus", bonus=money(int(job.payload["bonus"])))
     if payment.order_id:
-        text += "\n" + (
-            t("order_processing") if job.payload.get("order_settled") else t("order_after_payment_failed")
-        )
+        if job.payload.get("order_settled"):
+            order = await session.get(Order, payment.order_id)
+            key, values = processing_key(order.params if order else None)
+            text += "\n" + t(key, **values)
+        else:
+            text += "\n" + t("order_after_payment_failed")
     await _to_customer(session, customer, text)
     await report(
         session,

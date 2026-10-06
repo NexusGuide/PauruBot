@@ -14,3 +14,4 @@ backups/
 .idea/
 .vscode/
 dump.rdb
+*.tsbuildinfo

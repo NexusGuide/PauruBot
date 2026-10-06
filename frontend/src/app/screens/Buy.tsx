@@ -4,7 +4,7 @@ import { money } from "@shared/format";
 import { api, type Catalog, type Plan } from "../api";
 import { useApp } from "../state";
 import { haptic } from "../telegram";
-import { Empty, Loading, Screen } from "../ui";
+import { Button, Empty, Loading, Screen } from "../ui";
 
 function Chips<T extends number | null>({
   items,
@@ -91,7 +91,7 @@ export function Buy() {
           onChange={setCategory}
         />
       )}
-      {plans.length === 0 ? (
+      {plans.length === 0 && !(catalog.custom && kind === "purchase" && !serviceId) ? (
         <Empty title={t("no_plans")} />
       ) : (
         <ul className="flex flex-col gap-3">
@@ -109,10 +109,19 @@ export function Buy() {
                   <span className="mt-1 text-[0.65rem] font-bold">{t("gb")}</span>
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="font-bold">{plan.title}</p>
+                  <p className="font-bold">
+                    {plan.emoji ? `${plan.emoji} ` : ""}
+                    {plan.title}
+                    {plan.badge && (
+                      <span className="ms-2 rounded-full bg-[var(--accent)] px-2 py-0.5 align-middle text-[0.65rem] font-bold text-white">
+                        {t(`badge_${plan.badge}`)}
+                      </span>
+                    )}
+                  </p>
                   <p className="mt-0.5 text-sm text-[var(--hint)]">
                     {plan.days ? t("n_days", { days: money(plan.days, locale) }) : t("unlimited_time")}
                   </p>
+                  {plan.on_hold && <p className="mt-0.5 text-xs text-[var(--hint)]">{t("starts_on_first_use")}</p>}
                   {plan.description && <p className="mt-1 line-clamp-2 text-xs text-[var(--hint)]">{plan.description}</p>}
                 </div>
                 <div className="flex flex-col items-end justify-center">
@@ -125,8 +134,112 @@ export function Buy() {
               </button>
             </li>
           ))}
+          {catalog.custom && kind === "purchase" && !serviceId && (
+            <li>
+              <button
+                type="button"
+                onClick={() => navigate("/custom")}
+                className="flex w-full items-center justify-between gap-4 rounded-3xl border-2 border-dashed border-[var(--line)] p-4 text-start active:opacity-80"
+              >
+                <div>
+                  <p className="font-bold">{t("custom_plan")}</p>
+                  <p className="mt-0.5 text-sm text-[var(--hint)]">{t("custom_plan_hint")}</p>
+                </div>
+                <span aria-hidden="true" className="inline-block text-2xl text-[var(--hint)] ltr:rotate-180">‹</span>
+              </button>
+            </li>
+          )}
         </ul>
       )}
+    </Screen>
+  );
+}
+
+function roundPrice(value: number) {
+  return Math.round(value / 100) * 100;
+}
+
+function Slider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  unit,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  unit: string;
+  onChange: (v: number) => void;
+}) {
+  const { locale } = useApp();
+  return (
+    <label className="block">
+      <div className="mb-2 flex items-baseline justify-between">
+        <span className="text-sm text-[var(--hint)]">{label}</span>
+        <span className="num text-xl font-extrabold">
+          {money(value, locale)} <span className="text-sm font-semibold text-[var(--hint)]">{unit}</span>
+        </span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full accent-[var(--accent)]"
+      />
+      <div className="num flex justify-between text-xs text-[var(--hint)]">
+        <span>{money(min, locale)}</span>
+        <span>{money(max, locale)}</span>
+      </div>
+    </label>
+  );
+}
+
+export function Custom() {
+  const { t, locale } = useApp();
+  const navigate = useNavigate();
+  const [offer, setOffer] = useState<Catalog["custom"] | undefined>(undefined);
+  const [gb, setGb] = useState(0);
+  const [days, setDays] = useState(0);
+
+  useEffect(() => {
+    api.catalog().then((c) => {
+      setOffer(c.custom);
+      if (c.custom) {
+        setGb(Math.min(c.custom.max_gb, Math.max(c.custom.min_gb, 50)));
+        setDays(Math.min(c.custom.max_days, Math.max(c.custom.min_days, 30)));
+      }
+    });
+  }, []);
+
+  if (offer === undefined) return <Loading />;
+  if (offer === null) return <Empty title={t("custom_unavailable")} />;
+  const base = roundPrice(offer.base_price + gb * offer.gb_price + days * offer.day_price);
+  const price = offer.discount_percent ? roundPrice((base * (100 - offer.discount_percent)) / 100) : base;
+  return (
+    <Screen title={t("custom_plan")}>
+      <div className="flex flex-col gap-6 rounded-3xl bg-[var(--surface)] p-5">
+        <Slider label={t("custom_data")} value={gb} min={offer.min_gb} max={offer.max_gb}
+          step={offer.max_gb - offer.min_gb >= 100 ? 5 : 1} unit={t("gb")} onChange={setGb} />
+        <Slider label={t("custom_time")} value={days} min={offer.min_days} max={offer.max_days}
+          step={1} unit={t("days")} onChange={setDays} />
+        <div className="flex items-baseline justify-between border-t border-dashed border-[var(--line)] pt-4">
+          <span className="text-sm text-[var(--hint)]">{t("price")}</span>
+          <span className="num text-2xl font-extrabold">
+            {money(price, locale)} <span className="text-sm font-semibold text-[var(--hint)]">{t("currency")}</span>
+          </span>
+        </div>
+      </div>
+      <div className="mt-4">
+        <Button onClick={() => navigate(`/checkout?kind=purchase&cgb=${gb}&cdays=${days}`)}>{t("continue")}</Button>
+      </div>
     </Screen>
   );
 }

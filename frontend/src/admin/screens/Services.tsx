@@ -144,7 +144,15 @@ function ServiceSheet({
       <div className="flex flex-col gap-6">
         <Facts
           items={[
-            [t("col_status"), <Status key="st" value={service.status} />],
+            [
+              t("col_status"),
+              <span key="st" className="inline-flex items-center gap-2">
+                <Status value={service.status} />
+                {service.status === "disabled" && service.disabled_reason && (
+                  <span className="text-[0.78rem] text-[var(--hint)]">{t(`disabled_by_${service.disabled_reason}`)}</span>
+                )}
+              </span>,
+            ],
             [t("col_customer"), <Link key="c" className="text-firouzeh-700" to={`/customers/${service.customer_id}`}>{service.customer ?? `#${service.customer_id}`}</Link>],
             [t("col_panel"), service.panel],
             [t("panel_username"), <span key="u" dir="ltr">{service.panel_username}</span>],
@@ -154,6 +162,12 @@ function ServiceSheet({
             [t("col_created"), <When key="cr" iso={service.created_at} time />],
           ]}
         />
+        {service.branded_url && (
+          <div className="flex flex-col gap-1">
+            <p className="text-[0.78rem] text-[var(--hint)]">{t("branded_link")}</p>
+            <CopyText text={service.branded_url} />
+          </div>
+        )}
         {service.subscription_url && (
           <div className="flex flex-col gap-1">
             <p className="text-[0.78rem] text-[var(--hint)]">{t("subscription_link")}</p>

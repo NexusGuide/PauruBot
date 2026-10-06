@@ -39,6 +39,7 @@ from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.panels import PanelError
 from paurubot.provisioning import lifecycle
+from paurubot.provisioning.subscription import branded_url
 from paurubot.worker import queue
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -72,6 +73,7 @@ SERVICE_FIELDS = [
     "used_bytes",
     "expire_at",
     "subscription_url",
+    "disabled_reason",
     "synced_at",
     "created_at",
 ]
@@ -98,6 +100,7 @@ def service_out(service: Service) -> dict[str, Any]:
     data = plain(service, SERVICE_FIELDS)
     data["panel"] = service.panel.name if service.panel else None
     data["customer"] = service.customer.display_name if service.customer else None
+    data["branded_url"] = branded_url(service)
     return data
 
 
@@ -407,7 +410,7 @@ async def service_action(
     before = snapshot(service, ["status", "expire_at", "data_limit", "subscription_url"])
     try:
         if body.action in {"enable", "disable"}:
-            await lifecycle.set_enabled(db, service, body.action == "enable")
+            await lifecycle.set_enabled(db, service, body.action == "enable", "staff")
         elif body.action == "revoke":
             await lifecycle.revoke(db, service)
         elif body.action == "reset_usage":

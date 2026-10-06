@@ -70,15 +70,15 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | PNL-11 | MikroTik and IBSng drivers | v2 | todo |
 | PNL-12 | Panel and node uptime monitoring with alerts | v1.1 | todo |
 | PNL-13 | Node traffic and host resource gauges | v1.1 | todo |
-| PNL-14 | Per-panel inbound / protocol settings | v1.1 | wip |
+| PNL-14 | Per-panel inbound / protocol settings | v1.1 | done |
 
 ## Catalog & Sales
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
 | CAT-01 | Plans, categories and products with per-location availability | MVP | done |
-| CAT-02 | Plan audience, add-ons, per-plan naming and button styles | v1.1 | todo |
-| CAT-03 | Custom buy: user chooses volume and days | v1.1 | todo |
+| CAT-02 | Plan audience, add-ons, per-plan naming and button styles | v1.1 | done |
+| CAT-03 | Custom buy: user chooses volume and days | v1.1 | done |
 | CAT-04 | Trial accounts with quota generations and reservations | MVP | done |
 | CAT-05 | Manual config stock / inventory sale | v2 | todo |
 | CAT-06 | Manual service creation by admin | v1.1 | done |
@@ -91,13 +91,13 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
 | SVC-01 | Renew, extra volume, extra time, upgrade | MVP | done |
-| SVC-02 | Queued renewal processor | v1.1 | todo |
-| SVC-03 | On-hold services (start on first connection) | v1.1 | wip |
+| SVC-02 | Queued renewal processor | v1.1 | done |
+| SVC-03 | On-hold services (start on first connection) | v1.1 | done |
 | SVC-04 | Location / panel change for an existing service | v2 | todo |
 | SVC-05 | Expiry and low-volume notifications | MVP | done |
-| SVC-06 | Auto disable / re-activate configs | v1.1 | wip |
+| SVC-06 | Auto disable / re-activate configs | v1.1 | done |
 | SVC-07 | Bulk volume/time increase for many users | v1.1 | done |
-| SVC-08 | Branded subscription link page | v1.1 | todo |
+| SVC-08 | Branded subscription link page | v1.1 | done |
 | SVC-09 | QR code delivery | MVP | done |
 | SVC-10 | Delivery failure queue with retry | MVP | done |
 | SVC-11 | Usage chart per service | v1.1 | done |

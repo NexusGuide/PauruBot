@@ -98,6 +98,19 @@ def _check_card_accounts(value: Any) -> None:
             raise HTTPException(status_code=422, detail="card_number_invalid")
 
 
+def _check_custom(values: dict[str, Any]) -> None:
+    for low, high in (("custom_min_gb", "custom_max_gb"), ("custom_min_days", "custom_max_days")):
+        lo, hi = values.get(low), values.get(high)
+        if lo is not None and (not isinstance(lo, int) or lo < 1):
+            raise HTTPException(status_code=422, detail=f"{low}_invalid")
+        if lo is not None and hi is not None and isinstance(hi, int) and hi < lo:
+            raise HTTPException(status_code=422, detail=f"{high}_invalid")
+    for key in ("custom_gb_price", "custom_day_price", "custom_base_price"):
+        value = values.get(key)
+        if value is not None and (not isinstance(value, int) or value < 0):
+            raise HTTPException(status_code=422, detail=f"{key}_invalid")
+
+
 def _check_crypto(values: dict[str, Any]) -> None:
     from paurubot.payments.chains import NETWORKS, valid_address
 
@@ -136,6 +149,14 @@ async def write_settings(
         except BonusRuleError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     _check_crypto(body.values)
+    if "app_links" in body.values:
+        from paurubot.provisioning.subscription import validate_app_links
+
+        try:
+            body.values["app_links"] = validate_app_links(body.values["app_links"])
+        except ValueError:
+            raise HTTPException(status_code=422, detail="app_links_invalid") from None
+    _check_custom(body.values)
     before = shop_settings.public_view(await shop_settings.load(db, ctx.shop_id, fresh=True))
     try:
         await shop_settings.set_many(db, ctx.shop_id, body.values)

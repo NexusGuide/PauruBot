@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { money } from "@shared/format";
 import { call, type CatalogData, type Category, type Location, type PanelRow, type Plan } from "../api";
 import { useAction, useLoad } from "../hooks";
+import { OptionPicker } from "./Panels";
 import { useSession } from "../session";
 import {
   Async,
@@ -21,7 +22,9 @@ import {
   useConfirm,
 } from "../ui";
 
-type PlanDraft = Omit<Plan, "id" | "services" | "button_style"> & { id?: number };
+type PlanDraft = Omit<Plan, "id" | "services"> & { id?: number };
+
+const BADGES = ["", "hot", "new", "best", "sale"];
 
 const EMPTY_PLAN: PlanDraft = {
   title: "",
@@ -37,7 +40,62 @@ const EMPTY_PLAN: PlanDraft = {
   renewable: true,
   sort: 0,
   is_active: true,
+  button_style: {},
+  on_hold: false,
+  username_prefix: null,
+  panel_options: {},
+  addons: {},
 };
+
+function Group({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
+      <h3 className="text-[0.88rem] font-bold">{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+type PanelOptions = { ok: boolean; kind: string; error?: string; options: { id: string; title: string }[] };
+
+function PlanPanelOptions({
+  panelId,
+  value,
+  onChange,
+}: {
+  panelId: number;
+  value: Record<string, unknown>;
+  onChange: (value: Record<string, unknown>) => void;
+}) {
+  const { t } = useSession();
+  const state = useLoad<PanelOptions>(`/api/admin/plans/panel-options/${panelId}`);
+  return (
+    <Async {...state}>
+      {(data) =>
+        !data.ok ? (
+          <p className="text-[0.82rem] text-[var(--hint)]">{t("plan_options_unreachable")}</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <OptionPicker kind={data.kind} options={data.options} value={value} onChange={onChange} />
+            {data.kind !== "pasarguard" && (
+              <Field label={t("plan_flow")} hint={t("plan_flow_hint")}>
+                {(id) => (
+                  <Input
+                    id={id}
+                    dir="ltr"
+                    maxLength={40}
+                    value={String(value.flow ?? "")}
+                    onChange={(e) => onChange({ ...value, flow: e.target.value.replace(/[^a-z0-9-]/g, "") || undefined })}
+                  />
+                )}
+              </Field>
+            )}
+          </div>
+        )
+      }
+    </Async>
+  );
+}
 
 function PlanSheet({
   draft,
@@ -159,6 +217,92 @@ function PlanSheet({
         </Field>
         <Toggle checked={form.renewable} onChange={(v) => set("renewable", v)} label={t("renewable")} />
         <Toggle checked={form.is_active} onChange={(v) => set("is_active", v)} label={t("on_sale")} />
+        <Toggle checked={form.on_hold} onChange={(v) => set("on_hold", v)} label={t("plan_on_hold")} />
+        <p className="-mt-2 text-[0.78rem] text-[var(--hint)]">{t("plan_on_hold_hint")}</p>
+
+        <Group title={t("plan_look")}>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("plan_emoji")}>
+              {(id) => (
+                <Input
+                  id={id}
+                  maxLength={8}
+                  value={form.button_style.emoji ?? ""}
+                  onChange={(e) => set("button_style", { ...form.button_style, emoji: e.target.value })}
+                />
+              )}
+            </Field>
+            <Field label={t("plan_badge")}>
+              {(id) => (
+                <Select
+                  id={id}
+                  value={form.button_style.badge ?? ""}
+                  onChange={(e) => set("button_style", { ...form.button_style, badge: e.target.value })}
+                >
+                  {BADGES.map((badge) => (
+                    <option key={badge} value={badge}>
+                      {badge ? t(`badge_${badge}`) : "—"}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          </div>
+          <Field label={t("username_prefix")} hint={t("plan_username_prefix_hint")}>
+            {(id) => (
+              <Input
+                id={id}
+                dir="ltr"
+                maxLength={16}
+                value={form.username_prefix ?? ""}
+                onChange={(e) => set("username_prefix", e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") || null)}
+              />
+            )}
+          </Field>
+        </Group>
+
+        <Group title={t("plan_addons")}>
+          <Toggle
+            checked={form.addons.extras !== false}
+            onChange={(v) => set("addons", { ...form.addons, extras: v })}
+            label={t("plan_sell_extras")}
+          />
+          {form.addons.extras !== false && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={t("plan_extra_gb_price")} hint={t("plan_extra_default_hint")}>
+                {(id) => (
+                  <NumberInput
+                    id={id}
+                    allowEmpty
+                    value={form.addons.extra_gb_price ?? null}
+                    onChange={(v) => set("addons", { ...form.addons, extra_gb_price: v })}
+                  />
+                )}
+              </Field>
+              <Field label={t("plan_extra_day_price")} hint={t("plan_extra_default_hint")}>
+                {(id) => (
+                  <NumberInput
+                    id={id}
+                    allowEmpty
+                    value={form.addons.extra_day_price ?? null}
+                    onChange={(v) => set("addons", { ...form.addons, extra_day_price: v })}
+                  />
+                )}
+              </Field>
+            </div>
+          )}
+        </Group>
+
+        {form.panel_id && (
+          <Group title={t("plan_panel_options")}>
+            <p className="text-[0.78rem] text-[var(--hint)]">{t("plan_panel_options_hint")}</p>
+            <PlanPanelOptions
+              panelId={form.panel_id}
+              value={form.panel_options}
+              onChange={(value) => set("panel_options", value)}
+            />
+          </Group>
+        )}
       </div>
     </Sheet>
   );
