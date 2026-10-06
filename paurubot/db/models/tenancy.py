@@ -1,0 +1,140 @@
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from paurubot.db.base import Base, TimestampMixin, UpdatedMixin, str_enum
+from paurubot.db.models.enums import ApplicationStatus, ShopStatus, StaffRole
+
+
+class Shop(Base, UpdatedMixin):
+    __tablename__ = "shops"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("shops.id", ondelete="RESTRICT"))
+    title: Mapped[str] = mapped_column(String(96))
+    currency: Mapped[str] = mapped_column(String(8), default="IRT")
+    default_locale: Mapped[str] = mapped_column(String(8), default="fa")
+    status: Mapped[ShopStatus] = mapped_column(str_enum(ShopStatus), default=ShopStatus.ACTIVE)
+    bot_token_enc: Mapped[str | None] = mapped_column(Text)
+    bot_username: Mapped[str | None] = mapped_column(String(64))
+
+
+class ShopSetting(Base):
+    __tablename__ = "shop_settings"
+
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"), primary_key=True)
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[Any] = mapped_column(JSON)
+
+
+class Customer(Base, TimestampMixin):
+    __tablename__ = "customers"
+    __table_args__ = (
+        UniqueConstraint("shop_id", "telegram_id"),
+        Index("ix_customers_shop_created", "shop_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"))
+    telegram_id: Mapped[int] = mapped_column()
+    username: Mapped[str | None] = mapped_column(String(64), index=True)
+    first_name: Mapped[str | None] = mapped_column(String(128))
+    locale: Mapped[str | None] = mapped_column(String(8))
+    phone: Mapped[str | None] = mapped_column(String(20))
+    is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
+    ban_reason: Mapped[str | None] = mapped_column(String(255))
+    trial_generation: Mapped[int | None] = mapped_column(Integer)
+    referrer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"))
+    referral_rewarded: Mapped[bool] = mapped_column(Boolean, default=False)
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    note: Mapped[str | None] = mapped_column(Text)
+    last_seen_at: Mapped[datetime | None] = mapped_column()
+    blocked_bot_at: Mapped[datetime | None] = mapped_column()
+
+    reseller_profile: Mapped[ResellerProfile | None] = relationship(
+        back_populates="customer", foreign_keys="ResellerProfile.customer_id", uselist=False, lazy="selectin"
+    )
+
+    @property
+    def display_name(self) -> str:
+        if self.username:
+            return f"@{self.username}"
+        return self.first_name or str(self.telegram_id)
+
+    @property
+    def is_reseller(self) -> bool:
+        profile = self.reseller_profile
+        return profile is not None and profile.is_active
+
+
+class Staff(Base, TimestampMixin):
+    __tablename__ = "staff"
+    __table_args__ = (UniqueConstraint("shop_id", "username"), UniqueConstraint("shop_id", "telegram_id"))
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"))
+    role: Mapped[StaffRole] = mapped_column(str_enum(StaffRole))
+    username: Mapped[str | None] = mapped_column(String(64))
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    telegram_id: Mapped[int | None] = mapped_column()
+    display_name: Mapped[str | None] = mapped_column(String(96))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    session_version: Mapped[int] = mapped_column(Integer, default=1)
+    reseller_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("reseller_profiles.id", ondelete="CASCADE")
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column()
+
+
+class ResellerGroup(Base, TimestampMixin):
+    __tablename__ = "reseller_groups"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(64))
+    discount_percent: Mapped[int] = mapped_column(Integer, default=0)
+    min_topup: Mapped[int] = mapped_column(default=0)
+    max_active_services: Mapped[int | None] = mapped_column(Integer)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class ResellerProfile(Base, TimestampMixin):
+    __tablename__ = "reseller_profiles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"), index=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id", ondelete="CASCADE"), unique=True)
+    group_id: Mapped[int | None] = mapped_column(ForeignKey("reseller_groups.id", ondelete="SET NULL"))
+    permissions: Mapped[list[str]] = mapped_column(JSON, default=list)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    expires_at: Mapped[datetime | None] = mapped_column()
+    max_purchases_per_day: Mapped[int | None] = mapped_column(Integer)
+
+    customer: Mapped[Customer] = relationship(
+        back_populates="reseller_profile", foreign_keys=[customer_id], lazy="raise"
+    )
+    group: Mapped[ResellerGroup | None] = relationship(lazy="selectin")
+
+    @property
+    def discount_percent(self) -> int:
+        if self.group is None or not self.group.is_active:
+            return 0
+        return max(0, min(100, int(self.group.discount_percent)))
+
+
+class ResellerApplication(Base, TimestampMixin):
+    __tablename__ = "reseller_applications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"), index=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id", ondelete="CASCADE"), index=True)
+    text: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[ApplicationStatus] = mapped_column(
+        str_enum(ApplicationStatus), default=ApplicationStatus.PENDING
+    )
+    reviewed_by_staff_id: Mapped[int | None] = mapped_column(ForeignKey("staff.id", ondelete="SET NULL"))
+    reviewed_at: Mapped[datetime | None] = mapped_column()
