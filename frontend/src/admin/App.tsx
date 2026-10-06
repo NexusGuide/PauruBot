@@ -1,0 +1,78 @@
+import type { ReactNode } from "react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { Shell } from "./layout";
+import { Login, Setup } from "./screens/Auth";
+import { Catalog } from "./screens/Catalog";
+import { Orders, Payments } from "./screens/Commerce";
+import { CustomerPage, Customers } from "./screens/Customers";
+import { Broadcasts, Discounts } from "./screens/Growth";
+import { Home } from "./screens/Home";
+import { Panels } from "./screens/Panels";
+import { Resellers, Staff, TicketPage, Tickets } from "./screens/People";
+import { Services } from "./screens/Services";
+import { Account, Audit, Channels, Jobs, Reports, Settings, Texts } from "./screens/System";
+import { SessionProvider, useSession } from "./session";
+import { ConfirmProvider, Empty, Loading, Page, Section, Toasts } from "./ui";
+
+function Guard({ permission, children }: { permission: string; children: ReactNode }) {
+  const { can, t } = useSession();
+  if (!can(permission)) {
+    return (
+      <Page title={t("no_access_title")}>
+        <Section>
+          <Empty title={t("no_access")} hint={t("no_access_hint")} />
+        </Section>
+      </Page>
+    );
+  }
+  return <>{children}</>;
+}
+
+function Routed() {
+  const { me, checking, setupRequired } = useSession();
+  if (checking) return <Loading />;
+  if (setupRequired) return <Setup />;
+  if (!me) return <Login />;
+  const g = (permission: string, element: ReactNode) => <Guard permission={permission}>{element}</Guard>;
+  return (
+    <Shell>
+      <Routes>
+        <Route path="/" element={g("dashboard.view", <Home />)} />
+        <Route path="/customers" element={g("customers.read", <Customers />)} />
+        <Route path="/customers/:id" element={g("customers.read", <CustomerPage />)} />
+        <Route path="/services" element={g("services.read", <Services />)} />
+        <Route path="/orders" element={g("orders.read", <Orders />)} />
+        <Route path="/payments" element={g("payments.read", <Payments />)} />
+        <Route path="/tickets" element={g("tickets.read", <Tickets />)} />
+        <Route path="/tickets/:id" element={g("tickets.read", <TicketPage />)} />
+        <Route path="/catalog" element={g("catalog.read", <Catalog />)} />
+        <Route path="/panels" element={g("panels.read", <Panels />)} />
+        <Route path="/discounts" element={g("discounts.write", <Discounts />)} />
+        <Route path="/broadcasts" element={g("broadcast.send", <Broadcasts />)} />
+        <Route path="/resellers" element={g("resellers.manage", <Resellers />)} />
+        <Route path="/reports" element={g("reports.read", <Reports />)} />
+        <Route path="/settings" element={g("settings.read", <Settings />)} />
+        <Route path="/texts" element={g("texts.write", <Texts />)} />
+        <Route path="/channels" element={g("settings.read", <Channels />)} />
+        <Route path="/staff" element={g("staff.manage", <Staff />)} />
+        <Route path="/audit" element={g("audit.read", <Audit />)} />
+        <Route path="/jobs" element={g("settings.write", <Jobs />)} />
+        <Route path="/account" element={<Account />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Shell>
+  );
+}
+
+export function App() {
+  return (
+    <BrowserRouter basename="/admin">
+      <SessionProvider>
+        <ConfirmProvider>
+          <Routed />
+          <Toasts />
+        </ConfirmProvider>
+      </SessionProvider>
+    </BrowserRouter>
+  );
+}
