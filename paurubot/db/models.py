@@ -14,13 +14,13 @@ def _enum(cls: type[enum.Enum]) -> Enum:
     return Enum(cls, native_enum=False, length=24, values_callable=lambda e: [m.value for m in e])
 
 
-class PanelKind(str, enum.Enum):
+class PanelKind(enum.StrEnum):
     PASARGUARD = "pasarguard"
     MARZBAN = "marzban"
     XUI = "xui"
 
 
-class ServiceStatus(str, enum.Enum):
+class ServiceStatus(enum.StrEnum):
     ACTIVE = "active"
     LIMITED = "limited"
     EXPIRED = "expired"
@@ -28,26 +28,26 @@ class ServiceStatus(str, enum.Enum):
     DELETED = "deleted"
 
 
-class OrderKind(str, enum.Enum):
+class OrderKind(enum.StrEnum):
     PURCHASE = "purchase"
     RENEW = "renew"
 
 
-class OrderStatus(str, enum.Enum):
+class OrderStatus(enum.StrEnum):
     PENDING = "pending"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELED = "canceled"
 
 
-class PaymentMethod(str, enum.Enum):
+class PaymentMethod(enum.StrEnum):
     CARD = "card"
     ZARINPAL = "zarinpal"
     STARS = "stars"
     ADMIN = "admin"
 
 
-class PaymentStatus(str, enum.Enum):
+class PaymentStatus(enum.StrEnum):
     WAITING_RECEIPT = "waiting_receipt"
     PENDING = "pending"
     APPROVED = "approved"
@@ -55,7 +55,7 @@ class PaymentStatus(str, enum.Enum):
     EXPIRED = "expired"
 
 
-class TxKind(str, enum.Enum):
+class TxKind(enum.StrEnum):
     TOPUP = "topup"
     PURCHASE = "purchase"
     RENEW = "renew"
@@ -64,7 +64,7 @@ class TxKind(str, enum.Enum):
     ADMIN = "admin"
 
 
-class ResellerRequestStatus(str, enum.Enum):
+class ResellerRequestStatus(enum.StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
