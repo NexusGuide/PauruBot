@@ -1,0 +1,241 @@
+# Feature tracker
+
+Every row of the NexusGuard feature matrix with its phase in PauruBot and its status.
+Phase changes from the original matrix are marked with `*`.
+
+Status: `todo` · `wip` · `done` (done means implemented **and** covered by tests).
+
+
+## Platform & Architecture
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| ARC-01 | Modular Python core: FastAPI + aiogram + SQLAlchemy 2 + Alembic + PostgreSQL | MVP | todo |
+| ARC-02 | Redis-backed FSM state, locks and callback payloads | MVP | todo |
+| ARC-03 | Panel driver registry (one interface, many panel types) | MVP | todo |
+| ARC-04 | Structured logging with tags and Telegram log channels | v1.1 | todo |
+| ARC-05 | Ops CLI: status, logs, health, backup, restore, migrate, doctor | MVP | todo |
+| ARC-06 | Modular monolith with domain/service/adapter layers | MVP | todo |
+
+## Identity, Auth & Security
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| SEC-01 | Telegram WebApp initData HMAC validation | MVP | todo |
+| SEC-02 | Phone OTP login delivered by the bot | v1.1 | todo |
+| SEC-03 | Profile API key login (hashed, shown once) | v1.1 | todo |
+| SEC-04 | Session version revoke on credential change | MVP | todo |
+| SEC-05 | CSRF double-submit + Origin/Referer guard | MVP | todo |
+| SEC-06 | CSP nonce + security headers | MVP | todo |
+| SEC-07 | Login brute-force guard with trusted-hop X-Forwarded-For | MVP | todo |
+| SEC-08 | First-run setup wizard protected by one-time gate token | MVP | todo |
+| SEC-09 | Secrets encrypted at rest (Fernet + HKDF domain separation) | MVP | todo |
+| SEC-10 | SSRF guard for panel base URLs | MVP | todo |
+| SEC-11 | Webhook secret-token authentication (constant-time compare) | MVP | todo |
+| SEC-12 | Log redaction of tokens and passwords | MVP | todo |
+| SEC-13 | Terms-of-service acceptance gate | v1.1 | todo |
+| SEC-14 | Ban, anti-flood and maintenance middlewares | MVP | todo |
+| SEC-15 | Fine-grained RBAC with authorization matrix tests | MVP | todo |
+
+## Multi-tenant & Resellers
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| TEN-01 | Org hierarchy Owner → Level-1 → Level-2 with visible scope | v1.1 | todo |
+| TEN-02 | Per-shop wallet isolation | MVP | todo |
+| TEN-03 | Reseller feature permissions (deny by default) | MVP | todo |
+| TEN-04 | Dedicated reseller bot with its own token | v2 | todo |
+| TEN-05 | Reseller billing: PAYG, hourly and usage-based with snapshots | v1.1 | todo |
+| TEN-06 | Reseller low-balance warning and auto-suspend | v1.1 | todo |
+| TEN-07 | Reseller usage cap and capacity limits | v1.1 | todo |
+| TEN-08 | Agent expiry and max-buy limits | v1.1 | todo |
+| TEN-09 | Reseller application / approval workflow | v1.1 | todo |
+| TEN-10 | Import existing panel users into a reseller | v1.1 | todo |
+| TEN-11 | Move users between panel admins | v2 | todo |
+
+## VPN Panel Integrations
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| PNL-01 | PasarGuard deep admin: users, admins, groups, hosts, nodes, templates, inbounds | MVP | todo |
+| PNL-02 | PasarGuard live role/ACL and quota read from the panel | v1.1 | todo |
+| PNL-03 | PasarGuard webhook events (created, expired, limited, usage %, days left) | MVP | todo |
+| PNL-04 | Marzban driver | MVP | todo |
+| PNL-05 | Marzneshin driver | v1.1 | todo |
+| PNL-06 | X-UI (Sanaei / Alireza) and S-UI drivers | MVP* | todo |
+| PNL-07 | Hiddify driver | v2 | todo |
+| PNL-08 | WireGuard: WGDashboard and WGMate | v2 | todo |
+| PNL-09 | Remnawave driver + usage sync | v2 | todo |
+| PNL-10 | Guard and Rebecca drivers | v2 | todo |
+| PNL-11 | MikroTik and IBSng drivers | v2 | todo |
+| PNL-12 | Panel and node uptime monitoring with alerts | v1.1 | todo |
+| PNL-13 | Node traffic and host resource gauges | v1.1 | todo |
+| PNL-14 | Per-panel inbound / protocol settings | v1.1 | todo |
+
+## Catalog & Sales
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| CAT-01 | Plans, categories and products with per-location availability | MVP | todo |
+| CAT-02 | Plan audience, add-ons, per-plan naming and button styles | v1.1 | todo |
+| CAT-03 | Custom buy: user chooses volume and days | v1.1 | todo |
+| CAT-04 | Trial accounts with quota generations and reservations | MVP | todo |
+| CAT-05 | Manual config stock / inventory sale | v2 | todo |
+| CAT-06 | Manual service creation by admin | v1.1 | todo |
+| CAT-07 | Bulk purchase | v2 | todo |
+| CAT-08 | Guest purchase (no prior registration) | v2 | todo |
+| CAT-09 | Configurable username generation methods | MVP | todo |
+
+## Service Lifecycle
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| SVC-01 | Renew, extra volume, extra time, upgrade | MVP | todo |
+| SVC-02 | Queued renewal processor | v1.1 | todo |
+| SVC-03 | On-hold services (start on first connection) | v1.1 | todo |
+| SVC-04 | Location / panel change for an existing service | v2 | todo |
+| SVC-05 | Expiry and low-volume notifications | MVP | todo |
+| SVC-06 | Auto disable / re-activate configs | v1.1 | todo |
+| SVC-07 | Bulk volume/time increase for many users | v1.1 | todo |
+| SVC-08 | Branded subscription link page | v1.1 | todo |
+| SVC-09 | QR code delivery | MVP | todo |
+| SVC-10 | Delivery failure queue with retry | MVP | todo |
+| SVC-11 | Usage chart per service | v1.1 | todo |
+| SVC-12 | Service quota cache | MVP* | todo |
+
+## Payments
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| PAY-01 | Payment provider interface | MVP | todo |
+| PAY-02 | Fulfillment state machine with leases / claim tokens | MVP | todo |
+| PAY-03 | Payment settlements | v1.1 | todo |
+| PAY-04 | Card-to-card with receipt upload and admin approval | MVP | todo |
+| PAY-05 | Card auto-approve rules | v1.1 | todo |
+| PAY-06 | Duplicate receipt detection (image hash) | MVP* | todo |
+| PAY-07 | Zarinpal | MVP | todo |
+| PAY-08 | Aqayepardakht, IranPay/Tetra98, Variza | v2 | todo |
+| PAY-09 | AbanGateway, AtlasPay, Blupal, Tronado, CubePay | v2 | todo |
+| PAY-10 | NowPayments and Plisio | v1.1 | todo |
+| PAY-11 | Direct on-chain USDT-TRC20 / TRX / TON | v1.1 | todo |
+| PAY-12 | Telegram Stars | MVP* | todo |
+| PAY-13 | FX / crypto price sync | v1.1 | todo |
+| PAY-14 | Payment bonus / cashback per method | v1.1 | todo |
+| PAY-15 | Direct pay (invoice without wallet top-up) | MVP | todo |
+| PAY-16 | Payment expiry job | MVP | todo |
+
+## Wallet, Billing & Finance
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| FIN-01 | Wallet top-up and balance | MVP | todo |
+| FIN-02 | Append-only ledger with reconciliation | MVP | todo |
+| FIN-03 | Charge / gift codes | v1.1 | todo |
+| FIN-04 | Finance reports and daily report | MVP | todo |
+| FIN-05 | Excel export | v1.1 | todo |
+| FIN-06 | Top customers report | v1.1 | todo |
+| FIN-07 | Shop bundle export / import | v2 | todo |
+
+## Growth & Marketing
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| GRW-01 | Referral system with rewards | v1.1 | todo |
+| GRW-02 | Loyalty tiers, rules and rewards | v2 | todo |
+| GRW-03 | Lucky wheel | v2 | todo |
+| GRW-04 | Lottery | v2 | todo |
+| GRW-05 | Discount codes incl. sticky discount | MVP | todo |
+| GRW-06 | Broadcast with rate-limited queue and job tracking | MVP | todo |
+| GRW-07 | Forced channel join | MVP | todo |
+| GRW-08 | Trust channel | v2 | todo |
+
+## Telegram Bot UX
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| BOT-01 | Editable bot texts with message variables | MVP | todo |
+| BOT-02 | Drag-and-drop keyboard layout editor | v1.1 | todo |
+| BOT-03 | Bot appearance, colored buttons, premium emoji | v1.1 | todo |
+| BOT-04 | Multi-language (fa, en, ru, zh) | MVP | todo |
+| BOT-05 | Help buttons and app downloads from GitHub releases | v1.1 | todo |
+| BOT-06 | Generated user info card image | v2 | todo |
+| BOT-07 | Telegram Business account automation | v2 | todo |
+| BOT-08 | User color/risk tags | v1.1 | todo |
+| BOT-09 | Delete-with-reason and user notification | v1.1 | todo |
+
+## Mini App & Web
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| APP-01 | React + TypeScript Mini App: home, buy wizard, services, renew, wallet, transactions | MVP | todo |
+| APP-02 | PWA install and icons | v1.1 | todo |
+| APP-03 | Role-aware Mini App for resellers / admins | v2 | todo |
+
+## Admin Web Panel
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| ADM-01 | Dashboard with live metrics | MVP | todo |
+| ADM-02 | Inbox of pending orders/payments with dismissals | MVP | todo |
+| ADM-03 | Audit log of admin actions | MVP | todo |
+| ADM-04 | Table bulk actions, search, sort, paging | MVP | todo |
+| ADM-05 | In-panel help docs with search | v1.1 | todo |
+| ADM-06 | Sales funnel analytics | v2 | todo |
+| ADM-07 | Panel settings modal (PasarGuard server settings) | v1.1 | todo |
+| ADM-08 | Environment analyzer / doctor | v1.1 | todo |
+
+## Support & Communication
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| SUP-01 | Tickets user↔admin with attachments | MVP | todo |
+| SUP-02 | Internal panel tickets reseller↔owner | v1.1 | todo |
+| SUP-03 | Report channel split by topics | MVP | todo |
+| SUP-04 | Support contacts | MVP | todo |
+
+## Jobs & Monitoring
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| JOB-01 | Job registry and scheduler | MVP | todo |
+| JOB-02 | Daily status report | MVP | todo |
+| JOB-03 | IP block notification | v2 | todo |
+| JOB-04 | Log cleanup | MVP | todo |
+| JOB-05 | Metrics, tracing and dead-letter queues | v1.1 | todo |
+
+## Install, Backup & Update
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| OPS-01 | One-line installer with menu | MVP | todo |
+| OPS-02 | Release channels and version pinning (beta/release, --version) | MVP | todo |
+| OPS-03 | Docker Compose stack | MVP | todo |
+| OPS-04 | Automatic SSL (ACME) | MVP | todo |
+| OPS-05 | Backup with manifest hashes and validated restore | MVP | todo |
+| OPS-06 | Scheduled backup sent to Telegram | MVP | todo |
+| OPS-07 | Panel-based update with rollback UI | v1.1 | todo |
+| OPS-08 | SQLite → PostgreSQL migration tool | v1.1 | todo |
+
+## Migration & Import
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| MIG-01 | Importers from DDBot, Faoxima, WizWiz and SQL dumps | v1.1 | todo |
+
+## Quality & CI
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| QA-01 | Curated security regression suite in CI | MVP | todo |
+| QA-02 | Ruff lint/format + compile in CI, Dependabot | MVP | todo |
+| QA-03 | Docs generated from source | v1.1 | todo |
+
+## Added during review
+
+| ID | Feature | Phase | Status |
+|----|---------|-------|--------|
+| NEW-01 | Master key escrow inside encrypted backups (restores recover panel credentials) | MVP | todo |
+| NEW-02 | TLS certificate pinning for self-signed panels instead of disabling verification | MVP | todo |
+| NEW-03 | Periodic usage sync for panels without webhooks | MVP | todo |
+| NEW-04 | Refund and service cancellation policy | MVP | todo |
+| NEW-05 | Error monitoring hook (Sentry DSN, optional) | MVP | todo |
