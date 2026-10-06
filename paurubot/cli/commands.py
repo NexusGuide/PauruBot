@@ -320,3 +320,62 @@ async def restore_cmd(args: argparse.Namespace) -> int:
             )
             return 3
     return 0
+
+
+def _import_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("file", help="MySQL dump (.sql) or SQLite database of the old bot")
+    parser.add_argument("--source", choices=["mirza", "faoxima", "wizwiz"], help="detected when omitted")
+    parser.add_argument(
+        "--map",
+        action="append",
+        default=[],
+        metavar="OLD=PANEL_ID",
+        help="old panel name or server id to a PauruBot panel id; repeat per panel",
+    )
+    parser.add_argument("--shop", type=int, help="shop id (default: the first shop)")
+    parser.add_argument("--apply", action="store_true", help="write changes (default is a dry run)")
+
+
+@command("import-bot", "move customers, balances and services over from another bot (MIG-01)", _import_args)
+async def import_bot(args: argparse.Namespace) -> int:
+    import asyncio
+    from pathlib import Path
+
+    from sqlalchemy import select
+
+    from paurubot.db.models import Shop
+    from paurubot.db.session import dispose_engine, session_scope
+    from paurubot.migration import runner, sources
+
+    path = Path(args.file)
+    if not await asyncio.to_thread(path.is_file):
+        print(f"no such file: {path}")
+        return 2
+    name = args.source or await asyncio.to_thread(sources.guess, path)
+    extract = await asyncio.to_thread(sources.SOURCES[name], path)
+    info = runner.summary(extract)
+    print(
+        f"source {name}: {info['customers']} customers, {info['services']} services, balance {info['balance_total']}"
+    )
+    for panel in info["panels"]:
+        print(f"  panel {panel['key']!r} ({panel['label']}): {panel['services']} services")
+    panel_map: dict[str, int] = {}
+    for item in args.map:
+        key, _, value = item.rpartition("=")
+        if not key or not value.isdigit():
+            print(f"bad --map {item!r}; use OLD=PANEL_ID")
+            return 2
+        panel_map[key] = int(value)
+    try:
+        async with session_scope() as session:
+            shop_id = args.shop or await session.scalar(select(Shop.id).order_by(Shop.id))
+            if shop_id is None:
+                print("no shop yet; finish setup first")
+                return 2
+            report = await runner.apply(session, int(shop_id), extract, panel_map, dry_run=not args.apply)
+    finally:
+        await dispose_engine()
+    print(json.dumps(report.as_dict(), indent=2))
+    if not args.apply:
+        print("dry run: nothing was written; add --apply to import")
+    return 0

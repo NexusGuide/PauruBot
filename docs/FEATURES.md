@@ -214,13 +214,13 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | OPS-05 | Backup with manifest hashes and validated restore | MVP | done |
 | OPS-06 | Scheduled backup sent to Telegram | MVP | done |
 | OPS-07 | Panel-based update with rollback UI | v1.1 | todo |
-| OPS-08 | SQLite → PostgreSQL migration tool | v1.1 | todo |
+| OPS-08 | SQLite → PostgreSQL migration tool | v1.1 | done |
 
 ## Migration & Import
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| MIG-01 | Importers from DDBot, Faoxima, WizWiz and SQL dumps | v1.1 | todo |
+| MIG-01 | Importers from DDBot, Faoxima, WizWiz and SQL dumps | v1.1 | done |
 
 ## Quality & CI
 

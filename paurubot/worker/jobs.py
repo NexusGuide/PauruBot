@@ -247,9 +247,47 @@ async def import_panel_users(session: AsyncSession, job: queue.Claimed) -> None:
     await session.commit()
 
 
+async def migrate_bot(session: AsyncSession, job: queue.Claimed) -> None:
+    """MIG-01: bring customers, balances and services over from another bot's database."""
+    import json as _json
+
+    from paurubot import kv
+    from paurubot.audit.log import Actor, record
+    from paurubot.migration import runner
+
+    data = job.payload
+    try:
+        extract = await runner.load(str(data["token"]), data.get("source"))
+    except ValueError as exc:
+        raise Permanent(str(exc)) from exc
+    panel_map = {str(k): int(v) for k, v in (data.get("panel_map") or {}).items()}
+    report = await runner.apply(
+        session, int(data["shop_id"]), extract, panel_map, dry_run=bool(data.get("dry_run"))
+    )
+    await record(
+        session,
+        shop_id=int(data["shop_id"]),
+        actor=Actor("staff", data["staff_id"], None) if data.get("staff_id") else Actor.system(),
+        action="migration.dry_run" if report.dry_run else "migration.run",
+        entity="migration",
+        entity_id=None,
+        after=report.as_dict(),
+    )
+    await session.commit()
+    await kv.get_redis().set(
+        f"migration:{data['shop_id']}:last",
+        _json.dumps({**report.as_dict(), "job_id": job.id}),
+        ex=30 * 86_400,
+    )
+
+
 register_queue(
     "ops",
-    QueueSpec({"backup": backup_now, "import_panel": import_panel_users}, batch=1, lease_seconds=1800),
+    QueueSpec(
+        {"backup": backup_now, "import_panel": import_panel_users, "migrate": migrate_bot},
+        batch=1,
+        lease_seconds=3600,
+    ),
 )
 
 
