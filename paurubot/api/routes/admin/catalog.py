@@ -77,6 +77,8 @@ class PlanAddons(BaseModel):
 class ButtonStyle(BaseModel):
     emoji: str = Field(default="", max_length=8)
     badge: Literal["", "hot", "new", "best", "sale"] = ""
+    style: Literal["", "primary", "success", "danger"] = ""
+    emoji_id: str = Field(default="", max_length=25, pattern=r"^\d*$")
 
 
 def _compact(data: dict[str, Any]) -> dict[str, Any]:

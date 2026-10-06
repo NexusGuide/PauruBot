@@ -53,6 +53,9 @@ class Customer(Base, TimestampMixin):
     referral_rewarded: Mapped[bool] = mapped_column(Boolean, default=False)
     tags: Mapped[list[str]] = mapped_column(JSON, default=list)
     note: Mapped[str | None] = mapped_column(Text)
+    # Staff markers (BOT-08): a colour to spot someone at a glance and a risk level that tightens rules.
+    color: Mapped[str | None] = mapped_column(String(12))
+    risk: Mapped[str] = mapped_column(String(8), default="none", server_default="none")
     last_seen_at: Mapped[datetime | None] = mapped_column()
     blocked_bot_at: Mapped[datetime | None] = mapped_column()
 

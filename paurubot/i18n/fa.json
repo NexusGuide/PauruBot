@@ -350,5 +350,22 @@
   "panel_alert_up": "🟢 پنل <b>{panel}</b> بعد از {minutes} دقیقه برگشت.",
   "panel_alert_node_down": "🟠 نود <b>{node}</b> روی پنل {panel} قطع شد.",
   "panel_alert_node_up": "🟢 نود <b>{node}</b> روی پنل {panel} دوباره وصل شد.",
-  "panel_alert_quota": "⚠️ {percent}٪ سهمیه‌ی ادمین ربات روی پنل {panel} مصرف شده. وقتی پر بشه، فروش از این پنل متوقف می‌شه."
+  "panel_alert_quota": "⚠️ {percent}٪ سهمیه‌ی ادمین ربات روی پنل {panel} مصرف شده. وقتی پر بشه، فروش از این پنل متوقف می‌شه.",
+  "btn_apps": "📲 دانلود برنامه",
+  "btn_open_link": "🔗 باز کردن",
+  "apps_none": "فعلاً برنامه‌ای معرفی نشده.",
+  "apps_intro": "برنامه‌ی دستگاهت رو انتخاب کن:",
+  "app_button": "{name} ({platform})",
+  "platform_android": "اندروید",
+  "platform_ios": "آیفون",
+  "platform_windows": "ویندوز",
+  "platform_mac": "مک",
+  "platform_linux": "لینوکس",
+  "btn_download_github": "⬇️ دانلود از گیت‌هاب",
+  "btn_open_store": "🛒 صفحه‌ی برنامه",
+  "app_caption": "📲 <b>{name}</b>\nنسخه: {version}",
+  "alert_removed_by_staff": "🗑 سرویس <b>{name}</b> توسط پشتیبانی حذف شد.",
+  "alert_disabled_by_staff": "⏸ سرویس <b>{name}</b> توسط پشتیبانی غیرفعال شد.",
+  "alert_reason": "دلیل: {reason}",
+  "trial_unavailable": "تست رایگان برای حسابت فعال نیست. برای اطلاعات بیشتر به پشتیبانی پیام بده."
 }

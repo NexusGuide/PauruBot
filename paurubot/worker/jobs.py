@@ -87,6 +87,18 @@ async def bulk_service(session: AsyncSession, job: queue.Claimed) -> None:
             "reason": data.get("reason"),
         },
     )
+    if data.get("notify") and action in {"delete", "disable"}:
+        await queue.enqueue(
+            session,
+            "notify",
+            "service_alert",
+            {
+                "service_id": service.id,
+                "alert": "removed_by_staff" if action == "delete" else "disabled_by_staff",
+                "reason": str(data.get("reason") or "")[:255],
+            },
+            shop_id=service.shop_id,
+        )
 
 
 register_queue("bulk", QueueSpec({"service": bulk_service}, batch=10, lease_seconds=120))
@@ -361,3 +373,17 @@ async def monitor_panels() -> None:
 
     async with session_scope() as session:
         await monitor.run(session)
+
+
+@every(6 * 3600, "apps.refresh")
+async def refresh_apps() -> None:
+    """Keep app download links (and Telegram mirrors) on the latest GitHub release (BOT-05)."""
+    from paurubot.core import apps
+    from paurubot.core import settings as shop_settings
+
+    async with session_scope() as session:
+        shops = list(await session.scalars(select(Shop.id)))
+        configs = {shop_id: await shop_settings.load(session, shop_id) for shop_id in shops}
+    for shop_id, cfg in configs.items():
+        if cfg.get("download_apps"):
+            await apps.refresh(shop_id, cfg["download_apps"], cfg.get("app_cache_chat_id"))

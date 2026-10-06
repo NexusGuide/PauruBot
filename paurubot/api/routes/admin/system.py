@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import io
 from datetime import date, datetime, time, timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -109,6 +109,24 @@ def _check_card_accounts(value: Any) -> None:
             raise HTTPException(status_code=422, detail="card_number_invalid")
 
 
+def _check_appearance(values: dict[str, Any]) -> None:
+    from paurubot.bot import menu
+    from paurubot.core import apps
+
+    checks = {
+        "menu_layout": menu.validate_layout,
+        "button_styles": menu.validate_styles,
+        "help_items": menu.validate_help,
+        "download_apps": apps.validate,
+    }
+    for key, check in checks.items():
+        if key in values:
+            try:
+                values[key] = check(values[key])
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
 def _check_custom(values: dict[str, Any]) -> None:
     for low, high in (("custom_min_gb", "custom_max_gb"), ("custom_min_days", "custom_max_days")):
         lo, hi = values.get(low), values.get(high)
@@ -168,6 +186,7 @@ async def write_settings(
         except ValueError:
             raise HTTPException(status_code=422, detail="app_links_invalid") from None
     _check_custom(body.values)
+    _check_appearance(body.values)
     before = shop_settings.public_view(await shop_settings.load(db, ctx.shop_id, fresh=True))
     try:
         await shop_settings.set_many(db, ctx.shop_id, body.values)
@@ -575,6 +594,66 @@ async def sales_report(
     lo, hi, first, last = _range(start, end)
     data = await _sales(db, ctx, lo, hi)
     return {"start": first.isoformat(), "end": last.isoformat(), **data}
+
+
+@router.get("/reports/top-customers")
+async def top_customers_report(
+    ctx: Annotated[StaffContext, Depends(require("reports.read"))],
+    db: DB,
+    start: date | None = None,
+    end: date | None = None,
+    limit: int = Query(20, ge=1, le=100),
+) -> dict[str, Any]:
+    from paurubot.core.exports import top_customers
+
+    lo, hi, first, last = _range(start, end)
+    scope = await reseller_scope(db, ctx)
+    items = await top_customers(db, ctx.shop_id, start=lo, end=hi, limit=limit, customer_ids=scope)
+    return {"start": first.isoformat(), "end": last.isoformat(), "items": items}
+
+
+EXPORT_PERMISSIONS = {
+    "orders": "orders.read",
+    "payments": "payments.read",
+    "customers": "customers.read",
+    "services": "services.read",
+}
+
+
+@router.get("/export/{kind}.xlsx")
+async def export_xlsx(
+    kind: Literal["orders", "payments", "customers", "services"],
+    db: DB,
+    ctx: Annotated[StaffContext, Depends(require("dashboard.view"))],
+    start: date | None = None,
+    end: date | None = None,
+) -> Response:
+    """Excel download of one table, for a date range (FIN-05)."""
+    from paurubot.core.exports import build
+
+    if not ctx.can(EXPORT_PERMISSIONS[kind]):
+        raise HTTPException(status_code=403, detail="forbidden")
+    scope = await reseller_scope(db, ctx)
+    if scope is not None and kind == "customers":
+        raise HTTPException(status_code=403, detail="forbidden")
+    lo = datetime.combine(start, time.min).replace(tzinfo=utcnow().tzinfo) if start else None
+    hi = datetime.combine(end + timedelta(days=1), time.min).replace(tzinfo=utcnow().tzinfo) if end else None
+    content = await build(db, kind, ctx.shop_id, start=lo, end=hi, customer_ids=scope)
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="export.download",
+        entity="export",
+        entity_id=None,
+        after={"kind": kind, "start": str(start or ""), "end": str(end or "")},
+    )
+    stamp = (end or utcnow().date()).isoformat()
+    return Response(
+        content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{kind}-{stamp}.xlsx"'},
+    )
 
 
 @router.get("/reports/sales.csv")

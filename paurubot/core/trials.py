@@ -29,6 +29,8 @@ async def eligibility(session: AsyncSession, customer: Customer) -> str | None:
     cfg = await shop_settings.load(session, customer.shop_id)
     if not cfg["trial_enabled"]:
         return "trial_disabled"
+    if customer.risk == "high":
+        return "trial_unavailable"
     if (cfg["trial_requires_phone"] or cfg["require_phone"]) and not customer.phone:
         return "trial_needs_phone"
     generation = int(cfg["trial_generation"] or 1)
