@@ -6,8 +6,9 @@ Create Date: ${create_date}
 """
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
+
 import paurubot.db.base  # noqa: F401
 ${imports if imports else ""}
 

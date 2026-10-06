@@ -2,7 +2,7 @@
 
 Revision ID: 0001
 Revises:
-Create Date: 2026-10-06 14:04:27.373411
+Create Date: 2026-10-06 14:29:41.603959
 """
 
 from __future__ import annotations
@@ -101,6 +101,7 @@ def upgrade() -> None:
         sa.Column("is_banned", sa.Boolean(), nullable=False),
         sa.Column("ban_reason", sa.String(length=255), nullable=True),
         sa.Column("trial_generation", sa.Integer(), nullable=True),
+        sa.Column("terms_accepted_version", sa.Integer(), nullable=True),
         sa.Column("referrer_id", sa.BigInteger(), nullable=True),
         sa.Column("referral_rewarded", sa.Boolean(), nullable=False),
         sa.Column("tags", sa.JSON(), nullable=False),

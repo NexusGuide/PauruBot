@@ -1,0 +1,380 @@
+"""Buying: location → category → plan → checkout, for purchases, renewals, extras and upgrades."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from aiogram import F, Router
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from paurubot.bot import keyboards
+from paurubot.bot.callbacks import Pay, Shop, Svc
+from paurubot.bot.routers.start import menu
+from paurubot.bot.states import ShopStates
+from paurubot.bot.utils import Btn, error_text, show
+from paurubot.core import catalog, orders, pricing
+from paurubot.db.models import Customer, DiscountCode, Order, OrderKind, OrderStatus, Plan, Service
+from paurubot.db.models import Shop as ShopRow
+from paurubot.i18n import Texts
+from paurubot.ledger.accounts import wallet_balance
+from paurubot.payments import engine as payments
+
+router = Router(name="shop")
+
+
+def priced(plans: list[Plan], customer: Customer) -> list[tuple[Plan, int]]:
+    return [(plan, pricing.quote(plan.price, customer).amount) for plan in plans]
+
+
+async def show_start(
+    event: Message | CallbackQuery, session: AsyncSession, shop: ShopRow, customer: Customer, t: Texts
+) -> None:
+    locations = await catalog.locations(session, shop.id, customer)
+    if len(locations) > 1:
+        await show(event, t("choose_location"), keyboards.locations_kb(t, locations))
+        return
+    await show_categories(event, session, shop, customer, t, locations[0].id if locations else 0)
+
+
+async def show_categories(
+    event: Message | CallbackQuery,
+    session: AsyncSession,
+    shop: ShopRow,
+    customer: Customer,
+    t: Texts,
+    loc: int,
+) -> None:
+    cats = await catalog.categories(session, shop.id, customer, loc or None)
+    loose = await catalog.plans(session, shop.id, customer, location_id=loc or None, uncategorised=True)
+    if not cats:
+        plans = await catalog.plans(session, shop.id, customer, location_id=loc or None)
+        if not plans:
+            await show(event, t("no_plans"))
+            return
+        await show(
+            event,
+            t("choose_plan"),
+            keyboards.plans_kb(t, priced(plans, customer), back_cb=Shop(step="start").pack()),
+        )
+        return
+    await show(event, t("choose_category"), keyboards.categories_kb(t, cats, loc, bool(loose)))
+
+
+@router.message(Btn("btn_buy"))
+async def buy(
+    message: Message, session: AsyncSession, shop: ShopRow, customer: Customer, t: Texts, state: FSMContext
+) -> None:
+    await state.clear()
+    await show_start(message, session, shop, customer, t)
+
+
+@router.callback_query(Shop.filter(F.step == "start"))
+async def back_start(
+    call: CallbackQuery, session: AsyncSession, shop: ShopRow, customer: Customer, t: Texts
+) -> None:
+    await call.answer()
+    await show_start(call, session, shop, customer, t)
+
+
+@router.callback_query(Shop.filter(F.step == "loc"))
+async def pick_location(
+    call: CallbackQuery,
+    callback_data: Shop,
+    session: AsyncSession,
+    shop: ShopRow,
+    customer: Customer,
+    t: Texts,
+) -> None:
+    await call.answer()
+    await show_categories(call, session, shop, customer, t, callback_data.loc)
+
+
+@router.callback_query(Shop.filter(F.step == "cat"))
+async def pick_category(
+    call: CallbackQuery,
+    callback_data: Shop,
+    session: AsyncSession,
+    shop: ShopRow,
+    customer: Customer,
+    t: Texts,
+) -> None:
+    await call.answer()
+    plans = await catalog.plans(
+        session,
+        shop.id,
+        customer,
+        location_id=callback_data.loc or None,
+        category_id=callback_data.cat or None,
+        uncategorised=not callback_data.cat,
+    )
+    if not plans:
+        await show(call, t("no_plans"))
+        return
+    back = Shop(step="loc", loc=callback_data.loc).pack()
+    await show(call, t("choose_plan"), keyboards.plans_kb(t, priced(plans, customer), back_cb=back))
+
+
+@router.callback_query(Shop.filter(F.step == "plan"))
+async def pick_plan(
+    call: CallbackQuery,
+    callback_data: Shop,
+    session: AsyncSession,
+    shop: ShopRow,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    plan = await catalog.get_plan(session, shop.id, callback_data.plan, customer)
+    if plan is None:
+        await call.answer(t("plan_unavailable"), show_alert=True)
+        return
+    kind = (
+        OrderKind(callback_data.kind)
+        if callback_data.kind
+        else (OrderKind.RENEW if callback_data.svc else OrderKind.PURCHASE)
+    )
+    await call.answer()
+    await state.set_data(
+        {"kind": kind.value, "plan_id": plan.id, "svc_id": callback_data.svc, "code_id": 0, "label": None}
+    )
+    if kind == OrderKind.PURCHASE and customer.is_reseller:
+        await state.set_state(ShopStates.label)
+        if isinstance(call.message, Message):
+            await call.message.answer(t("ask_label"), reply_markup=keyboards.cancel(t))
+        return
+    await checkout(call, session, customer, t, cfg, state)
+
+
+@router.message(ShopStates.label, F.text)
+async def got_label(
+    message: Message,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    staff: Any,
+    state: FSMContext,
+) -> None:
+    text = (message.text or "").strip()
+    await state.update_data(label=None if text in {"-", "0"} else text[:48])
+    await state.set_state(None)
+    await message.answer(t("label_saved"), reply_markup=menu(t, cfg, staff))
+    await checkout(message, session, customer, t, cfg, state)
+
+
+async def _cancel_previous(session: AsyncSession, state: FSMContext, customer: Customer) -> None:
+    data = await state.get_data()
+    if data.get("order_id"):
+        await orders.cancel(session, int(data["order_id"]), customer.id)
+
+
+async def checkout(
+    event: Message | CallbackQuery,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    data = await state.get_data()
+    kind = OrderKind(data.get("kind") or OrderKind.PURCHASE.value)
+    plan = (
+        await catalog.get_plan(session, customer.shop_id, int(data.get("plan_id") or 0), customer)
+        if data.get("plan_id")
+        else None
+    )
+    service = await session.get(Service, int(data["svc_id"])) if data.get("svc_id") else None
+    code: DiscountCode | None = None
+    if data.get("code_id"):
+        code = await session.get(DiscountCode, int(data["code_id"]))
+    elif not data.get("no_sticky"):
+        code = await pricing.sticky_code(session, customer)
+    await _cancel_previous(session, state, customer)
+    try:
+        draft = await orders.draft(
+            session,
+            customer,
+            kind,
+            plan=plan,
+            service=service,
+            extra_gb=int(data.get("extra_gb") or 0),
+            extra_days=int(data.get("extra_days") or 0),
+            label=data.get("label"),
+        )
+        try:
+            order = await orders.create(session, customer, draft, code=code)
+        except pricing.DiscountError:
+            if data.get("code_id"):
+                raise
+            order = await orders.create(session, customer, draft)  # sticky code no longer applies
+            code = None
+    except (orders.OrderError, pricing.DiscountError) as exc:
+        await show(event, t(exc.key))
+        return
+    await state.update_data(order_id=order.id)
+    balance = await wallet_balance(session, customer.shop_id, customer.id)
+    methods = await payments.available(session, customer.shop_id)
+    from paurubot.bot.views import checkout_text
+
+    text = checkout_text(
+        t, order, plan=plan, service=service, balance=balance, code=code.code if code else None
+    )
+    markup = keyboards.checkout_kb(
+        t,
+        order_id=order.id,
+        can_wallet=balance >= order.amount,
+        methods=methods if balance < order.amount else [],
+        discount=code is None,
+    )
+    await session.commit()
+    await show(event, text, markup)
+
+
+@router.callback_query(Shop.filter(F.step == "discount"))
+async def ask_discount(call: CallbackQuery, t: Texts, state: FSMContext) -> None:
+    await call.answer()
+    await state.set_state(ShopStates.discount)
+    if isinstance(call.message, Message):
+        await call.message.answer(t("ask_discount"), reply_markup=keyboards.cancel(t))
+
+
+@router.message(ShopStates.discount, F.text)
+async def got_discount(
+    message: Message,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    staff: Any,
+    state: FSMContext,
+) -> None:
+    code = await pricing.find_code(session, customer.shop_id, message.text or "")
+    if code is None:
+        await message.answer(t("discount_invalid"))
+        return
+    data = await state.get_data()
+    plan_id = int(data.get("plan_id") or 0) or None
+    try:
+        await pricing.validate_code(session, code, customer, plan_id=plan_id, amount=10**12)
+    except pricing.DiscountError as exc:
+        if exc.key != "discount_min_amount":
+            await message.answer(t(exc.key))
+            return
+    await state.update_data(code_id=code.id)
+    await state.set_state(None)
+    await message.answer(t("discount_applied"), reply_markup=menu(t, cfg, staff))
+    await checkout(message, session, customer, t, cfg, state)
+
+
+@router.callback_query(Shop.filter(F.step == "cancel"))
+async def cancel_checkout(
+    call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts, state: FSMContext
+) -> None:
+    await _cancel_previous(session, state, customer)
+    await state.clear()
+    await call.answer(t("canceled_short"))
+    await show(call, t("checkout_canceled"))
+
+
+@router.callback_query(Pay.filter(F.method == "wallet"))
+async def pay_wallet(
+    call: CallbackQuery,
+    callback_data: Pay,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    state: FSMContext,
+) -> None:
+    order = await session.get(Order, callback_data.order)
+    if order is None or order.customer_id != customer.id or order.status != OrderStatus.PENDING:
+        await call.answer(t("order_expired"), show_alert=True)
+        return
+    try:
+        await orders.settle_from_wallet(session, order.id)
+    except orders.OrderError as exc:
+        await session.rollback()
+        await call.answer(error_text(t, exc.key, exc.params), show_alert=True)
+        return
+    await session.commit()
+    await state.clear()
+    await call.answer(t("processing"))
+    await show(call, t("order_processing"))
+
+
+@router.callback_query(Svc.filter(F.action.in_({"renew", "upgrade"})))
+async def renew_or_upgrade(
+    call: CallbackQuery, callback_data: Svc, session: AsyncSession, customer: Customer, t: Texts
+) -> None:
+    service = await session.get(Service, callback_data.id)
+    if service is None or service.customer_id != customer.id:
+        await call.answer(t("service_not_found"), show_alert=True)
+        return
+    plans = await catalog.plans(session, customer.shop_id, customer, panel_id=service.panel_id)
+    if callback_data.action == "renew":
+        plans = [p for p in plans if p.renewable]
+    else:
+        plans = [p for p in plans if p.id != service.plan_id]
+    if not plans:
+        await call.answer(t("no_plans_for_service"), show_alert=True)
+        return
+    await call.answer()
+    kind = OrderKind.RENEW.value if callback_data.action == "renew" else OrderKind.UPGRADE.value
+    await show(
+        call,
+        t(f"choose_{callback_data.action}_plan"),
+        keyboards.plans_kb(
+            t,
+            priced(plans, customer),
+            back_cb=Svc(action="view", id=service.id).pack(),
+            svc=service.id,
+            kind=kind,
+        ),
+    )
+
+
+@router.callback_query(Svc.filter(F.action.in_({"extra_gb", "extra_days"})))
+async def extras_menu(
+    call: CallbackQuery,
+    callback_data: Svc,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+) -> None:
+    service = await session.get(Service, callback_data.id)
+    if service is None or service.customer_id != customer.id or not cfg["extras_enabled"]:
+        await call.answer(t("service_not_found"), show_alert=True)
+        return
+    await call.answer()
+    if callback_data.action == "extra_gb":
+        kb = keyboards.extra_kb(t, service.id, "gb", [5, 10, 20, 50, 100], int(cfg["extra_gb_price"]))
+    else:
+        kb = keyboards.extra_kb(t, service.id, "days", [7, 15, 30, 60, 90], int(cfg["extra_day_price"]))
+    await show(call, t(f"choose_{callback_data.action}"), kb)
+
+
+@router.callback_query(Svc.filter(F.action.in_({"buy_gb", "buy_days"})))
+async def extras_checkout(
+    call: CallbackQuery,
+    callback_data: Svc,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    await call.answer()
+    is_gb = callback_data.action == "buy_gb"
+    await state.set_data(
+        {
+            "kind": (OrderKind.EXTRA_VOLUME if is_gb else OrderKind.EXTRA_DAYS).value,
+            "svc_id": callback_data.id,
+            "extra_gb": callback_data.value if is_gb else 0,
+            "extra_days": 0 if is_gb else callback_data.value,
+            "code_id": 0,
+        }
+    )
+    await checkout(call, session, customer, t, cfg, state)
