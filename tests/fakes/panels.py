@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import secrets
 from datetime import UTC, datetime
@@ -22,6 +23,7 @@ class FakeTokenPanel:
         self.fail_next: int | None = None
         self.calls: list[tuple[str, str]] = []
         self.webhook_payloads: list[Any] = []
+        self.sub_agents: list[str] = []
 
     def _user_out(self, user: dict[str, Any]) -> dict[str, Any]:
         out = dict(user)
@@ -31,6 +33,21 @@ class FakeTokenPanel:
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
         self.calls.append((request.method, path))
+        if path.startswith("/sub/"):
+            user = next((u for u in self.users.values() if f"/sub/{u['sub']}" == path), None)
+            if user is None:
+                return httpx.Response(404, text="no such subscription")
+            self.sub_agents.append(request.headers.get("user-agent", ""))
+            body = base64.b64encode(f"vless://{user['username']}@example.com:443#{user['username']}".encode())
+            return httpx.Response(
+                200,
+                content=body,
+                headers={
+                    "content-type": "text/plain; charset=utf-8",
+                    "subscription-userinfo": f"upload=0; download={user['used_traffic']}; total={user['data_limit']}",
+                    "x-panel-secret": "must-not-leak",
+                },
+            )
         if self.fail_next is not None:
             status, self.fail_next = self.fail_next, None
             return httpx.Response(status, json={"detail": "boom"})

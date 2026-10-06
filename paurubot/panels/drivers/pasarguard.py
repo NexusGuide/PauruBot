@@ -57,7 +57,8 @@ class PasarGuardDriver(TokenApiDriver):
         return [PanelOption(id=str(g["id"]), title=str(g.get("name") or g["id"])) for g in groups]
 
     async def create_user(self, spec: UserSpec) -> PanelUser:
-        template_id = self.options.get("template_id")
+        opts = {**self.options, **spec.options}
+        template_id = opts.get("template_id")
         if template_id:
             data = await self.call(
                 "POST",
@@ -74,7 +75,7 @@ class PasarGuardDriver(TokenApiDriver):
             return user
         payload: dict[str, Any] = {
             "username": spec.username,
-            "group_ids": [int(g) for g in self.options.get("group_ids") or []],
+            "group_ids": [int(g) for g in opts.get("group_ids") or []],
             "proxy_settings": {},
             "data_limit": spec.data_limit,
             "data_limit_reset_strategy": "no_reset",

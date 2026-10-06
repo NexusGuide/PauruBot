@@ -32,6 +32,7 @@ from paurubot.payments import engine as payments
 from paurubot.payments.base import PaymentError
 from paurubot.payments.chains import NETWORKS
 from paurubot.provisioning import lifecycle
+from paurubot.provisioning.subscription import customer_link
 from paurubot.worker import queue
 
 log = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 
 
-def service_view(service: Service) -> dict[str, Any]:
+def service_view(service: Service, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "id": service.id,
         "label": service.label or service.panel_username,
@@ -53,11 +54,19 @@ def service_view(service: Service) -> dict[str, Any]:
         "data_limit": service.data_limit,
         "used_bytes": service.used_bytes,
         "expire_at": _iso(service.expire_at),
-        "subscription_url": service.subscription_url,
+        "subscription_url": customer_link(service, cfg) if cfg is not None else service.subscription_url,
         "location": service.panel.location.title if service.panel and service.panel.location else None,
         "plan_id": service.plan_id,
         "panel_id": service.panel_id,
+        "extras": _extras(service, cfg),
     }
+
+
+def _extras(service: Service, cfg: dict[str, Any] | None) -> dict[str, int] | None:
+    if cfg is None or service.is_trial:
+        return None
+    prices = orders.extra_prices(cfg, service.plan)
+    return {"gb_price": prices[0], "day_price": prices[1]} if prices else None
 
 
 def plan_view(plan: Plan, price: int) -> dict[str, Any]:
@@ -73,6 +82,9 @@ def plan_view(plan: Plan, price: int) -> dict[str, Any]:
         "location_id": plan.location_id or (plan.panel.location_id if plan.panel else None),
         "panel_id": plan.panel_id,
         "renewable": plan.renewable,
+        "on_hold": plan.on_hold,
+        "emoji": (plan.button_style or {}).get("emoji") or None,
+        "badge": (plan.button_style or {}).get("badge") or None,
     }
 
 
@@ -90,7 +102,7 @@ def order_view(order: Order) -> dict[str, Any]:
         "params": {
             k: v
             for k, v in (order.params or {}).items()
-            if k in {"extra_gb", "extra_days", "credit", "label"}
+            if k in {"extra_gb", "extra_days", "credit", "label", "custom", "queued", "queued_until"}
         },
         "expires_at": _iso(order.expires_at),
     }
@@ -177,6 +189,21 @@ async def catalog_view(ctx: WebApp) -> dict[str, Any]:
         "locations": [{"id": loc.id, "title": loc.title, "flag": loc.flag} for loc in locations],
         "categories": [{"id": c.id, "title": c.title} for c in categories],
         "plans": [plan_view(p, pricing.quote(p.price, ctx.customer).amount) for p in plans],
+        "custom": _custom_offer(ctx),
+    }
+
+
+def _custom_offer(ctx: WebApp) -> dict[str, Any] | None:
+    cfg = ctx.cfg
+    if not cfg["custom_buy_enabled"] or not (cfg["custom_panel_id"] or cfg["custom_location_id"]):
+        return None
+    percent = pricing.reseller_percent(ctx.customer)
+    return {
+        **orders.custom_limits(cfg),
+        "gb_price": int(cfg["custom_gb_price"]),
+        "day_price": int(cfg["custom_day_price"]),
+        "base_price": int(cfg["custom_base_price"]),
+        "discount_percent": percent,
     }
 
 
@@ -188,6 +215,8 @@ class OrderBody(BaseModel):
     extra_days: int = Field(default=0, ge=0, le=3650)
     code: str | None = Field(default=None, max_length=32)
     label: str | None = Field(default=None, max_length=48)
+    custom_gb: int = Field(default=0, ge=0, le=100_000)
+    custom_days: int = Field(default=0, ge=0, le=3650)
 
 
 async def _owned_service(ctx: WebApp, service_id: int | None) -> Service | None:
@@ -224,6 +253,8 @@ async def create_order(body: OrderBody, ctx: WebApp) -> dict[str, Any]:
             extra_gb=body.extra_gb,
             extra_days=body.extra_days,
             label=body.label if ctx.customer.is_reseller else None,
+            custom_gb=body.custom_gb if body.kind == "purchase" and not plan else 0,
+            custom_days=body.custom_days if body.kind == "purchase" and not plan else 0,
         )
         try:
             order = await orders.create(ctx.session, ctx.customer, draft, code=code, source="webapp")
@@ -419,7 +450,7 @@ async def services(ctx: WebApp) -> dict[str, Any]:
         .where(Service.customer_id == ctx.customer.id, Service.status != ServiceStatus.DELETED)
         .order_by(Service.id.desc())
     )
-    return {"items": [service_view(s) for s in rows]}
+    return {"items": [service_view(s, ctx.cfg) for s in rows]}
 
 
 @router.get("/services/{service_id}")
@@ -431,7 +462,7 @@ async def service_detail(service_id: int, ctx: WebApp, refresh: bool = False) ->
             await lifecycle.refresh(ctx.session, service)
         except PanelError:
             pass
-    return {"service": service_view(service)}
+    return {"service": service_view(service, ctx.cfg)}
 
 
 @router.get("/services/{service_id}/links")
@@ -449,7 +480,7 @@ async def service_revoke(service_id: int, ctx: WebApp) -> dict[str, Any]:
         await lifecycle.revoke(ctx.session, service)
     except PanelError as exc:
         raise HTTPException(status_code=502, detail="panel_error") from exc
-    return {"service": service_view(service)}
+    return {"service": service_view(service, ctx.cfg)}
 
 
 class RenameBody(BaseModel):
@@ -461,7 +492,7 @@ async def service_rename(service_id: int, body: RenameBody, ctx: WebApp) -> dict
     service = await _owned_service(ctx, service_id)
     assert service is not None
     service.label = body.label.strip()
-    return {"service": service_view(service)}
+    return {"service": service_view(service, ctx.cfg)}
 
 
 @router.post("/trial")

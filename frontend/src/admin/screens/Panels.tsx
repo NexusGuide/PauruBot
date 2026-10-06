@@ -70,7 +70,7 @@ interface TestResult {
   options?: { id: string; title: string }[];
 }
 
-function OptionPicker({
+export function OptionPicker({
   kind,
   options,
   value,

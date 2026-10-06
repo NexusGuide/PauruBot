@@ -11,7 +11,7 @@ from paurubot.db.models import Order, Plan, Service
 from paurubot.i18n import Texts
 
 
-def service_card(t: Texts, service: Service) -> str:
+def service_card(t: Texts, service: Service, link: str | None = None) -> str:
     if service.data_limit:
         remaining = max(0, service.data_limit - service.used_bytes)
         volume = t(
@@ -38,7 +38,7 @@ def service_card(t: Texts, service: Service) -> str:
         ),
         volume=volume,
         expiry=expiry,
-        sub=esc(service.subscription_url or "-"),
+        sub=esc(link or service.subscription_url or "-"),
     )
 
 
@@ -55,6 +55,12 @@ def checkout_text(
     if plan is not None:
         lines.append(t("checkout_plan", title=esc(plan.title)))
         lines.append(plan_specs(t, plan))
+        if plan.on_hold:
+            lines.append(t("checkout_on_hold"))
+    custom = order.params.get("custom")
+    if custom:
+        lines.append(t("checkout_custom"))
+        lines.append(t("plan_specs", days=custom.get("days"), gb=custom.get("gb")))
     if service is not None:
         lines.append(t("checkout_service", name=esc(service.label or service.panel_username)))
     if order.params.get("extra_gb"):

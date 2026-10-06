@@ -30,12 +30,27 @@ export interface Plan {
   location_id: number | null;
   panel_id: number | null;
   renewable: boolean;
+  on_hold: boolean;
+  emoji: string | null;
+  badge: string | null;
+}
+
+export interface CustomOffer {
+  min_gb: number;
+  max_gb: number;
+  min_days: number;
+  max_days: number;
+  gb_price: number;
+  day_price: number;
+  base_price: number;
+  discount_percent: number;
 }
 
 export interface Catalog {
   locations: { id: number; title: string; flag: string | null }[];
   categories: { id: number; title: string }[];
   plans: Plan[];
+  custom: CustomOffer | null;
 }
 
 export interface Service {
@@ -51,6 +66,7 @@ export interface Service {
   location: string | null;
   plan_id: number | null;
   panel_id: number;
+  extras: { gb_price: number; day_price: number } | null;
 }
 
 export interface Order {
@@ -63,7 +79,15 @@ export interface Order {
   amount: number;
   service_id: number | null;
   plan_id: number | null;
-  params: { extra_gb?: number; extra_days?: number; credit?: number; label?: string };
+  params: {
+    extra_gb?: number;
+    extra_days?: number;
+    credit?: number;
+    label?: string;
+    custom?: { gb: number; days: number };
+    queued?: boolean;
+    queued_until?: string;
+  };
   expires_at: string | null;
 }
 
@@ -110,6 +134,8 @@ export const api = {
     extra_gb?: number;
     extra_days?: number;
     code?: string;
+    custom_gb?: number;
+    custom_days?: number;
   }) => post<{ order: Order; balance: number; due: number }>("/orders", body),
   order: (id: number) => get<{ order: Order }>(`/orders/${id}`),
   payOrder: (id: number, method: string) =>

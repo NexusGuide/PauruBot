@@ -29,10 +29,19 @@ async def _next_sequence(session: AsyncSession, panel: Panel) -> int:
     return int(value or 1)
 
 
-async def generate(session: AsyncSession, panel: Panel, customer: Customer, label: str | None = None) -> str:
-    """Build a panel-safe username ([a-z0-9_], 3..32 chars) with a random tail against collisions."""
+async def generate(
+    session: AsyncSession,
+    panel: Panel,
+    customer: Customer,
+    label: str | None = None,
+    prefix: str | None = None,
+) -> str:
+    """Build a panel-safe username ([a-z0-9_], 3..32 chars) with a random tail against collisions.
+
+    `prefix` (a plan's own prefix, CAT-02) replaces the panel's prefix when given.
+    """
     method = UsernameMethod(panel.username_method)
-    prefix = slug(panel.username_prefix, 8)
+    prefix = slug(prefix if prefix else panel.username_prefix, 8)
     tail = secrets.token_hex(2)
     if method == UsernameMethod.TELEGRAM_USERNAME:
         body = slug(customer.username) or str(customer.telegram_id)

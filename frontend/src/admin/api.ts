@@ -127,6 +127,8 @@ export interface Service {
   used_bytes: number;
   expire_at: string | null;
   subscription_url: string | null;
+  branded_url: string | null;
+  disabled_reason: string | null;
   synced_at: string | null;
   created_at: string;
   panel: string | null;
@@ -218,7 +220,11 @@ export interface Plan {
   renewable: boolean;
   sort: number;
   is_active: boolean;
-  button_style: string | null;
+  button_style: { emoji?: string; badge?: string };
+  on_hold: boolean;
+  username_prefix: string | null;
+  panel_options: Record<string, unknown>;
+  addons: { extras?: boolean; extra_gb_price?: number | null; extra_day_price?: number | null };
   services?: number;
 }
 

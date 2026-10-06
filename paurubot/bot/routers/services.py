@@ -16,10 +16,12 @@ from paurubot.bot.states import ServiceStates
 from paurubot.bot.utils import Btn, show
 from paurubot.bot.views import qr_png, service_card
 from paurubot.core.formatting import esc
+from paurubot.core.orders import extra_prices
 from paurubot.db.models import Customer, Service, ServiceStatus
 from paurubot.i18n import Texts
 from paurubot.panels import PanelError
 from paurubot.provisioning import lifecycle
+from paurubot.provisioning.subscription import customer_link
 
 log = logging.getLogger(__name__)
 router = Router(name="services")
@@ -35,7 +37,7 @@ async def owned(session: AsyncSession, customer: Customer, service_id: int) -> S
 
 def _service_markup(t: Texts, service: Service, cfg: dict[str, Any]):  # type: ignore[no-untyped-def]
     return keyboards.service_kb(
-        t, service, extras=bool(cfg["extras_enabled"]), upgrade=bool(cfg["upgrade_enabled"])
+        t, service, extras=extra_prices(cfg, service.plan) is not None, upgrade=bool(cfg["upgrade_enabled"])
     )
 
 
@@ -93,12 +95,17 @@ async def view(
     if service.status == ServiceStatus.DELETED:
         await show(call, t("service_removed_from_panel"))
         return
-    await show(call, service_card(t, service), _service_markup(t, service, cfg))
+    await show(call, service_card(t, service, customer_link(service, cfg)), _service_markup(t, service, cfg))
 
 
 @router.callback_query(Svc.filter(F.action == "links"))
 async def links(
-    call: CallbackQuery, callback_data: Svc, session: AsyncSession, customer: Customer, t: Texts
+    call: CallbackQuery,
+    callback_data: Svc,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
 ) -> None:
     service = await owned(session, customer, callback_data.id)
     if service is None:
@@ -109,7 +116,9 @@ async def links(
     if not isinstance(call.message, Message):
         return
     if not items:
-        await call.message.answer(t("links_empty", sub=esc(service.subscription_url or "-")))
+        await call.message.answer(
+            t("links_empty", sub=esc(customer_link(service, cfg) or "-")), disable_web_page_preview=True
+        )
         return
     body = "\n\n".join(f"<code>{esc(link)}</code>" for link in items[:12])
     await call.message.answer(t("links_header") + "\n\n" + body, disable_web_page_preview=True)
@@ -117,17 +126,21 @@ async def links(
 
 @router.callback_query(Svc.filter(F.action == "qr"))
 async def qr(
-    call: CallbackQuery, callback_data: Svc, session: AsyncSession, customer: Customer, t: Texts
+    call: CallbackQuery,
+    callback_data: Svc,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
 ) -> None:
     service = await owned(session, customer, callback_data.id)
-    if service is None or not service.subscription_url:
+    link = customer_link(service, cfg) if service is not None else None
+    if service is None or not link:
         await call.answer(t("service_not_found"), show_alert=True)
         return
     await call.answer()
     if isinstance(call.message, Message):
-        await call.message.answer_photo(
-            BufferedInputFile(qr_png(service.subscription_url), "qr.png"), caption=t("qr_caption")
-        )
+        await call.message.answer_photo(BufferedInputFile(qr_png(link), "qr.png"), caption=t("qr_caption"))
 
 
 @router.callback_query(Svc.filter(F.action == "revoke"))
@@ -169,7 +182,7 @@ async def revoke(
         return
     await session.commit()
     await call.answer(t("revoked"))
-    await show(call, service_card(t, service), _service_markup(t, service, cfg))
+    await show(call, service_card(t, service, customer_link(service, cfg)), _service_markup(t, service, cfg))
 
 
 @router.callback_query(Svc.filter(F.action == "rename"))
@@ -211,5 +224,7 @@ async def rename(
     service.label = (message.text or "").strip()[:48] or None
     await message.answer(t("label_saved"), reply_markup=menu(t, cfg, staff))
     await message.answer(
-        service_card(t, service), reply_markup=_service_markup(t, service, cfg), disable_web_page_preview=True
+        service_card(t, service, customer_link(service, cfg)),
+        reply_markup=_service_markup(t, service, cfg),
+        disable_web_page_preview=True,
     )

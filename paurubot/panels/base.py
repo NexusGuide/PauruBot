@@ -46,6 +46,8 @@ class UserSpec:
     note: str = ""
     ip_limit: int = 0
     on_hold_days: int | None = None
+    # Per-plan overrides of the panel's options (groups, inbounds, flow, inbound_id) (PNL-14).
+    options: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -59,6 +61,25 @@ class PanelUser:
     links: list[str] = field(default_factory=list)
     data: dict[str, Any] = field(default_factory=dict)
     online_at: datetime | None = None
+
+
+SUBSCRIPTION_MAX_BYTES = 2 * 1024 * 1024
+# Headers client apps read from a subscription response; everything else is dropped.
+SUBSCRIPTION_HEADERS = {
+    "subscription-userinfo",
+    "profile-update-interval",
+    "profile-title",
+    "content-disposition",
+    "routing",
+    "announce",
+}
+
+
+@dataclass(slots=True)
+class SubscriptionBody:
+    content: bytes
+    content_type: str
+    headers: dict[str, str]
 
 
 @dataclass(slots=True)
@@ -143,29 +164,39 @@ class PanelDriver(ABC):
             return url
         return f"{self.base_url}/{url.lstrip('/')}"
 
-    async def fetch_links(self, subscription_url: str | None) -> list[str]:
-        """Read a subscription and return its config links (best effort, through the SSRF guard)."""
+    async def fetch_subscription(
+        self, subscription_url: str | None, user_agent: str = "v2rayNG/1.8.0"
+    ) -> SubscriptionBody | None:
+        """Download a subscription as the client app would (through the SSRF guard)."""
         from urllib.parse import urlsplit
 
         from paurubot.panels.http import SafeHttpClient
 
         if not subscription_url:
-            return []
+            return None
         parts = urlsplit(subscription_url)
         origin = f"{parts.scheme}://{parts.netloc}"
         path = subscription_url[len(origin) :] or "/"
         own = subscription_url.startswith(self.base_url + "/") or origin == self.base_url
         client = self.http if own else SafeHttpClient(origin, allow_private=self.http.allow_private)
         try:
-            resp = await client.request("GET", path, headers={"User-Agent": "v2rayNG/1.8.0"})
+            resp = await client.request("GET", path, headers={"User-Agent": user_agent[:200]})
         except PanelError:
-            return []
+            return None
         finally:
             if client is not self.http:
                 await client.aclose()
-        if resp.status_code != 200:
+        if resp.status_code != 200 or len(resp.content) > SUBSCRIPTION_MAX_BYTES:
+            return None
+        headers = {k: v for k, v in resp.headers.items() if k.lower() in SUBSCRIPTION_HEADERS}
+        return SubscriptionBody(resp.content, resp.headers.get("content-type", "text/plain"), headers)
+
+    async def fetch_links(self, subscription_url: str | None) -> list[str]:
+        """Read a subscription and return its config links (best effort)."""
+        body = await self.fetch_subscription(subscription_url)
+        if body is None:
             return []
-        return decode_subscription(resp.text)
+        return decode_subscription(body.content.decode("utf-8", "replace"))
 
     @abstractmethod
     async def health_check(self) -> PanelHealth: ...

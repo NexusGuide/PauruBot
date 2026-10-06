@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { BrowserRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { Buy } from "./screens/Buy";
+import { Buy, Custom } from "./screens/Buy";
 import { Checkout, Done } from "./screens/Checkout";
 import { Home } from "./screens/Home";
 import { More } from "./screens/More";
@@ -49,6 +49,7 @@ function Shell() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/buy" element={<Buy />} />
+        <Route path="/custom" element={<Custom />} />
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/done/:id" element={<Done />} />
         <Route path="/payment/:id" element={<Payment />} />

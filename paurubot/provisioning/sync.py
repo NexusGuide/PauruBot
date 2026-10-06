@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from paurubot.core import orders
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import utcnow
 from paurubot.db.models import Panel, Service, ServiceStatus
@@ -35,6 +36,14 @@ async def evaluate_alerts(
     queued: list[str] = []
     jobs: list[dict[str, object]] = []
     period = service.expire_at.date().isoformat() if service.expire_at else "none"
+    lapsed_now = (
+        service.status in {ServiceStatus.EXPIRED, ServiceStatus.LIMITED} and previous != service.status
+    )
+    if lapsed_now and await orders.release_queued(session, service.id):
+        # A renewal was already paid for; it runs now instead of at the planned end date (SVC-02).
+        return []
+    if await orders.has_queued(session, service.id):
+        return []
 
     def once(kind: str, marker: str, payload: dict[str, object]) -> None:
         if sent.get(kind) == marker:

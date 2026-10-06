@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -12,6 +12,7 @@ from paurubot.api.admin_common import owned, plain
 from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record, snapshot
 from paurubot.db.models import Category, Location, Panel, Plan, PlanAudience, Service
+from paurubot.panels import PanelError, registry
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 Reader = Annotated[StaffContext, Depends(require("catalog.read"))]
@@ -35,6 +36,10 @@ PLAN_FIELDS = [
     "sort",
     "is_active",
     "button_style",
+    "on_hold",
+    "panel_options",
+    "username_prefix",
+    "addons",
 ]
 
 
@@ -51,6 +56,32 @@ class CategoryBody(BaseModel):
     is_active: bool = True
 
 
+class PlanPanelOptions(BaseModel):
+    """Overrides of the panel's settings for this plan's services; empty means "use the panel's"."""
+
+    group_ids: list[int] = Field(default_factory=list, max_length=50)
+    inbounds: list[str] = Field(default_factory=list, max_length=50)
+    template_id: int | None = Field(default=None, ge=1)
+    inbound_id: int | None = Field(default=None, ge=1)
+    flow: str | None = Field(default=None, max_length=40, pattern=r"^[a-z0-9-]*$")
+    limit_ip: int | None = Field(default=None, ge=0, le=100)
+
+
+class PlanAddons(BaseModel):
+    extras: bool = True
+    extra_gb_price: int | None = Field(default=None, ge=0, le=10**9)
+    extra_day_price: int | None = Field(default=None, ge=0, le=10**9)
+
+
+class ButtonStyle(BaseModel):
+    emoji: str = Field(default="", max_length=8)
+    badge: Literal["", "hot", "new", "best", "sale"] = ""
+
+
+def _compact(data: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in data.items() if v not in (None, "", [], {})}
+
+
 class PlanBody(BaseModel):
     title: str = Field(min_length=1, max_length=96)
     description: str | None = Field(default=None, max_length=1000)
@@ -65,6 +96,31 @@ class PlanBody(BaseModel):
     renewable: bool = True
     sort: int = 0
     is_active: bool = True
+    on_hold: bool = False
+    username_prefix: str | None = Field(default=None, max_length=16, pattern=r"^[a-z0-9_]*$")
+    panel_options: PlanPanelOptions = Field(default_factory=PlanPanelOptions)
+    addons: PlanAddons = Field(default_factory=PlanAddons)
+    button_style: ButtonStyle = Field(default_factory=ButtonStyle)
+
+    def values(self) -> dict[str, Any]:
+        data = self.model_dump()
+        data["panel_options"] = _compact(data["panel_options"])
+        data["addons"] = {k: v for k, v in data["addons"].items() if v is not None}
+        data["button_style"] = _compact(data["button_style"])
+        data["username_prefix"] = data["username_prefix"] or None
+        return data
+
+
+@router.get("/plans/panel-options/{panel_id}")
+async def plan_panel_options(panel_id: int, ctx: Writer, db: DB) -> dict[str, Any]:
+    """Groups or inbounds a plan can pick from on one panel (PNL-14)."""
+    panel = await owned(db, Panel, panel_id, ctx)
+    try:
+        driver = await registry.driver_for(panel)
+        options = [{"id": o.id, "title": o.title} for o in await driver.list_options()]
+    except PanelError as exc:
+        return {"ok": False, "kind": panel.kind.value, "error": str(exc)[:255], "options": []}
+    return {"ok": True, "kind": panel.kind.value, "options": options}
 
 
 @router.get("/catalog")
@@ -181,7 +237,7 @@ async def update_category(row_id: int, body: CategoryBody, ctx: Writer, db: DB) 
 @router.post("/plans")
 async def create_plan(body: PlanBody, ctx: Writer, db: DB) -> dict[str, Any]:
     await _check_refs(db, ctx, body)
-    row = Plan(shop_id=ctx.shop_id, **body.model_dump())
+    row = Plan(shop_id=ctx.shop_id, **body.values())
     db.add(row)
     await db.flush()
     await record(
@@ -201,7 +257,7 @@ async def update_plan(row_id: int, body: PlanBody, ctx: Writer, db: DB) -> dict[
     row = await owned(db, Plan, row_id, ctx)
     await _check_refs(db, ctx, body)
     before = snapshot(row)
-    for key, value in body.model_dump().items():
+    for key, value in body.values().items():
         setattr(row, key, value)
     await record(
         db,

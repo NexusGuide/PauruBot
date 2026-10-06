@@ -15,6 +15,8 @@ from paurubot.bot.routers.start import menu
 from paurubot.bot.states import ShopStates
 from paurubot.bot.utils import Btn, error_text, show
 from paurubot.core import catalog, orders, pricing
+from paurubot.core import settings as shop_settings
+from paurubot.core.formatting import money, parse_int, processing_key
 from paurubot.db.models import Customer, DiscountCode, Order, OrderKind, OrderStatus, Plan, Service
 from paurubot.db.models import Shop as ShopRow
 from paurubot.i18n import Texts
@@ -46,20 +48,26 @@ async def show_categories(
     t: Texts,
     loc: int,
 ) -> None:
+    custom = await custom_available(session, shop.id)
     cats = await catalog.categories(session, shop.id, customer, loc or None)
     loose = await catalog.plans(session, shop.id, customer, location_id=loc or None, uncategorised=True)
     if not cats:
         plans = await catalog.plans(session, shop.id, customer, location_id=loc or None)
-        if not plans:
+        if not plans and not custom:
             await show(event, t("no_plans"))
             return
         await show(
             event,
             t("choose_plan"),
-            keyboards.plans_kb(t, priced(plans, customer), back_cb=Shop(step="start").pack()),
+            keyboards.plans_kb(t, priced(plans, customer), back_cb=Shop(step="start").pack(), custom=custom),
         )
         return
-    await show(event, t("choose_category"), keyboards.categories_kb(t, cats, loc, bool(loose)))
+    await show(event, t("choose_category"), keyboards.categories_kb(t, cats, loc, bool(loose), custom=custom))
+
+
+async def custom_available(session: AsyncSession, shop_id: int) -> bool:
+    cfg = await shop_settings.load(session, shop_id)
+    return bool(cfg["custom_buy_enabled"] and (cfg["custom_panel_id"] or cfg["custom_location_id"]))
 
 
 @router.message(Btn("btn_buy"))
@@ -148,6 +156,74 @@ async def pick_plan(
     await checkout(call, session, customer, t, cfg, state)
 
 
+@router.callback_query(Shop.filter(F.step == "custom"))
+async def custom_start(
+    call: CallbackQuery,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    if not await custom_available(session, shop.id):
+        await call.answer(t("custom_unavailable"), show_alert=True)
+        return
+    await call.answer()
+    limits = orders.custom_limits(cfg)
+    await state.set_data({"kind": OrderKind.PURCHASE.value, "plan_id": 0, "code_id": 0, "label": None})
+    await state.set_state(ShopStates.custom_gb)
+    if isinstance(call.message, Message):
+        await call.message.answer(
+            t(
+                "ask_custom_gb",
+                min=limits["min_gb"],
+                max=limits["max_gb"],
+                price=money(int(cfg["custom_gb_price"])),
+            ),
+            reply_markup=keyboards.cancel(t),
+        )
+
+
+@router.message(ShopStates.custom_gb, F.text)
+async def custom_gb(message: Message, t: Texts, cfg: dict[str, Any], state: FSMContext) -> None:
+    limits = orders.custom_limits(cfg)
+    value = parse_int(message.text)
+    if value is None or not limits["min_gb"] <= value <= limits["max_gb"]:
+        await message.answer(t("custom_gb_invalid", min=limits["min_gb"], max=limits["max_gb"]))
+        return
+    await state.update_data(custom_gb=value)
+    await state.set_state(ShopStates.custom_days)
+    await message.answer(
+        t(
+            "ask_custom_days",
+            min=limits["min_days"],
+            max=limits["max_days"],
+            price=money(int(cfg["custom_day_price"])),
+        )
+    )
+
+
+@router.message(ShopStates.custom_days, F.text)
+async def custom_days(
+    message: Message,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    staff: Any,
+    state: FSMContext,
+) -> None:
+    limits = orders.custom_limits(cfg)
+    value = parse_int(message.text)
+    if value is None or not limits["min_days"] <= value <= limits["max_days"]:
+        await message.answer(t("custom_days_invalid", min=limits["min_days"], max=limits["max_days"]))
+        return
+    await state.update_data(custom_days=value)
+    await state.set_state(None)
+    await message.answer(t("custom_ready"), reply_markup=menu(t, cfg, staff))
+    await checkout(message, session, customer, t, cfg, state)
+
+
 @router.message(ShopStates.label, F.text)
 async def got_label(
     message: Message,
@@ -203,6 +279,8 @@ async def checkout(
             extra_gb=int(data.get("extra_gb") or 0),
             extra_days=int(data.get("extra_days") or 0),
             label=data.get("label"),
+            custom_gb=int(data.get("custom_gb") or 0),
+            custom_days=int(data.get("custom_days") or 0),
         )
         try:
             order = await orders.create(session, customer, draft, code=code)
@@ -211,7 +289,10 @@ async def checkout(
                 raise
             order = await orders.create(session, customer, draft)  # sticky code no longer applies
             code = None
-    except (orders.OrderError, pricing.DiscountError) as exc:
+    except orders.OrderError as exc:
+        await show(event, error_text(t, exc.key, exc.params))
+        return
+    except pricing.DiscountError as exc:
         await show(event, t(exc.key))
         return
     await state.update_data(order_id=order.id)
@@ -301,7 +382,8 @@ async def pay_wallet(
     await session.commit()
     await state.clear()
     await call.answer(t("processing"))
-    await show(call, t("order_processing"))
+    key, values = processing_key(order.params)
+    await show(call, t(key, **values))
 
 
 @router.callback_query(Svc.filter(F.action.in_({"renew", "upgrade"})))
@@ -345,14 +427,15 @@ async def extras_menu(
     cfg: dict[str, Any],
 ) -> None:
     service = await session.get(Service, callback_data.id)
-    if service is None or service.customer_id != customer.id or not cfg["extras_enabled"]:
+    prices = orders.extra_prices(cfg, service.plan) if service is not None else None
+    if service is None or service.customer_id != customer.id or prices is None:
         await call.answer(t("service_not_found"), show_alert=True)
         return
     await call.answer()
     if callback_data.action == "extra_gb":
-        kb = keyboards.extra_kb(t, service.id, "gb", [5, 10, 20, 50, 100], int(cfg["extra_gb_price"]))
+        kb = keyboards.extra_kb(t, service.id, "gb", [5, 10, 20, 50, 100], prices[0])
     else:
-        kb = keyboards.extra_kb(t, service.id, "days", [7, 15, 30, 60, 90], int(cfg["extra_day_price"]))
+        kb = keyboards.extra_kb(t, service.id, "days", [7, 15, 30, 60, 90], prices[1])
     await show(call, t(f"choose_{callback_data.action}"), kb)
 
 

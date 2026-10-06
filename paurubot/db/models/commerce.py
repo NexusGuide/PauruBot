@@ -46,6 +46,10 @@ class Service(Base, UpdatedMixin):
     alerts_sent: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     deleted_at: Mapped[datetime | None] = mapped_column()
     delete_reason: Mapped[str | None] = mapped_column(String(255))
+    # Why the bot disabled it ("ban", "reseller"), so the matching unban re-enables only those (SVC-06).
+    disabled_reason: Mapped[str | None] = mapped_column(String(32))
+    # Opaque token of the shop-branded subscription link /s/<token> (SVC-08).
+    sub_token: Mapped[str | None] = mapped_column(String(48), unique=True)
 
     customer: Mapped[Customer] = relationship(lazy="selectin")
     panel: Mapped[Panel] = relationship(lazy="selectin")

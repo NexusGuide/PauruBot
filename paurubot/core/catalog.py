@@ -109,20 +109,26 @@ async def panel_load(session: AsyncSession, panel_id: int) -> int:
 
 async def pick_panel(session: AsyncSession, plan: Plan) -> Panel | None:
     """The plan's own panel, or the least-loaded healthy panel with room in the plan's location."""
-    if plan.panel_id:
-        panel = await session.get(Panel, plan.panel_id)
-        if panel is None or not panel.is_active:
+    return await pick_panel_for(session, plan.shop_id, plan.panel_id, plan.location_id)
+
+
+async def pick_panel_for(
+    session: AsyncSession, shop_id: int, panel_id: int | None, location_id: int | None
+) -> Panel | None:
+    if panel_id:
+        panel = await session.get(Panel, panel_id)
+        if panel is None or panel.shop_id != shop_id or not panel.is_active:
             return None
         if panel.capacity and await panel_load(session, panel.id) >= panel.capacity:
             return None
         return panel
-    if not plan.location_id:
+    if not location_id:
         return None
     candidates = list(
         await session.scalars(
             select(Panel).where(
-                Panel.shop_id == plan.shop_id,
-                Panel.location_id == plan.location_id,
+                Panel.shop_id == shop_id,
+                Panel.location_id == location_id,
                 Panel.is_active.is_(True),
                 Panel.is_healthy.is_not(False),
             )

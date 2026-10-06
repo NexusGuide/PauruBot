@@ -97,6 +97,63 @@ function BonusRules({ value, onChange }: { value: BonusRule[]; onChange: (value:
   );
 }
 
+interface AppLink {
+  name: string;
+  url: string;
+}
+
+function AppLinks({ value, onChange }: { value: AppLink[]; onChange: (value: AppLink[]) => void }) {
+  const { t } = useSession();
+  const update = (index: number, patch: Partial<AppLink>) => onChange(value.map((a, i) => (i === index ? { ...a, ...patch } : a)));
+  return (
+    <div className="flex flex-col gap-3">
+      {value.length === 0 && <p className="text-[0.82rem] text-[var(--hint)]">{t("app_links_default")}</p>}
+      {value.map((app, index) => (
+        <div key={index} className="grid gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-[0.8fr_2fr_auto]">
+          <Input aria-label={t("app_name")} placeholder={t("app_name")} maxLength={32} value={app.name}
+            onChange={(e) => update(index, { name: e.target.value })} />
+          <Input aria-label={t("app_url")} placeholder="hiddify://import/{url}" dir="ltr" maxLength={300} value={app.url}
+            onChange={(e) => update(index, { url: e.target.value })} />
+          <Button small tone="ghost" icon="close" aria-label={t("remove")} onClick={() => onChange(value.filter((_, i) => i !== index))} />
+        </div>
+      ))}
+      <Button small icon="plus" className="self-start" disabled={value.length >= 12}
+        onClick={() => onChange([...value, { name: "", url: "" }])}>
+        {t("add_app_link")}
+      </Button>
+    </div>
+  );
+}
+
+function RefSelect({
+  id,
+  kind,
+  value,
+  onChange,
+}: {
+  id: string;
+  kind: "panel" | "location";
+  value: unknown;
+  onChange: (value: number | null) => void;
+}) {
+  const panels = useLoad<{ items: { id: number; name: string }[] }>(kind === "panel" ? "/api/admin/panels" : null);
+  const catalog = useLoad<{ locations: { id: number; title: string }[] }>(kind === "location" ? "/api/admin/catalog" : null);
+  const options =
+    kind === "panel"
+      ? (panels.data?.items ?? []).map((p) => ({ id: p.id, title: p.name }))
+      : (catalog.data?.locations ?? []).map((l) => ({ id: l.id, title: l.title }));
+  return (
+    <Select id={id} value={typeof value === "number" ? value : ""} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}>
+      <option value="">—</option>
+      {options.map((option) => (
+        <option key={option.id} value={option.id}>
+          {option.title}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
 function SettingControl({
   item,
   value,
@@ -164,6 +221,20 @@ function SettingControl({
             ))}
           </Select>
         )}
+      </Field>
+    );
+  }
+  if (item.key === "app_links") {
+    return (
+      <Field label={label} hint={hint}>
+        {() => <AppLinks value={(value as AppLink[]) ?? []} onChange={onChange} />}
+      </Field>
+    );
+  }
+  if (item.key.endsWith("_panel_id") || item.key.endsWith("_location_id")) {
+    return (
+      <Field label={label} hint={hint}>
+        {(id) => <RefSelect id={id} kind={item.key.endsWith("_panel_id") ? "panel" : "location"} value={value} onChange={onChange} />}
       </Field>
     );
   }
@@ -269,7 +340,7 @@ export function Settings() {
               <Section key={group} title={t(`settings_group_${group}`)}>
                 <div className="grid gap-5 md:grid-cols-2">
                   {items.map((item) => (
-                    <div key={item.key} className={["card_accounts", "topup_bonus_rules"].includes(item.key) || item.type === "bool" ? "md:col-span-2" : ""}>
+                    <div key={item.key} className={["card_accounts", "topup_bonus_rules", "app_links"].includes(item.key) || item.type === "bool" ? "md:col-span-2" : ""}>
                       <SettingControl
                         item={item}
                         value={item.key in changes ? changes[item.key] : item.value}

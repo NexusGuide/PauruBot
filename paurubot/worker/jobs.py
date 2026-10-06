@@ -60,7 +60,9 @@ async def bulk_service(session: AsyncSession, job: queue.Claimed) -> None:
     action = str(data["action"])
     try:
         if action in {"enable", "disable"}:
-            await lifecycle.set_enabled(session, service, action == "enable")
+            if action == "enable" and data.get("reason") and service.disabled_reason != data["reason"]:
+                return  # someone else disabled it since, for another reason
+            await lifecycle.set_enabled(session, service, action == "enable", data.get("reason") or "staff")
         elif action == "extend":
             await lifecycle.extend(
                 session, service, days=int(data.get("days") or 0), gb=int(data.get("gb") or 0)
@@ -74,11 +76,16 @@ async def bulk_service(session: AsyncSession, job: queue.Claimed) -> None:
     await record(
         session,
         shop_id=service.shop_id,
-        actor=Actor("staff", data.get("staff_id"), None),
+        actor=Actor("staff", data["staff_id"], None) if data.get("staff_id") else Actor("system", None, None),
         action=f"service.{action}",
         entity="service",
         entity_id=service.id,
-        after={"batch": data.get("batch"), "days": data.get("days"), "gb": data.get("gb")},
+        after={
+            "batch": data.get("batch"),
+            "days": data.get("days"),
+            "gb": data.get("gb"),
+            "reason": data.get("reason"),
+        },
     )
 
 

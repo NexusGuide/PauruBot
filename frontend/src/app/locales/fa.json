@@ -171,5 +171,18 @@
   "err_gift_already_used": "قبلاً از این کد استفاده کرده‌ای.",
   "err_gift_new_only": "این کد فقط برای اولین خرید است.",
   "err_gift_too_many_attempts": "تلاش زیاد بود. یک ساعت دیگر امتحان کن.",
-  "err_rate_unavailable": "نرخ ارز الان در دسترس نیست. روش دیگری انتخاب کن."
+  "err_rate_unavailable": "نرخ ارز الان در دسترس نیست. روش دیگری انتخاب کن.",
+  "continue": "ادامه",
+  "custom_plan": "پلن دلخواه",
+  "custom_plan_hint": "حجم و مدت رو خودت انتخاب کن",
+  "custom_data": "حجم",
+  "custom_time": "مدت",
+  "custom_unavailable": "خرید دلخواه الان فعال نیست",
+  "starts_on_first_use": "زمانش از اولین اتصال شروع می‌شه",
+  "badge_hot": "پرفروش",
+  "badge_new": "جدید",
+  "badge_best": "به‌صرفه",
+  "badge_sale": "تخفیف",
+  "renew_queued_hint": "تمدید ثبت شد و {date}، وقتی دوره‌ی فعلی تموم شد، خودکار اعمال می‌شه.",
+  "extras_unavailable": "برای این سرویس حجم یا زمان اضافه فروخته نمی‌شه"
 }

@@ -21,6 +21,8 @@ from paurubot.db.models import (
     Customer,
     DiscountCode,
     DiscountRedemption,
+    Job,
+    JobStatus,
     Order,
     OrderKind,
     OrderStatus,
@@ -63,6 +65,42 @@ def _remaining_value(service: Service, plan: Plan | None) -> int:
     return int(plan.price * fraction)
 
 
+def extra_prices(cfg: dict[str, Any], plan: Plan | None) -> tuple[int, int] | None:
+    """Price of one extra GB and one extra day for services of `plan`, or None when not sold (CAT-02)."""
+    addons = (plan.addons if plan is not None else None) or {}
+    if not cfg["extras_enabled"] or addons.get("extras") is False:
+        return None
+    gb = addons.get("extra_gb_price")
+    day = addons.get("extra_day_price")
+    return (
+        int(gb) if gb not in (None, "") else int(cfg["extra_gb_price"]),
+        int(day) if day not in (None, "") else int(cfg["extra_day_price"]),
+    )
+
+
+def custom_limits(cfg: dict[str, Any]) -> dict[str, int]:
+    return {
+        "min_gb": int(cfg["custom_min_gb"]),
+        "max_gb": int(cfg["custom_max_gb"]),
+        "min_days": int(cfg["custom_min_days"]),
+        "max_days": int(cfg["custom_max_days"]),
+    }
+
+
+def custom_price(cfg: dict[str, Any], gb: int, days: int) -> int:
+    """Price of a custom purchase (CAT-03); raises when custom buy is off or out of range."""
+    if not cfg["custom_buy_enabled"] or not (cfg["custom_panel_id"] or cfg["custom_location_id"]):
+        raise OrderError("custom_unavailable")
+    limits = custom_limits(cfg)
+    if not (limits["min_gb"] <= gb <= limits["max_gb"]) or not (
+        limits["min_days"] <= days <= limits["max_days"]
+    ):
+        raise OrderError("custom_out_of_range", **limits)
+    return pricing.round_price(
+        int(cfg["custom_base_price"]) + gb * int(cfg["custom_gb_price"]) + days * int(cfg["custom_day_price"])
+    )
+
+
 async def draft(
     session: AsyncSession,
     customer: Customer,
@@ -73,6 +111,8 @@ async def draft(
     extra_gb: int = 0,
     extra_days: int = 0,
     label: str | None = None,
+    custom_gb: int = 0,
+    custom_days: int = 0,
 ) -> Draft:
     cfg = await shop_settings.load(session, customer.shop_id)
     params: dict[str, Any] = {}
@@ -84,6 +124,9 @@ async def draft(
         if service.is_trial and kind != OrderKind.UPGRADE:
             raise OrderError("trial_not_renewable")
     if kind == OrderKind.PURCHASE:
+        if plan is None and (custom_gb or custom_days):
+            params["custom"] = {"gb": custom_gb, "days": custom_days}
+            return Draft(kind, None, None, params, custom_price(cfg, custom_gb, custom_days))
         if plan is None:
             raise OrderError("plan_unavailable")
         return Draft(kind, plan, None, params, plan.price)
@@ -95,15 +138,19 @@ async def draft(
             raise OrderError("plan_wrong_panel")
         return Draft(kind, plan, service, params, plan.price)
     if kind == OrderKind.EXTRA_VOLUME:
-        if not cfg["extras_enabled"] or extra_gb <= 0 or extra_gb > 10_000:
+        assert service is not None
+        prices = extra_prices(cfg, service.plan)
+        if prices is None or extra_gb <= 0 or extra_gb > 10_000:
             raise OrderError("extras_unavailable")
         params["extra_gb"] = extra_gb
-        return Draft(kind, None, service, params, extra_gb * int(cfg["extra_gb_price"]))
+        return Draft(kind, None, service, params, extra_gb * prices[0])
     if kind == OrderKind.EXTRA_DAYS:
-        if not cfg["extras_enabled"] or extra_days <= 0 or extra_days > 3650:
+        assert service is not None
+        prices = extra_prices(cfg, service.plan)
+        if prices is None or extra_days <= 0 or extra_days > 3650:
             raise OrderError("extras_unavailable")
         params["extra_days"] = extra_days
-        return Draft(kind, None, service, params, extra_days * int(cfg["extra_day_price"]))
+        return Draft(kind, None, service, params, extra_days * prices[1])
     if kind == OrderKind.UPGRADE:
         assert service is not None
         if not cfg["upgrade_enabled"] or plan is None:
@@ -205,6 +252,31 @@ async def settle_from_wallet(session: AsyncSession, order_id: int) -> Order:
     await _redeem(session, order)
     order.status = OrderStatus.PAID
     order.paid_at = utcnow()
+    await enqueue_provision(session, order)
+    await session.flush()
+    return order
+
+
+async def queued_until(session: AsyncSession, order: Order) -> datetime | None:
+    """When a renewal should wait for the current period to end (SVC-02), the time it runs."""
+    if order.kind != OrderKind.RENEW or not order.service_id:
+        return None
+    if not await shop_settings.get(session, order.shop_id, "renew_queue_when_active"):
+        return None
+    service = await session.get(Service, order.service_id)
+    if service is None or service.status != ServiceStatus.ACTIVE or service.expire_at is None:
+        return None
+    if service.data_limit and service.used_bytes >= service.data_limit:
+        return None
+    if service.expire_at <= utcnow() + timedelta(minutes=5):
+        return None
+    return service.expire_at
+
+
+async def enqueue_provision(session: AsyncSession, order: Order) -> None:
+    run_at = await queued_until(session, order)
+    if run_at is not None:
+        order.params = {**(order.params or {}), "queued": True, "queued_until": run_at.isoformat()}
     await queue.enqueue(
         session,
         PROVISION_QUEUE,
@@ -212,10 +284,47 @@ async def settle_from_wallet(session: AsyncSession, order_id: int) -> Order:
         {"order_id": order.id},
         shop_id=order.shop_id,
         dedupe_key=f"order:{order.id}:provision",
+        run_at=run_at,
         max_attempts=6,
     )
-    await session.flush()
-    return order
+
+
+async def has_queued(session: AsyncSession, service_id: int) -> bool:
+    found = await session.scalar(
+        select(Order.id)
+        .where(
+            Order.service_id == service_id,
+            Order.kind == OrderKind.RENEW,
+            Order.status == OrderStatus.PAID,
+        )
+        .limit(1)
+    )
+    return found is not None
+
+
+async def release_queued(session: AsyncSession, service_id: int) -> int:
+    """Run waiting renewals of a service now, because its current period ran out early."""
+    order_ids = list(
+        await session.scalars(
+            select(Order.id).where(
+                Order.service_id == service_id,
+                Order.kind == OrderKind.RENEW,
+                Order.status == OrderStatus.PAID,
+            )
+        )
+    )
+    if not order_ids:
+        return 0
+    result = await session.execute(
+        update(Job)
+        .where(
+            Job.dedupe_key.in_([f"order:{oid}:provision" for oid in order_ids]),
+            Job.status == JobStatus.QUEUED,
+            Job.run_at > utcnow(),
+        )
+        .values(run_at=utcnow())
+    )
+    return affected(result)
 
 
 async def cancel(session: AsyncSession, order_id: int, customer_id: int | None = None) -> bool:

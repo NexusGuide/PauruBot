@@ -79,6 +79,13 @@ class Plan(Base, UpdatedMixin):
     sort: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     button_style: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    # Starts counting days on the first connection instead of at purchase (SVC-03).
+    on_hold: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Overrides of the panel's groups / inbounds / flow for services of this plan (PNL-14).
+    panel_options: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default="{}")
+    username_prefix: Mapped[str | None] = mapped_column(String(16))
+    # Per-plan add-on prices for extra data / days; empty keys fall back to the shop settings.
+    addons: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default="{}")
 
     category: Mapped[Category | None] = relationship(lazy="selectin")
     location: Mapped[Location | None] = relationship(lazy="selectin")

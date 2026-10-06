@@ -100,3 +100,11 @@ def days_left(expire_at: datetime | None, now: datetime | None = None) -> int | 
     if seconds <= 0:
         return 0
     return int(seconds // 86400) + (1 if seconds % 86400 else 0)
+
+
+def processing_key(params: dict[str, object] | None) -> tuple[str, dict[str, str]]:
+    """Locale key (and its values) telling the customer what happens to a paid order next."""
+    until = (params or {}).get("queued_until")
+    if (params or {}).get("queued") and until:
+        return "renew_queued", {"date": jdate(datetime.fromisoformat(str(until)), with_time=True)}
+    return "order_processing", {}
