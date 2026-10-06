@@ -46,6 +46,24 @@ def check_url_shape(url: str) -> tuple[str, str, int]:
     return parts.scheme, parts.hostname, port
 
 
+LOCAL_NAMES = {"localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback"}
+
+
+def check_static(url: str, *, allow_private: bool = False) -> None:
+    """Checks that need no DNS: used when an address is saved. Calls are still guarded at connect time."""
+    _, host, _ = check_url_shape(url)
+    name = host.lower().rstrip(".")
+    if name in LOCAL_NAMES or name.endswith(".localhost"):
+        if not allow_private:
+            raise UnsafeUrl(f"{host} is a local name; approve private addresses for this panel first")
+        return
+    try:
+        address = str(ipaddress.ip_address(name))
+    except ValueError:
+        return
+    classify(address, allow_private=allow_private)
+
+
 def classify(address: str, *, allow_private: bool) -> None:
     ip = ipaddress.ip_address(address)
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:

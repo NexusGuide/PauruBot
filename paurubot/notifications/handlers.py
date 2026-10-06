@@ -436,18 +436,33 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
     if row is None or row.status in {JobStatus.DONE, JobStatus.CANCELED}:
         return
     bot = telegram.get_bot()
-    if row.source_chat_id is None or row.source_message_id is None:
-        raise Permanent("broadcast has no source message")
-    source_chat, source_message = int(row.source_chat_id), int(row.source_message_id)
+    if row.source_chat_id is not None and row.source_message_id is not None:
+        source_chat, source_message = int(row.source_chat_id), int(row.source_message_id)
+
+        def copier(chat_id: int) -> Callable[[], Awaitable[Any]]:
+            return lambda: bot.copy_message(chat_id, source_chat, source_message)
+    elif row.text:
+        text = esc(row.text)
+        markup = None
+        if row.buttons:
+            markup = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text=b["text"], url=b["url"])]
+                    for b in row.buttons
+                    if b.get("text") and b.get("url")
+                ]
+            )
+
+        def copier(chat_id: int) -> Callable[[], Awaitable[Any]]:
+            return lambda: bot.send_message(chat_id, text, reply_markup=markup)
+    else:
+        raise Permanent("broadcast has no content")
     row.status = JobStatus.RUNNING
     if not row.total:
         from sqlalchemy import func
 
         row.total = int(await session.scalar(select(func.count(Customer.id)).where(*_audience(row))) or 0)
     await session.commit()
-
-    def copier(chat_id: int) -> Callable[[], Awaitable[Any]]:
-        return lambda: bot.copy_message(chat_id, source_chat, source_message)
 
     while True:
         batch = list(
@@ -460,6 +475,9 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
         )
         if not batch:
             break
+        await session.refresh(row, ["status"])
+        if row.status == JobStatus.CANCELED:
+            return
         for customer in batch:
             chat_id = customer.telegram_id
             try:
