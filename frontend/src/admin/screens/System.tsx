@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { money } from "@shared/format";
 import { call, qs, type AuditRow, type Channels as ChannelData, type JobRow, type SalesReport, type SettingItem, type TextItem } from "../api";
 import { Columns } from "../chart";
@@ -336,7 +337,7 @@ export function Settings() {
       <Async data={data} error={error} reload={reload}>
         {(value) => (
           <>
-            {Object.entries(value.groups).map(([group, items]) => (
+            {Object.entries(value.groups).filter(([group]) => group !== "appearance").map(([group, items]) => (
               <Section key={group} title={t(`settings_group_${group}`)}>
                 <div className="grid gap-5 md:grid-cols-2">
                   {items.map((item) => (
@@ -914,8 +915,91 @@ export function Reports() {
           </>
         )}
       </Async>
+      <TopCustomers range={range} />
+      <Exports range={range} />
       {me?.role !== "reseller" && <Settlements />}
     </Page>
+  );
+}
+
+interface TopCustomer {
+  id: number;
+  customer_id: number;
+  customer: string;
+  telegram_id: number;
+  is_reseller: boolean;
+  orders: number;
+  spent: number;
+  topped_up: number;
+  last_order: string | null;
+}
+
+function TopCustomers({ range }: { range: { start: string; end: string } }) {
+  const { t, locale, can } = useSession();
+  const { data, error, reload } = useLoad<{ items: Omit<TopCustomer, "id">[] }>(`/api/admin/reports/top-customers${qs({ ...range, limit: 20 })}`);
+  const rows: TopCustomer[] = (data?.items ?? []).map((r, i) => ({ ...r, id: i + 1 }));
+  return (
+    <Section title={t("top_customers")} flush>
+      <Async data={data} error={error} reload={reload}>
+        {() => (
+          <Table
+            rows={rows}
+            empty={<Empty title={t("top_customers_empty")} />}
+            columns={[
+              { key: "rank", label: "#", mobile: "hide", render: (r) => money(r.id, locale) },
+              {
+                key: "name",
+                label: t("col_customer"),
+                mobile: "title",
+                render: (r) => (
+                  <span className="flex items-center gap-2">
+                    {can("customers.read") && !r.is_reseller ? (
+                      <Link className="font-semibold text-firouzeh-700" to={`/customers/${r.customer_id}`}>{r.customer}</Link>
+                    ) : (
+                      <span className="font-semibold">{r.customer}</span>
+                    )}
+                    {r.is_reseller && <Badge tone="brand">{t("reseller")}</Badge>}
+                  </span>
+                ),
+              },
+              { key: "orders", label: t("col_orders"), mobile: "meta", render: (r) => t("dash_orders_n", { n: money(r.orders, locale) }) },
+              { key: "spent", label: t("spent"), mobile: "end", render: (r) => <Money amount={r.spent} /> },
+              { key: "topped", label: t("topped_up"), mobile: "hide", render: (r) => <Money amount={r.topped_up} /> },
+              { key: "last", label: t("last_order"), mobile: "hide", render: (r) => <When iso={r.last_order} /> },
+            ]}
+          />
+        )}
+      </Async>
+    </Section>
+  );
+}
+
+const EXPORTS: [string, string][] = [
+  ["orders", "orders.read"],
+  ["payments", "payments.read"],
+  ["services", "services.read"],
+  ["customers", "customers.read"],
+];
+
+function Exports({ range }: { range: { start: string; end: string } }) {
+  const { t, can, me } = useSession();
+  const kinds = EXPORTS.filter(([kind, perm]) => can(perm) && !(kind === "customers" && me?.role === "reseller"));
+  if (!kinds.length) return null;
+  return (
+    <Section title={t("excel_export")}>
+      <p className="mb-3 text-[0.82rem] text-[var(--hint)]">{t("excel_export_hint")}</p>
+      <div className="flex flex-wrap gap-2">
+        {kinds.map(([kind]) => (
+          <a
+            key={kind}
+            className="inline-flex min-h-10 items-center rounded-xl px-3.5 text-[0.88rem] font-semibold ring-1 ring-[var(--line)] hover:bg-[var(--surface)]"
+            href={`/api/admin/export/${kind}.xlsx${qs(range)}`}
+          >
+            {t(`export_${kind}`)}
+          </a>
+        ))}
+      </div>
+    </Section>
   );
 }
 
@@ -949,34 +1033,26 @@ function Settlements() {
           value.balances.length === 0 ? (
             <Empty title={t("empty_list")} />
           ) : (
-            <table className="w-full text-[0.85rem]">
-              <thead>
-                <tr className="border-b border-[var(--line)] text-[0.78rem] text-[var(--hint)]">
-                  <th className="px-4 py-2 text-start font-semibold">{t("col_method")}</th>
-                  <th className="px-4 py-2 text-start font-semibold">{t("collected")}</th>
-                  <th className="px-4 py-2 text-start font-semibold">{t("settled")}</th>
-                  <th className="px-4 py-2 text-start font-semibold">{t("outstanding")}</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {value.balances.map((b) => (
-                  <tr key={b.provider} className="border-b border-[var(--line)] last:border-0">
-                    <td className="px-4 py-2.5 font-semibold">{t(`provider_${b.provider}`)}</td>
-                    <td className="px-4 py-2.5"><Money amount={b.collected} /></td>
-                    <td className="px-4 py-2.5"><Money amount={b.settled} /></td>
-                    <td className="px-4 py-2.5 font-bold"><Money amount={b.outstanding} /></td>
-                    <td className="px-4 py-2.5 text-end">
-                      {can("payments.refund") && b.outstanding > 0 && (
-                        <Button small onClick={() => setForm({ provider: b.provider, amount: b.outstanding, reference: "" })}>
-                          {t("record_settlement")}
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <Table
+              rows={value.balances.map((b, index) => ({ ...b, id: index + 1 }))}
+              columns={[
+                { key: "provider", label: t("col_method"), mobile: "title", render: (b) => <span className="font-semibold">{t(`provider_${b.provider}`)}</span> },
+                { key: "collected", label: t("collected"), mobile: "meta", render: (b) => <Money amount={b.collected} /> },
+                { key: "settled", label: t("settled"), mobile: "meta", render: (b) => <Money amount={b.settled} /> },
+                { key: "outstanding", label: t("outstanding"), mobile: "end", render: (b) => <Money amount={b.outstanding} className="font-bold" /> },
+                {
+                  key: "action",
+                  label: "",
+                  mobile: "meta",
+                  render: (b) =>
+                    can("payments.refund") && b.outstanding > 0 ? (
+                      <Button small onClick={() => setForm({ provider: b.provider, amount: b.outstanding, reference: "" })}>
+                        {t("record_settlement")}
+                      </Button>
+                    ) : null,
+                },
+              ]}
+            />
           )
         }
       </Async>

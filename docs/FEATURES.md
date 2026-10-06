@@ -132,8 +132,8 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | FIN-02 | Append-only ledger with reconciliation | MVP | done |
 | FIN-03 | Charge / gift codes | v1.1 | done |
 | FIN-04 | Finance reports and daily report | MVP | done |
-| FIN-05 | Excel export | v1.1 | todo |
-| FIN-06 | Top customers report | v1.1 | todo |
+| FIN-05 | Excel export | v1.1 | done |
+| FIN-06 | Top customers report | v1.1 | done |
 | FIN-07 | Shop bundle export / import | v2 | todo |
 
 ## Growth & Marketing
@@ -154,14 +154,14 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
 | BOT-01 | Editable bot texts with message variables | MVP | done |
-| BOT-02 | Drag-and-drop keyboard layout editor | v1.1 | todo |
-| BOT-03 | Bot appearance, colored buttons, premium emoji | v1.1 | todo |
+| BOT-02 | Drag-and-drop keyboard layout editor | v1.1 | done |
+| BOT-03 | Bot appearance, colored buttons, premium emoji | v1.1 | done |
 | BOT-04 | Multi-language (fa, en, ru, zh) | MVP | done |
-| BOT-05 | Help buttons and app downloads from GitHub releases | v1.1 | todo |
+| BOT-05 | Help buttons and app downloads from GitHub releases | v1.1 | done |
 | BOT-06 | Generated user info card image | v2 | todo |
 | BOT-07 | Telegram Business account automation | v2 | todo |
-| BOT-08 | User color/risk tags | v1.1 | todo |
-| BOT-09 | Delete-with-reason and user notification | v1.1 | todo |
+| BOT-08 | User color/risk tags | v1.1 | done |
+| BOT-09 | Delete-with-reason and user notification | v1.1 | done |
 
 ## Mini App & Web
 

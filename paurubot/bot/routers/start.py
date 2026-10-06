@@ -5,14 +5,23 @@ from typing import Any
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    ReplyKeyboardMarkup,
+)
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.bot import keyboards
 from paurubot.bot.callbacks import Lang, Nav
 from paurubot.bot.context import StaffIdentity, forget_join_check
-from paurubot.bot.utils import Btn
+from paurubot.bot.menu import main_menu
+from paurubot.bot.utils import Btn, show
 from paurubot.core import customers
+from paurubot.core.formatting import esc
 from paurubot.db.models import Customer, Shop
 from paurubot.i18n import Texts
 from paurubot.worker import queue
@@ -20,13 +29,8 @@ from paurubot.worker import queue
 router = Router(name="start")
 
 
-def menu(t: Texts, cfg: dict[str, Any], staff: StaffIdentity | None):  # type: ignore[no-untyped-def]
-    return keyboards.main_menu(
-        t,
-        is_staff=staff is not None,
-        trial=bool(cfg["trial_enabled"]),
-        referral=bool(cfg["referral_enabled"]),
-    )
+def menu(t: Texts, cfg: dict[str, Any], staff: StaffIdentity | None) -> ReplyKeyboardMarkup:
+    return main_menu(t, cfg, is_staff=staff is not None)
 
 
 async def home(
@@ -140,8 +144,88 @@ async def contact(
 
 @router.message(Btn("btn_guide"))
 @router.message(Command("help"))
-async def guide(message: Message, t: Texts) -> None:
-    await message.answer(t("guide_text"), disable_web_page_preview=True)
+async def guide(message: Message, t: Texts, cfg: dict[str, Any]) -> None:
+    items = cfg.get("help_items") or []
+    await message.answer(t("guide_text"), reply_markup=help_kb(t, items), disable_web_page_preview=True)
+
+
+def help_kb(t: Texts, items: list[dict[str, str]]) -> InlineKeyboardMarkup | None:
+    if not items:
+        return None
+    kb = InlineKeyboardBuilder()
+    for index, item in enumerate(items):
+        if item.get("text"):
+            kb.button(text=item["title"], callback_data=Nav(to="help", arg=index))
+        else:
+            kb.button(text=item["title"], url=item["url"])
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+@router.callback_query(Nav.filter(F.to == "help"))
+async def help_topic(call: CallbackQuery, callback_data: Nav, t: Texts, cfg: dict[str, Any]) -> None:
+    items = cfg.get("help_items") or []
+    if not 0 <= callback_data.arg < len(items):
+        await call.answer()
+        return
+    item = items[callback_data.arg]
+    kb = InlineKeyboardBuilder()
+    if item.get("url"):
+        kb.row(InlineKeyboardButton(text=t("btn_open_link"), url=item["url"]))
+    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Nav(to="help_home").pack()))
+    await call.answer()
+    await show(call, f"<b>{esc(item['title'])}</b>\n\n{esc(item['text'])}", kb.as_markup())
+
+
+@router.callback_query(Nav.filter(F.to == "help_home"))
+async def help_home(call: CallbackQuery, t: Texts, cfg: dict[str, Any]) -> None:
+    await call.answer()
+    await show(call, t("guide_text"), help_kb(t, cfg.get("help_items") or []))
+
+
+@router.message(Btn("btn_apps"))
+@router.message(Command("apps"))
+async def app_list(message: Message, shop: Shop, t: Texts, cfg: dict[str, Any]) -> None:
+    from paurubot.core import apps
+
+    items = cfg.get("download_apps") or []
+    if not items:
+        await message.answer(t("apps_none"))
+        return
+    kb = InlineKeyboardBuilder()
+    for index, app in enumerate(items):
+        entry = await apps.cached(shop.id, app) if app.get("repo") else None
+        label = t("app_button", name=app["name"], platform=t(f"platform_{app['platform']}"))
+        if entry and entry.get("version"):
+            label = f"{label} · {entry['version']}"
+        kb.button(text=label, callback_data=Nav(to="app", arg=index))
+    kb.adjust(1)
+    await message.answer(t("apps_intro"), reply_markup=kb.as_markup())
+
+
+@router.callback_query(Nav.filter(F.to == "app"))
+async def app_download(
+    call: CallbackQuery, callback_data: Nav, shop: Shop, t: Texts, cfg: dict[str, Any]
+) -> None:
+    from paurubot.core import apps
+
+    items = cfg.get("download_apps") or []
+    if not 0 <= callback_data.arg < len(items) or not isinstance(call.message, Message):
+        await call.answer()
+        return
+    app = items[callback_data.arg]
+    entry = await apps.cached(shop.id, app) if app.get("repo") else None
+    await call.answer()
+    kb = InlineKeyboardBuilder()
+    if entry and entry.get("url"):
+        kb.row(InlineKeyboardButton(text=t("btn_download_github"), url=entry["url"]))
+    if app.get("store_url"):
+        kb.row(InlineKeyboardButton(text=t("btn_open_store"), url=app["store_url"]))
+    caption = t("app_caption", name=esc(app["name"]), version=esc((entry or {}).get("version") or "-"))
+    if entry and entry.get("file_id"):
+        await call.message.answer_document(entry["file_id"], caption=caption, reply_markup=kb.as_markup())
+    else:
+        await call.message.answer(caption, reply_markup=kb.as_markup(), disable_web_page_preview=True)
 
 
 @router.message(Btn("btn_language"))

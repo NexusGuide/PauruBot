@@ -190,5 +190,6 @@
   "err_reseller_service_limit": "به سقف سرویس‌های فعالت رسیدی.",
   "err_reseller_volume_limit": "این خرید از سقف حجم کل نمایندگیت بیشتره.",
   "err_custom_unavailable": "خرید دلخواه الان فعال نیست.",
-  "err_custom_out_of_range": "حجم یا مدت خارج از محدوده‌ی مجازه."
+  "err_custom_out_of_range": "حجم یا مدت خارج از محدوده‌ی مجازه.",
+  "err_trial_unavailable": "تست رایگان برای حسابت فعال نیست."
 }

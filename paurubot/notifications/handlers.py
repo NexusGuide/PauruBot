@@ -285,8 +285,15 @@ async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
         "remaining": size(int(job.payload.get("remaining") or 0)),
         "days": job.payload.get("days", 0),
     }
+    text = t(f"alert_{alert}", **params)
+    if alert in {"removed_by_staff", "disabled_by_staff"}:
+        reason = str(job.payload.get("reason") or "").strip()
+        if reason:
+            text += "\n" + t("alert_reason", reason=esc(reason))
+        await _to_customer(session, customer, text)
+        return
     markup = None if alert == "deleted" or service.is_trial else _renew_markup(t, service.id)
-    await _to_customer(session, customer, t(f"alert_{alert}", **params), reply_markup=markup)
+    await _to_customer(session, customer, text, reply_markup=markup)
 
 
 async def simple_customer(session: AsyncSession, job: queue.Claimed) -> None:

@@ -190,5 +190,6 @@
   "err_reseller_service_limit": "You've reached your active service limit.",
   "err_reseller_volume_limit": "This purchase goes over your total data cap.",
   "err_custom_unavailable": "Custom plans aren't available right now.",
-  "err_custom_out_of_range": "The data or duration is out of the allowed range."
+  "err_custom_out_of_range": "The data or duration is out of the allowed range.",
+  "err_trial_unavailable": "A free trial isn't available for your account."
 }

@@ -101,6 +101,12 @@ SPECS: dict[str, Spec] = {
     "custom_max_gb": Spec(int, 500, "custom"),
     "custom_min_days": Spec(int, 7, "custom"),
     "custom_max_days": Spec(int, 180, "custom"),
+    # bot appearance (BOT-02, BOT-03, BOT-05)
+    "menu_layout": Spec(list, [], "appearance"),
+    "button_styles": Spec(dict, {}, "appearance"),
+    "help_items": Spec(list, [], "appearance"),
+    "download_apps": Spec(list, [], "appearance"),
+    "app_cache_chat_id": Spec(int, None, "appearance"),
     "username_method": Spec(str, "telegram_id", "services"),
     "username_prefix": Spec(str, "", "services"),
     # resellers
@@ -120,7 +126,13 @@ class SettingError(ValueError):
 
 def defaults() -> dict[str, Any]:
     return {
-        key: (list(spec.default) if isinstance(spec.default, list) else spec.default)
+        key: (
+            list(spec.default)
+            if isinstance(spec.default, list)
+            else dict(spec.default)
+            if isinstance(spec.default, dict)
+            else spec.default
+        )
         for key, spec in SPECS.items()
     }
 
@@ -176,6 +188,10 @@ def coerce(key: str, value: Any) -> Any:
     if spec.kind is list:
         if not isinstance(value, list):
             raise SettingError(f"{key} expects a list")
+        return value
+    if spec.kind is dict:
+        if not isinstance(value, dict):
+            raise SettingError(f"{key} expects an object")
         return value
     return str(value)
 

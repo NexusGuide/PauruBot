@@ -27,6 +27,7 @@ import {
   When,
   useConfirm,
   type Column,
+  Toggle,
 } from "../ui";
 
 const SERVICE_STATUSES = ["active", "on_hold", "limited", "expired", "disabled", "pending", "deleted"];
@@ -103,6 +104,7 @@ function ServiceSheet({
   const [days, setDays] = useState<number | null>(null);
   const [gb, setGb] = useState<number | null>(null);
   const [reason, setReason] = useState("");
+  const [notify, setNotify] = useState(true);
   const writable = can("services.write");
 
   const act = async (action: string, extra: Record<string, unknown> = {}) => {
@@ -136,7 +138,7 @@ function ServiceSheet({
       confirm: t("delete"),
       danger: true,
     });
-    if (ok) await act("delete", { reason: reason.trim() || null });
+    if (ok) await act("delete", { reason: reason.trim() || null, notify });
   };
 
   return (
@@ -185,7 +187,7 @@ function ServiceSheet({
                   {t("enable")}
                 </Button>
               ) : (
-                <Button busy={busy} onClick={() => void act("disable")}>
+                <Button busy={busy} onClick={() => void act("disable", { reason: reason.trim() || null, notify })}>
                   {t("disable")}
                 </Button>
               )}
@@ -218,9 +220,10 @@ function ServiceSheet({
         )}
         {writable && service.status !== "deleted" && (
           <section className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
-            <Field label={t("delete_reason")}>
+            <Field label={t("delete_reason")} hint={t("reason_shown_to_customer")}>
               {(id) => <Input id={id} value={reason} maxLength={255} onChange={(event) => setReason(event.target.value)} />}
             </Field>
+            <Toggle checked={notify} onChange={setNotify} label={t("notify_customer")} hint={t("notify_customer_hint")} />
             <Button tone="danger" busy={busy} onClick={() => void remove()}>
               {t("delete_service")}
             </Button>
@@ -245,6 +248,8 @@ export function Services() {
   const [bulkOpen, setBulkOpen] = useState<{ action: BulkAction; everything: boolean } | null>(null);
   const [days, setDays] = useState<number | null>(null);
   const [gb, setGb] = useState<number | null>(null);
+  const [bulkReason, setBulkReason] = useState("");
+  const [bulkNotify, setBulkNotify] = useState(true);
   const [busy, run] = useAction();
 
   const filter = {
@@ -269,7 +274,13 @@ export function Services() {
       if (!ok) return;
     }
     try {
-      const body: Record<string, unknown> = { action, days: days ?? 0, gb: gb ?? 0 };
+      const body: Record<string, unknown> = {
+        action,
+        days: days ?? 0,
+        gb: gb ?? 0,
+        reason: bulkReason.trim() || null,
+        notify: bulkNotify,
+      };
       if (everything) body.filter = filter;
       else body.ids = [...selection.selected];
       const result = await run(() => call<{ queued: number }>("/api/admin/services/bulk", { method: "POST", body }));
@@ -410,6 +421,14 @@ export function Services() {
               <Field label={t("extra_days")}>{(id) => <NumberInput id={id} value={days} onChange={setDays} allowEmpty />}</Field>
               <Field label={t("extra_gb")}>{(id) => <NumberInput id={id} value={gb} onChange={setGb} allowEmpty />}</Field>
             </div>
+          )}
+          {(bulkOpen?.action === "delete" || bulkOpen?.action === "disable") && (
+            <>
+              <Field label={t("delete_reason")} hint={t("reason_shown_to_customer")}>
+                {(id) => <Input id={id} value={bulkReason} maxLength={255} onChange={(event) => setBulkReason(event.target.value)} />}
+              </Field>
+              <Toggle checked={bulkNotify} onChange={setBulkNotify} label={t("notify_customer")} hint={t("notify_customer_hint")} />
+            </>
           )}
           <p className="text-[0.8rem] text-[var(--hint)]">{t("bulk_runs_in_background")}</p>
         </div>

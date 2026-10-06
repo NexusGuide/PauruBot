@@ -8,12 +8,10 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     KeyboardButton,
     ReplyKeyboardMarkup,
-    WebAppInfo,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from paurubot.bot.callbacks import Lang, Nav, Pay, Shop, Svc, Ticket, Wallet
-from paurubot.config import get_settings
 from paurubot.core.formatting import money
 from paurubot.db.models import Category, ForcedChannel, Location, Plan, Service, ServiceStatus
 from paurubot.i18n import Texts
@@ -37,30 +35,11 @@ MENU_KEYS = (
     "btn_reseller",
     "btn_tickets",
     "btn_guide",
+    "btn_apps",
     "btn_language",
+    "btn_miniapp",
     "btn_admin",
 )
-
-
-def main_menu(t: Texts, *, is_staff: bool, trial: bool, referral: bool) -> ReplyKeyboardMarkup:
-    rows: list[list[KeyboardButton]] = []
-    url = get_settings().public_url
-    if url.startswith("https://"):
-        rows.append([KeyboardButton(text=t("btn_miniapp"), web_app=WebAppInfo(url=f"{url}/app/"))])
-    rows.append([KeyboardButton(text=t("btn_buy")), KeyboardButton(text=t("btn_services"))])
-    second = [KeyboardButton(text=t("btn_wallet"))]
-    if trial:
-        second.append(KeyboardButton(text=t("btn_trial")))
-    rows.append(second)
-    third = [KeyboardButton(text=t("btn_reseller"))]
-    if referral:
-        third.insert(0, KeyboardButton(text=t("btn_referral")))
-    rows.append(third)
-    rows.append([KeyboardButton(text=t("btn_tickets")), KeyboardButton(text=t("btn_guide"))])
-    rows.append([KeyboardButton(text=t("btn_language"))])
-    if is_staff:
-        rows.append([KeyboardButton(text=t("btn_admin"))])
-    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, is_persistent=True)
 
 
 def cancel(t: Texts) -> ReplyKeyboardMarkup:
@@ -155,10 +134,17 @@ def plans_kb(
 ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for plan, price in items:
+        style = plan.button_style if isinstance(plan.button_style, dict) else {}
+        extra: dict[str, Any] = {}
+        if style.get("style") in {"primary", "success", "danger"}:
+            extra["style"] = style["style"]
+        if style.get("emoji_id"):
+            extra["icon_custom_emoji_id"] = str(style["emoji_id"])
         kb.row(
             InlineKeyboardButton(
                 text=t("plan_button", title=plan_title(t, plan), price=money(price)),
                 callback_data=Shop(step="plan", plan=plan.id, svc=svc, kind=kind).pack(),
+                **extra,
             )
         )
     if custom:

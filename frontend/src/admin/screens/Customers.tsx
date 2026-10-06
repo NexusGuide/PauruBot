@@ -30,6 +30,22 @@ import {
 } from "../ui";
 import { ServiceTable } from "./Services";
 
+const RISKS = ["none", "low", "medium", "high"];
+const COLORS = ["red", "orange", "yellow", "green", "blue", "purple"];
+const COLOR_CLASS: Record<string, string> = {
+  red: "bg-anar-500",
+  orange: "bg-[#e07b2d]",
+  yellow: "bg-saffron-500",
+  green: "bg-pista-500",
+  blue: "bg-firouzeh-500",
+  purple: "bg-[#7c5cc4]",
+};
+
+function ColorDot({ color }: { color: string }) {
+  const { t } = useSession();
+  return <span className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${COLOR_CLASS[color] ?? "bg-[var(--line)]"}`} title={t(`color_${color}`)} aria-label={t(`color_${color}`)} role="img" />;
+}
+
 export function customerName(c: Pick<Customer, "username" | "first_name" | "telegram_id">): string {
   if (c.username) return `@${c.username}`;
   return c.first_name || String(c.telegram_id);
@@ -38,7 +54,7 @@ export function customerName(c: Pick<Customer, "username" | "first_name" | "tele
 export function Customers() {
   const { t, can, toast, errorText } = useSession();
   const navigate = useNavigate();
-  const list = useList<Customer>("/api/admin/customers", ["q", "banned", "tag"]);
+  const list = useList<Customer>("/api/admin/customers", ["q", "banned", "tag", "risk", "color"]);
   const selection = useSelection(`${list.page}:${list.params.toString()}:${list.data?.total ?? 0}`);
   const [busy, run] = useAction();
   const [tagging, setTagging] = useState<"tag" | "untag" | null>(null);
@@ -69,7 +85,9 @@ export function Customers() {
       mobile: "title",
       render: (c) => (
         <span className="flex flex-wrap items-center gap-2">
+          {c.color && <ColorDot color={c.color} />}
           <span className="font-semibold">{customerName(c)}</span>
+          {c.risk !== "none" && <Badge tone={c.risk === "low" ? "wait" : "loss"}>{t(`risk_${c.risk}`)}</Badge>}
           {c.is_banned && <Badge tone="loss">{t("banned")}</Badge>}
           {c.blocked_bot_at && <Badge>{t("blocked_bot")}</Badge>}
           {c.tags.map((tagName) => (
@@ -121,6 +139,22 @@ export function Customers() {
             <option value="">{t("filter_everyone")}</option>
             <option value="false">{t("filter_not_banned")}</option>
             <option value="true">{t("filter_banned")}</option>
+          </Select>
+          <Select className="w-auto" aria-label={t("filter_risk")} value={list.get("risk")} onChange={(event) => list.set({ risk: event.target.value })}>
+            <option value="">{t("filter_any_risk")}</option>
+            {RISKS.map((risk) => (
+              <option key={risk} value={risk}>
+                {t(`risk_${risk}`)}
+              </option>
+            ))}
+          </Select>
+          <Select className="w-auto" aria-label={t("filter_color")} value={list.get("color")} onChange={(event) => list.set({ color: event.target.value })}>
+            <option value="">{t("filter_any_color")}</option>
+            {COLORS.map((color) => (
+              <option key={color} value={color}>
+                {t(`color_${color}`)}
+              </option>
+            ))}
           </Select>
           {list.get("tag") && (
             <Button small tone="quiet" onClick={() => list.set({ tag: null })}>
@@ -342,6 +376,18 @@ export function CustomerPage() {
     }
   };
 
+  const saveMarkers = async (patch: { color?: string | null; risk?: string }) => {
+    try {
+      const result = await run(() =>
+        call<{ customer: Customer }>(`/api/admin/customers/${id}`, { method: "PATCH", body: patch }),
+      );
+      if (result) setData((prev) => (prev ? { ...prev, customer: result.customer } : prev));
+      toast(t("saved"));
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
   const saveNote = async (value: string) => {
     try {
       const result = await run(() =>
@@ -403,6 +449,33 @@ export function CustomerPage() {
                   ...(c.is_banned ? ([[t("ban_reason"), c.ban_reason || "—"]] as [string, string][]) : []),
                 ]}
               />
+              {can("customers.write") && (
+                <div className="mt-4 grid gap-3 border-t border-[var(--line)] pt-4 sm:grid-cols-2">
+                  <Field label={t("customer_color")} hint={t("customer_color_hint")}>
+                    {(fid) => (
+                      <Select id={fid} value={c.color ?? ""} onChange={(e) => void saveMarkers({ color: e.target.value || null })}>
+                        <option value="">—</option>
+                        {COLORS.map((color) => (
+                          <option key={color} value={color}>
+                            {t(`color_${color}`)}
+                          </option>
+                        ))}
+                      </Select>
+                    )}
+                  </Field>
+                  <Field label={t("customer_risk")} hint={t("customer_risk_hint")}>
+                    {(fid) => (
+                      <Select id={fid} value={c.risk} onChange={(e) => void saveMarkers({ risk: e.target.value })}>
+                        {RISKS.map((risk) => (
+                          <option key={risk} value={risk}>
+                            {t(`risk_${risk}`)}
+                          </option>
+                        ))}
+                      </Select>
+                    )}
+                  </Field>
+                </div>
+              )}
               <div className="mt-4 border-t border-[var(--line)] pt-4">
                 <p className="mb-1.5 text-[0.82rem] font-semibold">{t("staff_note")}</p>
                 {note === null ? (

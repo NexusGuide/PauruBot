@@ -119,6 +119,8 @@ export interface Customer {
   ban_reason: string | null;
   tags: string[];
   note: string | null;
+  color: string | null;
+  risk: string;
   created_at: string;
   last_seen_at: string | null;
   blocked_bot_at: string | null;

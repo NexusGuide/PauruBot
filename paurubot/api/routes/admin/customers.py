@@ -55,6 +55,8 @@ CUSTOMER_FIELDS = [
     "ban_reason",
     "tags",
     "note",
+    "color",
+    "risk",
     "created_at",
     "last_seen_at",
     "blocked_bot_at",
@@ -112,6 +114,8 @@ async def list_customers(
     q: str = Query("", max_length=64),
     banned: bool | None = None,
     tag: str | None = Query(None, max_length=24),
+    risk: Literal["none", "low", "medium", "high"] | None = None,
+    color: str | None = Query(None, max_length=12),
     sort: str | None = Depends(sort_params),
 ) -> dict[str, Any]:
     if ctx.scoped:
@@ -131,6 +135,10 @@ async def list_customers(
         stmt = stmt.where(Customer.is_banned.is_(banned))
     if tag:
         stmt = stmt.where(cast(Customer.tags, JSONB).contains([tag]))
+    if risk:
+        stmt = stmt.where(Customer.risk == risk)
+    if color:
+        stmt = stmt.where(Customer.color == color)
     stmt = apply_sort(stmt, sort, CUSTOMER_SORT, Customer.id)
     rows, total = await paginate(db, stmt, page)
     return {"items": [plain(c, CUSTOMER_FIELDS) for c in rows], "total": total}
@@ -187,6 +195,8 @@ class CustomerPatch(BaseModel):
     note: str | None = Field(default=None, max_length=2000)
     tags: list[str] | None = Field(default=None, max_length=20)
     locale: str | None = Field(default=None, max_length=8)
+    color: Literal["red", "orange", "yellow", "green", "blue", "purple"] | None = None
+    risk: Literal["none", "low", "medium", "high"] | None = None
 
 
 @router.patch("/customers/{customer_id}")
@@ -199,10 +209,12 @@ async def update_customer(
     if ctx.scoped:
         raise HTTPException(status_code=404, detail="not_found")
     customer = await owned(db, Customer, customer_id, ctx)
-    before = snapshot(customer, ["note", "tags", "locale"])
+    before = snapshot(customer, ["note", "tags", "locale", "color", "risk"])
     for key, value in body.model_dump(exclude_unset=True).items():
         if key == "tags" and value is not None:
             value = [str(tag)[:24] for tag in value]
+        if key == "risk" and value is None:
+            value = "none"
         setattr(customer, key, value)
     await record(
         db,
@@ -212,7 +224,7 @@ async def update_customer(
         entity="customer",
         entity_id=customer.id,
         before=before,
-        after=snapshot(customer, ["note", "tags", "locale"]),
+        after=snapshot(customer, ["note", "tags", "locale", "color", "risk"]),
     )
     return {"customer": plain(customer, CUSTOMER_FIELDS)}
 
@@ -397,6 +409,21 @@ class ServiceAction(BaseModel):
     days: int = Field(default=0, ge=0, le=3650)
     gb: int = Field(default=0, ge=0, le=100_000)
     reason: str | None = Field(default=None, max_length=255)
+    # Tell the customer, with the reason, when staff delete or disable a service (BOT-09).
+    notify: bool = True
+
+
+async def notify_staff_change(db: DB, service: Service, action: str, reason: str | None) -> None:
+    alert = {"delete": "removed_by_staff", "disable": "disabled_by_staff"}.get(action)
+    if alert is None:
+        return
+    await queue.enqueue(
+        db,
+        "notify",
+        "service_alert",
+        {"service_id": service.id, "alert": alert, "reason": (reason or "")[:255]},
+        shop_id=service.shop_id,
+    )
 
 
 @router.post("/services/{service_id}/action")
@@ -438,6 +465,8 @@ async def service_action(
         before=before,
         after=snapshot(service, ["status", "expire_at", "data_limit", "subscription_url"]),
     )
+    if body.notify:
+        await notify_staff_change(db, service, body.action, body.reason)
     return {"service": service_out(service)}
 
 
@@ -499,6 +528,7 @@ class BulkServices(BaseModel):
     days: int = Field(default=0, ge=0, le=3650)
     gb: int = Field(default=0, ge=0, le=100_000)
     reason: str | None = Field(default=None, max_length=255)
+    notify: bool = True
 
 
 @router.post("/services/bulk")
@@ -524,7 +554,13 @@ async def bulk_services(
     if len(ids) > BULK_LIMIT:
         raise HTTPException(status_code=422, detail="too_many")
     batch = uuid.uuid4().hex[:12]
-    payload = {"action": body.action, "days": body.days, "gb": body.gb, "reason": body.reason}
+    payload = {
+        "action": body.action,
+        "days": body.days,
+        "gb": body.gb,
+        "reason": body.reason,
+        "notify": body.notify and body.action in {"delete", "disable"},
+    }
     for service_id in ids:
         await queue.enqueue(
             db,

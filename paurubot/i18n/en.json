@@ -350,5 +350,22 @@
   "panel_alert_up": "🟢 Panel <b>{panel}</b> is back after {minutes} minutes.",
   "panel_alert_node_down": "🟠 Node <b>{node}</b> on {panel} disconnected.",
   "panel_alert_node_up": "🟢 Node <b>{node}</b> on {panel} is connected again.",
-  "panel_alert_quota": "⚠️ {percent}% of the bot admin's quota on {panel} is used. When it's full, sales from this panel stop."
+  "panel_alert_quota": "⚠️ {percent}% of the bot admin's quota on {panel} is used. When it's full, sales from this panel stop.",
+  "btn_apps": "📲 Get the app",
+  "btn_open_link": "🔗 Open",
+  "apps_none": "No apps have been added yet.",
+  "apps_intro": "Pick the app for your device:",
+  "app_button": "{name} ({platform})",
+  "platform_android": "Android",
+  "platform_ios": "iPhone",
+  "platform_windows": "Windows",
+  "platform_mac": "Mac",
+  "platform_linux": "Linux",
+  "btn_download_github": "⬇️ Download from GitHub",
+  "btn_open_store": "🛒 App page",
+  "app_caption": "📲 <b>{name}</b>\nVersion: {version}",
+  "alert_removed_by_staff": "🗑 Your service <b>{name}</b> was deleted by support.",
+  "alert_disabled_by_staff": "⏸ Your service <b>{name}</b> was disabled by support.",
+  "alert_reason": "Reason: {reason}",
+  "trial_unavailable": "A free trial isn't available for your account. Message support for details."
 }

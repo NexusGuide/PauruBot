@@ -171,6 +171,9 @@ async def auto_approvable(session: AsyncSession, payment: Payment, cfg: dict[str
         return False
     if payment.amount > int(cfg.get("card_auto_max_amount") or 0):
         return False
+    customer = await session.get(Customer, payment.customer_id)
+    if customer is not None and customer.risk in {"medium", "high"}:
+        return False  # risky customers always get a human look (BOT-08)
     history = await session.scalar(
         select(func.count(Payment.id)).where(
             Payment.customer_id == payment.customer_id,
