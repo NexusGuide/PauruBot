@@ -81,7 +81,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | CAT-03 | Custom buy: user chooses volume and days | v1.1 | todo |
 | CAT-04 | Trial accounts with quota generations and reservations | MVP | done |
 | CAT-05 | Manual config stock / inventory sale | v2 | todo |
-| CAT-06 | Manual service creation by admin | v1.1 | todo |
+| CAT-06 | Manual service creation by admin | v1.1 | done |
 | CAT-07 | Bulk purchase | v2 | todo |
 | CAT-08 | Guest purchase (no prior registration) | v2 | todo |
 | CAT-09 | Configurable username generation methods | MVP | done |
@@ -96,7 +96,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | SVC-04 | Location / panel change for an existing service | v2 | todo |
 | SVC-05 | Expiry and low-volume notifications | MVP | done |
 | SVC-06 | Auto disable / re-activate configs | v1.1 | wip |
-| SVC-07 | Bulk volume/time increase for many users | v1.1 | todo |
+| SVC-07 | Bulk volume/time increase for many users | v1.1 | done |
 | SVC-08 | Branded subscription link page | v1.1 | todo |
 | SVC-09 | QR code delivery | MVP | done |
 | SVC-10 | Delivery failure queue with retry | MVP | done |
@@ -175,10 +175,10 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| ADM-01 | Dashboard with live metrics | MVP | todo |
-| ADM-02 | Inbox of pending orders/payments with dismissals | MVP | todo |
+| ADM-01 | Dashboard with live metrics | MVP | done |
+| ADM-02 | Inbox of pending orders/payments with dismissals | MVP | done |
 | ADM-03 | Audit log of admin actions | MVP | done |
-| ADM-04 | Table bulk actions, search, sort, paging | MVP | todo |
+| ADM-04 | Table bulk actions, search, sort, paging | MVP | done |
 | ADM-05 | In-panel help docs with search | v1.1 | todo |
 | ADM-06 | Sales funnel analytics | v2 | todo |
 | ADM-07 | Panel settings modal (PasarGuard server settings) | v1.1 | todo |

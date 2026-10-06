@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { money } from "@shared/format";
-import { call, type Customer, type CustomerDetail } from "../api";
+import { call, type CatalogData, type Customer, type CustomerDetail } from "../api";
 import { PAGE_SIZE, useAction, useList, useLoad, useSelection } from "../hooks";
 import { useSession } from "../session";
 import {
@@ -248,6 +248,60 @@ function AdjustSheet({
   );
 }
 
+function GiveServiceSheet({ customerId, onClose, onDone }: { customerId: number; onClose: () => void; onDone: () => void }) {
+  const { t, toast, errorText } = useSession();
+  const catalog = useLoad<CatalogData>("/api/admin/catalog");
+  const [planId, setPlanId] = useState<number | null>(null);
+  const [label, setLabel] = useState("");
+  const [busy, run] = useAction();
+  const give = async () => {
+    try {
+      await run(() =>
+        call("/api/admin/services", {
+          method: "POST",
+          body: { customer_id: customerId, plan_id: planId, label: label.trim() || null },
+        }),
+      );
+      toast(t("service_given"));
+      onDone();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  const plans = (catalog.data?.plans ?? []).filter((plan) => plan.is_active);
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title={t("give_service")}
+      footer={
+        <Button tone="primary" busy={busy} disabled={!planId} onClick={() => void give()}>
+          {t("give_service")}
+        </Button>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <p className="text-[0.85rem] leading-relaxed text-[var(--hint)]">{t("give_service_hint")}</p>
+        <Field label={t("col_plan")}>
+          {(id) => (
+            <Select id={id} value={planId ?? ""} onChange={(e) => setPlanId(e.target.value ? Number(e.target.value) : null)}>
+              <option value="">—</option>
+              {plans.map((plan) => (
+                <option key={plan.id} value={plan.id}>
+                  {plan.title}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+        <Field label={t("service_label")}>
+          {(id) => <Input id={id} value={label} maxLength={48} onChange={(e) => setLabel(e.target.value)} />}
+        </Field>
+      </div>
+    </Sheet>
+  );
+}
+
 export function CustomerPage() {
   const { id } = useParams();
   const { t, can, locale, toast, errorText } = useSession();
@@ -258,6 +312,7 @@ export function CustomerPage() {
   const [banOpen, setBanOpen] = useState(false);
   const [banReason, setBanReason] = useState("");
   const [note, setNote] = useState<string | null>(null);
+  const [giving, setGiving] = useState(false);
   const [busy, run] = useAction();
 
   const ban = async (banned: boolean) => {
@@ -313,6 +368,9 @@ export function CustomerPage() {
                   <Button tone="primary" onClick={() => setAdjusting(true)}>
                     {t("adjust_balance")}
                   </Button>
+                )}
+                {can("services.create") && can("catalog.read") && (
+                  <Button onClick={() => setGiving(true)}>{t("give_service")}</Button>
                 )}
                 {can("customers.write") && <Button onClick={() => setMessaging(true)}>{t("send_message")}</Button>}
                 {can("customers.ban") &&
@@ -423,6 +481,16 @@ export function CustomerPage() {
               </Section>
             </div>
 
+            {giving && (
+              <GiveServiceSheet
+                customerId={c.id}
+                onClose={() => setGiving(false)}
+                onDone={() => {
+                  setGiving(false);
+                  window.setTimeout(() => void reload(), 2500);
+                }}
+              />
+            )}
             <AdjustSheet
               customerId={c.id}
               open={adjusting}
