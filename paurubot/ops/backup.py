@@ -147,7 +147,10 @@ async def create(*, label: str = "") -> BackupInfo:
 
 def listing() -> list[BackupInfo]:
     items: list[BackupInfo] = []
-    for path in backup_dir().glob(f"*{SUFFIX}"):
+    root = Path(get_settings().backup_dir)
+    if not root.is_dir():
+        return items
+    for path in root.glob(f"*{SUFFIX}"):
         if not NAME_RE.match(path.name):
             continue
         stat = path.stat()
@@ -158,7 +161,7 @@ def listing() -> list[BackupInfo]:
 def resolve(name: str) -> Path:
     if not NAME_RE.match(name):
         raise BackupError("invalid backup name")
-    path = backup_dir() / name
+    path = Path(get_settings().backup_dir) / name
     if not path.is_file():
         raise BackupError("backup not found")
     return path

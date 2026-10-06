@@ -8,6 +8,7 @@ os.environ.setdefault("REDIS_URL", "redis://127.0.0.1:6379/15")
 os.environ.setdefault("MASTER_KEY", "test-master-key-0123456789-abcdefghijklmnop")
 os.environ.setdefault("BOT_TOKEN", "123456:TEST-token-for-unit-tests-only-xxxxxxxx")
 os.environ.setdefault("LOG_JSON", "false")
+os.environ.setdefault("BACKUP_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "paurubot-test-backups"))
 
 from collections.abc import AsyncIterator  # noqa: E402
 
