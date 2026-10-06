@@ -7,6 +7,8 @@
 #   install.sh install --domain bot.example.com --token 123:ABC --owner 123456 [--channel stable|beta] [--version v1.2.3]
 #   install.sh update [--channel stable|beta] [--version v1.2.3]
 #   install.sh rollback | status | logs [service] | restart | backup | restore FILE | setup-link | uninstall
+#
+# For a private repository, export PAURUBOT_GITHUB_TOKEN (read access to code and packages) first.
 
 set -Eeuo pipefail
 
@@ -96,8 +98,36 @@ check_system() {
 
 # ---------------------------------------------------------------- releases
 
+github_token() {
+  local token=${PAURUBOT_GITHUB_TOKEN:-}
+  [[ -n $token ]] || token=$(env_get GITHUB_TOKEN)
+  printf '%s' "$token"
+}
+
 latest_release() {
-  curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1
+  local token auth=()
+  token=$(github_token)
+  [[ -n $token ]] && auth=(-H "Authorization: Bearer $token")
+  curl -fsSL "${auth[@]}" "https://api.github.com/repos/$REPO/releases/latest" |
+    sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1
+}
+
+repo_url() {
+  local token
+  token=$(github_token)
+  if [[ -n $token ]]; then
+    printf 'https://x-access-token:%s@github.com/%s.git' "$token" "$REPO"
+  else
+    printf 'https://github.com/%s.git' "$REPO"
+  fi
+}
+
+registry_login() {
+  local token
+  token=$(github_token)
+  [[ -n $token ]] || return 0
+  printf '%s' "$token" | docker login ghcr.io -u paurubot --password-stdin >/dev/null 2>&1 ||
+    warn "could not sign in to ghcr.io with the GitHub token"
 }
 
 # Resolve the git ref and the image for a channel or an explicit version.
@@ -124,19 +154,23 @@ resolve_target() {
 fetch_source() {
   local ref=$1
   if [[ -d $DIR/.git ]]; then
+    git -C "$DIR" remote set-url origin "$(repo_url)"
     git -C "$DIR" fetch --depth 1 origin "$ref" -q
     git -C "$DIR" checkout -q --force FETCH_HEAD
   else
     mkdir -p "$DIR"
-    git clone -q --depth 1 --branch "$ref" "https://github.com/$REPO.git" "$DIR.tmp"
+    git clone -q --depth 1 --branch "$ref" "$(repo_url)" "$DIR.tmp"
     cp -a "$DIR.tmp/." "$DIR/"
     rm -rf "$DIR.tmp"
   fi
+  # Never leave the access token in .git/config.
+  git -C "$DIR" remote set-url origin "https://github.com/$REPO.git"
 }
 
 # Pull the release image and pin it by digest; build locally when the registry is unreachable.
 fetch_image() {
   local image=$1 digest
+  registry_login
   if docker pull -q "$image" >/dev/null 2>&1; then
     digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image" 2>/dev/null || true)
     if command -v cosign >/dev/null && [[ -n $digest ]]; then
@@ -227,6 +261,7 @@ TRUST_PROXY_HOPS=1
 TIMEZONE=Asia/Tehran
 LOG_LEVEL=INFO
 PAURUBOT_CHANNEL=$channel
+GITHUB_TOKEN=${PAURUBOT_GITHUB_TOKEN:-}
 EOF
   chmod 600 "$ENV_FILE"
   pick_base_images
