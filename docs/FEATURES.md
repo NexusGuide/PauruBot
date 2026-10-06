@@ -59,7 +59,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 |----|---------|-------|--------|
 | PNL-01 | PasarGuard deep admin: users, admins, groups, hosts, nodes, templates, inbounds | MVP | done |
 | PNL-02 | PasarGuard live role/ACL and quota read from the panel | v1.1 | todo |
-| PNL-03 | PasarGuard webhook events (created, expired, limited, usage %, days left) | MVP | todo |
+| PNL-03 | PasarGuard webhook events (created, expired, limited, usage %, days left) | MVP | done |
 | PNL-04 | Marzban driver | MVP | done |
 | PNL-05 | Marzneshin driver | v1.1 | todo |
 | PNL-06 | X-UI (Sanaei / Alireza) and S-UI drivers | MVP* | done |
@@ -94,14 +94,14 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | SVC-02 | Queued renewal processor | v1.1 | todo |
 | SVC-03 | On-hold services (start on first connection) | v1.1 | wip |
 | SVC-04 | Location / panel change for an existing service | v2 | todo |
-| SVC-05 | Expiry and low-volume notifications | MVP | todo |
-| SVC-06 | Auto disable / re-activate configs | v1.1 | todo |
+| SVC-05 | Expiry and low-volume notifications | MVP | wip |
+| SVC-06 | Auto disable / re-activate configs | v1.1 | wip |
 | SVC-07 | Bulk volume/time increase for many users | v1.1 | todo |
 | SVC-08 | Branded subscription link page | v1.1 | todo |
 | SVC-09 | QR code delivery | MVP | todo |
-| SVC-10 | Delivery failure queue with retry | MVP | todo |
+| SVC-10 | Delivery failure queue with retry | MVP | wip |
 | SVC-11 | Usage chart per service | v1.1 | todo |
-| SVC-12 | Service quota cache | MVP* | todo |
+| SVC-12 | Service quota cache | MVP* | done |
 
 ## Payments
 
@@ -140,7 +140,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| GRW-01 | Referral system with rewards | v1.1 | todo |
+| GRW-01 | Referral system with rewards | v1.1 | done |
 | GRW-02 | Loyalty tiers, rules and rewards | v2 | todo |
 | GRW-03 | Lucky wheel | v2 | todo |
 | GRW-04 | Lottery | v2 | todo |
@@ -197,10 +197,10 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| JOB-01 | Job registry and scheduler | MVP | wip |
+| JOB-01 | Job registry and scheduler | MVP | done |
 | JOB-02 | Daily status report | MVP | todo |
 | JOB-03 | IP block notification | v2 | todo |
-| JOB-04 | Log cleanup | MVP | todo |
+| JOB-04 | Log cleanup | MVP | done |
 | JOB-05 | Metrics, tracing and dead-letter queues | v1.1 | todo |
 
 ## Install, Backup & Update
@@ -236,6 +236,6 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 |----|---------|-------|--------|
 | NEW-01 | Master key escrow inside encrypted backups (restores recover panel credentials) | MVP | todo |
 | NEW-02 | TLS certificate pinning for self-signed panels instead of disabling verification | MVP | done |
-| NEW-03 | Periodic usage sync for panels without webhooks | MVP | todo |
-| NEW-04 | Refund and service cancellation policy | MVP | todo |
+| NEW-03 | Periodic usage sync for panels without webhooks | MVP | done |
+| NEW-04 | Refund and service cancellation policy | MVP | done |
 | NEW-05 | Error monitoring hook (Sentry DSN, optional) | MVP | todo |
