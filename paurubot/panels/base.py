@@ -61,6 +61,7 @@ class PanelUser:
     links: list[str] = field(default_factory=list)
     data: dict[str, Any] = field(default_factory=dict)
     online_at: datetime | None = None
+    note: str = ""
 
 
 SUBSCRIPTION_MAX_BYTES = 2 * 1024 * 1024
@@ -102,6 +103,49 @@ class PanelHealth:
     detail: str
     users: int | None = None
     version: str | None = None
+
+
+def number(data: dict[str, Any], *keys: str) -> float | None:
+    """The first numeric value among `keys` (panels name the same figure differently)."""
+    for key in keys:
+        value = data.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                continue
+    return None
+
+
+def as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def whole(value: float | None) -> int | None:
+    return int(value) if value is not None else None
+
+
+def system_figures(info: dict[str, Any]) -> dict[str, Any]:
+    """Map Marzban / PasarGuard `/api/system` (and node stats) onto one shape."""
+    cpu = number(info, "cpu_usage", "cpu_percent", "cpu")
+    return {
+        "version": str(info["version"]) if info.get("version") else None,
+        "users_total": whole(number(info, "total_user", "total_users")),
+        "users_active": whole(number(info, "users_active", "active_users")),
+        "users_online": whole(number(info, "online_users", "users_online")),
+        "cpu_percent": round(max(0.0, min(100.0, cpu)), 1) if cpu is not None else None,
+        "cpu_cores": whole(number(info, "cpu_cores", "cores")),
+        "mem_used": whole(number(info, "mem_used", "memory_used", "ram_used")),
+        "mem_total": whole(number(info, "mem_total", "memory_total", "ram_total")),
+        "traffic_in": whole(number(info, "incoming_bandwidth", "downlink", "incoming")),
+        "traffic_out": whole(number(info, "outgoing_bandwidth", "uplink", "outgoing")),
+        "speed_in": whole(number(info, "incoming_bandwidth_speed", "downlink_speed")),
+        "speed_out": whole(number(info, "outgoing_bandwidth_speed", "uplink_speed")),
+    }
 
 
 def parse_expire(value: Any) -> datetime | None:
@@ -228,3 +272,12 @@ class PanelDriver(ABC):
 
     @abstractmethod
     async def revoke_subscription(self, ref: PanelRef) -> PanelUser: ...
+
+    async def stats(self) -> dict[str, Any]:
+        """Resource, user, quota and node figures for monitoring (PNL-02, PNL-13). Best effort."""
+        health = await self.health_check()
+        return {"version": health.version, "users_total": health.users}
+
+    async def list_users(self, offset: int = 0, limit: int = 100) -> tuple[list[PanelUser], int | None]:
+        """A page of every user on the panel and the total when known (TEN-10)."""
+        raise PanelError("listing users is not supported by this panel")

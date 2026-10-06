@@ -62,11 +62,11 @@ def service_view(service: Service, cfg: dict[str, Any] | None = None) -> dict[st
     }
 
 
-def _extras(service: Service, cfg: dict[str, Any] | None) -> dict[str, int] | None:
-    if cfg is None or service.is_trial:
+def _extras(service: Service, cfg: dict[str, Any] | None) -> dict[str, int | None] | None:
+    if cfg is None:
         return None
-    prices = orders.extra_prices(cfg, service.plan)
-    return {"gb_price": prices[0], "day_price": prices[1]} if prices else None
+    gb, days = orders.service_extras(cfg, service)
+    return None if gb is None and days is None else {"gb_price": gb, "day_price": days}
 
 
 def plan_view(plan: Plan, price: int) -> dict[str, Any]:

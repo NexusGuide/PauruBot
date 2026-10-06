@@ -11,6 +11,10 @@ from paurubot.panels.base import (
     PanelRef,
     PanelUser,
     UserSpec,
+    as_dict,
+    number,
+    system_figures,
+    whole,
 )
 from paurubot.panels.drivers.token_api import TokenApiDriver
 
@@ -50,6 +54,54 @@ class PasarGuardDriver(TokenApiDriver):
             if exc.status == 405:
                 return await self.call(method, f"/api/user/{ref.username}{suffix}", **kwargs)
             raise
+
+    async def nodes(self) -> list[dict[str, Any]]:
+        nodes = await super().nodes()
+        try:
+            realtime = await self.call("GET", "/api/nodes/realtime_stats")
+        except PanelError:
+            realtime = None
+        by_id: dict[str, dict[str, Any]] = {}
+        if isinstance(realtime, dict):
+            by_id = {str(k): v for k, v in realtime.items() if isinstance(v, dict)}
+        elif isinstance(realtime, list):
+            by_id = {str(r.get("node_id", r.get("id"))): r for r in realtime if isinstance(r, dict)}
+        for node in nodes:
+            live = by_id.get(str(node["id"]))
+            if live:
+                node.update(
+                    {k: v for k, v in system_figures(live).items() if v is not None and k != "version"}
+                )
+        return nodes
+
+    async def admin_quota(self) -> dict[str, Any] | None:
+        """The bot's own PasarGuard admin: owner or limited role, and its user / traffic quota (PNL-02)."""
+        try:
+            admin = await self.call("GET", "/api/admin")
+        except PanelError:
+            return None
+        if not isinstance(admin, dict):
+            return None
+        role = as_dict(admin.get("role"))
+        limits = as_dict(role.get("limits"))
+        owner = bool(role.get("is_owner") or (not role and (admin.get("is_sudo") or admin.get("is_owner"))))
+        return {
+            "username": admin.get("username"),
+            "owner": owner,
+            "role": role.get("name") or ("owner" if owner else None),
+            "users": whole(number(admin, "total_users", "users_count")),
+            "max_users": whole(number({**limits, **admin}, "max_users", "users_max")),
+            "used_traffic": whole(number(admin, "used_traffic", "traffic_used")),
+            "data_limit": whole(number({**limits, **admin}, "data_limit", "max_traffic", "traffic_limit")),
+            "disabled": bool(admin.get("is_disabled")),
+        }
+
+    async def stats(self) -> dict[str, Any]:
+        figures = await super().stats()
+        quota = await self.admin_quota()
+        if quota is not None:
+            figures["admin"] = quota
+        return figures
 
     async def list_options(self) -> list[PanelOption]:
         data = await self.call("GET", "/api/groups")

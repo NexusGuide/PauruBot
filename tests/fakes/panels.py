@@ -24,6 +24,8 @@ class FakeTokenPanel:
         self.calls: list[tuple[str, str]] = []
         self.webhook_payloads: list[Any] = []
         self.sub_agents: list[str] = []
+        self.nodes: list[dict[str, Any]] | None = None
+        self.admin: dict[str, Any] | None = None
 
     def _user_out(self, user: dict[str, Any]) -> dict[str, Any]:
         out = dict(user)
@@ -60,7 +62,28 @@ class FakeTokenPanel:
         if request.headers.get("authorization") != f"Bearer {self.token}":
             return httpx.Response(401, json={"detail": "unauthorized"})
         if path == "/api/system":
-            return httpx.Response(200, json={"version": "1.0", "total_user": len(self.users)})
+            return httpx.Response(
+                200,
+                json={
+                    "version": "1.0",
+                    "total_user": len(self.users),
+                    "cpu_usage": 12.5,
+                    "cpu_cores": 4,
+                    "mem_used": 2 * 1024**3,
+                    "mem_total": 8 * 1024**3,
+                    "incoming_bandwidth": 1000,
+                    "outgoing_bandwidth": 2000,
+                },
+            )
+        if path == "/api/nodes" and self.nodes is not None:
+            return httpx.Response(200, json=self.nodes)
+        if path == "/api/admin" and self.admin is not None:
+            return httpx.Response(200, json=self.admin)
+        if path == "/api/users" and request.method == "GET":
+            offset = int(request.url.params.get("offset", 0))
+            limit = int(request.url.params.get("limit", 100))
+            rows = [self._user_out(u) for u in self.users.values()]
+            return httpx.Response(200, json={"users": rows[offset : offset + limit], "total": len(rows)})
         if path == "/api/groups":
             return httpx.Response(200, json={"groups": [{"id": 1, "name": "default"}]})
         if path == "/api/inbounds":
@@ -141,7 +164,15 @@ class FakeXuiPanel:
                         "remark": "main",
                         "protocol": "vless",
                         "port": 443,
-                        "clientStats": [{} for _ in self.clients],
+                        "settings": json.dumps({"clients": list(self.clients.values())}),
+                        "clientStats": [
+                            {
+                                "email": c["email"],
+                                **self.traffic.get(c["email"], {}),
+                                "enable": c.get("enable", True),
+                            }
+                            for c in self.clients.values()
+                        ],
                     }
                 ]
             )
@@ -191,7 +222,100 @@ class FakeXuiPanel:
         return httpx.Response(404, text="not found")
 
 
-def transport(fake: FakeTokenPanel | FakeXuiPanel) -> httpx.MockTransport:
+class FakeMarzneshinPanel:
+    """Marzneshin: /api/admins/token, /api/users/{name}, enable/disable endpoints, expire strategies."""
+
+    def __init__(self) -> None:
+        self.users: dict[str, dict[str, Any]] = {}
+        self.token = "mz-" + secrets.token_hex(4)
+        self.requests: list[tuple[str, str, Any]] = []
+
+    def _out(self, user: dict[str, Any]) -> dict[str, Any]:
+        out = dict(user)
+        out["subscription_url"] = f"/sub/{user['username']}/{user['key']}"
+        out["expired"] = bool(
+            user["expire_strategy"] == "fixed_date"
+            and user["expire_date"]
+            and datetime.fromisoformat(user["expire_date"].replace("Z", "+00:00")) <= now()
+        )
+        out["data_limit_reached"] = bool(user["data_limit"] and user["used_traffic"] >= user["data_limit"])
+        return out
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        body = (
+            json.loads(request.content)
+            if request.content and request.headers.get("content-type", "").startswith("application/json")
+            else None
+        )
+        self.requests.append((request.method, path, body))
+        if path == "/api/admins/token":
+            form = parse_qs(request.content.decode())
+            if form.get("password") != ["panel-password"]:
+                return httpx.Response(401, json={"detail": "bad creds"})
+            return httpx.Response(200, json={"access_token": self.token})
+        if request.headers.get("authorization") != f"Bearer {self.token}":
+            return httpx.Response(401, json={"detail": "unauthorized"})
+        if path == "/api/system/stats/users":
+            return httpx.Response(200, json={"total": len(self.users), "active": len(self.users)})
+        if path == "/api/services":
+            return httpx.Response(200, json={"items": [{"id": 1, "name": "main"}, {"id": 2, "name": "game"}]})
+        if path == "/api/users" and request.method == "POST":
+            assert body is not None
+            if body["username"] in self.users:
+                return httpx.Response(409, json={"detail": "exists"})
+            user = {
+                "id": len(self.users) + 1,
+                "username": body["username"],
+                "service_ids": body.get("service_ids") or [],
+                "data_limit": body.get("data_limit") or 0,
+                "used_traffic": 0,
+                "expire_strategy": body.get("expire_strategy", "never"),
+                "expire_date": body.get("expire_date"),
+                "usage_duration": body.get("usage_duration"),
+                "enabled": True,
+                "activated": False,
+                "note": body.get("note"),
+                "key": secrets.token_hex(4),
+            }
+            self.users[user["username"]] = user
+            return httpx.Response(200, json=self._out(user))
+        if path == "/api/users" and request.method == "GET":
+            page = int(request.url.params.get("page", 1))
+            size = int(request.url.params.get("size", 50))
+            rows = [self._out(u) for u in self.users.values()]
+            return httpx.Response(
+                200, json={"items": rows[(page - 1) * size : page * size], "total": len(rows)}
+            )
+        if path.startswith("/api/users/"):
+            name, _, action = path[len("/api/users/") :].partition("/")
+            user = self.users.get(name)
+            if user is None:
+                return httpx.Response(404, json={"detail": "User not found"})
+            if request.method == "GET" and not action:
+                return httpx.Response(200, json=self._out(user))
+            if request.method == "PUT" and not action:
+                assert body is not None
+                user.update(
+                    {k: v for k, v in body.items() if k in {"data_limit", "expire_strategy", "expire_date"}}
+                )
+                return httpx.Response(200, json=self._out(user))
+            if request.method == "DELETE":
+                del self.users[name]
+                return httpx.Response(200, json={})
+            if action in {"enable", "disable"}:
+                user["enabled"] = action == "enable"
+                return httpx.Response(200, json=self._out(user))
+            if action == "reset":
+                user["used_traffic"] = 0
+                return httpx.Response(200, json=self._out(user))
+            if action == "revoke_sub":
+                user["key"] = secrets.token_hex(4)
+                return httpx.Response(200, json=self._out(user))
+        return httpx.Response(404, json={"detail": "Not Found"})
+
+
+def transport(fake: FakeTokenPanel | FakeXuiPanel | FakeMarzneshinPanel) -> httpx.MockTransport:
     return httpx.MockTransport(fake.handler)
 
 

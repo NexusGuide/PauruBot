@@ -20,6 +20,7 @@ class PanelKind(enum.StrEnum):
     PASARGUARD = "pasarguard"
     MARZBAN = "marzban"
     XUI = "xui"
+    MARZNESHIN = "marzneshin"
 
 
 class UsernameMethod(enum.StrEnum):

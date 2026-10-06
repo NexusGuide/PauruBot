@@ -254,7 +254,9 @@ async def _modify_service(session: AsyncSession, order: Order) -> Service:
     params = dict(order.params or {})
     if "target" not in params:
         cfg = await shop_settings.load(session, order.shop_id)
-        resets = bool(cfg["renew_resets_usage"]) or bool(params.get("queued"))
+        panel_mode = (panel.options or {}).get("renew_resets_usage")
+        default = bool(cfg["renew_resets_usage"]) if panel_mode is None else bool(panel_mode)
+        resets = default or bool(params.get("queued"))
         params["target"] = _target_for(service, order, plan, resets)
         order.params = params
         await session.commit()

@@ -61,6 +61,7 @@ class PlanPanelOptions(BaseModel):
 
     group_ids: list[int] = Field(default_factory=list, max_length=50)
     inbounds: list[str] = Field(default_factory=list, max_length=50)
+    service_ids: list[int] = Field(default_factory=list, max_length=50)
     template_id: int | None = Field(default=None, ge=1)
     inbound_id: int | None = Field(default=None, ge=1)
     flow: str | None = Field(default=None, max_length=40, pattern=r"^[a-z0-9-]*$")

@@ -345,5 +345,10 @@
   "reseller_suspended_error": "⛔️ Your reseller account is suspended; top up your wallet first.",
   "reseller_daily_limit": "You've reached today's purchase limit ({limit} services). Try again tomorrow.",
   "reseller_service_limit": "You've reached your active service limit ({limit}).",
-  "reseller_volume_limit": "This purchase goes over your total data cap ({limit} GB)."
+  "reseller_volume_limit": "This purchase goes over your total data cap ({limit} GB).",
+  "panel_alert_down": "🔴 Panel <b>{panel}</b> is unreachable.\nError: {error}\nSales from this panel are paused until it's back.",
+  "panel_alert_up": "🟢 Panel <b>{panel}</b> is back after {minutes} minutes.",
+  "panel_alert_node_down": "🟠 Node <b>{node}</b> on {panel} disconnected.",
+  "panel_alert_node_up": "🟢 Node <b>{node}</b> on {panel} is connected again.",
+  "panel_alert_quota": "⚠️ {percent}% of the bot admin's quota on {panel} is used. When it's full, sales from this panel stop."
 }

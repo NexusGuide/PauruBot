@@ -265,6 +265,36 @@ export interface PanelRow {
   tls_pinned: boolean;
   webhook_enabled: boolean;
   load?: number;
+  stats: PanelStats;
+  stats_at: string | null;
+  down_since: string | null;
+  uptime?: { day: number | null; week: number | null } | null;
+}
+
+export interface PanelStats {
+  version?: string | null;
+  users_total?: number | null;
+  users_active?: number | null;
+  users_online?: number | null;
+  cpu_percent?: number | null;
+  cpu_cores?: number | null;
+  mem_used?: number | null;
+  mem_total?: number | null;
+  traffic_in?: number | null;
+  traffic_out?: number | null;
+  speed_in?: number | null;
+  speed_out?: number | null;
+  admin?: {
+    username?: string;
+    owner: boolean;
+    role?: string | null;
+    users?: number | null;
+    max_users?: number | null;
+    used_traffic?: number | null;
+    data_limit?: number | null;
+    disabled?: boolean;
+  };
+  nodes?: { id: number; name: string; status: string; message?: string | null; uplink?: number | null; downlink?: number | null; cpu_percent?: number | null; mem_used?: number | null; mem_total?: number | null }[];
 }
 
 export interface Discount {

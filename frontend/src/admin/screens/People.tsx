@@ -107,7 +107,7 @@ function ProfileSheet({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { t, toast, errorText } = useSession();
+  const { t, locale, toast, errorText } = useSession();
   const [form, setForm] = useState(profile);
   const [busy, run] = useAction();
   const set = <K extends keyof ResellerProfile>(key: K, value: ResellerProfile[K]) => setForm((f) => ({ ...f, [key]: value }));
@@ -195,7 +195,7 @@ function ProfileSheet({
           items={[
             [t("balance"), <Money key="b" amount={profile.balance} />],
             [t("reseller_debt"), <Money key="d" amount={profile.billing_debt} />],
-            [t("discount"), `${profile.discount_percent}٪`],
+            [t("discount"), t("discount_value", { percent: money(profile.discount_percent, locale) })],
             [t("col_status"), profile.suspended_at ? t(`suspend_reason_${profile.suspend_reason ?? "staff"}`) : profile.is_current ? t("active") : t("inactive")],
           ]}
         />
@@ -424,7 +424,6 @@ export function Resellers() {
                       className="flex w-full items-center justify-between gap-3 px-4 py-3 text-start hover:bg-[var(--bg)]"
                     >
                       <span className="flex flex-wrap items-center gap-2 font-semibold">
-                        {p.parent_id !== null && <span className="text-[var(--hint)]" aria-hidden="true">↳</span>}
                         {p.customer}
                         {!p.is_current && <Badge tone="loss">{t("inactive")}</Badge>}
                         {p.suspended_at && <Badge tone="loss">{t("suspended")}</Badge>}
@@ -432,10 +431,8 @@ export function Resellers() {
                         {p.parent_id !== null && <Badge>{t("level_two")}</Badge>}
                       </span>
                       <span className="flex flex-col items-end text-[0.85rem] text-[var(--hint)]">
-                        <span>
-                          {value.groups.find((g) => g.id === p.group_id)?.title ?? "—"}
-                          <span className="ms-2">{p.discount_percent}٪</span>
-                        </span>
+                        <span>{value.groups.find((g) => g.id === p.group_id)?.title ?? "—"}</span>
+                        <span>{t("discount_value", { percent: money(p.discount_percent, locale) })}</span>
                         <Money amount={p.balance} />
                       </span>
                     </button>
@@ -986,14 +983,14 @@ function SubSheet({
 }
 
 export function SubResellers() {
-  const { t } = useSession();
+  const { t, locale } = useSession();
   const { data, error, reload } = useLoad<{ max_discount: number; limit: number | null; items: SubReseller[] }>(
     "/api/admin/sub-resellers",
   );
   const [editing, setEditing] = useState<SubReseller | "new" | null>(null);
   const columns: Column<SubReseller>[] = [
     { key: "name", label: t("col_customer"), mobile: "title", render: (r) => <span className="font-semibold">{r.customer ?? `#${r.customer_id}`}</span> },
-    { key: "discount", label: t("discount"), mobile: "meta", render: (r) => `${r.discount_percent}٪` },
+    { key: "discount", label: t("discount"), mobile: "meta", render: (r) => t("discount_value", { percent: money(r.discount_percent, locale) }) },
     { key: "balance", label: t("balance"), render: (r) => <Money amount={r.balance} /> },
     { key: "status", label: t("col_status"), mobile: "end", render: (r) => (r.is_active ? <Badge tone="health">{t("active")}</Badge> : <Badge tone="loss">{t("inactive")}</Badge>) },
     { key: "created", label: t("col_created"), mobile: "hide", render: (r) => <When iso={r.created_at} /> },

@@ -115,9 +115,11 @@ async def pick_panel(session: AsyncSession, plan: Plan) -> Panel | None:
 async def pick_panel_for(
     session: AsyncSession, shop_id: int, panel_id: int | None, location_id: int | None
 ) -> Panel | None:
+    from paurubot.provisioning.monitor import quota_full
+
     if panel_id:
         panel = await session.get(Panel, panel_id)
-        if panel is None or panel.shop_id != shop_id or not panel.is_active:
+        if panel is None or panel.shop_id != shop_id or not panel.is_active or quota_full(panel):
             return None
         if panel.capacity and await panel_load(session, panel.id) >= panel.capacity:
             return None
@@ -136,6 +138,8 @@ async def pick_panel_for(
     )
     best: tuple[float, Panel] | None = None
     for panel in candidates:
+        if quota_full(panel):
+            continue
         load = await panel_load(session, panel.id)
         if panel.capacity and load >= panel.capacity:
             continue

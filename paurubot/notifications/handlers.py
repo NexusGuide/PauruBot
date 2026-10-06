@@ -124,14 +124,14 @@ async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
         return
     t = await _texts(session, customer)
     from paurubot.core import settings as shop_settings
-    from paurubot.core.orders import extra_prices
+    from paurubot.core.orders import service_extras
 
     cfg = await shop_settings.load(session, customer.shop_id)
     heading = (
         t("service_ready") if order.kind in {OrderKind.PURCHASE, OrderKind.TRIAL} else t("service_updated")
     )
     markup = keyboards.service_kb(
-        t, service, extras=extra_prices(cfg, service.plan) is not None, upgrade=bool(cfg["upgrade_enabled"])
+        t, service, extras=service_extras(cfg, service), upgrade=bool(cfg["upgrade_enabled"])
     )
     from paurubot.provisioning.subscription import customer_link
 
@@ -414,6 +414,32 @@ async def report_job(session: AsyncSession, job: queue.Claimed) -> None:
     await report(session, shop.id, str(job.payload["topic"]), t(str(job.payload["key"]), **params))
 
 
+async def panel_alert(session: AsyncSession, job: queue.Claimed) -> None:
+    """Panel down / back up, node changes and quota warnings, to panel staff and the log channel."""
+    from paurubot.db.models import Panel
+
+    panel = await session.get(Panel, int(job.payload["panel_id"]))
+    if panel is None:
+        return
+    shop = await session.get(Shop, panel.shop_id)
+    if shop is None:
+        return
+    t = await texts_for(session, shop.id, shop.default_locale)
+    event = str(job.payload["event"])
+    if event not in {"down", "up", "node_down", "node_up", "quota"}:
+        raise Permanent(f"unknown panel event {event}")
+    text = t(
+        f"panel_alert_{event}",
+        panel=esc(panel.name),
+        node=esc(str(job.payload.get("node") or "")),
+        error=esc(str(job.payload.get("error") or "-")),
+        minutes=job.payload.get("minutes") or 0,
+        percent=job.payload.get("percent") or 0,
+    )
+    await _to_staff(session, shop.id, "panels.read", text)
+    await report(session, shop.id, "panels", text)
+
+
 async def reseller_notice(session: AsyncSession, job: queue.Claimed) -> None:
     """Suspension, resumption and low-balance notices to a reseller, copied to the owners (TEN-06)."""
     from paurubot.db.models import ResellerProfile
@@ -446,6 +472,7 @@ register_queue(
     QueueSpec(
         {
             "reseller_notice": reseller_notice,
+            "panel_alert": panel_alert,
             "order_completed": order_completed,
             "order_failed": order_failed,
             "payment_fulfilled": payment_fulfilled,

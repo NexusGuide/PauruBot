@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import hashlib
+import json
 from typing import Any
 
 import httpx
@@ -10,6 +11,7 @@ import httpx
 from paurubot.db.models import Panel, PanelKind
 from paurubot.panels.base import PanelDriver
 from paurubot.panels.drivers.marzban import MarzbanDriver
+from paurubot.panels.drivers.marzneshin import MarzneshinDriver
 from paurubot.panels.drivers.pasarguard import PasarGuardDriver
 from paurubot.panels.drivers.xui import XuiDriver
 from paurubot.panels.http import SafeHttpClient
@@ -19,9 +21,10 @@ DRIVERS: dict[PanelKind, type[PanelDriver]] = {
     PanelKind.PASARGUARD: PasarGuardDriver,
     PanelKind.MARZBAN: MarzbanDriver,
     PanelKind.XUI: XuiDriver,
+    PanelKind.MARZNESHIN: MarzneshinDriver,
 }
 
-_cache: dict[int, tuple[datetime, PanelDriver]] = {}
+_cache: dict[int, tuple[str, PanelDriver]] = {}
 # Tests install a mock transport per panel id.
 test_transports: dict[int, httpx.AsyncBaseTransport] = {}
 
@@ -40,14 +43,29 @@ def build(panel: Panel, *, transport: httpx.AsyncBaseTransport | None = None) ->
     return driver_cls(http, panel.username, decrypt("panel", panel.password_enc), options)
 
 
+def fingerprint(panel: Panel) -> str:
+    """What the driver is built from; health and stats updates on the row must not rebuild it."""
+    parts = [
+        str(panel.kind),
+        panel.base_url,
+        panel.username,
+        panel.password_enc,
+        json.dumps(panel.options or {}, sort_keys=True, default=str),
+        panel.tls_cert_pem or "",
+        str(bool(panel.allow_private_address)),
+    ]
+    return hashlib.sha256("\x00".join(parts).encode()).hexdigest()
+
+
 async def driver_for(panel: Panel) -> PanelDriver:
+    key = fingerprint(panel)
     cached = _cache.get(panel.id)
-    if cached and cached[0] == panel.updated_at:
+    if cached and cached[0] == key:
         return cached[1]
     if cached:
         await cached[1].close()
     driver = build(panel)
-    _cache[panel.id] = (panel.updated_at, driver)
+    _cache[panel.id] = (key, driver)
     return driver
 
 
