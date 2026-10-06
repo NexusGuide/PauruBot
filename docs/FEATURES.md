@@ -107,22 +107,22 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| PAY-01 | Payment provider interface | MVP | todo |
-| PAY-02 | Fulfillment state machine with leases / claim tokens | MVP | todo |
+| PAY-01 | Payment provider interface | MVP | done |
+| PAY-02 | Fulfillment state machine with leases / claim tokens | MVP | done |
 | PAY-03 | Payment settlements | v1.1 | todo |
-| PAY-04 | Card-to-card with receipt upload and admin approval | MVP | todo |
+| PAY-04 | Card-to-card with receipt upload and admin approval | MVP | done |
 | PAY-05 | Card auto-approve rules | v1.1 | todo |
-| PAY-06 | Duplicate receipt detection (image hash) | MVP* | todo |
-| PAY-07 | Zarinpal | MVP | todo |
+| PAY-06 | Duplicate receipt detection (image hash) | MVP* | done |
+| PAY-07 | Zarinpal | MVP | done |
 | PAY-08 | Aqayepardakht, IranPay/Tetra98, Variza | v2 | todo |
 | PAY-09 | AbanGateway, AtlasPay, Blupal, Tronado, CubePay | v2 | todo |
 | PAY-10 | NowPayments and Plisio | v1.1 | todo |
 | PAY-11 | Direct on-chain USDT-TRC20 / TRX / TON | v1.1 | todo |
-| PAY-12 | Telegram Stars | MVP* | todo |
+| PAY-12 | Telegram Stars | MVP* | done |
 | PAY-13 | FX / crypto price sync | v1.1 | todo |
 | PAY-14 | Payment bonus / cashback per method | v1.1 | todo |
-| PAY-15 | Direct pay (invoice without wallet top-up) | MVP | wip |
-| PAY-16 | Payment expiry job | MVP | todo |
+| PAY-15 | Direct pay (invoice without wallet top-up) | MVP | done |
+| PAY-16 | Payment expiry job | MVP | done |
 
 ## Wallet, Billing & Finance
 
