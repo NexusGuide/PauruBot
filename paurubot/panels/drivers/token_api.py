@@ -1,0 +1,148 @@
+"""Shared client for the bearer-token REST APIs of Marzban and PasarGuard."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Any
+
+from paurubot.panels.base import (
+    UNSET,
+    PanelDriver,
+    PanelError,
+    PanelHealth,
+    PanelNotFound,
+    PanelRef,
+    PanelUser,
+    UserSpec,
+    parse_expire,
+)
+
+
+class TokenApiDriver(PanelDriver):
+    supports_webhooks = True
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._token: str | None = None
+
+    async def _login(self) -> str:
+        resp = await self.http.request(
+            "POST",
+            "/api/admin/token",
+            data={"username": self.username, "password": self.password, "grant_type": "password"},
+        )
+        if resp.status_code != 200:
+            raise PanelError("login failed", resp.status_code)
+        try:
+            token = resp.json().get("access_token")
+        except ValueError as exc:
+            raise PanelError("login returned non-JSON") from exc
+        if not token:
+            raise PanelError("login response has no access token")
+        self._token = str(token)
+        return self._token
+
+    async def call(self, method: str, path: str, **kwargs: Any) -> Any:
+        if self._token is None:
+            await self._login()
+        for attempt in range(2):
+            headers = {"Authorization": f"Bearer {self._token}", "Accept": "application/json"}
+            resp = await self.http.request(method, path, headers=headers, **kwargs)
+            if resp.status_code == 401 and attempt == 0:
+                await self._login()
+                continue
+            if resp.status_code == 404:
+                raise PanelNotFound(f"{method} {path} not found", 404)
+            if resp.status_code >= 400:
+                raise PanelError(f"{method} {path} failed", resp.status_code, resp.text[:300])
+            if not resp.content:
+                return None
+            try:
+                return resp.json()
+            except ValueError:
+                return resp.text
+        raise PanelError("unauthorized", 401)
+
+    # --- mapping ------------------------------------------------------------
+
+    def parse_user(self, data: dict[str, Any]) -> PanelUser:
+        return PanelUser(
+            username=str(data.get("username", "")),
+            status=str(data.get("status") or "active"),
+            used_bytes=int(data.get("used_traffic") or 0),
+            data_limit=int(data.get("data_limit") or 0),
+            expire_at=parse_expire(data.get("expire")),
+            subscription_url=self.absolute_url(data.get("subscription_url")),
+            links=list(data.get("links") or []),
+            data={"id": data["id"]} if data.get("id") is not None else {},
+            online_at=parse_expire(data.get("online_at")),
+        )
+
+    def expire_value(self, expire_at: datetime | None) -> Any:
+        return int(expire_at.timestamp()) if expire_at else 0
+
+    def user_path(self, ref: PanelRef) -> str:
+        return f"/api/user/{ref.username}"
+
+    def lifecycle_fields(self, spec: UserSpec) -> dict[str, Any]:
+        if spec.on_hold_days:
+            return {
+                "status": "on_hold",
+                "expire": 0,
+                "on_hold_expire_duration": int(spec.on_hold_days) * 86400,
+            }
+        return {"status": "active", "expire": self.expire_value(spec.expire_at)}
+
+    # --- protocol -----------------------------------------------------------
+
+    async def health_check(self) -> PanelHealth:
+        info = await self.call("GET", "/api/system")
+        if not isinstance(info, dict):
+            return PanelHealth(False, "unexpected system response")
+        users = info.get("total_user")
+        version = info.get("version")
+        return PanelHealth(
+            True, "ok", int(users) if users is not None else None, str(version) if version else None
+        )
+
+    async def get_user(self, ref: PanelRef) -> PanelUser | None:
+        try:
+            data = await self.call("GET", self.user_path(ref))
+        except PanelNotFound:
+            return None
+        return self.parse_user(data)
+
+    async def update_user(
+        self,
+        ref: PanelRef,
+        *,
+        expire_at: datetime | None = UNSET,
+        data_limit: int | None = None,
+        enabled: bool | None = None,
+    ) -> PanelUser:
+        payload: dict[str, Any] = {}
+        if expire_at is not UNSET:
+            payload["expire"] = self.expire_value(expire_at)
+        if data_limit is not None:
+            payload["data_limit"] = int(data_limit)
+        if enabled is not None:
+            payload["status"] = "active" if enabled else "disabled"
+        data = await self.call("PUT", self.user_path(ref), json=payload)
+        return self.parse_user(data)
+
+    async def reset_usage(self, ref: PanelRef) -> None:
+        await self.call("POST", f"{self.user_path(ref)}/reset")
+
+    async def delete_user(self, ref: PanelRef) -> None:
+        try:
+            await self.call("DELETE", self.user_path(ref))
+        except PanelNotFound:
+            return
+
+    async def revoke_subscription(self, ref: PanelRef) -> PanelUser:
+        data = await self.call("POST", f"{self.user_path(ref)}/revoke_sub")
+        return self.parse_user(data)
+
+    @staticmethod
+    def now() -> datetime:
+        return datetime.now(UTC)

@@ -1,19 +1,18 @@
-"""3x-ui (Sanaei) panel client using the session-cookie inbound API."""
+"""3x-ui (Sanaei / Alireza forks) driver over the inbound client API (PNL-06)."""
 
 from __future__ import annotations
 
 import json
 import secrets
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
-
-import httpx
 
 from paurubot.panels.base import (
     UNSET,
-    PanelClient,
+    PanelDriver,
     PanelError,
+    PanelHealth,
     PanelOption,
     PanelRef,
     PanelUser,
@@ -24,7 +23,7 @@ from paurubot.panels.base import (
 SUPPORTED_PROTOCOLS = {"vless", "vmess", "trojan"}
 
 
-class XuiClient(PanelClient):
+class XuiDriver(PanelDriver):
     kind = "xui"
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -39,79 +38,89 @@ class XuiClient(PanelClient):
             raise PanelError("inbound_id is not configured for this panel")
         return int(value)
 
+    def _headers(self) -> dict[str, str]:
+        headers = {"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"}
+        token = self.options.get("api_token")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return headers
+
     async def _login(self) -> None:
-        try:
-            resp = await self._client.post(
-                "/login", data={"username": self.username, "password": self.password}
-            )
-        except httpx.HTTPError as exc:
-            raise PanelError(f"connection failed: {exc.__class__.__name__}") from exc
+        if self.options.get("api_token"):
+            self._logged_in = True
+            return
+        resp = await self.http.request(
+            "POST", "/login", data={"username": self.username, "password": self.password}
+        )
         ok = False
         try:
             ok = bool(resp.json().get("success"))
         except ValueError:
             ok = False
         if resp.status_code != 200 or not ok:
-            raise PanelError("login failed", resp.status_code, resp.text[:300])
+            raise PanelError("login failed", resp.status_code)
         self._logged_in = True
 
-    async def request(self, method: str, path: str, **kwargs: Any) -> Any:
+    async def call(self, method: str, path: str, **kwargs: Any) -> Any:
         if not self._logged_in:
             await self._login()
         for attempt in range(2):
-            try:
-                resp = await self._client.request(
-                    method, path, headers={"Accept": "application/json"}, **kwargs
-                )
-            except httpx.HTTPError as exc:
-                raise PanelError(f"connection failed: {exc.__class__.__name__}") from exc
-            expired = resp.status_code in {301, 302, 401, 404} or "application/json" not in resp.headers.get(
-                "content-type", ""
-            )
-            if expired and attempt == 0:
+            resp = await self.http.request(method, path, headers=self._headers(), **kwargs)
+            # An expired session shows up as a redirect to the login page, 401/404, or an HTML 200.
+            not_json = "application/json" not in resp.headers.get("content-type", "")
+            expired = resp.status_code in {301, 302, 401, 404} or (resp.status_code == 200 and not_json)
+            if expired and attempt == 0 and not self.options.get("api_token"):
+                self._logged_in = False
                 await self._login()
                 continue
             if resp.status_code >= 400:
-                raise PanelError(f"{method} {path} failed", resp.status_code, resp.text[:300])
+                raise PanelError(f"{method} {path} failed", resp.status_code)
             try:
                 body = resp.json()
             except ValueError as exc:
                 raise PanelError("unexpected non-JSON response", resp.status_code) from exc
             if not body.get("success", False):
-                raise PanelError(body.get("msg") or f"{method} {path} rejected", resp.status_code)
+                raise PanelError(str(body.get("msg") or f"{method} {path} rejected"), resp.status_code)
             return body.get("obj")
         raise PanelError("session could not be established")
 
     async def _protocol(self, inbound_id: int) -> str:
         if inbound_id not in self._protocols:
-            inbound = await self.request("GET", f"/panel/api/inbounds/get/{inbound_id}")
+            inbound = await self.call("GET", f"/panel/api/inbounds/get/{inbound_id}")
             protocol = str((inbound or {}).get("protocol", "")).lower()
             if protocol not in SUPPORTED_PROTOCOLS:
                 raise PanelError(f"inbound protocol '{protocol}' is not supported")
             self._protocols[inbound_id] = protocol
         return self._protocols[inbound_id]
 
-    def _subscription_url(self, sub_id: str | None) -> str | None:
+    def subscription_url(self, sub_id: str | None) -> str | None:
         base = str(self.options.get("sub_base_url") or "").rstrip("/")
         if not base or not sub_id:
             return None
         return f"{base}/{sub_id}"
 
     @staticmethod
-    def _client_key(protocol: str, client: dict[str, Any]) -> str:
+    def client_key(protocol: str, client: dict[str, Any]) -> str:
         return str(client["password"] if protocol == "trojan" else client["id"])
 
-    def _build_client(self, protocol: str, email: str, data_limit: int, expire_at: datetime | None) -> dict:
+    @staticmethod
+    def _expiry_ms(expire_at: datetime | None) -> int:
+        return int(expire_at.timestamp() * 1000) if expire_at else 0
+
+    def build_client(self, protocol: str, spec: UserSpec) -> dict[str, Any]:
+        expiry = self._expiry_ms(spec.expire_at)
+        if spec.on_hold_days:
+            expiry = -int(spec.on_hold_days) * 86400 * 1000  # 3x-ui: negative = starts on first use
         client: dict[str, Any] = {
-            "email": email,
+            "email": spec.username,
             "enable": True,
-            "limitIp": int(self.options.get("limit_ip") or 0),
-            "totalGB": int(data_limit),
-            "expiryTime": int(expire_at.timestamp() * 1000) if expire_at else 0,
+            "limitIp": int(spec.ip_limit or self.options.get("limit_ip") or 0),
+            "totalGB": int(spec.data_limit),
+            "expiryTime": expiry,
             "tgId": "",
             "subId": secrets.token_hex(8),
             "reset": 0,
-            "comment": "",
+            "comment": spec.note[:120] if spec.note else "",
         }
         if protocol == "trojan":
             client["password"] = secrets.token_urlsafe(12)
@@ -123,63 +132,66 @@ class XuiClient(PanelClient):
             client["security"] = "auto"
         return client
 
-    def _panel_user(self, data: dict[str, Any], traffic: dict[str, Any] | None) -> PanelUser:
+    def to_user(self, data: dict[str, Any], traffic: dict[str, Any] | None) -> PanelUser:
         client = data["client"]
         used = 0
         enabled = bool(client.get("enable", True))
         total = int(client.get("totalGB") or 0)
-        expiry = client.get("expiryTime")
+        expiry = int(client.get("expiryTime") or 0)
         if traffic:
             used = int(traffic.get("up") or 0) + int(traffic.get("down") or 0)
             enabled = bool(traffic.get("enable", enabled))
             total = int(traffic.get("total") or total)
-            expiry = traffic.get("expiryTime", expiry)
-        expire_at = parse_expire(expiry) if expiry and int(expiry) > 0 else None
-        status = "active" if enabled else "disabled"
+            expiry = int(traffic.get("expiryTime", expiry) or 0)
+        expire_at = parse_expire(expiry) if expiry > 0 else None
+        if expiry < 0:
+            status = "on_hold"
+        elif not enabled:
+            status = "disabled"
+        else:
+            status = "active"
         if total and used >= total:
             status = "limited"
-        elif expire_at and expire_at <= datetime.now(expire_at.tzinfo):
+        elif expire_at and expire_at <= datetime.now(UTC):
             status = "expired"
         return PanelUser(
-            username=client["email"],
+            username=str(client["email"]),
             status=status,
             used_bytes=used,
             data_limit=total,
             expire_at=expire_at,
-            subscription_url=self._subscription_url(client.get("subId")),
+            subscription_url=self.subscription_url(client.get("subId")),
             data=data,
         )
 
-    async def test(self) -> str:
-        inbounds = await self.request("GET", "/panel/api/inbounds/list")
-        return f"inbounds={len(inbounds or [])}"
+    async def health_check(self) -> PanelHealth:
+        inbounds = await self.call("GET", "/panel/api/inbounds/list")
+        clients = sum(len(ib.get("clientStats") or []) for ib in inbounds or [])
+        return PanelHealth(True, f"{len(inbounds or [])} inbounds", clients, None)
 
     async def list_options(self) -> list[PanelOption]:
-        inbounds = await self.request("GET", "/panel/api/inbounds/list")
+        inbounds = await self.call("GET", "/panel/api/inbounds/list")
         return [
             PanelOption(
-                id=str(inbound["id"]),
-                title=f"{inbound.get('remark') or inbound['id']} · {inbound.get('protocol')}:{inbound.get('port')}",
+                id=str(ib["id"]),
+                title=f"{ib.get('remark') or ib['id']} · {ib.get('protocol')}:{ib.get('port')}",
             )
-            for inbound in inbounds or []
+            for ib in inbounds or []
         ]
 
     async def create_user(self, spec: UserSpec) -> PanelUser:
         inbound_id = self.inbound_id
         protocol = await self._protocol(inbound_id)
-        client = self._build_client(protocol, spec.username, spec.data_limit, spec.expire_at)
-        if spec.note:
-            client["comment"] = spec.note[:120]
-        await self.request(
+        client = self.build_client(protocol, spec)
+        await self.call(
             "POST",
             "/panel/api/inbounds/addClient",
             data={"id": str(inbound_id), "settings": json.dumps({"clients": [client]})},
         )
-        data = {"inbound_id": inbound_id, "protocol": protocol, "client": client}
-        return self._panel_user(data, None)
+        return self.to_user({"inbound_id": inbound_id, "protocol": protocol, "client": client}, None)
 
     async def _traffic(self, email: str) -> dict[str, Any] | None:
-        return await self.request("GET", f"/panel/api/inbounds/getClientTraffics/{email}")
+        return await self.call("GET", f"/panel/api/inbounds/getClientTraffics/{email}")
 
     async def get_user(self, ref: PanelRef) -> PanelUser | None:
         if "client" not in ref.data:
@@ -187,18 +199,18 @@ class XuiClient(PanelClient):
         traffic = await self._traffic(ref.username)
         if traffic is None:
             return None
-        return self._panel_user(ref.data, traffic)
+        return self.to_user(ref.data, traffic)
 
     async def _update(self, ref: PanelRef, client: dict[str, Any], old_key: str | None = None) -> None:
         protocol = ref.data["protocol"]
-        key = old_key or self._client_key(protocol, client)
-        await self.request(
+        key = old_key or self.client_key(protocol, client)
+        await self.call(
             "POST",
             f"/panel/api/inbounds/updateClient/{key}",
             data={"id": str(ref.data["inbound_id"]), "settings": json.dumps({"clients": [client]})},
         )
 
-    async def modify_user(
+    async def update_user(
         self,
         ref: PanelRef,
         *,
@@ -208,34 +220,33 @@ class XuiClient(PanelClient):
     ) -> PanelUser:
         client = dict(ref.data["client"])
         if expire_at is not UNSET:
-            client["expiryTime"] = int(expire_at.timestamp() * 1000) if expire_at else 0
+            client["expiryTime"] = self._expiry_ms(expire_at)
         if data_limit is not None:
             client["totalGB"] = int(data_limit)
         if enabled is not None:
             client["enable"] = bool(enabled)
         await self._update(ref, client)
         data = {**ref.data, "client": client}
-        traffic = await self._traffic(ref.username)
-        return self._panel_user(data, traffic)
+        return self.to_user(data, await self._traffic(ref.username))
 
     async def reset_usage(self, ref: PanelRef) -> None:
-        await self.request(
+        await self.call(
             "POST", f"/panel/api/inbounds/{ref.data['inbound_id']}/resetClientTraffic/{ref.username}"
         )
 
     async def delete_user(self, ref: PanelRef) -> None:
         if "client" not in ref.data:
             return
-        key = self._client_key(ref.data["protocol"], ref.data["client"])
+        key = self.client_key(ref.data["protocol"], ref.data["client"])
         try:
-            await self.request("POST", f"/panel/api/inbounds/{ref.data['inbound_id']}/delClient/{key}")
+            await self.call("POST", f"/panel/api/inbounds/{ref.data['inbound_id']}/delClient/{key}")
         except PanelError as exc:
             if "not found" not in str(exc).lower():
                 raise
 
     async def revoke_subscription(self, ref: PanelRef) -> PanelUser:
         protocol = ref.data["protocol"]
-        old_key = self._client_key(protocol, ref.data["client"])
+        old_key = self.client_key(protocol, ref.data["client"])
         client = dict(ref.data["client"])
         client["subId"] = secrets.token_hex(8)
         if protocol == "trojan":
@@ -244,4 +255,4 @@ class XuiClient(PanelClient):
             client["id"] = str(uuid.uuid4())
         await self._update(ref, client, old_key=old_key)
         data = {**ref.data, "client": client}
-        return self._panel_user(data, await self._traffic(ref.username))
+        return self.to_user(data, await self._traffic(ref.username))

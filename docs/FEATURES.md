@@ -12,7 +12,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 |----|---------|-------|--------|
 | ARC-01 | Modular Python core: FastAPI + aiogram + SQLAlchemy 2 + Alembic + PostgreSQL | MVP | done |
 | ARC-02 | Redis-backed FSM state, locks and callback payloads | MVP | wip |
-| ARC-03 | Panel driver registry (one interface, many panel types) | MVP | todo |
+| ARC-03 | Panel driver registry (one interface, many panel types) | MVP | done |
 | ARC-04 | Structured logging with tags and Telegram log channels | v1.1 | todo |
 | ARC-05 | Ops CLI: status, logs, health, backup, restore, migrate, doctor | MVP | wip |
 | ARC-06 | Modular monolith with domain/service/adapter layers | MVP | done |
@@ -57,12 +57,12 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| PNL-01 | PasarGuard deep admin: users, admins, groups, hosts, nodes, templates, inbounds | MVP | todo |
+| PNL-01 | PasarGuard deep admin: users, admins, groups, hosts, nodes, templates, inbounds | MVP | done |
 | PNL-02 | PasarGuard live role/ACL and quota read from the panel | v1.1 | todo |
 | PNL-03 | PasarGuard webhook events (created, expired, limited, usage %, days left) | MVP | todo |
-| PNL-04 | Marzban driver | MVP | todo |
+| PNL-04 | Marzban driver | MVP | done |
 | PNL-05 | Marzneshin driver | v1.1 | todo |
-| PNL-06 | X-UI (Sanaei / Alireza) and S-UI drivers | MVP* | todo |
+| PNL-06 | X-UI (Sanaei / Alireza) and S-UI drivers | MVP* | done |
 | PNL-07 | Hiddify driver | v2 | todo |
 | PNL-08 | WireGuard: WGDashboard and WGMate | v2 | todo |
 | PNL-09 | Remnawave driver + usage sync | v2 | todo |
@@ -70,7 +70,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | PNL-11 | MikroTik and IBSng drivers | v2 | todo |
 | PNL-12 | Panel and node uptime monitoring with alerts | v1.1 | todo |
 | PNL-13 | Node traffic and host resource gauges | v1.1 | todo |
-| PNL-14 | Per-panel inbound / protocol settings | v1.1 | todo |
+| PNL-14 | Per-panel inbound / protocol settings | v1.1 | wip |
 
 ## Catalog & Sales
 
@@ -92,7 +92,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 |----|---------|-------|--------|
 | SVC-01 | Renew, extra volume, extra time, upgrade | MVP | done |
 | SVC-02 | Queued renewal processor | v1.1 | todo |
-| SVC-03 | On-hold services (start on first connection) | v1.1 | todo |
+| SVC-03 | On-hold services (start on first connection) | v1.1 | wip |
 | SVC-04 | Location / panel change for an existing service | v2 | todo |
 | SVC-05 | Expiry and low-volume notifications | MVP | todo |
 | SVC-06 | Auto disable / re-activate configs | v1.1 | todo |
@@ -235,7 +235,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
 | NEW-01 | Master key escrow inside encrypted backups (restores recover panel credentials) | MVP | todo |
-| NEW-02 | TLS certificate pinning for self-signed panels instead of disabling verification | MVP | todo |
+| NEW-02 | TLS certificate pinning for self-signed panels instead of disabling verification | MVP | done |
 | NEW-03 | Periodic usage sync for panels without webhooks | MVP | todo |
 | NEW-04 | Refund and service cancellation policy | MVP | todo |
 | NEW-05 | Error monitoring hook (Sentry DSN, optional) | MVP | todo |

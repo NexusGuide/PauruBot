@@ -1,3 +1,5 @@
+"""Panel driver protocol and shared value types (ARC-03)."""
+
 from __future__ import annotations
 
 import base64
@@ -5,9 +7,10 @@ import binascii
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import httpx
+if TYPE_CHECKING:
+    from paurubot.panels.http import SafeHttpClient
 
 GB = 1024**3
 
@@ -21,6 +24,10 @@ class PanelError(Exception):
 
 class PanelNotFound(PanelError):
     pass
+
+
+class PanelUnavailable(PanelError):
+    """Network-level failure: safe to retry later."""
 
 
 class _Unset:
@@ -37,6 +44,8 @@ class UserSpec:
     data_limit: int = 0
     expire_at: datetime | None = None
     note: str = ""
+    ip_limit: int = 0
+    on_hold_days: int | None = None
 
 
 @dataclass(slots=True)
@@ -51,10 +60,6 @@ class PanelUser:
     data: dict[str, Any] = field(default_factory=dict)
     online_at: datetime | None = None
 
-    @property
-    def enabled(self) -> bool:
-        return self.status in {"active", "on_hold"}
-
 
 @dataclass(slots=True)
 class PanelRef:
@@ -68,6 +73,14 @@ class PanelOption:
 
     id: str
     title: str
+
+
+@dataclass(slots=True)
+class PanelHealth:
+    ok: bool
+    detail: str
+    users: int | None = None
+    version: str | None = None
 
 
 def parse_expire(value: Any) -> datetime | None:
@@ -104,23 +117,24 @@ def decode_subscription(raw: str) -> list[str]:
     return [line.strip() for line in body.splitlines() if "://" in line]
 
 
-class PanelClient(ABC):
+class PanelDriver(ABC):
     kind: str = ""
+    supports_webhooks: bool = False
 
-    def __init__(self, base_url: str, username: str, password: str, options: dict[str, Any] | None = None):
-        self.base_url = base_url.rstrip("/")
+    def __init__(
+        self, http: SafeHttpClient, username: str, password: str, options: dict[str, Any] | None = None
+    ):
+        self.http = http
         self.username = username
         self.password = password
         self.options: dict[str, Any] = dict(options or {})
-        self._client = httpx.AsyncClient(
-            base_url=self.base_url,
-            timeout=httpx.Timeout(float(self.options.get("timeout", 15))),
-            verify=bool(self.options.get("verify_ssl", True)),
-            follow_redirects=False,
-        )
+
+    @property
+    def base_url(self) -> str:
+        return self.http.base_url
 
     async def close(self) -> None:
-        await self._client.aclose()
+        await self.http.aclose()
 
     def absolute_url(self, url: str | None) -> str | None:
         if not url:
@@ -130,21 +144,31 @@ class PanelClient(ABC):
         return f"{self.base_url}/{url.lstrip('/')}"
 
     async def fetch_links(self, subscription_url: str | None) -> list[str]:
+        """Read a subscription and return its config links (best effort, through the SSRF guard)."""
+        from urllib.parse import urlsplit
+
+        from paurubot.panels.http import SafeHttpClient
+
         if not subscription_url:
             return []
+        parts = urlsplit(subscription_url)
+        origin = f"{parts.scheme}://{parts.netloc}"
+        path = subscription_url[len(origin) :] or "/"
+        own = subscription_url.startswith(self.base_url + "/") or origin == self.base_url
+        client = self.http if own else SafeHttpClient(origin, allow_private=self.http.allow_private)
         try:
-            async with httpx.AsyncClient(
-                timeout=10, verify=bool(self.options.get("verify_ssl", True)), follow_redirects=True
-            ) as client:
-                resp = await client.get(subscription_url, headers={"User-Agent": "v2rayNG/1.8.0"})
-        except httpx.HTTPError:
+            resp = await client.request("GET", path, headers={"User-Agent": "v2rayNG/1.8.0"})
+        except PanelError:
             return []
+        finally:
+            if client is not self.http:
+                await client.aclose()
         if resp.status_code != 200:
             return []
         return decode_subscription(resp.text)
 
     @abstractmethod
-    async def test(self) -> str: ...
+    async def health_check(self) -> PanelHealth: ...
 
     @abstractmethod
     async def list_options(self) -> list[PanelOption]: ...
@@ -156,7 +180,7 @@ class PanelClient(ABC):
     async def get_user(self, ref: PanelRef) -> PanelUser | None: ...
 
     @abstractmethod
-    async def modify_user(
+    async def update_user(
         self,
         ref: PanelRef,
         *,
