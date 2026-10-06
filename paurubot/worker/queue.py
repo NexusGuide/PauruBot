@@ -11,7 +11,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from paurubot.db.base import utcnow
+from paurubot.db.base import affected, utcnow
 from paurubot.db.models import Job, JobStatus
 from paurubot.security.tokens import new_token
 
@@ -100,7 +100,7 @@ async def complete(session: AsyncSession, job: Claimed) -> bool:
         .where(Job.id == job.id, Job.claim_token == job.token)
         .values(status=JobStatus.DONE, finished_at=utcnow(), lease_until=None, last_error=None)
     )
-    return bool(result.rowcount)
+    return bool(affected(result))
 
 
 def backoff(attempt: int, base: float = 15.0, cap: float = 3600.0) -> float:
@@ -126,4 +126,4 @@ async def retry_dead(session: AsyncSession, job_id: int) -> bool:
         .where(Job.id == job_id, Job.status.in_([JobStatus.DEAD, JobStatus.FAILED]))
         .values(status=JobStatus.QUEUED, run_at=utcnow(), attempts=0, finished_at=None)
     )
-    return bool(result.rowcount)
+    return bool(affected(result))
