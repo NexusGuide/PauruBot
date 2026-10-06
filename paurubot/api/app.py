@@ -65,4 +65,7 @@ def create_app() -> FastAPI:
     from paurubot.api.routes import register_optional
 
     register_optional(app)
+    from paurubot.api.static import mount_frontends
+
+    mount_frontends(app)
     return app

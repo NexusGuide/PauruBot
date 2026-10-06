@@ -1,0 +1,89 @@
+@import "tailwindcss";
+@import "@fontsource-variable/vazirmatn";
+
+/*
+ * Pauru palette: Persian turquoise (firouzeh) carries the brand, saffron marks things that
+ * wait for someone, pomegranate marks loss, pistachio marks health. Neutrals are cool slate.
+ */
+@theme {
+  --font-sans: "Vazirmatn Variable", "Vazirmatn", system-ui, sans-serif;
+  --color-firouzeh-50: #e9f8f9;
+  --color-firouzeh-100: #c9eef0;
+  --color-firouzeh-500: #0e9aa7;
+  --color-firouzeh-600: #0b7f8a;
+  --color-firouzeh-700: #09656e;
+  --color-saffron-100: #fbefd9;
+  --color-saffron-500: #e8a33d;
+  --color-saffron-700: #a8691a;
+  --color-anar-100: #f9e1e5;
+  --color-anar-500: #c8344c;
+  --color-anar-700: #96203a;
+  --color-pista-100: #e3f1e1;
+  --color-pista-500: #5e9e5a;
+  --color-pista-700: #3e6f3b;
+  --color-ink: #1b2430;
+  --color-slate-soft: #5b6878;
+  --color-paper: #f3f6f8;
+  --color-line: #dde4ea;
+}
+
+:root {
+  --bg: var(--tg-theme-bg-color, #f3f6f8);
+  --surface: var(--tg-theme-secondary-bg-color, #ffffff);
+  --text: var(--tg-theme-text-color, #1b2430);
+  --hint: var(--tg-theme-hint-color, #5b6878);
+  --line: color-mix(in srgb, var(--hint) 22%, transparent);
+  --accent: #0e9aa7;
+  --accent-ink: #ffffff;
+  color-scheme: light;
+}
+
+:root:not([data-theme="light"]) {
+  @media (prefers-color-scheme: dark) {
+    --bg: var(--tg-theme-bg-color, #0f1720);
+    --surface: var(--tg-theme-secondary-bg-color, #17222d);
+    --text: var(--tg-theme-text-color, #e6edf3);
+    --hint: var(--tg-theme-hint-color, #8b98a8);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: var(--tg-theme-bg-color, #0f1720);
+  --surface: var(--tg-theme-secondary-bg-color, #17222d);
+  --text: var(--tg-theme-text-color, #e6edf3);
+  --hint: var(--tg-theme-hint-color, #8b98a8);
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+}
+
+.num {
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
