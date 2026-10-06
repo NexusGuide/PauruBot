@@ -44,7 +44,9 @@ class LockNotAcquired(Exception):
 
 
 @asynccontextmanager
-async def lock(name: str, ttl: int = 30, *, wait: bool = False, wait_seconds: float = 10.0) -> AsyncIterator[str]:
+async def lock(
+    name: str, ttl: int = 30, *, wait: bool = False, wait_seconds: float = 10.0
+) -> AsyncIterator[str]:
     """Owner-checked lock: only the holder's token can release it."""
     import asyncio
 

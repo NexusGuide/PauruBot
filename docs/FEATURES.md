@@ -10,40 +10,40 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| ARC-01 | Modular Python core: FastAPI + aiogram + SQLAlchemy 2 + Alembic + PostgreSQL | MVP | todo |
-| ARC-02 | Redis-backed FSM state, locks and callback payloads | MVP | todo |
+| ARC-01 | Modular Python core: FastAPI + aiogram + SQLAlchemy 2 + Alembic + PostgreSQL | MVP | done |
+| ARC-02 | Redis-backed FSM state, locks and callback payloads | MVP | wip |
 | ARC-03 | Panel driver registry (one interface, many panel types) | MVP | todo |
 | ARC-04 | Structured logging with tags and Telegram log channels | v1.1 | todo |
-| ARC-05 | Ops CLI: status, logs, health, backup, restore, migrate, doctor | MVP | todo |
-| ARC-06 | Modular monolith with domain/service/adapter layers | MVP | todo |
+| ARC-05 | Ops CLI: status, logs, health, backup, restore, migrate, doctor | MVP | wip |
+| ARC-06 | Modular monolith with domain/service/adapter layers | MVP | done |
 
 ## Identity, Auth & Security
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| SEC-01 | Telegram WebApp initData HMAC validation | MVP | todo |
+| SEC-01 | Telegram WebApp initData HMAC validation | MVP | done |
 | SEC-02 | Phone OTP login delivered by the bot | v1.1 | todo |
 | SEC-03 | Profile API key login (hashed, shown once) | v1.1 | todo |
-| SEC-04 | Session version revoke on credential change | MVP | todo |
-| SEC-05 | CSRF double-submit + Origin/Referer guard | MVP | todo |
-| SEC-06 | CSP nonce + security headers | MVP | todo |
-| SEC-07 | Login brute-force guard with trusted-hop X-Forwarded-For | MVP | todo |
-| SEC-08 | First-run setup wizard protected by one-time gate token | MVP | todo |
-| SEC-09 | Secrets encrypted at rest (Fernet + HKDF domain separation) | MVP | todo |
-| SEC-10 | SSRF guard for panel base URLs | MVP | todo |
+| SEC-04 | Session version revoke on credential change | MVP | done |
+| SEC-05 | CSRF double-submit + Origin/Referer guard | MVP | done |
+| SEC-06 | CSP nonce + security headers | MVP | done |
+| SEC-07 | Login brute-force guard with trusted-hop X-Forwarded-For | MVP | done |
+| SEC-08 | First-run setup wizard protected by one-time gate token | MVP | done |
+| SEC-09 | Secrets encrypted at rest (Fernet + HKDF domain separation) | MVP | done |
+| SEC-10 | SSRF guard for panel base URLs | MVP | done |
 | SEC-11 | Webhook secret-token authentication (constant-time compare) | MVP | todo |
-| SEC-12 | Log redaction of tokens and passwords | MVP | todo |
+| SEC-12 | Log redaction of tokens and passwords | MVP | done |
 | SEC-13 | Terms-of-service acceptance gate | v1.1 | todo |
 | SEC-14 | Ban, anti-flood and maintenance middlewares | MVP | todo |
-| SEC-15 | Fine-grained RBAC with authorization matrix tests | MVP | todo |
+| SEC-15 | Fine-grained RBAC with authorization matrix tests | MVP | done |
 
 ## Multi-tenant & Resellers
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
 | TEN-01 | Org hierarchy Owner → Level-1 → Level-2 with visible scope | v1.1 | todo |
-| TEN-02 | Per-shop wallet isolation | MVP | todo |
-| TEN-03 | Reseller feature permissions (deny by default) | MVP | todo |
+| TEN-02 | Per-shop wallet isolation | MVP | done |
+| TEN-03 | Reseller feature permissions (deny by default) | MVP | wip |
 | TEN-04 | Dedicated reseller bot with its own token | v2 | todo |
 | TEN-05 | Reseller billing: PAYG, hourly and usage-based with snapshots | v1.1 | todo |
 | TEN-06 | Reseller low-balance warning and auto-suspend | v1.1 | todo |
@@ -128,8 +128,8 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| FIN-01 | Wallet top-up and balance | MVP | todo |
-| FIN-02 | Append-only ledger with reconciliation | MVP | todo |
+| FIN-01 | Wallet top-up and balance | MVP | wip |
+| FIN-02 | Append-only ledger with reconciliation | MVP | done |
 | FIN-03 | Charge / gift codes | v1.1 | todo |
 | FIN-04 | Finance reports and daily report | MVP | todo |
 | FIN-05 | Excel export | v1.1 | todo |
@@ -177,7 +177,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 |----|---------|-------|--------|
 | ADM-01 | Dashboard with live metrics | MVP | todo |
 | ADM-02 | Inbox of pending orders/payments with dismissals | MVP | todo |
-| ADM-03 | Audit log of admin actions | MVP | todo |
+| ADM-03 | Audit log of admin actions | MVP | done |
 | ADM-04 | Table bulk actions, search, sort, paging | MVP | todo |
 | ADM-05 | In-panel help docs with search | v1.1 | todo |
 | ADM-06 | Sales funnel analytics | v2 | todo |
@@ -226,8 +226,8 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| QA-01 | Curated security regression suite in CI | MVP | todo |
-| QA-02 | Ruff lint/format + compile in CI, Dependabot | MVP | todo |
+| QA-01 | Curated security regression suite in CI | MVP | wip |
+| QA-02 | Ruff lint/format + compile in CI, Dependabot | MVP | done |
 | QA-03 | Docs generated from source | v1.1 | todo |
 
 ## Added during review
