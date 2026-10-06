@@ -2,13 +2,23 @@ from paurubot.db.models.catalog import (
     Category,
     DiscountCode,
     DiscountRedemption,
+    GiftCode,
+    GiftRedemption,
     Location,
     Panel,
     Plan,
     StickyDiscount,
     TrialGrant,
 )
-from paurubot.db.models.commerce import LedgerAccount, LedgerEntry, LedgerJournal, Order, Payment, Service
+from paurubot.db.models.commerce import (
+    LedgerAccount,
+    LedgerEntry,
+    LedgerJournal,
+    Order,
+    Payment,
+    Service,
+    Settlement,
+)
 from paurubot.db.models.enums import (
     ApplicationStatus,
     DiscountKind,
@@ -58,6 +68,8 @@ __all__ = [
     "DiscountCode",
     "DiscountKind",
     "DiscountRedemption",
+    "GiftCode",
+    "GiftRedemption",
     "ForcedChannel",
     "InboxDismissal",
     "Job",
@@ -82,6 +94,7 @@ __all__ = [
     "ResellerGroup",
     "ResellerProfile",
     "Service",
+    "Settlement",
     "ServiceStatus",
     "Shop",
     "ShopSetting",

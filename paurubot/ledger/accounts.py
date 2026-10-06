@@ -11,6 +11,7 @@ SYSTEM_ACCOUNTS: dict[str, LedgerAccountKind] = {
     "promotions": LedgerAccountKind.PROMOTIONS,
     "adjustments": LedgerAccountKind.ADJUSTMENTS,
     "refunds": LedgerAccountKind.REFUNDS,
+    "bank": LedgerAccountKind.BANK,
     "gateway:card": LedgerAccountKind.GATEWAY,
     "gateway:zarinpal": LedgerAccountKind.GATEWAY,
     "gateway:stars": LedgerAccountKind.GATEWAY,

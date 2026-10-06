@@ -145,3 +145,32 @@ class TrialGrant(Base, TimestampMixin):
     service_id: Mapped[int | None] = mapped_column(ForeignKey("services.id", ondelete="SET NULL"))
     status: Mapped[str] = mapped_column(String(16), default="reserved")
     error: Mapped[str | None] = mapped_column(Text)
+
+
+class GiftCode(Base, TimestampMixin):
+    """A code that puts money in the wallet when redeemed (FIN-03)."""
+
+    __tablename__ = "gift_codes"
+    __table_args__ = (UniqueConstraint("shop_id", "code"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"))
+    code: Mapped[str] = mapped_column(String(32))
+    amount: Mapped[int] = mapped_column()
+    max_uses: Mapped[int | None] = mapped_column(Integer)
+    used_count: Mapped[int] = mapped_column(Integer, default=0)
+    new_customers_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    expires_at: Mapped[datetime | None] = mapped_column()
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    note: Mapped[str | None] = mapped_column(String(255))
+
+
+class GiftRedemption(Base, TimestampMixin):
+    __tablename__ = "gift_redemptions"
+    __table_args__ = (UniqueConstraint("code_id", "customer_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"))
+    code_id: Mapped[int] = mapped_column(ForeignKey("gift_codes.id", ondelete="CASCADE"), index=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id", ondelete="CASCADE"), index=True)
+    amount: Mapped[int] = mapped_column()

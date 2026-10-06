@@ -89,6 +89,7 @@ class LedgerAccountKind(enum.StrEnum):
     PROMOTIONS = "promotions"
     ADJUSTMENTS = "adjustments"
     REFUNDS = "refunds"
+    BANK = "bank"
 
 
 class JobStatus(enum.StrEnum):

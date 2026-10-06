@@ -169,3 +169,18 @@ class Payment(Base, UpdatedMixin):
     meta: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
     customer: Mapped[Customer] = relationship(lazy="selectin")
+
+
+class Settlement(Base, TimestampMixin):
+    """Money a gateway or card account paid out to the shop's bank (PAY-03)."""
+
+    __tablename__ = "settlements"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"), index=True)
+    provider: Mapped[str] = mapped_column(String(32))
+    amount: Mapped[int] = mapped_column()
+    reference: Mapped[str | None] = mapped_column(String(128))
+    note: Mapped[str | None] = mapped_column(String(255))
+    staff_id: Mapped[int | None] = mapped_column(ForeignKey("staff.id", ondelete="SET NULL"))
+    journal_id: Mapped[int | None] = mapped_column(ForeignKey("ledger_journals.id", ondelete="RESTRICT"))
