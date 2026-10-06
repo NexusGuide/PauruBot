@@ -117,6 +117,15 @@ async def api(_: argparse.Namespace) -> int:
             f"\n  First-run setup: open {base}/admin/setup?token={token}\n  (valid for 24 hours)\n",
             flush=True,
         )
+    if settings.bot_mode == "webhook":
+        from paurubot.api.routes.telegram import webhook_secret
+
+        telegram_bot = await _prepare_bot()
+        await telegram_bot.set_webhook(
+            f"{settings.public_url}/api/telegram/webhook",
+            secret_token=webhook_secret(),
+            drop_pending_updates=False,
+        )
     config = uvicorn.Config(
         create_app(),
         host=settings.api_host,
@@ -163,8 +172,41 @@ async def reconcile(_: argparse.Namespace) -> int:
 
 @command("worker", "run queues and periodic tasks")
 async def worker(_: argparse.Namespace) -> int:
+    from paurubot.notifications import handlers  # noqa: F401  (registers notification queues)
     from paurubot.worker import jobs  # noqa: F401  (registers queues and periodic tasks)
     from paurubot.worker.runner import Worker
 
     await Worker().run()
+    return 0
+
+
+async def _prepare_bot():  # type: ignore[no-untyped-def]
+    """Create the bot, record its username on the shop and publish the command list."""
+    from paurubot.bot.app import set_commands
+    from paurubot.core.shops import root_shop
+    from paurubot.db.session import session_scope
+    from paurubot.i18n import Texts
+    from paurubot.notifications.telegram import get_bot
+
+    bot = get_bot()
+    me = await bot.me()
+    async with session_scope() as session:
+        shop = await root_shop(session)
+        if shop is not None and shop.bot_username != me.username:
+            shop.bot_username = me.username
+    await set_commands(bot, Texts("fa"), Texts("en"))
+    return bot
+
+
+@command("bot", "run the Telegram bot with long polling")
+async def bot(_: argparse.Namespace) -> int:
+    from paurubot.bot.app import build_dispatcher
+
+    if get_settings().bot_mode == "webhook":
+        print("BOT_MODE=webhook: updates are received by the api process")
+        return 0
+    telegram_bot = await _prepare_bot()
+    await telegram_bot.delete_webhook(drop_pending_updates=False)
+    dispatcher = build_dispatcher()
+    await dispatcher.start_polling(telegram_bot, allowed_updates=dispatcher.resolve_used_update_types())
     return 0

@@ -48,6 +48,7 @@ class Customer(Base, TimestampMixin):
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
     ban_reason: Mapped[str | None] = mapped_column(String(255))
     trial_generation: Mapped[int | None] = mapped_column(Integer)
+    terms_accepted_version: Mapped[int | None] = mapped_column(Integer)
     referrer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"))
     referral_rewarded: Mapped[bool] = mapped_column(Boolean, default=False)
     tags: Mapped[list[str]] = mapped_column(JSON, default=list)

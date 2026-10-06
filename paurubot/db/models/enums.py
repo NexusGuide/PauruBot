@@ -92,6 +92,7 @@ class LedgerAccountKind(enum.StrEnum):
 
 
 class JobStatus(enum.StrEnum):
+    DRAFT = "draft"
     QUEUED = "queued"
     RUNNING = "running"
     DONE = "done"

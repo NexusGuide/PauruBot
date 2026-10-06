@@ -33,8 +33,8 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | SEC-10 | SSRF guard for panel base URLs | MVP | done |
 | SEC-11 | Webhook secret-token authentication (constant-time compare) | MVP | todo |
 | SEC-12 | Log redaction of tokens and passwords | MVP | done |
-| SEC-13 | Terms-of-service acceptance gate | v1.1 | todo |
-| SEC-14 | Ban, anti-flood and maintenance middlewares | MVP | todo |
+| SEC-13 | Terms-of-service acceptance gate | v1.1 | done |
+| SEC-14 | Ban, anti-flood and maintenance middlewares | MVP | done |
 | SEC-15 | Fine-grained RBAC with authorization matrix tests | MVP | done |
 
 ## Multi-tenant & Resellers
@@ -49,7 +49,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | TEN-06 | Reseller low-balance warning and auto-suspend | v1.1 | todo |
 | TEN-07 | Reseller usage cap and capacity limits | v1.1 | todo |
 | TEN-08 | Agent expiry and max-buy limits | v1.1 | todo |
-| TEN-09 | Reseller application / approval workflow | v1.1 | todo |
+| TEN-09 | Reseller application / approval workflow | v1.1 | done |
 | TEN-10 | Import existing panel users into a reseller | v1.1 | todo |
 | TEN-11 | Move users between panel admins | v2 | todo |
 
@@ -94,13 +94,13 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | SVC-02 | Queued renewal processor | v1.1 | todo |
 | SVC-03 | On-hold services (start on first connection) | v1.1 | wip |
 | SVC-04 | Location / panel change for an existing service | v2 | todo |
-| SVC-05 | Expiry and low-volume notifications | MVP | wip |
+| SVC-05 | Expiry and low-volume notifications | MVP | done |
 | SVC-06 | Auto disable / re-activate configs | v1.1 | wip |
 | SVC-07 | Bulk volume/time increase for many users | v1.1 | todo |
 | SVC-08 | Branded subscription link page | v1.1 | todo |
-| SVC-09 | QR code delivery | MVP | todo |
-| SVC-10 | Delivery failure queue with retry | MVP | wip |
-| SVC-11 | Usage chart per service | v1.1 | todo |
+| SVC-09 | QR code delivery | MVP | done |
+| SVC-10 | Delivery failure queue with retry | MVP | done |
+| SVC-11 | Usage chart per service | v1.1 | done |
 | SVC-12 | Service quota cache | MVP* | done |
 
 ## Payments
@@ -145,18 +145,18 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | GRW-03 | Lucky wheel | v2 | todo |
 | GRW-04 | Lottery | v2 | todo |
 | GRW-05 | Discount codes incl. sticky discount | MVP | done |
-| GRW-06 | Broadcast with rate-limited queue and job tracking | MVP | todo |
-| GRW-07 | Forced channel join | MVP | todo |
+| GRW-06 | Broadcast with rate-limited queue and job tracking | MVP | done |
+| GRW-07 | Forced channel join | MVP | done |
 | GRW-08 | Trust channel | v2 | todo |
 
 ## Telegram Bot UX
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| BOT-01 | Editable bot texts with message variables | MVP | todo |
+| BOT-01 | Editable bot texts with message variables | MVP | done |
 | BOT-02 | Drag-and-drop keyboard layout editor | v1.1 | todo |
 | BOT-03 | Bot appearance, colored buttons, premium emoji | v1.1 | todo |
-| BOT-04 | Multi-language (fa, en, ru, zh) | MVP | todo |
+| BOT-04 | Multi-language (fa, en, ru, zh) | MVP | done |
 | BOT-05 | Help buttons and app downloads from GitHub releases | v1.1 | todo |
 | BOT-06 | Generated user info card image | v2 | todo |
 | BOT-07 | Telegram Business account automation | v2 | todo |
@@ -167,7 +167,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| APP-01 | React + TypeScript Mini App: home, buy wizard, services, renew, wallet, transactions | MVP | todo |
+| APP-01 | React + TypeScript Mini App: home, buy wizard, services, renew, wallet, transactions | MVP | wip |
 | APP-02 | PWA install and icons | v1.1 | todo |
 | APP-03 | Role-aware Mini App for resellers / admins | v2 | todo |
 
@@ -188,10 +188,10 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
-| SUP-01 | Tickets user↔admin with attachments | MVP | todo |
+| SUP-01 | Tickets user↔admin with attachments | MVP | done |
 | SUP-02 | Internal panel tickets reseller↔owner | v1.1 | todo |
-| SUP-03 | Report channel split by topics | MVP | todo |
-| SUP-04 | Support contacts | MVP | todo |
+| SUP-03 | Report channel split by topics | MVP | done |
+| SUP-04 | Support contacts | MVP | done |
 
 ## Jobs & Monitoring
 
