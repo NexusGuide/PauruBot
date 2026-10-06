@@ -16,7 +16,7 @@ from paurubot.api.admin_common import (
     page_params,
     paginate,
     plain,
-    reseller_customer_id,
+    reseller_scope,
     sort_params,
 )
 from paurubot.api.deps import DB, StaffContext, require
@@ -88,9 +88,9 @@ async def list_orders(
     stmt = select(Order).where(Order.shop_id == ctx.shop_id)
     if order_id is not None:
         stmt = stmt.where(Order.id == order_id)
-    owner = await reseller_customer_id(db, ctx)
-    if owner is not None:
-        stmt = stmt.where(Order.customer_id == owner)
+    scope = await reseller_scope(db, ctx)
+    if scope is not None:
+        stmt = stmt.where(Order.customer_id.in_(scope))
     if status is not None:
         stmt = stmt.where(Order.status == status)
     if customer_id:

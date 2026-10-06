@@ -305,6 +305,9 @@ async def fulfill(session: AsyncSession, order_id: int) -> Service | None:
     from paurubot.provisioning.rewards import reward_referrer
 
     await reward_referrer(session, order)
+    from paurubot.core.resellers import pay_commission
+
+    await pay_commission(session, order)
     from paurubot.worker import queue
 
     await queue.enqueue(

@@ -332,5 +332,18 @@
   "sub_page_expiry": "انقضا",
   "sub_page_copied": "کپی شد",
   "sub_page_copy": "کپی لینک اشتراک",
-  "sub_page_import": "افزودن به برنامه"
+  "sub_page_import": "افزودن به برنامه",
+  "reseller_billing_usage": "💳 صورت‌حساب: بر اساس مصرف، هر گیگ {price} تومان",
+  "reseller_billing_hourly": "💳 صورت‌حساب: ساعتی، هر سرویس فعال ساعتی {price} تومان",
+  "reseller_debt_line": "⚠️ بدهی: {debt} تومان",
+  "reseller_suspended_line": "⛔️ نمایندگیت معلقه؛ با شارژ کیف پول دوباره فعال می‌شه.",
+  "reseller_suspended": "⛔️ نمایندگیت معلق شد و سرویس‌هات موقتاً خاموش شدن.\nبدهی: {debt} تومان | موجودی: {balance} تومان\nبا شارژ کیف پول همه‌چیز خودکار برمی‌گرده.",
+  "reseller_resumed": "✅ نمایندگیت دوباره فعال شد و سرویس‌هات روشن شدن.",
+  "reseller_low_balance": "🔔 موجودی کیف پولت کم شده: {balance} تومان. برای اینکه سرویس‌هات قطع نشن، شارژ کن.",
+  "report_reseller_suspended": "⛔️ نماینده {customer} معلق شد. بدهی: {debt} تومان",
+  "report_reseller_resumed": "✅ نماینده {customer} دوباره فعال شد.",
+  "reseller_suspended_error": "⛔️ نمایندگیت معلقه؛ اول کیف پولت رو شارژ کن.",
+  "reseller_daily_limit": "سقف خرید روزانه‌ت ({limit} سرویس) پر شده؛ فردا دوباره امتحان کن.",
+  "reseller_service_limit": "به سقف سرویس‌های فعال ({limit}) رسیدی.",
+  "reseller_volume_limit": "این خرید از سقف حجم کل نمایندگیت ({limit} گیگ) بیشتره."
 }

@@ -184,5 +184,11 @@
   "badge_best": "Best value",
   "badge_sale": "Sale",
   "renew_queued_hint": "Renewal saved. It applies automatically on {date}, when the current period ends.",
-  "extras_unavailable": "Extra data or time isn't sold for this service"
+  "extras_unavailable": "Extra data or time isn't sold for this service",
+  "err_reseller_suspended_error": "Your reseller account is suspended; top up your wallet first.",
+  "err_reseller_daily_limit": "You've reached today's purchase limit.",
+  "err_reseller_service_limit": "You've reached your active service limit.",
+  "err_reseller_volume_limit": "This purchase goes over your total data cap.",
+  "err_custom_unavailable": "Custom plans aren't available right now.",
+  "err_custom_out_of_range": "The data or duration is out of the allowed range."
 }

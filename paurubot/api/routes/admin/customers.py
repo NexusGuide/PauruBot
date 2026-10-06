@@ -368,10 +368,10 @@ async def _filtered_services(db: DB, ctx: StaffContext, f: ServiceFilter) -> Sel
 
 async def scoped_service(db: DB, service_id: int, ctx: StaffContext) -> Service:
     service = await owned(db, Service, service_id, ctx)
-    from paurubot.api.admin_common import reseller_customer_id
+    from paurubot.api.admin_common import reseller_scope
 
-    owner = await reseller_customer_id(db, ctx)
-    if owner is not None and service.customer_id != owner:
+    scope = await reseller_scope(db, ctx)
+    if scope is not None and service.customer_id not in scope:
         raise HTTPException(status_code=404, detail="not_found")
     return service
 

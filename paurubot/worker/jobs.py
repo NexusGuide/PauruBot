@@ -300,3 +300,14 @@ async def scan_crypto() -> None:
         paid = await watch.scan(session)
     if paid:
         log.info("crypto scan credited %s payment(s)", paid)
+
+
+@every(600, "resellers.billing")
+async def reseller_billing() -> None:
+    """Metered reseller billing, debt collection, suspension and low-balance warnings (TEN-05, TEN-06)."""
+    from paurubot.core import resellers
+
+    async with session_scope() as session:
+        billed = await resellers.run_billing(session)
+    if billed:
+        log.info("billed %s metered resellers", billed)

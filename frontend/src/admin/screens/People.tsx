@@ -3,10 +3,12 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { money } from "@shared/format";
 import {
   call,
+  type BillingView,
   type ResellerData,
   type ResellerGroup,
   type ResellerProfile,
   type StaffRow,
+  type SubReseller,
   type Ticket,
   type TicketMessage,
 } from "../api";
@@ -15,11 +17,14 @@ import { useSession } from "../session";
 import {
   Async,
   Badge,
+  Bytes,
   Button,
   Checkbox,
   Empty,
+  Facts,
   Field,
   Input,
+  Money,
   NumberInput,
   Page,
   Pager,
@@ -89,6 +94,8 @@ function GroupSheet({ draft, onClose, onSaved }: { draft: GroupDraft; onClose: (
   );
 }
 
+const MODES = ["prepaid", "usage", "hourly"] as const;
+
 function ProfileSheet({
   profile,
   data,
@@ -103,6 +110,9 @@ function ProfileSheet({
   const { t, toast, errorText } = useSession();
   const [form, setForm] = useState(profile);
   const [busy, run] = useAction();
+  const set = <K extends keyof ResellerProfile>(key: K, value: ResellerProfile[K]) => setForm((f) => ({ ...f, [key]: value }));
+  const parents = data.profiles.filter((p) => p.parent_id === null && p.id !== profile.id);
+  const parent = parents.find((p) => p.id === form.parent_id);
   const save = async () => {
     try {
       await run(() =>
@@ -115,6 +125,16 @@ function ProfileSheet({
             is_active: form.is_active,
             expires_at: form.expires_at,
             max_purchases_per_day: form.max_purchases_per_day,
+            parent_id: form.parent_id,
+            discount_override: form.discount_override,
+            max_subresellers: form.max_subresellers,
+            billing_mode: form.billing_mode,
+            gb_price: form.gb_price,
+            hourly_price: form.hourly_price,
+            credit_limit: form.credit_limit,
+            low_balance_threshold: form.low_balance_threshold,
+            max_active_services: form.max_active_services,
+            max_total_gb: form.max_total_gb,
           },
         }),
       );
@@ -124,55 +144,146 @@ function ProfileSheet({
       toast(errorText(err), "error");
     }
   };
+  const suspend = async (suspended: boolean) => {
+    try {
+      await run(() => call(`/api/admin/resellers/${profile.id}/suspend`, { method: "POST", body: { suspended } }));
+      toast(suspended ? t("reseller_suspended_toast") : t("reseller_resumed_toast"));
+      onSaved();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
   const toggle = (perm: string, on: boolean) =>
     setForm({ ...form, permissions: on ? [...form.permissions, perm] : form.permissions.filter((p) => p !== perm) });
+  const optional = (key: keyof ResellerProfile, label: string, hint?: string) => (
+    <Field label={label} hint={hint ?? t("empty_no_limit")}>
+      {(id) => (
+        <NumberInput
+          id={id}
+          allowEmpty
+          value={(form[key] as number | null) ?? null}
+          onChange={(v) => setForm((f) => ({ ...f, [key]: v ?? null }))}
+        />
+      )}
+    </Field>
+  );
   return (
     <Sheet
       open
       onClose={onClose}
       title={form.customer}
+      wide
       footer={
-        <Button tone="primary" busy={busy} onClick={() => void save()}>
-          {t("save")}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button tone="primary" busy={busy} onClick={() => void save()}>
+            {t("save")}
+          </Button>
+          {profile.suspended_at ? (
+            <Button tone="approve" busy={busy} onClick={() => void suspend(false)}>
+              {t("resume_reseller")}
+            </Button>
+          ) : (
+            <Button tone="danger" busy={busy} onClick={() => void suspend(true)}>
+              {t("suspend_reseller")}
+            </Button>
+          )}
+        </div>
       }
     >
-      <div className="flex flex-col gap-4">
-        <Field label={t("reseller_group")}>
-          {(id) => (
-            <Select id={id} value={form.group_id ?? ""} onChange={(e) => setForm({ ...form, group_id: e.target.value ? Number(e.target.value) : null })}>
-              <option value="">—</option>
-              {data.groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.title}
-                </option>
-              ))}
-            </Select>
-          )}
-        </Field>
-        <Field label={t("max_purchases_per_day")} hint={t("empty_no_limit")}>
-          {(id) => (
-            <NumberInput
-              id={id}
-              value={form.max_purchases_per_day}
-              onChange={(v) => setForm({ ...form, max_purchases_per_day: v || null })}
-              allowEmpty
-            />
-          )}
-        </Field>
-        <Field label={t("reseller_expires")} hint={t("reseller_expires_hint")}>
-          {(id) => (
-            <Input
-              id={id}
-              type="date"
-              value={form.expires_at ? form.expires_at.slice(0, 10) : ""}
-              onChange={(e) => setForm({ ...form, expires_at: e.target.value ? new Date(`${e.target.value}T23:59:59`).toISOString() : null })}
-            />
-          )}
-        </Field>
-        <Toggle checked={form.is_active} onChange={(v) => setForm({ ...form, is_active: v })} label={t("active")} />
-        <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 text-[0.82rem] font-semibold">{t("reseller_permissions")}</legend>
+      <div className="flex flex-col gap-5">
+        <Facts
+          items={[
+            [t("balance"), <Money key="b" amount={profile.balance} />],
+            [t("reseller_debt"), <Money key="d" amount={profile.billing_debt} />],
+            [t("discount"), `${profile.discount_percent}٪`],
+            [t("col_status"), profile.suspended_at ? t(`suspend_reason_${profile.suspend_reason ?? "staff"}`) : profile.is_current ? t("active") : t("inactive")],
+          ]}
+        />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label={t("reseller_group")}>
+            {(id) => (
+              <Select id={id} value={form.group_id ?? ""} onChange={(e) => set("group_id", e.target.value ? Number(e.target.value) : null)}>
+                <option value="">—</option>
+                {data.groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.title}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          {optional("discount_override", t("discount_override"), t("discount_override_hint"))}
+          <Field label={t("parent_reseller")} hint={t("parent_reseller_hint")}>
+            {(id) => (
+              <Select id={id} value={form.parent_id ?? ""} onChange={(e) => set("parent_id", e.target.value ? Number(e.target.value) : null)}>
+                <option value="">{t("level_one")}</option>
+                {parents.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.customer}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          {form.parent_id === null && optional("max_subresellers", t("max_subresellers"))}
+          {parent && <p className="text-[0.78rem] text-[var(--hint)] sm:col-span-2">{t("parent_discount_cap", { percent: parent.discount_percent })}</p>}
+          <Field label={t("reseller_expires")} hint={t("reseller_expires_hint")}>
+            {(id) => (
+              <Input
+                id={id}
+                type="date"
+                value={form.expires_at ? form.expires_at.slice(0, 10) : ""}
+                onChange={(e) => set("expires_at", e.target.value ? new Date(`${e.target.value}T23:59:59`).toISOString() : null)}
+              />
+            )}
+          </Field>
+        </div>
+
+        <fieldset className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
+          <legend className="text-[0.88rem] font-bold">{t("reseller_billing")}</legend>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label={t("billing_mode")} hint={t(`billing_mode_${form.billing_mode}_hint`)}>
+              {(id) => (
+                <Select id={id} value={form.billing_mode} onChange={(e) => set("billing_mode", e.target.value as ResellerProfile["billing_mode"])}>
+                  {MODES.map((mode) => (
+                    <option key={mode} value={mode}>
+                      {t(`billing_mode_${mode}`)}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            {form.billing_mode === "usage" && (
+              <Field label={t("gb_price")}>
+                {(id) => <NumberInput id={id} value={form.gb_price} onChange={(v) => set("gb_price", v ?? 0)} />}
+              </Field>
+            )}
+            {form.billing_mode === "hourly" && (
+              <Field label={t("hourly_price")}>
+                {(id) => <NumberInput id={id} value={form.hourly_price} onChange={(v) => set("hourly_price", v ?? 0)} />}
+              </Field>
+            )}
+            {form.billing_mode !== "prepaid" && (
+              <Field label={t("credit_limit")} hint={t("credit_limit_hint")}>
+                {(id) => <NumberInput id={id} value={form.credit_limit} onChange={(v) => set("credit_limit", v ?? 0)} />}
+              </Field>
+            )}
+            {optional("low_balance_threshold", t("low_balance_threshold"), t("low_balance_threshold_hint"))}
+          </div>
+        </fieldset>
+
+        <fieldset className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
+          <legend className="text-[0.88rem] font-bold">{t("reseller_limits")}</legend>
+          <div className="grid gap-4 sm:grid-cols-3">
+            {optional("max_purchases_per_day", t("max_purchases_per_day"))}
+            {optional("max_active_services", t("max_active_services"))}
+            {optional("max_total_gb", t("max_total_gb"))}
+          </div>
+        </fieldset>
+
+        <Toggle checked={form.is_active} onChange={(v) => set("is_active", v)} label={t("active")} />
+        <fieldset className="flex flex-col gap-2 border-t border-[var(--line)] pt-4">
+          <legend className="mb-1 text-[0.88rem] font-bold">{t("reseller_permissions")}</legend>
           <p className="text-[0.78rem] text-[var(--hint)]">{t("reseller_permissions_hint")}</p>
           {data.permissions.map((perm) => (
             <label key={perm} className="flex items-center gap-2 text-[0.88rem]">
@@ -181,8 +292,34 @@ function ProfileSheet({
             </label>
           ))}
         </fieldset>
+        {profile.billing_mode !== "prepaid" && <BillingHistory path={`/api/admin/resellers/${profile.id}/billing`} />}
       </div>
     </Sheet>
+  );
+}
+
+export function BillingHistory({ path }: { path: string }) {
+  const { t } = useSession();
+  const state = useLoad<BillingView>(path);
+  return (
+    <Async {...state}>
+      {(view) => (
+        <div className="flex flex-col gap-2 border-t border-[var(--line)] pt-4">
+          <h3 className="text-[0.88rem] font-bold">{t("billing_history")}</h3>
+          <Table
+            rows={view.items}
+            empty={<Empty title={t("no_billing_yet")} />}
+            columns={[
+              { key: "end", label: t("billing_period"), render: (r) => <When iso={r.period_end} time /> },
+              { key: "used", label: t("col_usage"), render: (r) => <Bytes value={r.used_bytes} /> },
+              { key: "hours", label: t("service_hours"), render: (r) => r.service_hours },
+              { key: "amount", label: t("amount"), render: (r) => <Money amount={r.amount} /> },
+              { key: "debt", label: t("reseller_debt"), mobile: "end", render: (r) => <Money amount={r.debt_after} /> },
+            ]}
+          />
+        </div>
+      )}
+    </Async>
   );
 }
 
@@ -286,12 +423,20 @@ export function Resellers() {
                       onClick={() => setProfile(p)}
                       className="flex w-full items-center justify-between gap-3 px-4 py-3 text-start hover:bg-[var(--bg)]"
                     >
-                      <span className="flex items-center gap-2 font-semibold">
+                      <span className="flex flex-wrap items-center gap-2 font-semibold">
+                        {p.parent_id !== null && <span className="text-[var(--hint)]" aria-hidden="true">↳</span>}
                         {p.customer}
-                        {!p.is_active && <Badge tone="loss">{t("inactive")}</Badge>}
+                        {!p.is_current && <Badge tone="loss">{t("inactive")}</Badge>}
+                        {p.suspended_at && <Badge tone="loss">{t("suspended")}</Badge>}
+                        {p.billing_mode !== "prepaid" && <Badge>{t(`billing_mode_${p.billing_mode}`)}</Badge>}
+                        {p.parent_id !== null && <Badge>{t("level_two")}</Badge>}
                       </span>
-                      <span className="text-[0.85rem] text-[var(--hint)]">
-                        {value.groups.find((g) => g.id === p.group_id)?.title ?? "—"}
+                      <span className="flex flex-col items-end text-[0.85rem] text-[var(--hint)]">
+                        <span>
+                          {value.groups.find((g) => g.id === p.group_id)?.title ?? "—"}
+                          <span className="ms-2">{p.discount_percent}٪</span>
+                        </span>
+                        <Money amount={p.balance} />
                       </span>
                     </button>
                   </li>
@@ -597,18 +742,77 @@ export function Staff() {
 
 // ---------------------------------------------------------------- tickets
 
+function NewTicketSheet({ onClose, onCreated }: { onClose: () => void; onCreated: (id: number) => void }) {
+  const { t, toast, errorText } = useSession();
+  const [subject, setSubject] = useState("");
+  const [text, setText] = useState("");
+  const [busy, run] = useAction();
+  const send = async () => {
+    try {
+      const result = await run(() => call<{ id: number }>("/api/admin/tickets", { method: "POST", body: { subject, text } }));
+      toast(t("ticket_sent"));
+      if (result) onCreated(result.id);
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title={t("new_ticket_to_shop")}
+      footer={
+        <Button tone="primary" busy={busy} disabled={!subject.trim() || !text.trim()} onClick={() => void send()}>
+          {t("send")}
+        </Button>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <Field label={t("ticket_subject")}>
+          {(id) => <Input id={id} maxLength={128} value={subject} onChange={(e) => setSubject(e.target.value)} />}
+        </Field>
+        <Field label={t("ticket_message")}>
+          {(id) => <Textarea id={id} maxLength={4000} value={text} onChange={(e) => setText(e.target.value)} />}
+        </Field>
+      </div>
+    </Sheet>
+  );
+}
+
 export function Tickets() {
-  const { t } = useSession();
+  const { t, me, can } = useSession();
   const navigate = useNavigate();
+  const [composing, setComposing] = useState(false);
   const list = useList<Ticket>("/api/admin/tickets", ["status"]);
+  const reseller = me?.role === "reseller";
   const columns: Column<Ticket>[] = [
-    { key: "subject", label: t("ticket_subject"), mobile: "title", render: (x) => <span className="font-semibold" dir="auto">{x.subject}</span> },
+    {
+      key: "subject",
+      label: t("ticket_subject"),
+      mobile: "title",
+      render: (x) => (
+        <span className="flex items-center gap-2">
+          <span className="font-semibold" dir="auto">{x.subject}</span>
+          {x.source === "panel" && <Badge>{t("ticket_from_panel")}</Badge>}
+        </span>
+      ),
+    },
     { key: "customer", label: t("col_customer"), mobile: "meta", render: (x) => x.customer ?? "—" },
     { key: "status", label: t("col_status"), mobile: "end", render: (x) => <Status value={x.status} /> },
     { key: "updated", label: t("updated_at"), mobile: "meta", render: (x) => <When iso={x.updated_at} time /> },
   ];
   return (
-    <Page title={t("nav_tickets")}>
+    <Page
+      title={t("nav_tickets")}
+      actions={
+        reseller && can("tickets.reply") ? (
+          <Button tone="primary" icon="plus" onClick={() => setComposing(true)}>
+            {t("new_ticket_to_shop")}
+          </Button>
+        ) : null
+      }
+    >
+      {composing && <NewTicketSheet onClose={() => setComposing(false)} onCreated={(id) => navigate(`/tickets/${id}`)} />}
       <Section flush>
         <Toolbar>
           <Select className="w-auto" aria-label={t("filter_status")} value={list.get("status")} onChange={(e) => list.set({ status: e.target.value })}>
@@ -635,7 +839,7 @@ export function Tickets() {
 
 export function TicketPage() {
   const { id } = useParams();
-  const { t, can, toast, errorText } = useSession();
+  const { t, can, me, toast, errorText } = useSession();
   const { data, error, reload } = useLoad<{ ticket: Ticket; customer: string | null; messages: TicketMessage[] }>(
     `/api/admin/tickets/${id}`,
   );
@@ -683,7 +887,7 @@ export function TicketPage() {
           </p>
           <ol className="flex flex-col gap-3">
             {value.messages.map((m) => {
-              const mine = m.author_type === "staff";
+              const mine = me?.role === "reseller" ? m.author_type === "customer" : m.author_type === "staff";
               return (
                 <li key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                   <div
@@ -720,5 +924,129 @@ export function TicketPage() {
         </Page>
       )}
     </Async>
+  );
+}
+
+// ---------------------------------------------------------------- level-2 resellers (TEN-01)
+
+function SubSheet({
+  row,
+  maxDiscount,
+  onClose,
+  onSaved,
+}: {
+  row: SubReseller | null;
+  maxDiscount: number;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { t, toast, errorText } = useSession();
+  const [telegramId, setTelegramId] = useState<number | null>(null);
+  const [discount, setDiscount] = useState<number>(row?.discount_percent ?? Math.min(5, maxDiscount));
+  const [active, setActive] = useState(row?.is_active ?? true);
+  const [busy, run] = useAction();
+  const save = async () => {
+    try {
+      await run(() =>
+        row
+          ? call(`/api/admin/sub-resellers/${row.id}`, { method: "PUT", body: { discount_percent: discount, is_active: active } })
+          : call("/api/admin/sub-resellers", { method: "POST", body: { telegram_id: telegramId, discount_percent: discount } }),
+      );
+      toast(t("saved"));
+      onSaved();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title={row ? (row.customer ?? `#${row.customer_id}`) : t("add_sub_reseller")}
+      footer={
+        <Button tone="primary" busy={busy} disabled={!row && !telegramId} onClick={() => void save()}>
+          {t("save")}
+        </Button>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        {!row && (
+          <Field label={t("telegram_id")} hint={t("sub_reseller_telegram_hint")}>
+            {(id) => <NumberInput id={id} allowEmpty value={telegramId} onChange={setTelegramId} />}
+          </Field>
+        )}
+        <Field label={t("discount_percent")} hint={t("parent_discount_cap", { percent: maxDiscount })}>
+          {(id) => <NumberInput id={id} value={discount} onChange={(v) => setDiscount(Math.min(maxDiscount, v ?? 0))} />}
+        </Field>
+        {row && <Toggle checked={active} onChange={setActive} label={t("active")} />}
+        <p className="text-[0.78rem] text-[var(--hint)]">{t("commission_explained")}</p>
+      </div>
+    </Sheet>
+  );
+}
+
+export function SubResellers() {
+  const { t } = useSession();
+  const { data, error, reload } = useLoad<{ max_discount: number; limit: number | null; items: SubReseller[] }>(
+    "/api/admin/sub-resellers",
+  );
+  const [editing, setEditing] = useState<SubReseller | "new" | null>(null);
+  const columns: Column<SubReseller>[] = [
+    { key: "name", label: t("col_customer"), mobile: "title", render: (r) => <span className="font-semibold">{r.customer ?? `#${r.customer_id}`}</span> },
+    { key: "discount", label: t("discount"), mobile: "meta", render: (r) => `${r.discount_percent}٪` },
+    { key: "balance", label: t("balance"), render: (r) => <Money amount={r.balance} /> },
+    { key: "status", label: t("col_status"), mobile: "end", render: (r) => (r.is_active ? <Badge tone="health">{t("active")}</Badge> : <Badge tone="loss">{t("inactive")}</Badge>) },
+    { key: "created", label: t("col_created"), mobile: "hide", render: (r) => <When iso={r.created_at} /> },
+  ];
+  return (
+    <Async data={data} error={error} reload={reload}>
+      {(value) => (
+        <Page
+          title={t("nav_sub_resellers")}
+          actions={
+            <Button
+              tone="primary"
+              icon="plus"
+              disabled={value.limit !== null && value.items.length >= value.limit}
+              onClick={() => setEditing("new")}
+            >
+              {t("add_sub_reseller")}
+            </Button>
+          }
+        >
+          <p className="-mt-2 text-[0.85rem] text-[var(--hint)]">{t("sub_resellers_intro", { percent: value.max_discount })}</p>
+          <Section flush>
+            <Table
+              columns={columns}
+              rows={value.items}
+              onRow={(r) => setEditing(r)}
+              empty={<Empty title={t("no_sub_resellers")} hint={t("no_sub_resellers_hint")} />}
+            />
+          </Section>
+          {editing && (
+            <SubSheet
+              row={editing === "new" ? null : editing}
+              maxDiscount={value.max_discount}
+              onClose={() => setEditing(null)}
+              onSaved={() => {
+                setEditing(null);
+                void reload();
+              }}
+            />
+          )}
+        </Page>
+      )}
+    </Async>
+  );
+}
+
+export function MyBilling() {
+  const { t } = useSession();
+  return (
+    <Page title={t("billing_history")}>
+      <Section>
+        <BillingHistory path="/api/admin/my/billing" />
+      </Section>
+    </Page>
   );
 }

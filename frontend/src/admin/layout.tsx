@@ -10,6 +10,8 @@ export interface NavItem {
   permission?: string;
   /** Hidden from resellers, whose scope is only their own customers. */
   shopWide?: boolean;
+  /** Only for reseller accounts. */
+  resellerOnly?: boolean;
 }
 
 export const NAV_GROUPS: { key: string; items: NavItem[] }[] = [
@@ -32,6 +34,7 @@ export const NAV_GROUPS: { key: string; items: NavItem[] }[] = [
       { to: "/discounts", key: "nav_discounts", icon: "discounts", permission: "discounts.write" },
       { to: "/broadcasts", key: "nav_broadcasts", icon: "broadcast", permission: "broadcast.send" },
       { to: "/resellers", key: "nav_resellers", icon: "resellers", permission: "resellers.manage" },
+      { to: "/sub-resellers", key: "nav_sub_resellers", icon: "resellers", permission: "resellers.sub", resellerOnly: true },
       { to: "/reports", key: "nav_reports", icon: "reports", permission: "reports.read" },
     ],
   },
@@ -56,6 +59,7 @@ function useVisible(): (item: NavItem) => boolean {
   return (item) => {
     if (item.permission && !can(item.permission)) return false;
     if (item.shopWide && me?.role === "reseller") return false;
+    if (item.resellerOnly && me?.role !== "reseller") return false;
     return true;
   };
 }

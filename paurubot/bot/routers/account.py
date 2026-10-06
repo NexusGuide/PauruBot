@@ -70,10 +70,10 @@ async def reseller(
     state: FSMContext,
 ) -> None:
     profile = customer.reseller_profile
-    if profile is not None and profile.is_active:
+    if profile is not None and profile.is_current:
         balance = await wallet_balance(session, customer.shop_id, customer.id)
         group = profile.group
-        await message.answer(
+        lines = [
             t(
                 "reseller_status",
                 group=esc(group.title if group else "-"),
@@ -82,7 +82,16 @@ async def reseller(
                 balance=money(balance),
                 expires=jdate(profile.expires_at) if profile.expires_at else t("unlimited"),
             )
-        )
+        ]
+        if profile.billing_mode == "usage":
+            lines.append(t("reseller_billing_usage", price=money(profile.gb_price)))
+        elif profile.billing_mode == "hourly":
+            lines.append(t("reseller_billing_hourly", price=money(profile.hourly_price)))
+        if profile.billing_debt:
+            lines.append(t("reseller_debt_line", debt=money(profile.billing_debt)))
+        if profile.suspended_at is not None:
+            lines.append(t("reseller_suspended_line"))
+        await message.answer("\n".join(lines))
         return
     if not cfg["reseller_applications_enabled"]:
         await message.answer(t("reseller_closed"))

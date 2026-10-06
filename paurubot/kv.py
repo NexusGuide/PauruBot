@@ -77,3 +77,8 @@ async def hit(key: str, limit: int, window: int) -> tuple[bool, int]:
 
 async def reset(key: str) -> None:
     await get_redis().delete(f"rl:{key}")
+
+
+async def set_once(key: str, ttl: int) -> bool:
+    """True the first time `key` is set within `ttl` seconds, False after that."""
+    return bool(await get_redis().set(f"once:{key}", "1", nx=True, ex=ttl))

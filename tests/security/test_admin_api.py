@@ -140,6 +140,7 @@ def endpoints(env: Env) -> list[tuple[str, str, str, Any]]:
         ("staff.manage", "GET", "/api/admin/staff", None),
         ("resellers.manage", "GET", "/api/admin/resellers", None),
         ("backups.manage", "GET", "/api/admin/backups", None),
+        ("resellers.sub", "GET", "/api/admin/sub-resellers", None),
     ]
 
 
@@ -309,3 +310,53 @@ async def test_sales_report_and_csv(http, env) -> None:  # type: ignore[no-untyp
     assert csv_resp.status_code == 200 and csv_resp.headers["content-type"].startswith("text/csv")
     bad = await finance.call("GET", "/api/admin/reports/sales?start=2026-02-01&end=2026-01-01")
     assert bad.status_code == 422
+
+
+async def test_level_one_reseller_sees_its_sub_resellers(http, env, session) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import Customer
+
+    reseller = await login(http, "u_reseller")
+    ids = lambda resp: {s["id"] for s in resp.json()["items"]}  # noqa: E731
+    assert ids(await reseller.call("GET", "/api/admin/services")) == {env.reseller_service_id}
+
+    customer = await session.get(Customer, env.customer_id)
+    added = await reseller.call(
+        "POST", "/api/admin/sub-resellers", {"telegram_id": customer.telegram_id, "discount_percent": 0}
+    )
+    assert added.status_code == 200, added.text
+    too_high = await reseller.call(
+        "PUT", f"/api/admin/sub-resellers/{added.json()['id']}", {"discount_percent": 50, "is_active": True}
+    )
+    assert too_high.status_code == 422 and too_high.json()["error"] == "subreseller_discount_too_high"
+    listed = await reseller.call("GET", "/api/admin/sub-resellers")
+    assert [r["customer_id"] for r in listed.json()["items"]] == [env.customer_id]
+    # The level-2 reseller's services are now in scope; nothing else is.
+    assert ids(await reseller.call("GET", "/api/admin/services")) == {
+        env.reseller_service_id,
+        env.other_service_id,
+    }
+    assert (await reseller.call("GET", "/api/admin/customers")).json()["total"] == 0
+
+    owner = await login(http, "u_owner")
+    assert (await owner.call("GET", "/api/admin/sub-resellers")).status_code == 404
+
+
+async def test_reseller_writes_to_the_shop_from_the_panel(http, env) -> None:  # type: ignore[no-untyped-def]
+    reseller = await login(http, "u_reseller")
+    opened = await reseller.call("POST", "/api/admin/tickets", {"subject": "Payout", "text": "Please settle"})
+    assert opened.status_code == 200, opened.text
+    ticket_id = opened.json()["id"]
+    assert (
+        await reseller.call("POST", f"/api/admin/tickets/{ticket_id}/reply", {"text": "Any news?"})
+    ).status_code == 200
+    detail = (await reseller.call("GET", f"/api/admin/tickets/{ticket_id}")).json()
+    assert detail["ticket"]["source"] == "panel"
+    assert [m["author_type"] for m in detail["messages"]] == ["customer", "customer"]
+
+    owner = await login(http, "u_owner")
+    assert (await owner.call("POST", "/api/admin/tickets", {"subject": "x", "text": "y"})).status_code == 404
+    assert (
+        await owner.call("POST", f"/api/admin/tickets/{ticket_id}/reply", {"text": "Done"})
+    ).status_code == 200
+    detail = (await owner.call("GET", f"/api/admin/tickets/{ticket_id}")).json()
+    assert detail["messages"][-1]["author_type"] == "staff"

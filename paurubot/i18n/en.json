@@ -332,5 +332,18 @@
   "sub_page_expiry": "Expires",
   "sub_page_copied": "Copied",
   "sub_page_copy": "Copy subscription link",
-  "sub_page_import": "Add to an app"
+  "sub_page_import": "Add to an app",
+  "reseller_billing_usage": "💳 Billing: by usage, {price} Toman per GB",
+  "reseller_billing_hourly": "💳 Billing: hourly, {price} Toman per active service per hour",
+  "reseller_debt_line": "⚠️ Debt: {debt} Toman",
+  "reseller_suspended_line": "⛔️ Your reseller account is suspended; topping up your wallet brings it back.",
+  "reseller_suspended": "⛔️ Your reseller account is suspended and your services are paused.\nDebt: {debt} Toman | Balance: {balance} Toman\nTop up your wallet and everything comes back automatically.",
+  "reseller_resumed": "✅ Your reseller account is active again and your services are back on.",
+  "reseller_low_balance": "🔔 Your wallet is running low: {balance} Toman. Top up so your services don't stop.",
+  "report_reseller_suspended": "⛔️ Reseller {customer} was suspended. Debt: {debt} Toman",
+  "report_reseller_resumed": "✅ Reseller {customer} is active again.",
+  "reseller_suspended_error": "⛔️ Your reseller account is suspended; top up your wallet first.",
+  "reseller_daily_limit": "You've reached today's purchase limit ({limit} services). Try again tomorrow.",
+  "reseller_service_limit": "You've reached your active service limit ({limit}).",
+  "reseller_volume_limit": "This purchase goes over your total data cap ({limit} GB)."
 }

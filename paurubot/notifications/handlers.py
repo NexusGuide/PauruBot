@@ -66,6 +66,8 @@ async def staff_chats(session: AsyncSession, shop_id: int, permission: str) -> l
             Staff.shop_id == shop_id, Staff.is_active.is_(True), Staff.telegram_id.is_not(None)
         )
     ):
+        if rbac.is_scoped(staff.role):
+            continue  # resellers never receive shop-wide staff alerts
         if staff.telegram_id and rbac.allowed(staff.role, permission):
             chats.add(staff.telegram_id)
     chats.update(get_settings().owner_telegram_ids)
@@ -412,10 +414,38 @@ async def report_job(session: AsyncSession, job: queue.Claimed) -> None:
     await report(session, shop.id, str(job.payload["topic"]), t(str(job.payload["key"]), **params))
 
 
+async def reseller_notice(session: AsyncSession, job: queue.Claimed) -> None:
+    """Suspension, resumption and low-balance notices to a reseller, copied to the owners (TEN-06)."""
+    from paurubot.db.models import ResellerProfile
+    from paurubot.ledger.accounts import wallet_balance
+
+    profile = await session.get(ResellerProfile, int(job.payload["profile_id"]))
+    if profile is None:
+        return
+    customer = await session.get(Customer, profile.customer_id)
+    if customer is None:
+        return
+    t = await _texts(session, customer)
+    notice = str(job.payload["notice"])
+    balance = await wallet_balance(session, profile.shop_id, profile.customer_id)
+    values = {"balance": money(balance), "debt": money(profile.billing_debt)}
+    if notice not in {"suspended", "resumed", "low_balance"}:
+        raise Permanent(f"unknown reseller notice {notice}")
+    await _to_customer(session, customer, t(f"reseller_{notice}", **values))
+    if notice != "low_balance":
+        await report(
+            session,
+            profile.shop_id,
+            "resellers",
+            t(f"report_reseller_{notice}", customer=esc(customer.display_name), **values),
+        )
+
+
 register_queue(
     "notify",
     QueueSpec(
         {
+            "reseller_notice": reseller_notice,
             "order_completed": order_completed,
             "order_failed": order_failed,
             "payment_fulfilled": payment_fulfilled,
