@@ -50,7 +50,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | TEN-07 | Reseller usage cap and capacity limits | v1.1 | done |
 | TEN-08 | Agent expiry and max-buy limits | v1.1 | done |
 | TEN-09 | Reseller application / approval workflow | v1.1 | done |
-| TEN-10 | Import existing panel users into a reseller | v1.1 | todo |
+| TEN-10 | Import existing panel users into a reseller | v1.1 | done |
 | TEN-11 | Move users between panel admins | v2 | todo |
 
 ## VPN Panel Integrations
@@ -58,18 +58,18 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
 | PNL-01 | PasarGuard deep admin: users, admins, groups, hosts, nodes, templates, inbounds | MVP | done |
-| PNL-02 | PasarGuard live role/ACL and quota read from the panel | v1.1 | todo |
+| PNL-02 | PasarGuard live role/ACL and quota read from the panel | v1.1 | done |
 | PNL-03 | PasarGuard webhook events (created, expired, limited, usage %, days left) | MVP | done |
 | PNL-04 | Marzban driver | MVP | done |
-| PNL-05 | Marzneshin driver | v1.1 | todo |
+| PNL-05 | Marzneshin driver | v1.1 | done |
 | PNL-06 | X-UI (Sanaei / Alireza) and S-UI drivers | MVP* | done |
 | PNL-07 | Hiddify driver | v2 | todo |
 | PNL-08 | WireGuard: WGDashboard and WGMate | v2 | todo |
 | PNL-09 | Remnawave driver + usage sync | v2 | todo |
 | PNL-10 | Guard and Rebecca drivers | v2 | todo |
 | PNL-11 | MikroTik and IBSng drivers | v2 | todo |
-| PNL-12 | Panel and node uptime monitoring with alerts | v1.1 | todo |
-| PNL-13 | Node traffic and host resource gauges | v1.1 | todo |
+| PNL-12 | Panel and node uptime monitoring with alerts | v1.1 | done |
+| PNL-13 | Node traffic and host resource gauges | v1.1 | done |
 | PNL-14 | Per-panel inbound / protocol settings | v1.1 | done |
 
 ## Catalog & Sales
@@ -181,7 +181,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | ADM-04 | Table bulk actions, search, sort, paging | MVP | done |
 | ADM-05 | In-panel help docs with search | v1.1 | todo |
 | ADM-06 | Sales funnel analytics | v2 | todo |
-| ADM-07 | Panel settings modal (PasarGuard server settings) | v1.1 | todo |
+| ADM-07 | Panel settings modal (PasarGuard server settings) | v1.1 | done |
 | ADM-08 | Environment analyzer / doctor | v1.1 | todo |
 
 ## Support & Communication

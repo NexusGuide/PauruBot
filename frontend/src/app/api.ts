@@ -66,7 +66,7 @@ export interface Service {
   location: string | null;
   plan_id: number | null;
   panel_id: number;
-  extras: { gb_price: number; day_price: number } | null;
+  extras: { gb_price: number | null; day_price: number | null } | null;
 }
 
 export interface Order {

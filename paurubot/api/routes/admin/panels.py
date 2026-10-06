@@ -12,7 +12,7 @@ from paurubot.api.admin_common import owned, plain
 from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record, snapshot
 from paurubot.db.base import utcnow
-from paurubot.db.models import Panel, PanelKind, Service, ServiceStatus, UsernameMethod
+from paurubot.db.models import Customer, Panel, PanelKind, Service, ServiceStatus, UsernameMethod
 from paurubot.panels import PanelError, drop, registry
 from paurubot.panels.drivers.pasarguard import ADMIN_READ_PATHS, PasarGuardDriver
 from paurubot.panels.http import fetch_certificate
@@ -50,6 +50,10 @@ SAFE_OPTION_KEYS = {
     "sub_base_url",
     "limit_ip",
     "template_id",
+    "service_ids",
+    "sell_extra_volume",
+    "sell_extra_days",
+    "renew_resets_usage",
     "legacy_paths",
     "timeout",
 }
@@ -61,6 +65,9 @@ def panel_out(panel: Panel, load: int | None = None) -> dict[str, Any]:
     data["has_api_token"] = bool((panel.options or {}).get("api_token_enc"))
     data["tls_pinned"] = bool(panel.tls_cert_pem)
     data["webhook_enabled"] = bool(panel.webhook_secret_enc)
+    data["stats"] = panel.stats or {}
+    data["stats_at"] = panel.stats_at.isoformat() if panel.stats_at else None
+    data["down_since"] = panel.down_since.isoformat() if panel.down_since else None
     if load is not None:
         data["load"] = load
     return data
@@ -86,7 +93,10 @@ def _clean_options(options: dict[str, Any]) -> dict[str, Any]:
     unknown = set(options) - SAFE_OPTION_KEYS
     if unknown:
         raise HTTPException(status_code=422, detail=f"unknown_options:{','.join(sorted(unknown))}")
-    return options
+    for key in ("sell_extra_volume", "sell_extra_days", "renew_resets_usage"):
+        if key in options and options[key] is not None and not isinstance(options[key], bool):
+            raise HTTPException(status_code=422, detail=f"{key}_invalid")
+    return {k: v for k, v in options.items() if v is not None}
 
 
 async def _check_url(body: PanelBody, ctx: StaffContext) -> str:
@@ -112,7 +122,10 @@ async def list_panels(ctx: Reader, db: DB) -> dict[str, Any]:
             )
         ).all()
     )
-    return {"items": [panel_out(p, int(loads.get(p.id, 0))) for p in panels]}
+    from paurubot.provisioning.monitor import uptime
+
+    up = await uptime(db, [p.id for p in panels])
+    return {"items": [{**panel_out(p, int(loads.get(p.id, 0))), "uptime": up.get(p.id)} for p in panels]}
 
 
 @router.post("/panels")
@@ -257,7 +270,7 @@ async def rotate_webhook(
 ) -> dict[str, Any]:
     """Create a new webhook secret; it is shown once and stored encrypted."""
     panel = await owned(db, Panel, panel_id, ctx)
-    if panel.kind == PanelKind.XUI:
+    if panel.kind in {PanelKind.XUI, PanelKind.MARZNESHIN}:
         raise HTTPException(status_code=400, detail="webhooks_not_supported")
     secret = new_token(24)
     panel.webhook_secret_enc = secretbox.encrypt("webhook", secret)
@@ -326,3 +339,113 @@ async def pasarguard_node(panel_id: int, node_id: int, action: str, ctx: Writer,
         after={"node_id": node_id},
     )
     return {"ok": True}
+
+
+# --- importing existing panel users (TEN-10) -------------------------------------------
+
+PREVIEW_LIMIT = 500
+
+
+@router.get("/panels/{panel_id}/import")
+async def import_preview(panel_id: int, ctx: Writer, db: DB) -> dict[str, Any]:
+    from paurubot.provisioning import importer
+
+    panel = await owned(db, Panel, panel_id, ctx)
+    try:
+        users = await importer.untracked(db, panel)
+    except PanelError as exc:
+        raise HTTPException(status_code=502, detail="panel_unreachable") from exc
+    ids = {u.username: importer.telegram_id_of(u) for u in users}
+    known = set(
+        await db.scalars(
+            select(Customer.telegram_id).where(
+                Customer.shop_id == ctx.shop_id, Customer.telegram_id.in_([i for i in ids.values() if i])
+            )
+        )
+    )
+    return {
+        "total": len(users),
+        "items": [
+            {
+                "username": u.username,
+                "status": u.status,
+                "used_bytes": u.used_bytes,
+                "data_limit": u.data_limit,
+                "expire_at": u.expire_at.isoformat() if u.expire_at else None,
+                "telegram_id": ids[u.username],
+                "known_customer": ids[u.username] in known,
+            }
+            for u in users[:PREVIEW_LIMIT]
+        ],
+    }
+
+
+class ImportBody(BaseModel):
+    usernames: list[str] | None = Field(default=None, max_length=50_000)
+    customer_id: int | None = None
+    match_telegram: bool = True
+
+
+@router.post("/panels/{panel_id}/import")
+async def import_users(panel_id: int, body: ImportBody, ctx: Writer, db: DB) -> dict[str, Any]:
+    from paurubot.worker import queue
+
+    panel = await owned(db, Panel, panel_id, ctx)
+    if body.customer_id is not None:
+        await owned(db, Customer, body.customer_id, ctx)
+    elif not body.match_telegram:
+        raise HTTPException(status_code=422, detail="import_needs_owner")
+    job_id = await queue.enqueue(
+        db,
+        "ops",
+        "import_panel",
+        {
+            "panel_id": panel.id,
+            "usernames": body.usernames,
+            "customer_id": body.customer_id,
+            "match_telegram": body.match_telegram,
+            "staff_id": ctx.staff.id,
+        },
+        shop_id=ctx.shop_id,
+        max_attempts=3,
+    )
+    return {"job_id": job_id}
+
+
+RESTART_PATHS = {
+    PanelKind.MARZBAN: ("POST", "/api/core/restart"),
+    PanelKind.PASARGUARD: ("POST", "/api/nodes/reconnect"),
+}
+
+
+@router.post("/panels/{panel_id}/restart")
+async def restart_core(panel_id: int, ctx: Writer, db: DB) -> dict[str, Any]:
+    """Restart the panel's Xray core (Marzban) or reconnect all nodes (PasarGuard) (ADM-07)."""
+    panel = await owned(db, Panel, panel_id, ctx)
+    target = RESTART_PATHS.get(PanelKind(panel.kind))
+    if target is None:
+        raise HTTPException(status_code=400, detail="restart_not_supported")
+    driver = await registry.driver_for(panel)
+    try:
+        await driver.call(*target)  # type: ignore[attr-defined]
+    except PanelError as exc:
+        raise HTTPException(status_code=502, detail="panel_unreachable") from exc
+    await record(
+        db, shop_id=ctx.shop_id, actor=ctx.actor, action="panel.restart", entity="panel", entity_id=panel.id
+    )
+    return {"ok": True}
+
+
+@router.post("/panels/{panel_id}/check")
+async def check_now(panel_id: int, ctx: Reader, db: DB) -> dict[str, Any]:
+    """Run one monitoring probe right away and return the fresh figures (PNL-12, PNL-13)."""
+    from paurubot.provisioning import monitor
+
+    panel = await owned(db, Panel, panel_id, ctx)
+    result = await monitor.check_panel(db, panel)
+    up = await monitor.uptime(db, [panel.id])
+    return {
+        **panel_out(panel),
+        "uptime": up.get(panel.id),
+        "check": {"ok": result.ok, "latency_ms": result.latency_ms, "error": result.error},
+    }

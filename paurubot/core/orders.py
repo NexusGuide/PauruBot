@@ -78,6 +78,22 @@ def extra_prices(cfg: dict[str, Any], plan: Plan | None) -> tuple[int, int] | No
     )
 
 
+def service_extras(cfg: dict[str, Any], service: Service) -> tuple[int | None, int | None]:
+    """Unit prices of extra data and extra days for one service; None where it isn't sold.
+
+    The plan decides prices (CAT-02); a panel can switch either one off (ADM-07).
+    """
+    if service.is_trial:
+        return None, None
+    prices = extra_prices(cfg, service.plan)
+    if prices is None:
+        return None, None
+    options = (service.panel.options if service.panel is not None else None) or {}
+    gb = None if options.get("sell_extra_volume") is False else prices[0]
+    days = None if options.get("sell_extra_days") is False else prices[1]
+    return gb, days
+
+
 def custom_limits(cfg: dict[str, Any]) -> dict[str, int]:
     return {
         "min_gb": int(cfg["custom_min_gb"]),
@@ -144,18 +160,18 @@ async def draft(
         return Draft(kind, plan, service, params, plan.price)
     if kind == OrderKind.EXTRA_VOLUME:
         assert service is not None
-        prices = extra_prices(cfg, service.plan)
-        if prices is None or extra_gb <= 0 or extra_gb > 10_000:
+        gb_price, _ = service_extras(cfg, service)
+        if gb_price is None or extra_gb <= 0 or extra_gb > 10_000:
             raise OrderError("extras_unavailable")
         params["extra_gb"] = extra_gb
-        return Draft(kind, None, service, params, extra_gb * prices[0])
+        return Draft(kind, None, service, params, extra_gb * gb_price)
     if kind == OrderKind.EXTRA_DAYS:
         assert service is not None
-        prices = extra_prices(cfg, service.plan)
-        if prices is None or extra_days <= 0 or extra_days > 3650:
+        _, day_price = service_extras(cfg, service)
+        if day_price is None or extra_days <= 0 or extra_days > 3650:
             raise OrderError("extras_unavailable")
         params["extra_days"] = extra_days
-        return Draft(kind, None, service, params, extra_days * prices[1])
+        return Draft(kind, None, service, params, extra_days * day_price)
     if kind == OrderKind.UPGRADE:
         assert service is not None
         if not cfg["upgrade_enabled"] or plan is None:

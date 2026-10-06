@@ -16,7 +16,7 @@ from paurubot.bot.states import ServiceStates
 from paurubot.bot.utils import Btn, show
 from paurubot.bot.views import qr_png, service_card
 from paurubot.core.formatting import esc
-from paurubot.core.orders import extra_prices
+from paurubot.core.orders import service_extras
 from paurubot.db.models import Customer, Service, ServiceStatus
 from paurubot.i18n import Texts
 from paurubot.panels import PanelError
@@ -37,7 +37,7 @@ async def owned(session: AsyncSession, customer: Customer, service_id: int) -> S
 
 def _service_markup(t: Texts, service: Service, cfg: dict[str, Any]):  # type: ignore[no-untyped-def]
     return keyboards.service_kb(
-        t, service, extras=extra_prices(cfg, service.plan) is not None, upgrade=bool(cfg["upgrade_enabled"])
+        t, service, extras=service_extras(cfg, service), upgrade=bool(cfg["upgrade_enabled"])
     )
 
 

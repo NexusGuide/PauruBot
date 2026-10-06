@@ -134,9 +134,8 @@ async def usage_sync() -> None:
             panel = await session.get(Panel, panel_id)
             if panel is None:
                 continue
+            # Health is the monitor's job (PNL-12); this only refreshes usage.
             synced, failed = await sync.sync_panel(session, panel)
-            panel.is_healthy = failed == 0 or synced > 0
-            panel.health_checked_at = utcnow()
         log.info("usage sync panel=%s synced=%s failed=%s", panel_id, synced, failed)
 
 
@@ -197,7 +196,49 @@ async def backup_now(session: AsyncSession, job: queue.Claimed) -> None:
         raise Permanent(str(exc)) from exc
 
 
-register_queue("ops", QueueSpec({"backup": backup_now}, batch=1, lease_seconds=1800))
+async def import_panel_users(session: AsyncSession, job: queue.Claimed) -> None:
+    """TEN-10: adopt users that already exist on a panel."""
+    from paurubot.audit.log import Actor, record
+    from paurubot.provisioning import importer
+
+    data = job.payload
+    panel = await session.get(Panel, int(data["panel_id"]))
+    if panel is None:
+        raise Permanent("panel not found")
+    try:
+        result = await importer.run_import(
+            session,
+            panel,
+            usernames=data.get("usernames"),
+            customer_id=data.get("customer_id"),
+            match_telegram=bool(data.get("match_telegram")),
+        )
+    except PanelUnavailable as exc:
+        raise Retry(str(exc)) from exc
+    except ValueError as exc:
+        raise Permanent(str(exc)) from exc
+    await record(
+        session,
+        shop_id=panel.shop_id,
+        actor=Actor("staff", data["staff_id"], None) if data.get("staff_id") else Actor.system(),
+        action="panel.import_users",
+        entity="panel",
+        entity_id=panel.id,
+        after={
+            "imported": result.imported,
+            "skipped_existing": result.skipped_existing,
+            "unassigned": result.unassigned,
+            "customers_created": result.customers_created,
+            "sample": result.usernames[:20],
+        },
+    )
+    await session.commit()
+
+
+register_queue(
+    "ops",
+    QueueSpec({"backup": backup_now, "import_panel": import_panel_users}, batch=1, lease_seconds=1800),
+)
 
 
 @every(600, "backups.daily")
@@ -311,3 +352,12 @@ async def reseller_billing() -> None:
         billed = await resellers.run_billing(session)
     if billed:
         log.info("billed %s metered resellers", billed)
+
+
+@every(120, "panels.monitor")
+async def monitor_panels() -> None:
+    """Uptime probes, live stats and node / quota alerts for every active panel (PNL-12)."""
+    from paurubot.provisioning import monitor
+
+    async with session_scope() as session:
+        await monitor.run(session)

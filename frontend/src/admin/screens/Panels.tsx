@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { money } from "@shared/format";
+import { money, size } from "@shared/format";
 import { call, type CatalogData, type PanelRow } from "../api";
-import { useAction, useLoad } from "../hooks";
+import { useAction, useLoad, useSelection } from "../hooks";
 import { useSession } from "../session";
 import {
   Async,
@@ -18,8 +18,12 @@ import {
   Section,
   Select,
   Sheet,
+  Status,
+  Table,
   Toggle,
+  Usage,
   When,
+  useConfirm,
 } from "../ui";
 
 interface Draft {
@@ -102,19 +106,20 @@ export function OptionPicker({
       </Field>
     );
   }
-  const key = kind === "pasarguard" ? "group_ids" : "inbounds";
+  const numeric = kind === "pasarguard" || kind === "marzneshin";
+  const key = kind === "pasarguard" ? "group_ids" : kind === "marzneshin" ? "service_ids" : "inbounds";
   const selected = new Set((value[key] as (string | number)[] | undefined)?.map(String) ?? []);
   const toggle = (id: string, on: boolean) => {
     const next = new Set(selected);
     if (on) next.add(id);
     else next.delete(id);
     const list = [...next];
-    onChange({ ...value, [key]: kind === "pasarguard" ? list.map(Number) : list });
+    onChange({ ...value, [key]: numeric ? list.map(Number) : list });
   };
   return (
     <fieldset className="flex flex-col gap-2">
       <legend className="mb-1 text-[0.82rem] font-semibold">
-        {kind === "pasarguard" ? t("panel_groups") : t("panel_inbounds")}
+        {kind === "pasarguard" ? t("panel_groups") : kind === "marzneshin" ? t("panel_services") : t("panel_inbounds")}
       </legend>
       {options.map((option) => (
         <label key={option.id} className="flex items-center gap-2 text-[0.88rem]">
@@ -252,6 +257,7 @@ function PanelSheet({
               <Select id={id} value={form.kind} onChange={(e) => set("kind", e.target.value)} disabled={Boolean(form.id)}>
                 <option value="pasarguard">PasarGuard</option>
                 <option value="marzban">Marzban</option>
+                <option value="marzneshin">Marzneshin</option>
                 <option value="xui">3x-ui (Sanaei)</option>
               </Select>
             )}
@@ -376,6 +382,32 @@ function PanelSheet({
           </Field>
         </div>
         <Toggle checked={form.is_active} onChange={(v) => set("is_active", v)} label={t("panel_active")} hint={t("panel_active_hint")} />
+        <section className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
+          <h3 className="font-bold">{t("panel_sales_title")}</h3>
+          <Toggle
+            checked={form.options.sell_extra_volume !== false}
+            onChange={(v) => setOption("sell_extra_volume", v ? undefined : false)}
+            label={t("panel_sell_extra_volume")}
+          />
+          <Toggle
+            checked={form.options.sell_extra_days !== false}
+            onChange={(v) => setOption("sell_extra_days", v ? undefined : false)}
+            label={t("panel_sell_extra_days")}
+          />
+          <Field label={t("panel_renew_mode")} hint={t("panel_renew_mode_hint")}>
+            {(id) => (
+              <Select
+                id={id}
+                value={form.options.renew_resets_usage === undefined ? "" : String(form.options.renew_resets_usage)}
+                onChange={(e) => setOption("renew_resets_usage", e.target.value === "" ? undefined : e.target.value === "true")}
+              >
+                <option value="">{t("panel_renew_mode_default")}</option>
+                <option value="true">{t("panel_renew_mode_reset")}</option>
+                <option value="false">{t("panel_renew_mode_add")}</option>
+              </Select>
+            )}
+          </Field>
+        </section>
         {owner && (
           <Toggle
             checked={form.allow_private_address}
@@ -418,7 +450,7 @@ function PanelSheet({
           </section>
         )}
 
-        {form.id && owner && form.kind !== "xui" && (
+        {form.id && owner && form.kind !== "xui" && form.kind !== "marzneshin" && (
           <section className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
             <h3 className="font-bold">{t("webhook_title")}</h3>
             <p className="text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("webhook_hint")}</p>
@@ -507,12 +539,205 @@ function NodesSheet({ panel, onClose }: { panel: PanelRow; onClose: () => void }
   );
 }
 
+interface ImportRow {
+  id: number;
+  username: string;
+  status: string;
+  used_bytes: number;
+  data_limit: number;
+  expire_at: string | null;
+  telegram_id: number | null;
+  known_customer: boolean;
+}
+
+function ImportSheet({ panel, onClose }: { panel: PanelRow; onClose: () => void }) {
+  const { t, can, toast, errorText } = useSession();
+  const preview = useLoad<{ total: number; items: Omit<ImportRow, "id">[] }>(`/api/admin/panels/${panel.id}/import`);
+  const resellers = useLoad<{ profiles: { customer_id: number; customer: string }[] }>(
+    can("resellers.manage") ? "/api/admin/resellers" : null,
+  );
+  const selection = useSelection(`import-${panel.id}`);
+  const [matchTelegram, setMatchTelegram] = useState(true);
+  const [owner, setOwner] = useState<number | null>(null);
+  const [busy, run] = useAction();
+  const rows: ImportRow[] = (preview.data?.items ?? []).map((row, index) => ({ ...row, id: index + 1 }));
+  const everything = selection.selected.size === 0;
+  const submit = async () => {
+    const usernames = everything ? null : rows.filter((r) => selection.selected.has(r.id)).map((r) => r.username);
+    try {
+      await run(() =>
+        call(`/api/admin/panels/${panel.id}/import`, {
+          method: "POST",
+          body: { usernames, customer_id: owner, match_telegram: matchTelegram },
+        }),
+      );
+      toast(t("import_queued"));
+      onClose();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      wide
+      title={t("import_users_title", { panel: panel.name })}
+      footer={
+        <Button tone="primary" busy={busy} disabled={!rows.length || (!matchTelegram && owner === null)} onClick={() => void submit()}>
+          {everything
+            ? t("import_all", { n: preview.data?.total ?? 0 })
+            : t("import_selected", { n: selection.selected.size })}
+        </Button>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <p className="text-[0.85rem] text-[var(--hint)]">{t("import_intro")}</p>
+        <Toggle checked={matchTelegram} onChange={setMatchTelegram} label={t("import_match_telegram")} hint={t("import_match_telegram_hint")} />
+        <Field label={t("import_owner")} hint={t(matchTelegram ? "import_owner_hint_fallback" : "import_owner_hint")}>
+          {(id) =>
+            resellers.data ? (
+              <Select id={id} value={owner ?? ""} onChange={(e) => setOwner(e.target.value ? Number(e.target.value) : null)}>
+                <option value="">{matchTelegram ? t("import_leave_unmatched") : "—"}</option>
+                {resellers.data.profiles.map((p) => (
+                  <option key={p.customer_id} value={p.customer_id}>
+                    {p.customer}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <NumberInput id={id} allowEmpty placeholder={t("customer_number")} value={owner} onChange={setOwner} />
+            )
+          }
+        </Field>
+        <Async {...preview}>
+          {(data) => (
+            <>
+              <p className="text-[0.82rem] text-[var(--hint)]">
+                {t("import_found", { n: data.total })}
+                {data.total > data.items.length && ` ${t("import_shown", { n: data.items.length })}`}
+              </p>
+              <Table
+                rows={rows}
+                selection={selection}
+                empty={<Empty title={t("import_nothing")} hint={t("import_nothing_hint")} />}
+                columns={[
+                  { key: "user", label: t("panel_username"), mobile: "title", render: (r) => <span dir="ltr">{r.username}</span> },
+                  {
+                    key: "tg",
+                    label: t("telegram_id"),
+                    mobile: "meta",
+                    render: (r) =>
+                      r.telegram_id ? (
+                        <span className="num">
+                          {r.telegram_id}
+                          {r.known_customer && <Badge tone="brand">{t("known_customer")}</Badge>}
+                        </span>
+                      ) : (
+                        "—"
+                      ),
+                  },
+                  { key: "usage", label: t("col_usage"), render: (r) => <Usage used={r.used_bytes} limit={r.data_limit} /> },
+                  { key: "status", label: t("col_status"), mobile: "end", render: (r) => <Status value={r.status} /> },
+                ]}
+              />
+            </>
+          )}
+        </Async>
+      </div>
+    </Sheet>
+  );
+}
+
+function Meter({ label, value, max, text }: { label: string; value: number; max: number; text: string }) {
+  const ratio = max > 0 ? Math.min(1, value / max) : 0;
+  const tone = ratio >= 0.9 ? "bg-anar-500" : ratio >= 0.75 ? "bg-saffron-500" : "bg-firouzeh-500";
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-baseline justify-between text-[0.78rem]">
+        <span className="text-[var(--hint)]">{label}</span>
+        <span className="num font-semibold">{text}</span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-[var(--line)]" role="meter" aria-label={label} aria-valuenow={Math.round(ratio * 100)} aria-valuemin={0} aria-valuemax={100}>
+        <div className={`h-full rounded-full ${tone}`} style={{ width: `${Math.round(ratio * 100)}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function PanelGauges({ panel }: { panel: PanelRow }) {
+  const { t, locale } = useSession();
+  const s = panel.stats ?? {};
+  const units = t("size_units").split(",");
+  const bytes = (v: number | null | undefined) => size(v ?? 0, locale, units);
+  const admin = s.admin;
+  const nodes = s.nodes ?? [];
+  const online = nodes.filter((n) => ["connected", "online", "healthy"].includes(n.status.toLowerCase())).length;
+  if (!panel.stats_at) return null;
+  return (
+    <div className="mb-3 flex flex-col gap-2.5 rounded-xl bg-[var(--bg)] p-3">
+      {s.cpu_percent != null && (
+        <Meter label={t("gauge_cpu")} value={s.cpu_percent} max={100} text={s.cpu_cores ? t("gauge_cpu_value", { percent: money(s.cpu_percent, locale), cores: money(s.cpu_cores, locale) }) : `${money(s.cpu_percent, locale)}٪`} />
+      )}
+      {s.mem_total ? <Meter label={t("gauge_ram")} value={s.mem_used ?? 0} max={s.mem_total} text={`${bytes(s.mem_used)} / ${bytes(s.mem_total)}`} /> : null}
+      {admin && admin.max_users ? (
+        <Meter label={t("gauge_admin_users")} value={admin.users ?? 0} max={admin.max_users} text={`${money(admin.users ?? 0, locale)} / ${money(admin.max_users, locale)}`} />
+      ) : null}
+      {admin && admin.data_limit ? (
+        <Meter label={t("gauge_admin_traffic")} value={admin.used_traffic ?? 0} max={admin.data_limit} text={`${bytes(admin.used_traffic)} / ${bytes(admin.data_limit)}`} />
+      ) : null}
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[0.78rem] text-[var(--hint)]">
+        {s.users_total != null && <span>{t("gauge_users", { n: money(s.users_total, locale) })}</span>}
+        {s.users_online != null && <span>{t("gauge_online", { n: money(s.users_online, locale) })}</span>}
+        {s.traffic_in != null && (
+          <span>{t("gauge_traffic", { down: bytes(s.traffic_in), up: bytes(s.traffic_out) })}</span>
+        )}
+        {nodes.length > 0 && <span>{t("gauge_nodes", { online: money(online, locale), total: money(nodes.length, locale) })}</span>}
+        {admin && <span>{admin.owner ? t("panel_admin_owner") : t("panel_admin_limited", { role: admin.role ?? "—" })}</span>}
+        {s.version && <span dir="ltr">v{s.version}</span>}
+      </div>
+    </div>
+  );
+}
+
 export function Panels() {
-  const { t, can, locale } = useSession();
+  const { t, can, locale, toast, errorText } = useSession();
   const panels = useLoad<{ items: PanelRow[] }>("/api/admin/panels");
   const catalog = useLoad<CatalogData>(can("catalog.read") ? "/api/admin/catalog" : null);
   const [editing, setEditing] = useState<PanelRow | "new" | null>(null);
   const [nodes, setNodes] = useState<PanelRow | null>(null);
+  const [importing, setImporting] = useState<PanelRow | null>(null);
+  const [checking, setChecking] = useState<number | null>(null);
+  const confirm = useConfirm();
+  const checkNow = async (panel: PanelRow) => {
+    setChecking(panel.id);
+    try {
+      const fresh = await call<PanelRow & { check: { ok: boolean; error: string | null } }>(`/api/admin/panels/${panel.id}/check`, { method: "POST" });
+      if (fresh) upsert(fresh);
+      if (fresh) toast(fresh.check.ok ? t("check_ok") : t("check_failed", { error: fresh.check.error ?? "" }), fresh.check.ok ? "ok" : "error");
+    } catch (err) {
+      toast(errorText(err), "error");
+    } finally {
+      setChecking(null);
+    }
+  };
+  const restart = async (panel: PanelRow) => {
+    const ok = await confirm({
+      title: panel.kind === "pasarguard" ? t("reconnect_nodes") : t("restart_core"),
+      body: t("restart_confirm"),
+      confirm: t("confirm"),
+    });
+    if (!ok) return;
+    setChecking(-panel.id);
+    try {
+      await call(`/api/admin/panels/${panel.id}/restart`, { method: "POST" });
+      toast(t("restart_sent"));
+    } catch (err) {
+      toast(errorText(err), "error");
+    } finally {
+      setChecking(null);
+    }
+  };
   const writable = can("panels.write");
 
   const upsert = (saved: PanelRow) =>
@@ -556,6 +781,11 @@ export function Panels() {
                         </Button>
                       )}
                       {writable && (
+                        <Button small tone="ghost" onClick={() => setImporting(panel)}>
+                          {t("import_users")}
+                        </Button>
+                      )}
+                      {writable && (
                         <Button small onClick={() => setEditing(panel)}>
                           {t("edit")}
                         </Button>
@@ -571,6 +801,7 @@ export function Panels() {
                     {panel.tls_pinned && <Badge tone="brand">{t("cert_pinned")}</Badge>}
                     {panel.webhook_enabled && <Badge tone="brand">{t("webhook_on")}</Badge>}
                   </div>
+                  <PanelGauges panel={panel} />
                   <Facts
                     items={[
                       [t("panel_url"), <span key="u" className="break-all text-[0.8rem]" dir="ltr">{panel.base_url}</span>],
@@ -581,8 +812,24 @@ export function Panels() {
                           : money(panel.load ?? 0, locale),
                       ],
                       [t("health_checked"), <When key="h" iso={panel.health_checked_at} time />],
+                      [
+                        t("uptime"),
+                        panel.uptime?.day == null
+                          ? "—"
+                          : t("uptime_value", { day: money(panel.uptime.day, locale), week: money(panel.uptime.week ?? 0, locale) }),
+                      ],
                     ]}
                   />
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button small tone="ghost" icon="refresh" busy={checking === panel.id} onClick={() => void checkNow(panel)}>
+                      {t("check_now")}
+                    </Button>
+                    {writable && (panel.kind === "marzban" || panel.kind === "pasarguard") && (
+                      <Button small tone="ghost" busy={checking === -panel.id} onClick={() => void restart(panel)}>
+                        {panel.kind === "pasarguard" ? t("reconnect_nodes") : t("restart_core")}
+                      </Button>
+                    )}
+                  </div>
                   {panel.health_error && (
                     <p className="mt-3 rounded-xl bg-anar-100 px-3 py-2 text-[0.8rem] text-anar-700" dir="auto">
                       {panel.health_error}
@@ -606,6 +853,7 @@ export function Panels() {
         />
       )}
       {nodes && <NodesSheet panel={nodes} onClose={() => setNodes(null)} />}
+      {importing && <ImportSheet panel={importing} onClose={() => setImporting(null)} />}
     </Page>
   );
 }

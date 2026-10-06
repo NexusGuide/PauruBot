@@ -345,5 +345,10 @@
   "reseller_suspended_error": "⛔️ نمایندگیت معلقه؛ اول کیف پولت رو شارژ کن.",
   "reseller_daily_limit": "سقف خرید روزانه‌ت ({limit} سرویس) پر شده؛ فردا دوباره امتحان کن.",
   "reseller_service_limit": "به سقف سرویس‌های فعال ({limit}) رسیدی.",
-  "reseller_volume_limit": "این خرید از سقف حجم کل نمایندگیت ({limit} گیگ) بیشتره."
+  "reseller_volume_limit": "این خرید از سقف حجم کل نمایندگیت ({limit} گیگ) بیشتره.",
+  "panel_alert_down": "🔴 پنل <b>{panel}</b> از دسترس خارج شد.\nخطا: {error}\nخرید از این پنل تا برگشتنش متوقفه.",
+  "panel_alert_up": "🟢 پنل <b>{panel}</b> بعد از {minutes} دقیقه برگشت.",
+  "panel_alert_node_down": "🟠 نود <b>{node}</b> روی پنل {panel} قطع شد.",
+  "panel_alert_node_up": "🟢 نود <b>{node}</b> روی پنل {panel} دوباره وصل شد.",
+  "panel_alert_quota": "⚠️ {percent}٪ سهمیه‌ی ادمین ربات روی پنل {panel} مصرف شده. وقتی پر بشه، فروش از این پنل متوقف می‌شه."
 }

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from paurubot.db.base import Base, TimestampMixin, UpdatedMixin, str_enum
@@ -46,8 +46,26 @@ class Panel(Base, UpdatedMixin):
     is_healthy: Mapped[bool | None] = mapped_column(Boolean)
     health_checked_at: Mapped[datetime | None] = mapped_column()
     health_error: Mapped[str | None] = mapped_column(String(255))
+    # Latest resource, quota and node snapshot from the panel (PNL-02, PNL-13).
+    stats: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default="{}")
+    stats_at: Mapped[datetime | None] = mapped_column()
+    down_since: Mapped[datetime | None] = mapped_column()
 
     location: Mapped[Location | None] = relationship(lazy="selectin")
+
+
+class PanelCheck(Base):
+    """One uptime probe of a panel (PNL-12)."""
+
+    __tablename__ = "panel_checks"
+    __table_args__ = (Index("ix_panel_checks_panel_checked", "panel_id", "checked_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    panel_id: Mapped[int] = mapped_column(ForeignKey("panels.id", ondelete="CASCADE"))
+    checked_at: Mapped[datetime] = mapped_column()
+    ok: Mapped[bool] = mapped_column(Boolean)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    error: Mapped[str | None] = mapped_column(String(255))
 
 
 class Category(Base, TimestampMixin):

@@ -427,15 +427,16 @@ async def extras_menu(
     cfg: dict[str, Any],
 ) -> None:
     service = await session.get(Service, callback_data.id)
-    prices = orders.extra_prices(cfg, service.plan) if service is not None else None
-    if service is None or service.customer_id != customer.id or prices is None:
-        await call.answer(t("service_not_found"), show_alert=True)
+    gb_price, day_price = orders.service_extras(cfg, service) if service is not None else (None, None)
+    price = gb_price if callback_data.action == "extra_gb" else day_price
+    if service is None or service.customer_id != customer.id or price is None:
+        await call.answer(t("extras_unavailable"), show_alert=True)
         return
     await call.answer()
     if callback_data.action == "extra_gb":
-        kb = keyboards.extra_kb(t, service.id, "gb", [5, 10, 20, 50, 100], prices[0])
+        kb = keyboards.extra_kb(t, service.id, "gb", [5, 10, 20, 50, 100], price)
     else:
-        kb = keyboards.extra_kb(t, service.id, "days", [7, 15, 30, 60, 90], prices[1])
+        kb = keyboards.extra_kb(t, service.id, "days", [7, 15, 30, 60, 90], price)
     await show(call, t(f"choose_{callback_data.action}"), kb)
 
 

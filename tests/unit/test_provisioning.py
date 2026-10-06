@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import httpx
 import pytest
@@ -27,7 +28,7 @@ from paurubot.worker import jobs as worker_jobs  # noqa: F401  (registers queues
 from paurubot.worker import queue
 from paurubot.worker.runner import QUEUES, run_job
 from tests import factories
-from tests.fakes.panels import FakeTokenPanel, FakeXuiPanel, transport
+from tests.fakes.panels import FakeMarzneshinPanel, FakeTokenPanel, FakeXuiPanel, transport
 
 
 async def drain(session, name: str) -> int:  # type: ignore[no-untyped-def]
@@ -64,7 +65,12 @@ async def _setup(session, fakes, kind: PanelKind = PanelKind.MARZBAN, **options)
         options.setdefault("inbound_id", 3)
         options.setdefault("sub_base_url", "https://sub.example.com/sub/")
     panel = await factories.panel(session, shop, kind, **options)
-    fake = FakeXuiPanel() if kind == PanelKind.XUI else FakeTokenPanel(kind.value)
+    if kind == PanelKind.XUI:
+        fake: Any = FakeXuiPanel()
+    elif kind == PanelKind.MARZNESHIN:
+        fake = FakeMarzneshinPanel()
+    else:
+        fake = FakeTokenPanel(kind.value)
     registry.test_transports[panel.id] = transport(fake)
     fakes[panel.id] = fake
     plan = await factories.plan(session, shop, panel, price=100_000, days=30, data_gb=50)
@@ -80,7 +86,9 @@ async def _buy(session, cust, kind, **kw):  # type: ignore[no-untyped-def]
     return order
 
 
-@pytest.mark.parametrize("kind", [PanelKind.MARZBAN, PanelKind.PASARGUARD, PanelKind.XUI])
+@pytest.mark.parametrize(
+    "kind", [PanelKind.MARZBAN, PanelKind.PASARGUARD, PanelKind.XUI, PanelKind.MARZNESHIN]
+)
 async def test_purchase_renew_extras_upgrade(session, fakes, kind) -> None:  # type: ignore[no-untyped-def]
     shop, panel, plan, cust, fake = await _setup(session, fakes, kind)
     order = await _buy(session, cust, OrderKind.PURCHASE, plan=plan)
@@ -245,3 +253,23 @@ async def test_panel_webhook_requires_secret_and_updates_service(session, fakes)
         assert ok.status_code == 200 and ok.json()["applied"] == 1
     await session.refresh(service)
     assert service.status == ServiceStatus.LIMITED
+
+
+async def test_marzneshin_driver_details(session, fakes) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.panels import PanelRef, UserSpec
+
+    shop, panel, plan, cust, fake = await _setup(session, fakes, PanelKind.MARZNESHIN, service_ids=[2])
+    driver = await registry.driver_for(panel)
+    assert [o.id for o in await driver.list_options()] == ["1", "2"]
+    held = await driver.create_user(UserSpec("held_1", data_limit=GB, on_hold_days=10))
+    assert held.status == "on_hold" and held.expire_at is None
+    created = fake.users["held_1"]
+    assert created["service_ids"] == [2] and created["usage_duration"] == 10 * 86400
+    off = await driver.update_user(PanelRef("held_1"), enabled=False)
+    assert off.status == "disabled"
+    later = datetime.now(UTC) + timedelta(days=5)
+    on = await driver.update_user(PanelRef("held_1"), enabled=True, expire_at=later, data_limit=2 * GB)
+    assert on.status == "active" and on.data_limit == 2 * GB and on.expire_at is not None
+    users, total = await driver.list_users(0, 100)
+    assert total == 1 and users[0].username == "held_1"
+    assert await driver.get_user(PanelRef("missing")) is None

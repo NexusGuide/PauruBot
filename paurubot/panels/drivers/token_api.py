@@ -14,7 +14,10 @@ from paurubot.panels.base import (
     PanelRef,
     PanelUser,
     UserSpec,
+    number,
     parse_expire,
+    system_figures,
+    whole,
 )
 
 
@@ -76,7 +79,17 @@ class TokenApiDriver(PanelDriver):
             links=list(data.get("links") or []),
             data={"id": data["id"]} if data.get("id") is not None else {},
             online_at=parse_expire(data.get("online_at")),
+            note=str(data.get("note") or ""),
         )
+
+    async def list_users(self, offset: int = 0, limit: int = 100) -> tuple[list[PanelUser], int | None]:
+        data = await self.call("GET", "/api/users", params={"offset": offset, "limit": limit})
+        if isinstance(data, dict):
+            rows, total = data.get("users") or [], data.get("total")
+        else:
+            rows, total = data or [], None
+        users = [self.parse_user(row) for row in rows if isinstance(row, dict) and row.get("username")]
+        return users, int(total) if total is not None else None
 
     def expire_value(self, expire_at: datetime | None) -> Any:
         return int(expire_at.timestamp()) if expire_at else 0
@@ -104,6 +117,31 @@ class TokenApiDriver(PanelDriver):
         return PanelHealth(
             True, "ok", int(users) if users is not None else None, str(version) if version else None
         )
+
+    async def stats(self) -> dict[str, Any]:
+        info = await self.call("GET", "/api/system")
+        figures = system_figures(info if isinstance(info, dict) else {})
+        figures["nodes"] = await self.nodes()
+        return figures
+
+    async def nodes(self) -> list[dict[str, Any]]:
+        try:
+            data = await self.call("GET", "/api/nodes")
+        except PanelError:
+            return []
+        rows = data.get("nodes", []) if isinstance(data, dict) else data or []
+        return [
+            {
+                "id": node.get("id"),
+                "name": str(node.get("name") or node.get("id")),
+                "status": str(node.get("status") or "unknown"),
+                "message": str(node.get("message") or "")[:200] or None,
+                "uplink": whole(number(node, "uplink")),
+                "downlink": whole(number(node, "downlink")),
+            }
+            for node in rows
+            if isinstance(node, dict)
+        ]
 
     async def get_user(self, ref: PanelRef) -> PanelUser | None:
         try:

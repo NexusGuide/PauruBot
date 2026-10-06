@@ -256,7 +256,9 @@ def services_kb(t: Texts, items: Sequence[Service], page: int, has_next: bool) -
     return kb.as_markup()
 
 
-def service_kb(t: Texts, service: Service, *, extras: bool, upgrade: bool) -> InlineKeyboardMarkup:
+def service_kb(
+    t: Texts, service: Service, *, extras: tuple[int | None, int | None], upgrade: bool
+) -> InlineKeyboardMarkup:
     sid = service.id
     kb = InlineKeyboardBuilder()
     kb.button(text=t("btn_refresh"), callback_data=Svc(action="view", id=sid))
@@ -264,8 +266,9 @@ def service_kb(t: Texts, service: Service, *, extras: bool, upgrade: bool) -> In
     kb.button(text=t("btn_qr"), callback_data=Svc(action="qr", id=sid))
     if not service.is_trial:
         kb.button(text=t("btn_renew"), callback_data=Svc(action="renew", id=sid))
-        if extras:
+        if extras[0] is not None:
             kb.button(text=t("btn_extra_volume"), callback_data=Svc(action="extra_gb", id=sid))
+        if extras[1] is not None:
             kb.button(text=t("btn_extra_days"), callback_data=Svc(action="extra_days", id=sid))
     if upgrade:
         kb.button(text=t("btn_upgrade"), callback_data=Svc(action="upgrade", id=sid))

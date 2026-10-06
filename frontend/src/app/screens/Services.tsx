@@ -187,11 +187,11 @@ export function ServiceDetail() {
       <div className="grid grid-cols-2 gap-3">
         {!service.is_trial && <Button onClick={() => go("renew")}>{t("renew")}</Button>}
         {me.extras.upgrade && <Button tone="quiet" onClick={() => go("upgrade")}>{t("upgrade")}</Button>}
-        {service.extras && (
-          <>
-            <Button tone="quiet" onClick={() => navigate(`/extra/${service.id}/gb`)}>{t("extra_data")}</Button>
-            <Button tone="quiet" onClick={() => navigate(`/extra/${service.id}/days`)}>{t("extra_time")}</Button>
-          </>
+        {service.extras?.gb_price != null && (
+          <Button tone="quiet" onClick={() => navigate(`/extra/${service.id}/gb`)}>{t("extra_data")}</Button>
+        )}
+        {service.extras?.day_price != null && (
+          <Button tone="quiet" onClick={() => navigate(`/extra/${service.id}/days`)}>{t("extra_time")}</Button>
         )}
         {!links && <Button tone="quiet" busy={busy === "links"} onClick={showLinks}>{t("show_configs")}</Button>}
         <Button tone="danger" busy={busy === "revoke"} onClick={revoke}>{t("new_link")}</Button>
@@ -209,10 +209,10 @@ export function Extra() {
     api.service(Number(id)).then((r) => setService(r.service)).catch(() => navigate("/services"));
   }, [id, navigate]);
   if (!service) return <Loading />;
-  if (!service.extras) return <Empty title={t("extras_unavailable")} />;
   const isGb = unit === "gb";
   const options = isGb ? [5, 10, 20, 50, 100] : [7, 15, 30, 60, 90];
-  const price = isGb ? service.extras.gb_price : service.extras.day_price;
+  const price = isGb ? service.extras?.gb_price : service.extras?.day_price;
+  if (price == null) return <Empty title={t("extras_unavailable")} />;
   return (
     <Screen title={t(isGb ? "extra_data" : "extra_time")}>
       <ul className="grid grid-cols-2 gap-3">

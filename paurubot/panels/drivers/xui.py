@@ -17,7 +17,10 @@ from paurubot.panels.base import (
     PanelRef,
     PanelUser,
     UserSpec,
+    as_dict,
+    number,
     parse_expire,
+    whole,
 )
 
 SUPPORTED_PROTOCOLS = {"vless", "vmess", "trojan"}
@@ -175,6 +178,28 @@ class XuiDriver(PanelDriver):
         clients = sum(len(ib.get("clientStats") or []) for ib in inbounds or [])
         return PanelHealth(True, f"{len(inbounds or [])} inbounds", clients, None)
 
+    async def stats(self) -> dict[str, Any]:
+        status = await self.call("POST", "/server/status")
+        status = as_dict(status)
+        mem, traffic = as_dict(status.get("mem")), as_dict(status.get("netTraffic"))
+        speed, xray = as_dict(status.get("netIO")), as_dict(status.get("xray"))
+        cpu = number(status, "cpu")
+        inbounds = await self.call("GET", "/panel/api/inbounds/list") or []
+        return {
+            "version": xray.get("version"),
+            "users_total": sum(len(ib.get("clientStats") or []) for ib in inbounds),
+            "cpu_percent": round(cpu, 1) if cpu is not None else None,
+            "cpu_cores": whole(number(status, "cpuCores", "logicalPro")),
+            "mem_used": whole(number(mem, "current")),
+            "mem_total": whole(number(mem, "total")),
+            "traffic_in": whole(number(traffic, "recv")),
+            "traffic_out": whole(number(traffic, "sent")),
+            "speed_in": whole(number(speed, "down")),
+            "speed_out": whole(number(speed, "up")),
+            "xray_state": xray.get("state"),
+            "nodes": [],
+        }
+
     async def list_options(self) -> list[PanelOption]:
         inbounds = await self.call("GET", "/panel/api/inbounds/list")
         return [
@@ -195,6 +220,23 @@ class XuiDriver(PanelDriver):
             data={"id": str(inbound_id), "settings": json.dumps({"clients": [client]})},
         )
         return self.to_user({"inbound_id": inbound_id, "protocol": protocol, "client": client}, None)
+
+    async def list_users(self, offset: int = 0, limit: int = 100) -> tuple[list[PanelUser], int | None]:
+        users: list[PanelUser] = []
+        for inbound in await self.call("GET", "/panel/api/inbounds/list") or []:
+            try:
+                settings = json.loads(inbound.get("settings") or "{}")
+            except ValueError:
+                continue
+            stats = {str(s.get("email")): s for s in inbound.get("clientStats") or [] if isinstance(s, dict)}
+            for client in settings.get("clients") or []:
+                if not client.get("email"):
+                    continue
+                data = {"inbound_id": inbound["id"], "protocol": inbound.get("protocol"), "client": client}
+                user = self.to_user(data, stats.get(str(client["email"])))
+                user.note = str(client.get("comment") or client.get("tgId") or "")
+                users.append(user)
+        return users[offset : offset + limit], len(users)
 
     async def _traffic(self, email: str) -> dict[str, Any] | None:
         return await self.call("GET", f"/panel/api/inbounds/getClientTraffics/{email}")
