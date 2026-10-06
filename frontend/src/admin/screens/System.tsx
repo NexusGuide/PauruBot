@@ -30,6 +30,8 @@ import {
   Toolbar,
   When,
   type Column,
+  CopyText,
+  useConfirm,
 } from "../ui";
 import { compact } from "./Home";
 
@@ -777,6 +779,15 @@ export function Jobs() {
   const { t, locale, toast, errorText } = useSession();
   const list = useList<JobRow>("/api/admin/jobs", ["status"]);
   const [busy, run] = useAction();
+  const retryAll = async () => {
+    try {
+      const result = await run(() => call<{ retried: number }>("/api/admin/jobs/retry-dead", { method: "POST", body: {} }));
+      toast(t("jobs_retried", { n: money(result?.retried ?? 0, locale) }));
+      void list.reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
   const data = list.data as (typeof list.data & { counts?: Record<string, number> }) | null;
 
   const retry = async (job: JobRow) => {
@@ -808,7 +819,17 @@ export function Jobs() {
     },
   ];
   return (
-    <Page title={t("nav_jobs")} wide>
+    <Page
+      title={t("nav_jobs")}
+      wide
+      actions={
+        (data?.counts?.dead ?? 0) > 0 ? (
+          <Button busy={busy} onClick={() => void retryAll()}>
+            {t("retry_all_dead", { n: money(data?.counts?.dead ?? 0, locale) })}
+          </Button>
+        ) : null
+      }
+    >
       {data?.counts && (
         <div className="flex flex-wrap gap-2">
           {Object.entries(data.counts)
@@ -1143,6 +1164,130 @@ export function Account() {
           </Button>
         </div>
       </Section>
+      <ApiKeys />
+    </Page>
+  );
+}
+
+interface ApiKeyRow {
+  id: number;
+  name: string;
+  prefix: string;
+  read_only: boolean;
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+function ApiKeys() {
+  const { t, toast, errorText } = useSession();
+  const confirm = useConfirm();
+  const { data, error, reload } = useLoad<{ items: ApiKeyRow[] }>("/api/auth/api-keys");
+  const [name, setName] = useState("");
+  const [readOnly, setReadOnly] = useState(true);
+  const [fresh, setFresh] = useState<string | null>(null);
+  const [busy, run] = useAction();
+  const create = async () => {
+    try {
+      const result = await run(() => call<{ key: string }>("/api/auth/api-keys", { method: "POST", body: { name: name.trim(), read_only: readOnly } }));
+      if (result) setFresh(result.key);
+      setName("");
+      void reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  const revoke = async (row: ApiKeyRow) => {
+    const ok = await confirm({ title: t("revoke_key"), body: t("revoke_key_body", { name: row.name }), confirm: t("revoke_key"), danger: true });
+    if (!ok) return;
+    try {
+      await run(() => call(`/api/auth/api-keys/${row.id}`, { method: "DELETE" }));
+      void reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <Section title={t("api_keys")}>
+      <p className="mb-4 text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("api_keys_hint")}</p>
+      {fresh && (
+        <div className="mb-4 flex flex-col gap-2 rounded-xl bg-saffron-100 p-3">
+          <p className="text-[0.85rem] font-semibold">{t("api_key_shown_once")}</p>
+          <CopyText text={fresh} />
+        </div>
+      )}
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <Field label={t("api_key_name")}>
+          {(id) => <Input id={id} maxLength={64} value={name} onChange={(e) => setName(e.target.value)} />}
+        </Field>
+        <Toggle checked={readOnly} onChange={setReadOnly} label={t("api_key_read_only")} />
+        <Button tone="primary" busy={busy} disabled={!name.trim()} onClick={() => void create()}>
+          {t("api_key_create")}
+        </Button>
+      </div>
+      <Async data={data} error={error} reload={reload}>
+        {(value) => (
+          <Table
+            rows={value.items}
+            empty={<Empty title={t("api_keys_empty")} />}
+            columns={[
+              { key: "name", label: t("api_key_name"), mobile: "title", render: (k) => <span className="font-semibold">{k.name}</span> },
+              { key: "prefix", label: t("api_key_prefix"), mobile: "meta", render: (k) => <code dir="ltr">{`pbk_${k.prefix}_…`}</code> },
+              { key: "mode", label: t("api_key_mode"), mobile: "meta", render: (k) => (k.read_only ? t("api_key_read_only") : t("api_key_read_write")) },
+              { key: "used", label: t("api_key_last_used"), mobile: "hide", render: (k) => <When iso={k.last_used_at} time /> },
+              {
+                key: "state",
+                label: t("col_status"),
+                mobile: "end",
+                render: (k) =>
+                  k.revoked_at ? (
+                    <Badge tone="loss">{t("revoked")}</Badge>
+                  ) : (
+                    <Button small tone="danger" busy={busy} onClick={() => void revoke(k)}>
+                      {t("revoke_key")}
+                    </Button>
+                  ),
+              },
+            ]}
+          />
+        )}
+      </Async>
+    </Section>
+  );
+}
+
+const LEVEL_TONE: Record<string, "health" | "wait" | "loss"> = { ok: "health", warn: "wait", fail: "loss" };
+
+export function Health() {
+  const { t } = useSession();
+  const { data, error, reload } = useLoad<{ checks: { key: string; level: string; detail: string }[]; checked_at: string }>("/api/admin/doctor");
+  return (
+    <Page
+      title={t("nav_health")}
+      actions={
+        <Button icon="refresh" onClick={() => void reload()}>
+          {t("check_now")}
+        </Button>
+      }
+    >
+      <Async data={data} error={error} reload={reload}>
+        {(value) => (
+          <Section flush>
+            <ul className="divide-y divide-[var(--line)]">
+              {value.checks.map((check) => (
+                <li key={check.key} className="flex items-start justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold">{t(`doctor_${check.key}`)}</p>
+                    <p className="break-words text-[0.82rem] text-[var(--hint)]" dir="auto">{check.detail}</p>
+                  </div>
+                  <Badge tone={LEVEL_TONE[check.level] ?? "neutral"}>{t(`doctor_level_${check.level}`)}</Badge>
+                </li>
+              ))}
+            </ul>
+          </Section>
+        )}
+      </Async>
     </Page>
   );
 }

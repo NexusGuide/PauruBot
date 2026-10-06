@@ -12,6 +12,17 @@ from fastapi.staticfiles import StaticFiles
 DEFAULT_DIR = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
+PUBLIC_FILES = {
+    "manifest.webmanifest": "application/manifest+json",
+    "sw.js": "application/javascript",
+    "icon-192.png": "image/png",
+    "icon-512.png": "image/png",
+    "icon-maskable-512.png": "image/png",
+    "apple-touch-icon.png": "image/png",
+    "favicon.png": "image/png",
+}
+
+
 def frontend_dir() -> Path:
     return Path(os.environ.get("FRONTEND_DIR", DEFAULT_DIR))
 
@@ -23,9 +34,17 @@ def mount_frontends(app: FastAPI) -> None:
         app.mount("/assets", StaticFiles(directory=assets), name="assets")
 
     def spa(name: str):  # type: ignore[no-untyped-def]
-        index = root / name / "index.html"
+        base = (root / name).resolve()
+        index = base / "index.html"
 
         async def serve(path: str = "") -> Response:
+            # Real files next to index.html (manifest, service worker, icons) are served as files (APP-02).
+            if path and "/" not in path and path in PUBLIC_FILES:
+                candidate = (base / path).resolve()
+                if candidate.parent == base and candidate.is_file():
+                    return FileResponse(
+                        candidate, media_type=PUBLIC_FILES[path], headers={"Cache-Control": "no-cache"}
+                    )
             if not index.exists():
                 return Response("frontend is not built", status_code=503, media_type="text/plain")
             return FileResponse(index, headers={"Cache-Control": "no-cache"})

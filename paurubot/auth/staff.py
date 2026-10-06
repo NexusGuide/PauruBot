@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import secrets
+from datetime import datetime, timedelta
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from paurubot import kv
 from paurubot.audit.log import Actor, record
 from paurubot.auth import sessions
 from paurubot.db.base import utcnow
-from paurubot.db.models import ResellerProfile, Staff, StaffRole
+from paurubot.db.models import ResellerProfile, Staff, StaffApiKey, StaffRole
 from paurubot.security import login_guard
-from paurubot.security.tokens import hash_password, verify_password
+from paurubot.security.tokens import constant_equals, hash_password, sha256_hex, verify_password
 
 
 class AuthError(Exception):
@@ -111,3 +115,142 @@ async def by_telegram(session: AsyncSession, shop_id: int, telegram_id: int) -> 
             Staff.shop_id == shop_id, Staff.telegram_id == telegram_id, Staff.is_active.is_(True)
         )
     )
+
+
+# --- one-time codes sent by the bot (SEC-02) -----------------------------------------------
+
+CODE_TTL = 300
+CODE_ATTEMPTS = 5
+
+
+def _code_hash(staff_id: int, code: str) -> str:
+    return sha256_hex(f"{staff_id}:{code}")
+
+
+async def request_code(session: AsyncSession, username: str, ip: str) -> Staff | None:
+    """Send a 6-digit login code to the staff member's Telegram. Returns the staff row when sent.
+
+    The caller answers the same way whether or not the account exists, so this can't be used
+    to discover usernames.
+    """
+    from paurubot.i18n import texts_for
+    from paurubot.notifications import telegram
+
+    username = username.strip()
+    await login_guard.check(username, ip)
+    allowed, _ = await kv.hit(f"otp:send:{username.lower()}", 3, 600)
+    if not allowed:
+        raise login_guard.LoginLocked(600)
+    staff = await session.scalar(select(Staff).where(func.lower(Staff.username) == username.lower()))
+    if staff is None or not staff.is_active or not staff.telegram_id:
+        return None
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    redis = kv.get_redis()
+    await redis.set(f"otp:code:{staff.id}", _code_hash(staff.id, code), ex=CODE_TTL)
+    await redis.delete(f"otp:tries:{staff.id}")
+    t = await texts_for(session, staff.shop_id, None)
+    try:
+        await telegram.send_text(staff.telegram_id, t("staff_login_code", code=code, ip=ip))
+    except telegram.Undeliverable:
+        return None
+    await record(
+        session,
+        shop_id=staff.shop_id,
+        actor=Actor("anonymous", None, ip),
+        action="auth.code_sent",
+        entity="staff",
+        entity_id=staff.id,
+    )
+    return staff
+
+
+async def verify_code(session: AsyncSession, username: str, code: str, ip: str) -> Staff:
+    username = username.strip()
+    await login_guard.check(username, ip)
+    staff = await session.scalar(select(Staff).where(func.lower(Staff.username) == username.lower()))
+    redis = kv.get_redis()
+    stored = await redis.get(f"otp:code:{staff.id}") if staff else None
+    ok = bool(
+        staff
+        and staff.is_active
+        and stored
+        and constant_equals(
+            stored if isinstance(stored, str) else stored.decode(), _code_hash(staff.id, code.strip())
+        )
+    )
+    if not ok or staff is None:
+        await login_guard.failed(username, ip)
+        if staff is not None:
+            tries = await redis.incr(f"otp:tries:{staff.id}")
+            await redis.expire(f"otp:tries:{staff.id}", CODE_TTL)
+            if tries >= CODE_ATTEMPTS:
+                await redis.delete(f"otp:code:{staff.id}")
+        await record(
+            session,
+            shop_id=staff.shop_id if staff else None,
+            actor=Actor("anonymous", None, ip),
+            action="auth.code_failed",
+            entity="staff",
+            entity_id=staff.id if staff else None,
+        )
+        raise AuthError("invalid code")
+    await redis.delete(f"otp:code:{staff.id}", f"otp:tries:{staff.id}")
+    await login_guard.succeeded(username, ip)
+    staff.last_login_at = utcnow()
+    await record(
+        session,
+        shop_id=staff.shop_id,
+        actor=Actor("staff", staff.id, ip),
+        action="auth.login_code",
+        entity="staff",
+        entity_id=staff.id,
+    )
+    return staff
+
+
+# --- personal API keys (SEC-03) ------------------------------------------------------------
+
+API_KEY_PREFIX = "pbk_"
+
+
+def _key_hash(secret: str) -> str:
+    return sha256_hex(f"api-key:{secret}")
+
+
+async def create_api_key(
+    session: AsyncSession, staff: Staff, name: str, *, read_only: bool, expires_at: datetime | None
+) -> tuple[StaffApiKey, str]:
+    """Return the new key row and the full key, which is never stored or shown again."""
+    prefix = secrets.token_hex(6)
+    secret = secrets.token_urlsafe(32)
+    row = StaffApiKey(
+        staff_id=staff.id,
+        name=name.strip()[:64] or "key",
+        prefix=prefix,
+        key_hash=_key_hash(secret),
+        read_only=read_only,
+        expires_at=expires_at,
+    )
+    session.add(row)
+    await session.flush()
+    return row, f"{API_KEY_PREFIX}{prefix}_{secret}"
+
+
+async def resolve_api_key(session: AsyncSession, token: str) -> tuple[Staff, StaffApiKey] | None:
+    if not token.startswith(API_KEY_PREFIX) or len(token) > 120:
+        return None
+    prefix, _, secret = token[len(API_KEY_PREFIX) :].partition("_")
+    if not prefix or not secret:
+        return None
+    row = await session.scalar(select(StaffApiKey).where(StaffApiKey.prefix == prefix))
+    if row is None or not constant_equals(row.key_hash, _key_hash(secret)):
+        return None
+    now = utcnow()
+    if row.revoked_at is not None or (row.expires_at is not None and row.expires_at <= now):
+        return None
+    staff = await session.get(Staff, row.staff_id)
+    if staff is None or not staff.is_active:
+        return None
+    if row.last_used_at is None or now - row.last_used_at > timedelta(minutes=5):
+        row.last_used_at = now
+    return staff, row

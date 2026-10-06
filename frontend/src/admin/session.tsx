@@ -17,6 +17,7 @@ interface Session {
   t: Translate;
   can: (permission: string) => boolean;
   login: (username: string, password: string) => Promise<void>;
+  loginWithCode: (username: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
   setLocale: (locale: string) => void;
@@ -83,6 +84,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setMe(data);
   }, []);
 
+  const loginWithCode = useCallback(async (username: string, code: string) => {
+    const data = await call<Me>("/api/auth/code/verify", { method: "POST", body: { username, code } });
+    setCsrf(data.csrf_token);
+    setMe(data);
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await call("/api/auth/logout", { method: "POST" });
@@ -132,6 +139,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       t,
       can,
       login,
+      loginWithCode,
       logout,
       refresh,
       setLocale,
@@ -139,7 +147,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       toasts,
       errorText,
     }),
-    [me, checking, setupRequired, locale, t, can, login, logout, refresh, setLocale, toast, toasts, errorText],
+    [me, checking, setupRequired, locale, t, can, login, loginWithCode, logout, refresh, setLocale, toast, toasts, errorText],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

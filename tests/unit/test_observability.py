@@ -1,0 +1,117 @@
+"""Job tracing and dead-letter alerts (JOB-05), error forwarding (ARC-04) and the doctor (ADM-08)."""
+
+from __future__ import annotations
+
+import json
+import logging
+
+import pytest
+from sqlalchemy import select, update
+
+from paurubot import kv
+from paurubot.db.models import Job, JobStatus
+from paurubot.logs import TelegramErrorHandler, correlation_id
+from paurubot.ops import doctor
+from paurubot.worker import queue
+from paurubot.worker.runner import Permanent, QueueSpec, register_queue, run_job
+
+
+@pytest.fixture(autouse=True)
+async def isolate_queue(session):  # type: ignore[no-untyped-def]
+    await session.execute(update(Job).where(Job.status == JobStatus.QUEUED).values(status=JobStatus.CANCELED))
+    yield
+
+
+seen: list[str | None] = []
+
+
+async def _boom(session, job) -> None:  # type: ignore[no-untyped-def]
+    seen.append(correlation_id.get())
+    raise Permanent("panel said no")
+
+
+register_queue("test_obs", QueueSpec({"boom": _boom}))
+
+
+async def test_jobs_carry_the_request_id_and_dead_jobs_raise_an_alert(session) -> None:  # type: ignore[no-untyped-def]
+    token = correlation_id.set("req-abc123")
+    try:
+        await queue.enqueue(session, "test_obs", "boom", {"x": 1})
+    finally:
+        correlation_id.reset(token)
+    await session.commit()
+    claimed = await queue.claim(session, "test_obs", limit=1)
+    assert claimed[0].payload["_cid"] == "req-abc123"
+    from paurubot.worker.runner import QUEUES
+
+    await run_job("test_obs", QUEUES["test_obs"], claimed[0])
+    assert seen[-1] == "req-abc123"
+    alert = await session.scalar(select(Job).where(Job.kind == "job_dead", Job.status == JobStatus.QUEUED))
+    assert (
+        alert is not None
+        and alert.payload["queue"] == "test_obs"
+        and "panel said no" in alert.payload["error"]
+    )
+    counts = await kv.get_redis().hgetall("metrics:jobs")
+    assert int(counts["test_obs|dead"]) >= 1
+
+
+def test_error_logs_are_queued_for_telegram() -> None:
+    handler = TelegramErrorHandler("worker")
+    logger = logging.getLogger("paurubot.test.errors")
+    logger.addHandler(handler)
+    try:
+        try:
+            raise RuntimeError("disk full token=SECRET123")
+        except RuntimeError:
+            logger.exception("backup failed")
+    finally:
+        logger.removeHandler(handler)
+    import redis
+
+    from paurubot.config import get_settings
+
+    raw = redis.Redis.from_url(get_settings().redis_url).lrange(TelegramErrorHandler.KEY, -1, -1)
+    entry = json.loads(raw[0])
+    assert entry["process"] == "worker" and entry["msg"] == "backup failed"
+    assert "RuntimeError" in entry["exc"]
+
+
+async def test_doctor_reports_each_area() -> None:
+    checks = {c.key: c for c in await doctor.run(with_telegram=False)}
+    for key in (
+        "configuration",
+        "postgresql",
+        "migrations",
+        "redis",
+        "worker",
+        "dead_jobs",
+        "disk",
+        "backups",
+    ):
+        assert key in checks, key
+    assert checks["postgresql"].level == "ok" and checks["migrations"].level == "ok"
+    assert checks["worker"].level == "fail"  # no worker heartbeat in tests
+    await doctor.heartbeat()
+    checks = {c.key: c for c in await doctor.run(with_telegram=False)}
+    assert checks["worker"].level == "ok"
+
+
+async def test_pwa_files_are_served_as_files(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import httpx
+
+    from paurubot.api.app import create_app
+
+    (tmp_path / "admin").mkdir()
+    (tmp_path / "admin" / "index.html").write_text("<html>shell</html>")
+    (tmp_path / "admin" / "manifest.webmanifest").write_text('{"name": "Pauru Admin"}')
+    (tmp_path / "admin" / "secret.txt").write_text("nope")
+    monkeypatch.setenv("FRONTEND_DIR", str(tmp_path))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app()), base_url="http://t"
+    ) as client:
+        manifest = await client.get("/admin/manifest.webmanifest")
+        assert manifest.headers["content-type"].startswith("application/manifest+json")
+        assert manifest.json()["name"] == "Pauru Admin"
+        assert "shell" in (await client.get("/admin/secret.txt")).text  # unknown names get the app shell
+        assert "shell" in (await client.get("/admin/customers/12")).text

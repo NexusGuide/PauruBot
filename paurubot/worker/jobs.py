@@ -387,3 +387,49 @@ async def refresh_apps() -> None:
     for shop_id, cfg in configs.items():
         if cfg.get("download_apps"):
             await apps.refresh(shop_id, cfg["download_apps"], cfg.get("app_cache_chat_id"))
+
+
+@every(30, "errors.flush")
+async def flush_errors() -> None:
+    """Post logged errors from every process to the "errors" log channel, grouped (ARC-04)."""
+    import json as _json
+
+    from paurubot import kv
+    from paurubot.core.formatting import esc
+    from paurubot.logs import TelegramErrorHandler
+    from paurubot.notifications.handlers import report
+
+    redis = kv.get_redis()
+    raw = await redis.lpop(TelegramErrorHandler.KEY, 50)
+    if not raw:
+        return
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for item in raw if isinstance(raw, list) else [raw]:
+        try:
+            entry = _json.loads(item)
+        except ValueError:
+            continue
+        groups.setdefault((entry.get("logger", ""), entry.get("msg", "")), []).append(entry)
+    async with session_scope() as session:
+        shop_ids = list(await session.scalars(select(Shop.id)))
+        for (logger_name, message), entries in groups.items():
+            first = entries[0]
+            text = (
+                f"⚠️ <b>{esc(first.get('process') or '?')}</b> · {esc(logger_name)}"
+                + (f" ×{len(entries)}" if len(entries) > 1 else "")
+                + f"\n{esc(message)}"
+            )
+            if first.get("cid"):
+                text += f"\n<code>{esc(first['cid'])}</code>"
+            if first.get("exc"):
+                text += f"\n<pre>{esc(str(first['exc'])[-900:])}</pre>"
+            for shop_id in shop_ids:
+                await report(session, shop_id, "errors", text)
+
+
+@every(30, "worker.heartbeat")
+async def worker_heartbeat() -> None:
+    """Lets the doctor tell whether a worker is running (ADM-08)."""
+    from paurubot.ops import doctor
+
+    await doctor.heartbeat()

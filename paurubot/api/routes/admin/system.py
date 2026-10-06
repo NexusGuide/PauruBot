@@ -509,6 +509,43 @@ async def retry_job(
     return {"ok": True}
 
 
+class RetryDeadBody(BaseModel):
+    queue: str | None = Field(default=None, max_length=32)
+
+
+@router.post("/jobs/retry-dead")
+async def retry_dead_jobs(
+    body: RetryDeadBody, ctx: Annotated[StaffContext, Depends(require("settings.write"))], db: DB
+) -> dict[str, int]:
+    """Put every dead job of this shop (optionally one queue) back in line (JOB-05)."""
+    stmt = select(Job.id).where(Job.shop_id == ctx.shop_id, Job.status == JobStatus.DEAD).limit(5000)
+    if body.queue:
+        stmt = stmt.where(Job.queue == body.queue)
+    ids = list(await db.scalars(stmt))
+    retried = 0
+    for job_id in ids:
+        retried += int(await queue.retry_dead(db, job_id))
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="job.retry_dead",
+        entity="job",
+        entity_id=None,
+        after={"queue": body.queue, "count": retried},
+    )
+    return {"retried": retried}
+
+
+@router.get("/doctor")
+async def doctor(ctx: Annotated[StaffContext, Depends(require("settings.write"))]) -> dict[str, Any]:
+    """Environment analyser (ADM-08)."""
+    from paurubot.ops import doctor as doctor_checks
+
+    checks = await doctor_checks.run()
+    return {"checks": [c.as_dict() for c in checks], "checked_at": utcnow().isoformat()}
+
+
 # ---------------------------------------------------------------- reports (FIN-04)
 
 SOLD = (OrderStatus.COMPLETED,)

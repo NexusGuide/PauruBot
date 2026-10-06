@@ -13,7 +13,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | ARC-01 | Modular Python core: FastAPI + aiogram + SQLAlchemy 2 + Alembic + PostgreSQL | MVP | done |
 | ARC-02 | Redis-backed FSM state, locks and callback payloads | MVP | done |
 | ARC-03 | Panel driver registry (one interface, many panel types) | MVP | done |
-| ARC-04 | Structured logging with tags and Telegram log channels | v1.1 | todo |
+| ARC-04 | Structured logging with tags and Telegram log channels | v1.1 | done |
 | ARC-05 | Ops CLI: status, logs, health, backup, restore, migrate, doctor | MVP | done |
 | ARC-06 | Modular monolith with domain/service/adapter layers | MVP | done |
 
@@ -22,8 +22,8 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
 | SEC-01 | Telegram WebApp initData HMAC validation | MVP | done |
-| SEC-02 | Phone OTP login delivered by the bot | v1.1 | todo |
-| SEC-03 | Profile API key login (hashed, shown once) | v1.1 | todo |
+| SEC-02 | Phone OTP login delivered by the bot | v1.1 | done |
+| SEC-03 | Profile API key login (hashed, shown once) | v1.1 | done |
 | SEC-04 | Session version revoke on credential change | MVP | done |
 | SEC-05 | CSRF double-submit + Origin/Referer guard | MVP | done |
 | SEC-06 | CSP nonce + security headers | MVP | done |
@@ -168,7 +168,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
 | APP-01 | React + TypeScript Mini App: home, buy wizard, services, renew, wallet, transactions | MVP | done |
-| APP-02 | PWA install and icons | v1.1 | todo |
+| APP-02 | PWA install and icons | v1.1 | done |
 | APP-03 | Role-aware Mini App for resellers / admins | v2 | todo |
 
 ## Admin Web Panel
@@ -182,7 +182,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | ADM-05 | In-panel help docs with search | v1.1 | todo |
 | ADM-06 | Sales funnel analytics | v2 | todo |
 | ADM-07 | Panel settings modal (PasarGuard server settings) | v1.1 | done |
-| ADM-08 | Environment analyzer / doctor | v1.1 | todo |
+| ADM-08 | Environment analyzer / doctor | v1.1 | done |
 
 ## Support & Communication
 
@@ -201,7 +201,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | JOB-02 | Daily status report | MVP | done |
 | JOB-03 | IP block notification | v2 | todo |
 | JOB-04 | Log cleanup | MVP | done |
-| JOB-05 | Metrics, tracing and dead-letter queues | v1.1 | todo |
+| JOB-05 | Metrics, tracing and dead-letter queues | v1.1 | done |
 
 ## Install, Backup & Update
 

@@ -94,6 +94,22 @@ class Staff(Base, TimestampMixin):
     last_login_at: Mapped[datetime | None] = mapped_column()
 
 
+class StaffApiKey(Base, TimestampMixin):
+    """A personal API key: only its hash is stored and the secret is shown once (SEC-03)."""
+
+    __tablename__ = "staff_api_keys"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    staff_id: Mapped[int] = mapped_column(ForeignKey("staff.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(64))
+    prefix: Mapped[str] = mapped_column(String(16), unique=True)
+    key_hash: Mapped[str] = mapped_column(String(64))
+    read_only: Mapped[bool] = mapped_column(Boolean, default=True)
+    expires_at: Mapped[datetime | None] = mapped_column()
+    last_used_at: Mapped[datetime | None] = mapped_column()
+    revoked_at: Mapped[datetime | None] = mapped_column()
+
+
 class ResellerGroup(Base, TimestampMixin):
     __tablename__ = "reseller_groups"
 

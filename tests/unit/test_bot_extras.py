@@ -171,7 +171,11 @@ async def test_staff_delete_tells_the_customer_why(session, fakes) -> None:  # t
         select(Job).where(Job.kind == "service_alert", Job.status == JobStatus.QUEUED).order_by(Job.id.desc())
     )
     assert alert is not None
-    assert alert.payload == {"service_id": service.id, "alert": "removed_by_staff", "reason": "abuse report"}
+    assert {k: v for k, v in alert.payload.items() if k != "_cid"} == {
+        "service_id": service.id,
+        "alert": "removed_by_staff",
+        "reason": "abuse report",
+    }
 
 
 async def test_excel_export_and_top_customers(session, fakes) -> None:  # type: ignore[no-untyped-def]

@@ -42,8 +42,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     settings = get_settings()
-    setup_logging(settings.log_level, settings.log_json)
-    if args.command in {"api", "bot", "worker"}:
+    process = args.command if args.command in {"api", "bot", "worker"} else None
+    setup_logging(settings.log_level, settings.log_json, process)
+    if process:
         from paurubot.logs import setup_error_monitoring
 
         setup_error_monitoring(args.command)
