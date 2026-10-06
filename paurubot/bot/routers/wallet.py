@@ -20,6 +20,7 @@ from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.payments import engine as payments
 from paurubot.payments.base import PaymentError
+from paurubot.payments.chains import NETWORKS
 from paurubot.worker import queue
 
 log = logging.getLogger(__name__)
@@ -186,11 +187,68 @@ async def pay(
             currency="XTR",
             prices=[LabeledPrice(label=t("stars_invoice_title"), amount=int(checkout.instructions["stars"]))],
         )
+    elif payment.provider in NETWORKS:
+        info = checkout.instructions
+        await message.answer(
+            t(
+                "crypto_instructions_memo" if info.get("memo") else "crypto_instructions",
+                network=esc(info["label"]),
+                amount=esc(info["amount"]),
+                address=esc(info["address"]),
+                memo=esc(info.get("memo") or ""),
+                toman=money(payment.amount),
+                payment_id=payment.id,
+                minutes=int(cfg_minutes(payment)),
+            )
+        )
     elif checkout.redirect_url:
         await message.answer(
             t("gateway_instructions", amount=money(payment.amount), payment_id=payment.id),
             reply_markup=keyboards.url_button(t("btn_open_gateway"), checkout.redirect_url),
         )
+
+
+def cfg_minutes(payment: Payment) -> float:
+    if payment.expires_at is None:
+        return 60
+    return max(1, (payment.expires_at - payment.created_at).total_seconds() // 60)
+
+
+@router.callback_query(Wallet.filter(F.action == "gift"))
+async def gift_start(call: CallbackQuery, t: Texts, state: FSMContext) -> None:
+    await call.answer()
+    await state.set_state(WalletStates.gift)
+    if isinstance(call.message, Message):
+        await call.message.answer(t("gift_ask_code"), reply_markup=keyboards.cancel(t))
+
+
+@router.message(WalletStates.gift, F.text)
+async def gift_code(
+    message: Message,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    staff: Any,
+    state: FSMContext,
+) -> None:
+    from paurubot.core import gifts
+
+    try:
+        amount = await gifts.redeem(session, customer, message.text or "")
+    except gifts.GiftError as exc:
+        await session.rollback()
+        await message.answer(t(exc.key))
+        if exc.key == "gift_too_many_attempts":
+            await state.clear()
+            await message.answer(t("canceled"), reply_markup=menu(t, cfg, staff))
+        return
+    await session.commit()
+    await state.clear()
+    balance = await wallet_balance(session, customer.shop_id, customer.id)
+    await message.answer(
+        t("gift_redeemed", amount=money(amount), balance=money(balance)), reply_markup=menu(t, cfg, staff)
+    )
 
 
 @router.message(WalletStates.receipt, F.photo | F.document | F.text)

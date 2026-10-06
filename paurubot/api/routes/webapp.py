@@ -30,6 +30,7 @@ from paurubot.ledger.accounts import wallet_balance
 from paurubot.panels import PanelError
 from paurubot.payments import engine as payments
 from paurubot.payments.base import PaymentError
+from paurubot.payments.chains import NETWORKS
 from paurubot.provisioning import lifecycle
 from paurubot.worker import queue
 
@@ -249,7 +250,7 @@ async def get_order(order_id: int, ctx: WebApp) -> dict[str, Any]:
 
 
 class PayBody(BaseModel):
-    method: Literal["wallet", "card", "zarinpal", "stars"]
+    method: str = Field(min_length=2, max_length=32, pattern=r"^[a-z0-9_]+$")
 
 
 async def _payment_view(ctx: WebApp, started: payments.Started) -> dict[str, Any]:
@@ -269,6 +270,11 @@ async def _payment_view(ctx: WebApp, started: payments.Started) -> dict[str, Any
             currency="XTR",
             prices=[LabeledPrice(label="Top-up", amount=int(checkout.instructions["stars"]))],
         )
+    elif payment.provider in NETWORKS:
+        view["crypto"] = {
+            key: checkout.instructions.get(key)
+            for key in ("network", "label", "address", "amount", "memo", "expires_at")
+        }
     elif checkout.redirect_url:
         view["redirect_url"] = checkout.redirect_url
     return view
@@ -302,7 +308,7 @@ async def cancel_order(order_id: int, ctx: WebApp) -> dict[str, Any]:
 
 class TopupBody(BaseModel):
     amount: int = Field(gt=0, le=10**12)
-    method: Literal["card", "zarinpal", "stars"]
+    method: str = Field(min_length=2, max_length=32, pattern=r"^[a-z0-9_]+$")
 
 
 @router.post("/wallet/topup")
@@ -313,6 +319,23 @@ async def topup(body: TopupBody, ctx: WebApp) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=exc.key) from exc
     await ctx.session.commit()
     return {"payment": await _payment_view(ctx, started)}
+
+
+class GiftBody(BaseModel):
+    code: str = Field(min_length=1, max_length=32)
+
+
+@router.post("/wallet/gift")
+async def redeem_gift(body: GiftBody, ctx: WebApp) -> dict[str, Any]:
+    from paurubot.core import gifts
+
+    try:
+        amount = await gifts.redeem(ctx.session, ctx.customer, body.code)
+    except gifts.GiftError as exc:
+        await ctx.session.rollback()
+        raise HTTPException(status_code=400, detail=exc.key) from exc
+    await ctx.session.commit()
+    return {"amount": amount, "balance": await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id)}
 
 
 @router.post("/payments/{payment_id}/receipt")

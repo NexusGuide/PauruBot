@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import RedirectResponse, Response
 
 from paurubot.api.deps import DB
@@ -40,3 +41,48 @@ async def zarinpal_callback(
             f"https://t.me/{shop.bot_username}?start=pay_{outcome}_{pid}", status_code=303
         )
     return Response(f"payment {outcome}", media_type="text/plain")
+
+
+async def _invoice_callback(
+    db: DB, provider_name: str, payment_id: int, raw: bytes, signature: str
+) -> Response:
+    payment = await db.get(Payment, payment_id)
+    if payment is None or payment.provider != provider_name:
+        return Response("unknown payment", status_code=404, media_type="text/plain")
+    try:
+        ok = await engine.verify(db, payment_id, {"raw": raw, "signature": signature})
+    except PaymentError:
+        ok = False
+    await db.commit()
+    if ok:
+        await engine.fulfill_one(db, payment_id)
+    return Response("ok", media_type="text/plain")
+
+
+MAX_CALLBACK = 64 * 1024
+
+
+@router.post("/nowpayments/ipn")
+async def nowpayments_ipn(request: Request, db: DB) -> Response:
+    raw = await request.body()
+    if len(raw) > MAX_CALLBACK:
+        return Response("too large", status_code=413, media_type="text/plain")
+    try:
+        order_id = int(json.loads(raw).get("order_id"))
+    except (ValueError, TypeError, AttributeError):
+        return Response("bad request", status_code=400, media_type="text/plain")
+    return await _invoice_callback(
+        db, "nowpayments", order_id, raw, request.headers.get("x-nowpayments-sig", "")
+    )
+
+
+@router.post("/plisio/callback")
+async def plisio_callback(request: Request, db: DB) -> Response:
+    raw = await request.body()
+    if len(raw) > MAX_CALLBACK:
+        return Response("too large", status_code=413, media_type="text/plain")
+    try:
+        order_id = int(json.loads(raw).get("order_number"))
+    except (ValueError, TypeError, AttributeError):
+        return Response("bad request", status_code=400, media_type="text/plain")
+    return await _invoice_callback(db, "plisio", order_id, raw, "")

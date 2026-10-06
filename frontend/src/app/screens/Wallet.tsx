@@ -5,7 +5,7 @@ import { api, type HistoryItem } from "../api";
 import { errorText, useApp } from "../state";
 import { haptic, openExternal, openInvoice } from "../telegram";
 import { Button, Panel, Screen } from "../ui";
-import { rememberCard } from "./Payment";
+import { rememberCard, rememberPayment } from "./Payment";
 
 const PRESETS = [50_000, 100_000, 200_000, 500_000];
 
@@ -16,6 +16,7 @@ export function Wallet() {
   const [amount, setAmount] = useState<number | null>(null);
   const [custom, setCustom] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [gift, setGift] = useState("");
 
   useEffect(() => {
     api.history().then((r) => setHistory(r.items));
@@ -34,6 +35,9 @@ export function Wallet() {
       if (payment.accounts) {
         rememberCard(payment.payment_id, payment.accounts, payment.amount);
         navigate(`/payment/${payment.payment_id}`);
+      } else if (payment.crypto) {
+        rememberPayment({ paymentId: payment.payment_id, amount: payment.amount, crypto: payment.crypto });
+        navigate(`/payment/${payment.payment_id}`);
       } else if (payment.redirect_url) {
         openExternal(payment.redirect_url);
         navigate(`/payment/${payment.payment_id}`);
@@ -46,6 +50,24 @@ export function Wallet() {
         }
       }
     } catch (err) {
+      toast(errorText(t, err), "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const redeem = async () => {
+    if (!gift.trim()) return;
+    setBusy("gift");
+    try {
+      const result = await api.redeemGift(gift.trim());
+      haptic("success");
+      setGift("");
+      toast(t("gift_redeemed", { amount: money(result.amount, locale) }));
+      await reload();
+      api.history().then((r) => setHistory(r.items));
+    } catch (err) {
+      haptic("error");
       toast(errorText(t, err), "error");
     } finally {
       setBusy(null);
@@ -81,6 +103,16 @@ export function Wallet() {
           </Button>
         ))}
         {me.payment_methods.length === 0 && <p className="text-center text-sm text-[var(--hint)]">{t("no_methods")}</p>}
+      </div>
+
+      <h2 className="mb-3 text-lg font-bold">{t("gift_code")}</h2>
+      <div className="mb-8 flex gap-2">
+        <input value={gift} onChange={(e) => setGift(e.target.value)} placeholder={t("gift_code_placeholder")}
+          dir="ltr" maxLength={32}
+          className="min-h-12 flex-1 rounded-2xl bg-[var(--surface)] px-4 outline-none ring-1 ring-[var(--line)] focus:ring-[var(--accent)]" />
+        <Button tone="quiet" className="w-auto px-5" busy={busy === "gift"} disabled={!gift.trim()} onClick={() => void redeem()}>
+          {t("redeem")}
+        </Button>
       </div>
 
       <h2 className="mb-3 text-lg font-bold">{t("transactions")}</h2>

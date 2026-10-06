@@ -5,7 +5,7 @@ import { api, type Order } from "../api";
 import { errorText, useApp } from "../state";
 import { haptic, openExternal, openInvoice } from "../telegram";
 import { Button, Loading, Panel, Screen } from "../ui";
-import { rememberCard } from "./Payment";
+import { rememberCard, rememberPayment } from "./Payment";
 
 function Line({ label, value, strong, tone }: { label: string; value: string; strong?: boolean; tone?: string }) {
   return (
@@ -87,6 +87,9 @@ export function Checkout() {
       const payment = result.payment;
       if (!payment) return;
       if (payment.accounts) rememberCard(payment.payment_id, payment.accounts, payment.amount);
+      if (payment.crypto) {
+        rememberPayment({ paymentId: payment.payment_id, amount: payment.amount, crypto: payment.crypto });
+      }
       if (payment.redirect_url) openExternal(payment.redirect_url);
       if (payment.invoice_link) {
         const status = await openInvoice(payment.invoice_link);

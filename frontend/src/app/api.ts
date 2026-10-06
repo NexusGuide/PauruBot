@@ -74,6 +74,16 @@ export interface PaymentStart {
   accounts?: { number: string; holder: string; bank: string }[];
   redirect_url?: string;
   invoice_link?: string;
+  crypto?: CryptoInstructions;
+}
+
+export interface CryptoInstructions {
+  network: string;
+  label: string;
+  address: string;
+  amount: string;
+  memo: string | null;
+  expires_at: string | null;
 }
 
 export interface HistoryItem {
@@ -116,6 +126,7 @@ export const api = {
       headers: auth(),
     });
   },
+  redeemGift: (code: string) => post<{ amount: number; balance: number }>("/wallet/gift", { code }),
   history: (before?: number) => get<{ items: HistoryItem[] }>(`/wallet/history${before ? `?before=${before}` : ""}`),
   services: () => get<{ items: Service[] }>("/services"),
   service: (id: number, refresh = false) => get<{ service: Service }>(`/services/${id}${refresh ? "?refresh=true" : ""}`),

@@ -98,6 +98,20 @@ def _check_card_accounts(value: Any) -> None:
             raise HTTPException(status_code=422, detail="card_number_invalid")
 
 
+def _check_crypto(values: dict[str, Any]) -> None:
+    from paurubot.payments.chains import NETWORKS, valid_address
+
+    networks = values.get("crypto_networks")
+    if networks is not None and (not isinstance(networks, list) or set(networks) - set(NETWORKS)):
+        raise HTTPException(status_code=422, detail="crypto_networks_invalid")
+    for key, network in (("tron_address", "trx"), ("ton_address", "ton")):
+        address = values.get(key)
+        if address and not valid_address(network, str(address).strip()):
+            raise HTTPException(status_code=422, detail=f"{key}_invalid")
+    if values.get("fx_source") not in (None, "nobitex", "manual"):
+        raise HTTPException(status_code=422, detail="fx_source_invalid")
+
+
 @router.put("/settings")
 async def write_settings(
     body: SettingsBody, ctx: Annotated[StaffContext, Depends(require("settings.write"))], db: DB
@@ -111,6 +125,17 @@ async def write_settings(
         raise HTTPException(status_code=403, detail="secrets_need_owner")
     if "card_accounts" in body.values:
         _check_card_accounts(body.values["card_accounts"])
+    if "topup_bonus_rules" in body.values:
+        from paurubot.payments.bonus import BonusRuleError, validate_rules
+        from paurubot.payments.engine import PROVIDERS
+
+        try:
+            body.values["topup_bonus_rules"] = validate_rules(
+                body.values["topup_bonus_rules"], set(PROVIDERS)
+            )
+        except BonusRuleError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _check_crypto(body.values)
     before = shop_settings.public_view(await shop_settings.load(db, ctx.shop_id, fresh=True))
     try:
         await shop_settings.set_many(db, ctx.shop_id, body.values)

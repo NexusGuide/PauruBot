@@ -9,6 +9,7 @@ import {
   Badge,
   Bytes,
   Button,
+  Checkbox,
   Empty,
   Facts,
   Field,
@@ -60,6 +61,42 @@ function CardAccounts({ value, onChange }: { value: CardAccount[]; onChange: (va
   );
 }
 
+interface BonusRule {
+  provider: string;
+  min_amount: number;
+  percent: number;
+  max_bonus: number | null;
+}
+
+const BONUS_PROVIDERS = ["*", "card", "zarinpal", "stars", "usdt_trc20", "trx", "ton", "nowpayments", "plisio"];
+
+function BonusRules({ value, onChange }: { value: BonusRule[]; onChange: (value: BonusRule[]) => void }) {
+  const { t } = useSession();
+  const update = (index: number, patch: Partial<BonusRule>) => onChange(value.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  return (
+    <div className="flex flex-col gap-3">
+      {value.map((rule, index) => (
+        <div key={index} className="grid gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-[1.2fr_1fr_0.7fr_1fr_auto]">
+          <Select aria-label={t("col_method")} value={rule.provider} onChange={(e) => update(index, { provider: e.target.value })}>
+            {BONUS_PROVIDERS.map((p) => (
+              <option key={p} value={p}>
+                {p === "*" ? t("all_methods") : t(`provider_${p}`)}
+              </option>
+            ))}
+          </Select>
+          <NumberInput aria-label={t("min_amount")} placeholder={t("min_amount")} value={rule.min_amount} onChange={(v) => update(index, { min_amount: v ?? 0 })} />
+          <NumberInput aria-label={t("percent")} placeholder="%" value={rule.percent} onChange={(v) => update(index, { percent: Math.min(100, v ?? 0) })} />
+          <NumberInput aria-label={t("max_bonus")} placeholder={t("max_bonus")} value={rule.max_bonus} onChange={(v) => update(index, { max_bonus: v || null })} allowEmpty />
+          <Button small tone="ghost" icon="close" aria-label={t("remove")} onClick={() => onChange(value.filter((_, i) => i !== index))} />
+        </div>
+      ))}
+      <Button small icon="plus" className="self-start" onClick={() => onChange([...value, { provider: "*", min_amount: 0, percent: 5, max_bonus: null }])}>
+        {t("add_bonus_rule")}
+      </Button>
+    </div>
+  );
+}
+
 function SettingControl({
   item,
   value,
@@ -78,6 +115,43 @@ function SettingControl({
   const hint = hintText === hintKey ? undefined : hintText;
 
   if (item.type === "bool") return <Toggle checked={Boolean(value)} onChange={onChange} label={label} hint={hint} />;
+  if (item.key === "topup_bonus_rules") {
+    return (
+      <Field label={label} hint={hint}>
+        {() => <BonusRules value={(value as BonusRule[]) ?? []} onChange={onChange} />}
+      </Field>
+    );
+  }
+  if (item.key === "crypto_networks") {
+    const list = Array.isArray(value) ? (value as string[]) : [];
+    return (
+      <fieldset className="flex flex-col gap-2">
+        <legend className="mb-1 text-[0.82rem] font-semibold">{label}</legend>
+        {["usdt_trc20", "trx", "ton"].map((network) => (
+          <label key={network} className="flex items-center gap-2 text-[0.88rem]">
+            <Checkbox
+              label={t(`provider_${network}`)}
+              checked={list.includes(network)}
+              onChange={(on) => onChange(on ? [...list, network] : list.filter((n) => n !== network))}
+            />
+            {t(`provider_${network}`)}
+          </label>
+        ))}
+      </fieldset>
+    );
+  }
+  if (item.key === "fx_source") {
+    return (
+      <Field label={label} hint={hint}>
+        {(id) => (
+          <Select id={id} value={String(value ?? "nobitex")} onChange={(e) => onChange(e.target.value)}>
+            <option value="nobitex">{t("fx_nobitex")}</option>
+            <option value="manual">{t("fx_manual")}</option>
+          </Select>
+        )}
+      </Field>
+    );
+  }
   if (item.key === "username_method") {
     return (
       <Field label={label} hint={hint}>
@@ -195,7 +269,7 @@ export function Settings() {
               <Section key={group} title={t(`settings_group_${group}`)}>
                 <div className="grid gap-5 md:grid-cols-2">
                   {items.map((item) => (
-                    <div key={item.key} className={item.key === "card_accounts" || item.type === "bool" ? "md:col-span-2" : ""}>
+                    <div key={item.key} className={["card_accounts", "topup_bonus_rules"].includes(item.key) || item.type === "bool" ? "md:col-span-2" : ""}>
                       <SettingControl
                         item={item}
                         value={item.key in changes ? changes[item.key] : item.value}
@@ -707,7 +781,7 @@ function isoDay(offset: number): string {
 }
 
 export function Reports() {
-  const { t, locale } = useSession();
+  const { t, locale, me } = useSession();
   const [range, setRange] = useState({ start: isoDay(-29), end: isoDay(0) });
   const path = `/api/admin/reports/sales${qs(range)}`;
   const { data, error, reload } = useLoad<SalesReport>(path);
@@ -769,7 +843,93 @@ export function Reports() {
           </>
         )}
       </Async>
+      {me?.role !== "reseller" && <Settlements />}
     </Page>
+  );
+}
+
+interface SettlementData {
+  balances: { provider: string; collected: number; settled: number; outstanding: number }[];
+  items: { id: number; provider: string; amount: number; reference: string | null; note: string | null; created_at: string }[];
+}
+
+function Settlements() {
+  const { t, can, toast, errorText } = useSession();
+  const { data, error, reload } = useLoad<SettlementData>("/api/admin/settlements");
+  const [form, setForm] = useState<{ provider: string; amount: number | null; reference: string } | null>(null);
+  const [busy, run] = useAction();
+  const save = async () => {
+    if (!form?.amount) return;
+    try {
+      await run(() =>
+        call("/api/admin/settlements", { method: "POST", body: { provider: form.provider, amount: form.amount, reference: form.reference || null } }),
+      );
+      toast(t("saved"));
+      setForm(null);
+      void reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <Section title={t("settlements")} flush>
+      <Async data={data} error={error} reload={reload}>
+        {(value) =>
+          value.balances.length === 0 ? (
+            <Empty title={t("empty_list")} />
+          ) : (
+            <table className="w-full text-[0.85rem]">
+              <thead>
+                <tr className="border-b border-[var(--line)] text-[0.78rem] text-[var(--hint)]">
+                  <th className="px-4 py-2 text-start font-semibold">{t("col_method")}</th>
+                  <th className="px-4 py-2 text-start font-semibold">{t("collected")}</th>
+                  <th className="px-4 py-2 text-start font-semibold">{t("settled")}</th>
+                  <th className="px-4 py-2 text-start font-semibold">{t("outstanding")}</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {value.balances.map((b) => (
+                  <tr key={b.provider} className="border-b border-[var(--line)] last:border-0">
+                    <td className="px-4 py-2.5 font-semibold">{t(`provider_${b.provider}`)}</td>
+                    <td className="px-4 py-2.5"><Money amount={b.collected} /></td>
+                    <td className="px-4 py-2.5"><Money amount={b.settled} /></td>
+                    <td className="px-4 py-2.5 font-bold"><Money amount={b.outstanding} /></td>
+                    <td className="px-4 py-2.5 text-end">
+                      {can("payments.refund") && b.outstanding > 0 && (
+                        <Button small onClick={() => setForm({ provider: b.provider, amount: b.outstanding, reference: "" })}>
+                          {t("record_settlement")}
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        }
+      </Async>
+      <Sheet
+        open={form !== null}
+        onClose={() => setForm(null)}
+        title={form ? `${t("record_settlement")}: ${t(`provider_${form.provider}`)}` : ""}
+        footer={
+          <Button tone="primary" busy={busy} disabled={!form?.amount} onClick={() => void save()}>
+            {t("save")}
+          </Button>
+        }
+      >
+        {form && (
+          <div className="flex flex-col gap-4">
+            <p className="text-[0.85rem] leading-relaxed text-[var(--hint)]">{t("settlement_hint")}</p>
+            <Field label={t("amount_toman")}>{(id) => <NumberInput id={id} value={form.amount} onChange={(v) => setForm({ ...form, amount: v })} />}</Field>
+            <Field label={t("settlement_reference")}>
+              {(id) => <Input id={id} value={form.reference} maxLength={128} onChange={(e) => setForm({ ...form, reference: e.target.value })} />}
+            </Field>
+          </div>
+        )}
+      </Sheet>
+    </Section>
   );
 }
 
