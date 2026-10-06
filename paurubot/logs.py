@@ -61,3 +61,34 @@ def setup_logging(level: str = "INFO", json_output: bool = True) -> None:
         "alembic.runtime.plugins",
     ):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+def setup_error_monitoring(process: str) -> bool:
+    """Send unhandled errors to Sentry when SENTRY_DSN is set (NEW-05). Events are redacted first."""
+    from paurubot import __version__
+    from paurubot.config import get_settings
+    from paurubot.security.redact import redact
+
+    settings = get_settings()
+    dsn = settings.sentry_dsn.get_secret_value()
+    if not dsn:
+        return False
+    try:
+        import sentry_sdk
+    except ImportError:
+        logging.getLogger(__name__).warning("SENTRY_DSN is set but sentry-sdk is not installed")
+        return False
+
+    def scrub(event: dict, _hint: dict) -> dict:
+        return json.loads(redact(json.dumps(event, default=str)))
+
+    sentry_sdk.init(
+        dsn=dsn,
+        release=f"paurubot@{__version__}",
+        environment=settings.environment,
+        send_default_pii=False,
+        traces_sample_rate=0.0,
+        before_send=scrub,  # type: ignore[arg-type]
+        server_name=process,
+    )
+    return True

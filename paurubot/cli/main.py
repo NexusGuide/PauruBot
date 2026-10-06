@@ -43,6 +43,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     settings = get_settings()
     setup_logging(settings.log_level, settings.log_json)
+    if args.command in {"api", "bot", "worker"}:
+        from paurubot.logs import setup_error_monitoring
+
+        setup_error_monitoring(args.command)
     func = COMMANDS[args.command][0]
     try:
         return asyncio.run(func(args))

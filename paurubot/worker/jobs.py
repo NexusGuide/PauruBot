@@ -209,3 +209,56 @@ async def daily_backup() -> None:
     if newest and utcnow() - newest[0].created_at < timedelta(hours=20):
         return
     await run_backup("daily")
+
+
+# --- daily report (FIN-04, JOB-02) ----------------------------------------------
+
+
+@every(300, "reports.daily")
+async def daily_report() -> None:
+    from datetime import timedelta
+
+    from paurubot import kv
+    from paurubot.config import get_settings
+    from paurubot.core import settings as shop_settings
+    from paurubot.core.formatting import jdate, money
+    from paurubot.core.reports import as_params, daily_summary, day_bounds
+    from paurubot.i18n import Texts, load_overrides
+    from paurubot.notifications import telegram
+    from paurubot.notifications.handlers import staff_chats
+
+    now = utcnow()
+    async with session_scope() as session:
+        shop_ids = list(await session.scalars(select(Shop.id)))
+    for shop_id in shop_ids:
+        async with session_scope() as session:
+            cfg = await shop_settings.load(session, shop_id)
+            local = now.astimezone(get_settings().tz)
+            if local.hour != int(cfg.get("daily_report_hour") or 23):
+                continue
+            # A report sent in the small hours covers the day that just ended.
+            start, end = day_bounds(now - timedelta(hours=6) if local.hour < 6 else now)
+            marker = f"report:daily:{shop_id}:{start.date().isoformat()}"
+            if not await kv.get_redis().set(marker, "1", nx=True, ex=3 * 86400):
+                continue
+            summary = as_params(await daily_summary(session, shop_id, start, end))
+            texts = Texts("fa", await load_overrides(session, shop_id))
+            params = {k: money(v) if k in {"revenue", "wallet_total"} else v for k, v in summary.items()}
+            text = texts("daily_report", date=jdate(start), **params)
+            from paurubot.db.models import LogChannel
+
+            channel = await session.scalar(
+                select(LogChannel)
+                .where(LogChannel.shop_id == shop_id, LogChannel.topic.in_(["reports", "all"]))
+                .order_by(LogChannel.topic != "reports")
+            )
+            targets = (
+                [(channel.chat_id, channel.thread_id)]
+                if channel
+                else [(chat, None) for chat in await staff_chats(session, shop_id, "reports.read")]
+            )
+        for chat_id, thread_id in targets:
+            try:
+                await telegram.send_text(chat_id, text, message_thread_id=thread_id)
+            except telegram.Undeliverable:
+                log.warning("daily report to %s was not delivered", chat_id)
