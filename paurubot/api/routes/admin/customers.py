@@ -3,14 +3,24 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import ColumnElement, or_, select
+from sqlalchemy import ColumnElement, Select, cast, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 
-from paurubot.api.admin_common import Page, owned, page_params, paginate, plain, scope_services
+from paurubot.api.admin_common import (
+    Page,
+    apply_sort,
+    owned,
+    page_params,
+    paginate,
+    plain,
+    scope_services,
+    sort_params,
+)
 from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record, snapshot
 from paurubot.core import customers
@@ -67,6 +77,23 @@ SERVICE_FIELDS = [
 ]
 
 
+CUSTOMER_SORT = {
+    "id": Customer.id,
+    "created_at": Customer.created_at,
+    "last_seen_at": Customer.last_seen_at,
+    "username": Customer.username,
+}
+SERVICE_SORT = {
+    "id": Service.id,
+    "expire_at": Service.expire_at,
+    "used_bytes": Service.used_bytes,
+    "data_limit": Service.data_limit,
+    "created_at": Service.created_at,
+    "status": Service.status,
+}
+BULK_LIMIT = 5000
+
+
 def service_out(service: Service) -> dict[str, Any]:
     data = plain(service, SERVICE_FIELDS)
     data["panel"] = service.panel.name if service.panel else None
@@ -81,6 +108,8 @@ async def list_customers(
     page: Annotated[Page, Depends(page_params)],
     q: str = Query("", max_length=64),
     banned: bool | None = None,
+    tag: str | None = Query(None, max_length=24),
+    sort: str | None = Depends(sort_params),
 ) -> dict[str, Any]:
     if ctx.scoped:
         return {"items": [], "total": 0}
@@ -97,7 +126,10 @@ async def list_customers(
         stmt = stmt.where(or_(*conditions))
     if banned is not None:
         stmt = stmt.where(Customer.is_banned.is_(banned))
-    rows, total = await paginate(db, stmt.order_by(Customer.id.desc()), page)
+    if tag:
+        stmt = stmt.where(cast(Customer.tags, JSONB).contains([tag]))
+    stmt = apply_sort(stmt, sort, CUSTOMER_SORT, Customer.id)
+    rows, total = await paginate(db, stmt, page)
     return {"items": [plain(c, CUSTOMER_FIELDS) for c in rows], "total": total}
 
 
@@ -294,23 +326,41 @@ async def list_services(
     status: ServiceStatus | None = None,
     panel_id: int | None = None,
     customer_id: int | None = None,
+    plan_id: int | None = None,
+    sort: str | None = Depends(sort_params),
 ) -> dict[str, Any]:
+    filters = ServiceFilter(q=q, status=status, panel_id=panel_id, customer_id=customer_id, plan_id=plan_id)
+    stmt = await _filtered_services(db, ctx, filters)
+    stmt = apply_sort(stmt, sort, SERVICE_SORT, Service.id)
+    rows, total = await paginate(db, stmt, page)
+    return {"items": [service_out(s) for s in rows], "total": total}
+
+
+class ServiceFilter(BaseModel):
+    q: str = Field(default="", max_length=64)
+    status: ServiceStatus | None = None
+    panel_id: int | None = None
+    customer_id: int | None = None
+    plan_id: int | None = None
+
+
+async def _filtered_services(db: DB, ctx: StaffContext, f: ServiceFilter) -> Select[Any]:
     stmt = select(Service).where(Service.shop_id == ctx.shop_id)
     stmt = await scope_services(db, stmt, ctx)
-    if q.strip():
-        stmt = stmt.where(
-            or_(Service.panel_username.ilike(f"%{q.strip()}%"), Service.label.ilike(f"%{q.strip()}%"))
-        )
-    if status is not None:
-        stmt = stmt.where(Service.status == status)
+    if f.q.strip():
+        text = f.q.strip()
+        stmt = stmt.where(or_(Service.panel_username.ilike(f"%{text}%"), Service.label.ilike(f"%{text}%")))
+    if f.status is not None:
+        stmt = stmt.where(Service.status == f.status)
     else:
         stmt = stmt.where(Service.status != ServiceStatus.DELETED)
-    if panel_id:
-        stmt = stmt.where(Service.panel_id == panel_id)
-    if customer_id:
-        stmt = stmt.where(Service.customer_id == customer_id)
-    rows, total = await paginate(db, stmt.order_by(Service.id.desc()), page)
-    return {"items": [service_out(s) for s in rows], "total": total}
+    if f.panel_id:
+        stmt = stmt.where(Service.panel_id == f.panel_id)
+    if f.customer_id:
+        stmt = stmt.where(Service.customer_id == f.customer_id)
+    if f.plan_id:
+        stmt = stmt.where(Service.plan_id == f.plan_id)
+    return stmt
 
 
 async def scoped_service(db: DB, service_id: int, ctx: StaffContext) -> Service:
@@ -372,7 +422,7 @@ async def service_action(
         else:
             if ctx.scoped:
                 raise HTTPException(status_code=403, detail="forbidden")
-            await _extend(db, service, body.days, body.gb)
+            await lifecycle.extend(db, service, days=body.days, gb=body.gb)
     except PanelError as exc:
         raise HTTPException(status_code=502, detail="panel_error") from exc
     await record(
@@ -386,21 +436,6 @@ async def service_action(
         after=snapshot(service, ["status", "expire_at", "data_limit", "subscription_url"]),
     )
     return {"service": service_out(service)}
-
-
-async def _extend(db: DB, service: Service, days: int, gb: int) -> None:
-    from paurubot.panels import GB, UNSET, driver_for
-
-    panel = await db.get(Panel, service.panel_id)
-    assert panel is not None
-    driver = await driver_for(panel)
-    expire: Any = UNSET
-    if days and service.expire_at:
-        now = datetime.now(UTC).replace(microsecond=0)
-        expire = (service.expire_at if service.expire_at > now else now) + timedelta(days=days)
-    limit = int(service.data_limit) + gb * GB if gb and service.data_limit else None
-    info = await driver.update_user(lifecycle.ref(service), expire_at=expire, data_limit=limit, enabled=True)
-    lifecycle.apply_panel_user(service, info)
 
 
 class ManualService(BaseModel):
@@ -450,3 +485,100 @@ async def create_service(
         after={"customer_id": customer.id, "plan_id": plan.id},
     )
     return {"order_id": order.id}
+
+
+class BulkServices(BaseModel):
+    """Act on explicit ids or on everything matching a filter (SVC-07, ADM-04)."""
+
+    action: Literal["enable", "disable", "extend", "delete"]
+    ids: list[int] = Field(default_factory=list, max_length=BULK_LIMIT)
+    filter: ServiceFilter | None = None
+    days: int = Field(default=0, ge=0, le=3650)
+    gb: int = Field(default=0, ge=0, le=100_000)
+    reason: str | None = Field(default=None, max_length=255)
+
+
+@router.post("/services/bulk")
+async def bulk_services(
+    body: BulkServices, ctx: Annotated[StaffContext, Depends(require("services.write"))], db: DB
+) -> dict[str, Any]:
+    """Queue one job per service so slow panels never block the request and failures retry."""
+    if body.action == "extend":
+        if ctx.scoped:
+            raise HTTPException(status_code=403, detail="forbidden")
+        if not body.days and not body.gb:
+            raise HTTPException(status_code=422, detail="nothing_to_extend")
+    if bool(body.ids) == (body.filter is not None):
+        raise HTTPException(status_code=422, detail="ids_or_filter")
+    if body.filter is not None:
+        stmt = await _filtered_services(db, ctx, body.filter)
+    else:
+        stmt = await scope_services(
+            db, select(Service).where(Service.shop_id == ctx.shop_id, Service.id.in_(body.ids)), ctx
+        )
+        stmt = stmt.where(Service.status != ServiceStatus.DELETED)
+    ids = list(await db.scalars(stmt.with_only_columns(Service.id).limit(BULK_LIMIT + 1)))
+    if len(ids) > BULK_LIMIT:
+        raise HTTPException(status_code=422, detail="too_many")
+    batch = uuid.uuid4().hex[:12]
+    payload = {"action": body.action, "days": body.days, "gb": body.gb, "reason": body.reason}
+    for service_id in ids:
+        await queue.enqueue(
+            db,
+            "bulk",
+            "service",
+            {**payload, "service_id": service_id, "staff_id": ctx.staff.id, "batch": batch},
+            shop_id=ctx.shop_id,
+            dedupe_key=f"bulk:{batch}:{service_id}",
+            max_attempts=5,
+        )
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action=f"service.bulk_{body.action}",
+        entity="service",
+        after={**payload, "count": len(ids), "batch": batch},
+    )
+    return {"queued": len(ids), "batch": batch}
+
+
+class BulkCustomers(BaseModel):
+    action: Literal["ban", "unban", "tag", "untag"]
+    ids: list[int] = Field(min_length=1, max_length=1000)
+    reason: str | None = Field(default=None, max_length=255)
+    tag: str | None = Field(default=None, min_length=1, max_length=24)
+
+
+@router.post("/customers/bulk")
+async def bulk_customers(
+    body: BulkCustomers, ctx: Annotated[StaffContext, Depends(require("customers.ban"))], db: DB
+) -> dict[str, Any]:
+    if ctx.scoped:
+        raise HTTPException(status_code=404, detail="not_found")
+    if body.action in {"tag", "untag"}:
+        if not ctx.can("customers.write"):
+            raise HTTPException(status_code=403, detail="forbidden")
+        if not body.tag:
+            raise HTTPException(status_code=422, detail="tag_required")
+    rows = list(
+        await db.scalars(select(Customer).where(Customer.shop_id == ctx.shop_id, Customer.id.in_(body.ids)))
+    )
+    for customer in rows:
+        if body.action in {"ban", "unban"}:
+            await customers.set_ban(db, customer, body.action == "ban", body.reason, ctx.actor)
+        else:
+            tags = [t for t in (customer.tags or []) if t != body.tag]
+            if body.action == "tag":
+                tags.append(str(body.tag))
+            customer.tags = tags[:20]
+    if body.action in {"tag", "untag"}:
+        await record(
+            db,
+            shop_id=ctx.shop_id,
+            actor=ctx.actor,
+            action=f"customer.bulk_{body.action}",
+            entity="customer",
+            after={"ids": [c.id for c in rows], "tag": body.tag},
+        )
+    return {"updated": len(rows)}

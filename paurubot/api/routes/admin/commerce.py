@@ -4,12 +4,21 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from paurubot.api.admin_common import Page, owned, page_params, paginate, plain, reseller_customer_id
+from paurubot.api.admin_common import (
+    Page,
+    apply_sort,
+    owned,
+    page_params,
+    paginate,
+    plain,
+    reseller_customer_id,
+    sort_params,
+)
 from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record
 from paurubot.db.models import Order, OrderStatus, Payment, PaymentStatus
@@ -57,6 +66,14 @@ PAYMENT_FIELDS = [
     "failure_reason",
 ]
 
+ORDER_SORT = {"id": Order.id, "amount": Order.amount, "created_at": Order.created_at, "status": Order.status}
+PAYMENT_SORT = {
+    "id": Payment.id,
+    "amount": Payment.amount,
+    "created_at": Payment.created_at,
+    "status": Payment.status,
+}
+
 
 @router.get("/orders")
 async def list_orders(
@@ -65,8 +82,12 @@ async def list_orders(
     page: Annotated[Page, Depends(page_params)],
     status: OrderStatus | None = None,
     customer_id: int | None = None,
+    order_id: int | None = Query(None, alias="id"),
+    sort: str | None = Depends(sort_params),
 ) -> dict[str, Any]:
     stmt = select(Order).where(Order.shop_id == ctx.shop_id)
+    if order_id is not None:
+        stmt = stmt.where(Order.id == order_id)
     owner = await reseller_customer_id(db, ctx)
     if owner is not None:
         stmt = stmt.where(Order.customer_id == owner)
@@ -74,7 +95,7 @@ async def list_orders(
         stmt = stmt.where(Order.status == status)
     if customer_id:
         stmt = stmt.where(Order.customer_id == customer_id)
-    rows, total = await paginate(db, stmt.order_by(Order.id.desc()), page)
+    rows, total = await paginate(db, apply_sort(stmt, sort, ORDER_SORT, Order.id), page)
     items = []
     for order in rows:
         data = plain(order, ORDER_FIELDS)
@@ -92,15 +113,19 @@ async def list_payments(
     status: PaymentStatus | None = None,
     provider: str | None = None,
     customer_id: int | None = None,
+    payment_id: int | None = Query(None, alias="id"),
+    sort: str | None = Depends(sort_params),
 ) -> dict[str, Any]:
     stmt = select(Payment).where(Payment.shop_id == ctx.shop_id)
+    if payment_id is not None:
+        stmt = stmt.where(Payment.id == payment_id)
     if status is not None:
         stmt = stmt.where(Payment.status == status)
     if provider:
         stmt = stmt.where(Payment.provider == provider)
     if customer_id:
         stmt = stmt.where(Payment.customer_id == customer_id)
-    rows, total = await paginate(db, stmt.order_by(Payment.id.desc()), page)
+    rows, total = await paginate(db, apply_sort(stmt, sort, PAYMENT_SORT, Payment.id), page)
     items = []
     for payment in rows:
         data = plain(payment, PAYMENT_FIELDS)

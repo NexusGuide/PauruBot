@@ -46,6 +46,45 @@ register_queue(
 )
 
 
+# --- bulk service actions (SVC-07) --------------------------------------------
+
+
+async def bulk_service(session: AsyncSession, job: queue.Claimed) -> None:
+    from paurubot.audit.log import Actor, record
+    from paurubot.db.models import Service, ServiceStatus
+
+    data = job.payload
+    service = await session.get(Service, int(data["service_id"]))
+    if service is None or service.status == ServiceStatus.DELETED:
+        return
+    action = str(data["action"])
+    try:
+        if action in {"enable", "disable"}:
+            await lifecycle.set_enabled(session, service, action == "enable")
+        elif action == "extend":
+            await lifecycle.extend(
+                session, service, days=int(data.get("days") or 0), gb=int(data.get("gb") or 0)
+            )
+        elif action == "delete":
+            await lifecycle.delete_service(session, service, data.get("reason") or "bulk delete")
+        else:
+            raise Permanent(f"unknown bulk action {action}")
+    except PanelUnavailable as exc:
+        raise Retry(str(exc)) from exc
+    await record(
+        session,
+        shop_id=service.shop_id,
+        actor=Actor("staff", data.get("staff_id"), None),
+        action=f"service.{action}",
+        entity="service",
+        entity_id=service.id,
+        after={"batch": data.get("batch"), "days": data.get("days"), "gb": data.get("gb")},
+    )
+
+
+register_queue("bulk", QueueSpec({"service": bulk_service}, batch=10, lease_seconds=120))
+
+
 # --- payments ---------------------------------------------------------------
 
 
