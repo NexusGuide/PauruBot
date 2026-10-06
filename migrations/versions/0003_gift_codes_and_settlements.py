@@ -12,7 +12,6 @@ from alembic import op
 
 import paurubot.db.base  # noqa: F401
 
-
 revision = "0003"
 down_revision = "0002"
 branch_labels = None
