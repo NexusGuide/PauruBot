@@ -40,7 +40,7 @@
 | T14 | Webhook spoofing (panel, gateway) | Secret token compared in constant time, provider signature checks | SEC-11, PNL-03 |
 | T15 | Reseller reading other shops' data | `shop_id` scoping in every query, reseller scope filters, tenant isolation tests | TEN-02, TEN-03 |
 | T16 | Flooding the bot | Redis rate limits per user, ban and maintenance middlewares | SEC-14 |
-| T17 | Malicious update package | Signed releases with checksums, atomic switch, no self-update from requests | OPS-01, OPS-07 |
+| T17 | Malicious update package or update request | Signed releases with checksums, atomic switch; the app never runs Docker: a host agent (opt-in, root, systemd) reads one owner-only request from Redis, accepts only `update`/`rollback`, `stable`/`beta` and a strict version pattern, and runs the installer's own actions | OPS-01, OPS-07 |
 | T18 | Losing secrets on restore | Master key escrowed in the backup, wrapped with a separate backup passphrase; restore drill | OPS-05 |
 | T19 | Broadcast abuse / Telegram bans | Rate-limited broadcast queue respecting 429 `retry_after` | GRW-06 |
 | T20 | Trial farming | Trial policy: one per Telegram account, optional phone requirement, global daily quota | CAT-04 |

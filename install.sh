@@ -7,6 +7,7 @@
 #   install.sh install --domain bot.example.com --token 123:ABC --owner 123456 [--channel stable|beta] [--version v1.2.3]
 #   install.sh update [--channel stable|beta] [--version v1.2.3]
 #   install.sh rollback | status | logs [service] | restart | backup | restore FILE | setup-link | uninstall
+#   install.sh enable-agent | disable-agent   (let the admin panel request updates and rollbacks)
 #
 # For a private repository, export PAURUBOT_GITHUB_TOKEN (read access to code and packages) first.
 
@@ -270,6 +271,9 @@ EOF
   env_set PAURUBOT_VERSION "$TARGET_REF"
   compose up -d --remove-orphans
   link_cli
+  if confirm "Allow updates and rollbacks from the admin panel?" y; then
+    cmd_enable_agent
+  fi
   if wait_healthy; then
     ok "PauruBot is running"
   else
@@ -305,6 +309,7 @@ cmd_update() {
   fetch_source "$TARGET_REF"
   fetch_image "$TARGET_IMAGE"
   env_set PAURUBOT_PREVIOUS_IMAGE "$previous"
+  env_set PAURUBOT_PREVIOUS_VERSION "$(env_get PAURUBOT_VERSION)"
   env_set PAURUBOT_IMAGE "$PINNED_IMAGE"
   env_set PAURUBOT_VERSION "$TARGET_REF"
   env_set PAURUBOT_CHANNEL "$channel"
@@ -325,6 +330,10 @@ cmd_rollback() {
   warn "rolling back to $previous; database migrations are not reversed"
   env_set PAURUBOT_PREVIOUS_IMAGE "$(env_get PAURUBOT_IMAGE)"
   env_set PAURUBOT_IMAGE "$previous"
+  local version
+  version=$(env_get PAURUBOT_VERSION)
+  env_set PAURUBOT_VERSION "$(env_get PAURUBOT_PREVIOUS_VERSION)"
+  env_set PAURUBOT_PREVIOUS_VERSION "$version"
   compose up -d --remove-orphans
   wait_healthy && ok "rolled back" || warn "still not healthy; check: pauru logs api"
 }
@@ -395,6 +404,7 @@ show_setup_link() {
 }
 
 cmd_uninstall() {
+  [[ -f $AGENT_UNIT ]] && cmd_disable_agent
   need_root
   confirm "Remove PauruBot containers? (data volumes are kept)" || exit 1
   compose down
@@ -416,6 +426,97 @@ link_cli() {
   install -m 755 "$DIR/install.sh" /usr/local/bin/pauru
 }
 
+# --- updates from the admin panel (OPS-07) -------------------------------------------------
+# The panel never touches Docker. It leaves a request in Redis (reachable only inside the
+# compose network) and this host agent, run by systemd, performs it with the normal update
+# and rollback actions, then reports back through Redis.
+
+AGENT_UNIT=/etc/systemd/system/paurubot-agent.service
+AGENT_LOG=/var/log/paurubot-agent.log
+
+rset() { compose exec -T redis redis-cli SET "$1" "$2" EX "${3:-180}" >/dev/null 2>&1 || true; }
+
+agent_report() {
+  rset updater:heartbeat "$(date +%s)"
+  rset updater:version "$(env_get PAURUBOT_VERSION)"
+  rset updater:channel "$(env_get PAURUBOT_CHANNEL)"
+  rset updater:previous "$(env_get PAURUBOT_PREVIOUS_VERSION)"
+}
+
+json_field() { sed -n "s/.*\"$1\": *\"\([^\"]*\)\".*/\1/p" <<<"$2" | head -n1; }
+
+cmd_agent() {
+  need_root
+  [[ -f $ENV_FILE ]] || die "not installed"
+  local latest_checked=0 request action channel version result
+  say "PauruBot agent watching for update requests"
+  while true; do
+    agent_report
+    if (($(date +%s) - latest_checked > 3600)); then
+      rset updater:latest "$(latest_release || true)" 7200
+      latest_checked=$(date +%s)
+    fi
+    request=$(compose exec -T redis redis-cli GETDEL updater:request 2>/dev/null | tr -d '\r' || true)
+    if [[ -n $request && $request != "(nil)" ]]; then
+      action=$(json_field action "$request")
+      channel=$(json_field channel "$request")
+      version=$(json_field version "$request")
+      [[ $channel =~ ^(stable|beta)?$ && $version =~ ^(v?[0-9][0-9A-Za-z.-]*)?$ ]] || action="invalid"
+      rset updater:state running 7200
+      rset updater:last_action "$action ${version:-$channel}" 2592000
+      local args=()
+      [[ -n $channel ]] && args+=(--channel "$channel")
+      [[ -n $version ]] && args+=(--version "$version")
+      result="done"
+      case $action in
+        update) (cmd_update "${args[@]}") >"$AGENT_LOG" 2>&1 || result=failed ;;
+        rollback) (cmd_rollback) >"$AGENT_LOG" 2>&1 || result=failed ;;
+        *)
+          echo "unknown action $action" >"$AGENT_LOG"
+          result=failed
+          ;;
+      esac
+      grep -qi "not healthy" "$AGENT_LOG" && result=failed
+      tail -n 40 "$AGENT_LOG" | sed 's/\x1b\[[0-9;]*m//g' |
+        compose exec -T redis redis-cli -x SET updater:log >/dev/null 2>&1 || true
+      rset updater:state "$result" 2592000
+      agent_report
+    fi
+    sleep 15
+  done
+}
+
+cmd_enable_agent() {
+  need_root
+  link_cli
+  cat >"$AGENT_UNIT" <<UNIT
+[Unit]
+Description=PauruBot update agent
+After=docker.service
+Requires=docker.service
+
+[Service]
+Environment=PAURUBOT_DIR=$DIR
+ExecStart=/usr/local/bin/pauru agent
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  systemctl daemon-reload
+  systemctl enable --now paurubot-agent >/dev/null
+  ok "updates from the admin panel are on (systemctl status paurubot-agent)"
+}
+
+cmd_disable_agent() {
+  need_root
+  systemctl disable --now paurubot-agent >/dev/null 2>&1 || true
+  rm -f "$AGENT_UNIT"
+  systemctl daemon-reload
+  ok "updates from the admin panel are off"
+}
+
 menu() {
   while true; do
     say ""
@@ -423,7 +524,8 @@ menu() {
     say "  1) Install        2) Update         3) Rollback"
     say "  4) Status         5) Logs           6) Restart"
     say "  7) Backup now     8) Restore        9) Edit settings"
-    say " 10) Setup link    11) Uninstall      0) Exit"
+    say " 10) Setup link    11) Uninstall     12) Panel updates on"
+    say "  0) Exit"
     local choice
     read -r -p "> " choice </dev/tty || exit 0
     case $choice in
@@ -438,6 +540,7 @@ menu() {
       9) cmd_edit ;;
       10) show_setup_link ;;
       11) cmd_uninstall ;;
+      12) cmd_enable_agent ;;
       0 | q) exit 0 ;;
       *) warn "pick a number from the menu" ;;
     esac
@@ -460,6 +563,9 @@ main() {
     setup-link) show_setup_link ;;
     edit) cmd_edit ;;
     uninstall) cmd_uninstall ;;
+    agent) cmd_agent ;;
+    enable-agent) cmd_enable_agent ;;
+    disable-agent) cmd_disable_agent ;;
     -h | --help | help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ;;
     *) die "unknown action $action (try --help)" ;;
   esac

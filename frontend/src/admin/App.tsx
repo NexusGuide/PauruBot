@@ -10,6 +10,7 @@ import { Home } from "./screens/Home";
 import { Panels } from "./screens/Panels";
 import { BotMenu } from "./screens/BotMenu";
 import { Migration } from "./screens/Migration";
+import { Updates } from "./screens/Updates";
 import { MyBilling, Resellers, Staff, SubResellers, TicketPage, Tickets } from "./screens/People";
 import { Services } from "./screens/Services";
 import { Account, Audit, Backups, Channels, Health, Jobs, Reports, Settings, Texts } from "./screens/System";
@@ -57,6 +58,7 @@ function Routed() {
         <Route path="/bot-menu" element={g("settings.read", <BotMenu />)} />
         <Route path="/health" element={g("settings.write", <Health />)} />
         <Route path="/migration" element={g("backups.manage", <Migration />)} />
+        <Route path="/updates" element={g("backups.manage", <Updates />)} />
         <Route path="/reports" element={g("reports.read", <Reports />)} />
         <Route path="/settings" element={g("settings.read", <Settings />)} />
         <Route path="/texts" element={g("texts.write", <Texts />)} />
