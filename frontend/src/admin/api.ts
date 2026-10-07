@@ -190,6 +190,8 @@ export interface Payment {
   failure_reason: string | null;
   customer: string;
   has_receipt: boolean;
+  reviewable: boolean;
+  review_amount: number | null;
 }
 
 export interface CustomerDetail {

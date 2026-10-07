@@ -68,9 +68,13 @@ def _truthy(value: Any) -> bool:
     return value is True or str(value).lower() in {"1", "true", "ok", "success"}
 
 
-def _signed(expected: str, given: str) -> bool:
+def signed(secret: str, message: bytes, given: str, digest: Any = hashlib.sha256) -> bool:
+    """Constant-time HMAC check; an unset secret never verifies anything."""
     given = given.strip().lower().removeprefix("sha256=")
-    return bool(given) and hmac.compare_digest(expected.lower(), given)
+    if not secret or not given:
+        return False
+    expected = hmac.new(secret.encode(), message, digest).hexdigest()
+    return hmac.compare_digest(expected, given)
 
 
 def settle(payment: Payment, tx: str, received: int | None, wanted: int | None) -> Verification:
@@ -88,6 +92,7 @@ class Gateway(PaymentProvider):
     """Shared HTTP plumbing and settings for redirect gateways."""
 
     late_ok = True  # a payment verified with the gateway after our deadline is still credited
+    asks_gateway = True  # verify calls the gateway, so unsigned callbacks are rate limited
     needs_callback = True
     polls = False
     required: tuple[str, ...] = ()
@@ -130,6 +135,10 @@ class Gateway(PaymentProvider):
     def locate(params: dict[str, Any]) -> tuple[str, str] | None:
         """How to find the payment when the callback URL carries no `pid`: ("id"|"ref", value)."""
         return None
+
+    def throttled(self, params: dict[str, Any]) -> bool:
+        """Whether this callback makes us call the gateway (and so counts against a rate limit)."""
+        return self.asks_gateway
 
     @staticmethod
     def _rejected(name: str) -> PaymentError:
@@ -214,9 +223,10 @@ class Tetra98Provider(Gateway):
         sent = field(params, "authority", "Authority")
         if sent and sent != payment.provider_ref:
             return Verification(False, detail="reference mismatch")
+        # The callback's own status is unsigned: it only tells us not to bother asking yet.
         status = field(params, "status")
         if status and status != "100":
-            return Verification(False, detail=f"canceled: status {status}")
+            return Verification(False, detail=f"waiting: status {status}")
         _, data = await self.call(
             "POST",
             f"{self.host}/api/verify",
@@ -238,6 +248,7 @@ class VarizaProvider(Gateway):
     """No verify API: only the signed `payment.paid` webhook settles a payment."""
 
     name = "variza"
+    asks_gateway = False
     required = ("variza_api_token", "variza_webhook_secret")
     host = "https://variza.ir"
 
@@ -270,8 +281,7 @@ class VarizaProvider(Gateway):
         given = str((params.get("headers") or {}).get("x-webhook-signature") or "")
         if not given:
             return Verification(False, detail="waiting: no webhook yet")
-        secret = str(cfg.get("variza_webhook_secret") or "")
-        if not _signed(hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest(), given):
+        if not signed(str(cfg.get("variza_webhook_secret") or ""), raw, given):
             return Verification(False, detail="bad signature")
         data = params.get("json") or {}
         if data.get("event") != "payment.paid":
@@ -414,6 +424,7 @@ class TronadoProvider(Gateway):
     """TRX via Tronado; settled only by its HMAC-SHA512-signed callback."""
 
     name = "tronado"
+    asks_gateway = False
     required = ("tronado_api_key", "tronado_ipn_key", "tronado_wallet")
     host = "https://bot.tronado.cloud"
 
@@ -467,8 +478,7 @@ class TronadoProvider(Gateway):
         given = str((params.get("headers") or {}).get("x-tronado-sig") or "")
         if not given:
             return Verification(False, detail="waiting: no signed callback")
-        secret = str(cfg.get("tronado_ipn_key") or "")
-        if not _signed(hmac.new(secret.encode(), raw, hashlib.sha512).hexdigest(), given):
+        if not signed(str(cfg.get("tronado_ipn_key") or ""), raw, given, hashlib.sha512):
             return Verification(False, detail="bad signature")
         data = params.get("json") or {}
         if str(data.get("PaymentId") or data.get("PaymentID") or "") != str(payment.id):
@@ -479,10 +489,12 @@ class TronadoProvider(Gateway):
         if state != 30 and not _truthy(data.get("IsPaid")):
             return Verification(False, detail=f"waiting: status {state}")
         tx = f"tronado:{payment.provider_ref}"
+        value = data.get("ActualTronAmount")
+        if value is None:
+            value = data.get("TronAmount")
         try:
-            got = Decimal(str(data.get("ActualTronAmount") or data.get("TronAmount")))
-            received = int(got * SUN)
-        except ArithmeticError:
+            received = int(Decimal(str(value)) * SUN)
+        except (ArithmeticError, ValueError):
             return Verification(False, detail="amount missing")
         wanted = payment.provider_amount or 0
         return settle(payment, tx, received + 1, wanted)  # one sun of rounding either way
@@ -500,6 +512,9 @@ class CubePayProvider(Gateway):
 
     def _headers(self, cfg: dict[str, Any]) -> dict[str, str]:
         return {"Authorization": f"Bearer {cfg['cubepay_api_key']}", "Accept": "application/json"}
+
+    def throttled(self, params: dict[str, Any]) -> bool:
+        return not field(params, "sig")
 
     @staticmethod
     def price(amount: int, cfg: dict[str, Any]) -> int:
@@ -532,7 +547,10 @@ class CubePayProvider(Gateway):
     async def verify(self, payment: Payment, cfg: dict[str, Any], params: dict[str, Any]) -> Verification:
         if field(params, "sig"):
             return self._crypto(payment, cfg, params)
-        authority = field(params, "authority") or str(payment.provider_ref or "")
+        # Our own authority when the gateway gave one; a callback's is only a fallback, and a
+        # verify failure for it must never close the payment.
+        authority = str(payment.provider_ref or "") or field(params, "authority")
+        trusted = bool(payment.provider_ref)
         if not authority:
             return Verification(False, detail="waiting: no authority")
         status, data = await self.call(
@@ -541,7 +559,7 @@ class CubePayProvider(Gateway):
             headers=self._headers(cfg),
             json={"authority": authority},
         )
-        if status == 410:
+        if status == 410 and trusted:
             return Verification(False, detail="canceled: expired")
         if status not in (200, 409) or not _truthy(data.get("success")):
             return Verification(False, detail=f"waiting: verify {status}")
@@ -554,8 +572,7 @@ class CubePayProvider(Gateway):
         order, status = field(params, "order_id"), field(params, "status")
         amount = field(params, "amount", "amount_toman")
         message = f"{order}|{status}|{amount}".encode()
-        expected = hmac.new(str(cfg["cubepay_api_key"]).encode(), message, hashlib.sha256).hexdigest()
-        if not _signed(expected, field(params, "sig")):
+        if not signed(str(cfg.get("cubepay_api_key") or ""), message, field(params, "sig")):
             return Verification(False, detail="bad signature")
         if order != str(payment.id):
             return Verification(False, detail="reference mismatch")
@@ -640,7 +657,7 @@ def parse_body(raw: bytes, content_type: str) -> tuple[dict[str, Any] | None, di
         try:
             loaded = json.loads(text)
             data = loaded if isinstance(loaded, dict) else None
-        except ValueError:
+        except (ValueError, RecursionError):
             data = None
     elif "form" in content_type or "=" in text:
         form = {k: v[0] for k, v in parse_qs(text, max_num_fields=50).items() if v}

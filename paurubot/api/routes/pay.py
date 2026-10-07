@@ -10,6 +10,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from sqlalchemy import select
 
+from paurubot import kv
 from paurubot.api.deps import DB
 from paurubot.db.models import Payment, PaymentStatus, Shop
 from paurubot.payments import engine
@@ -90,6 +91,9 @@ async def plisio_callback(request: Request, db: DB) -> Response:
     return await _invoice_callback(db, "plisio", order_id, raw, "")
 
 
+GATEWAY_CHECKS_PER_MINUTE = 6
+
+
 def _back_to_bot(shop: Shop | None, outcome: str, pid: int) -> Response:
     if shop is not None and shop.bot_username:
         return RedirectResponse(
@@ -107,6 +111,9 @@ async def gateway_callback(name: str, request: Request, db: DB) -> Response:
     gateway = GATEWAYS.get(name)
     if gateway is None or engine.PROVIDERS.get(name) is not gateway:
         return Response("unknown gateway", status_code=404, media_type="text/plain")
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_CALLBACK:
+        return Response("too large", status_code=413, media_type="text/plain")
     raw = await request.body()
     if len(raw) > MAX_CALLBACK:
         return Response("too large", status_code=413, media_type="text/plain")
@@ -132,8 +139,12 @@ async def gateway_callback(name: str, request: Request, db: DB) -> Response:
     if payment is None or payment.provider != name:
         return Response("unknown payment", status_code=404, media_type="text/plain")
     payment_id = payment.id
+    allowed = True
+    if gateway.throttled(params) and payment.status != PaymentStatus.PAID:
+        # Each of these makes us call the gateway; a stranger replaying the URL can't make it a flood.
+        allowed, _ = await kv.hit(f"gw:{name}:{payment_id}", GATEWAY_CHECKS_PER_MINUTE, 60)
     try:
-        ok = await engine.verify(db, payment_id, params)
+        ok = await engine.verify(db, payment_id, params) if allowed else False
     except PaymentError:
         ok = False
     await db.commit()

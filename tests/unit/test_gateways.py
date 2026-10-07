@@ -198,17 +198,15 @@ async def test_aqayepardakht_verifies_with_the_gateway(session, fake) -> None:  
     assert await _credited(session, shop, cust, started.payment.id) == 100_000
 
 
-async def test_tetra98_sends_rial_and_honours_cancel(session, fake) -> None:  # type: ignore[no-untyped-def]
+async def test_tetra98_sends_rial_and_an_unsigned_cancel_closes_nothing(session, fake) -> None:  # type: ignore[no-untyped-def]
     shop, cust, started = await _start(session, "tetra98")
     assert fake.seen[0][2]["Amount"] == "1000000"
     assert started.checkout.redirect_url == "https://t.me/tetra?s=1"
-    assert not await engine.verify(
-        session, started.payment.id, {"json": {"authority": "AU-1", "status": "0"}}
-    )
+    # anyone can send status=0 for any payment id: it must not fail the payment
+    assert not await engine.verify(session, started.payment.id, {"query": {"status": "0"}})
     await session.refresh(started.payment)
-    assert started.payment.status == PaymentStatus.FAILED
-    _, _, again = await _start(session, "tetra98")
-    assert await engine.verify(session, again.payment.id, {"json": {"authority": "AU-1", "status": "100"}})
+    assert started.payment.status == PaymentStatus.PENDING
+    assert await engine.verify(session, started.payment.id, {"json": {"authority": "AU-1", "status": "100"}})
 
 
 def _variza_hook(body: dict[str, Any], secret: str = "whsec") -> dict[str, Any]:
@@ -345,6 +343,79 @@ async def test_cubepay_card_and_crypto(session, fake) -> None:  # type: ignore[n
     assert not await engine.verify(session, crypto.payment.id, signed("paid", "110000", key="other"))
     assert not await engine.verify(session, crypto.payment.id, signed("pending", "110000"))
     assert await engine.verify(session, crypto.payment.id, signed("paid", "110000"))
+
+
+async def test_cubepay_forged_authority_cannot_close_a_payment(session, fake, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    shop, cust, started = await _start(session, "cubepay")
+    original = fake.__call__
+
+    def expired_for_strangers(request: httpx.Request) -> httpx.Response:
+        if (
+            request.url.path.endswith("verify-payment.php")
+            and json.loads(request.content)["authority"] != "CB-1"
+        ):
+            return httpx.Response(410, json={"success": False})
+        return original(request)
+
+    monkeypatch.setattr(fake, "__call__", expired_for_strangers)
+    gw.GATEWAYS["cubepay"]._transport = httpx.MockTransport(expired_for_strangers)
+    assert await engine.verify(session, started.payment.id, {"query": {"authority": "ATTACKER"}})
+    assert fake.seen[-1][2] == {"authority": "CB-1"}  # our own authority was checked, not theirs
+
+
+async def test_unset_secret_never_verifies(session, fake) -> None:  # type: ignore[no-untyped-def]
+    assert not gw.signed("", b"body", hmac.new(b"", b"body", hashlib.sha256).hexdigest())
+    assert gw.signed("k", b"body", "sha256=" + hmac.new(b"k", b"body", hashlib.sha256).hexdigest())
+    shop, cust, started = await _start(session, "variza")
+    await shop_settings.set_many(session, shop.id, {"variza_webhook_secret": ""})
+    shop_settings.invalidate(shop.id)
+    hook = _variza_hook({"event": "payment.paid", "slug": "vz-1", "amount": 100_000}, secret="")
+    assert not await engine.verify(session, started.payment.id, hook)
+
+
+async def test_staff_can_credit_what_really_arrived(session, fake) -> None:  # type: ignore[no-untyped-def]
+    shop, cust, started = await _start(session, "variza")
+    hook = _variza_hook({"event": "payment.paid", "slug": "vz-1", "amount": 90_000})
+    assert not await engine.verify(session, started.payment.id, hook)
+    await session.refresh(started.payment)
+    assert engine.awaiting_review(started.payment)
+    assert engine.disputed_credit(started.payment) == 90_000
+    assert await engine.approve_manual(session, started.payment.id, None)  # type: ignore[arg-type]
+    assert await _credited(session, shop, cust, started.payment.id) == 90_000
+    await session.refresh(started.payment)
+    assert started.payment.status == PaymentStatus.PAID and started.payment.amount == 90_000
+    assert not engine.awaiting_review(started.payment)
+
+
+async def test_late_credit_has_a_limit(session, fake) -> None:  # type: ignore[no-untyped-def]
+    shop, cust, started = await _start(session, "aqayepardakht")
+    await session.execute(
+        update(Payment)
+        .where(Payment.id == started.payment.id)
+        .values(status=PaymentStatus.EXPIRED, expires_at=utcnow() - engine.LATE_CREDIT - timedelta(hours=1))
+    )
+    calls = len(fake.seen)
+    assert not await engine.verify(session, started.payment.id, {"form": {"transid": "T-1"}})
+    assert len(fake.seen) == calls  # not even asked
+
+
+async def test_unsigned_callbacks_are_rate_limited(session, fake) -> None:  # type: ignore[no-untyped-def]
+    from paurubot import kv
+    from paurubot.api.app import create_app
+
+    shop, cust, started = await _start(session, "aqayepardakht")
+    fake.verify_ok = False
+    await session.commit()
+    pid = started.payment.id
+    await kv.reset(f"gw:aqayepardakht:{pid}")
+    before = len(fake.seen)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app()), base_url="http://t"
+    ) as client:
+        for _ in range(10):
+            await client.get("/api/pay/gw/aqayepardakht", params={"pid": pid})
+    assert len(fake.seen) - before == 6
+    await kv.reset(f"gw:aqayepardakht:{pid}")
 
 
 async def test_atlaspay_polls_and_shows_the_marked_up_amount(session, fake) -> None:  # type: ignore[no-untyped-def]

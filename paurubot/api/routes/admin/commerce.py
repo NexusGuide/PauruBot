@@ -66,6 +66,14 @@ PAYMENT_FIELDS = [
     "failure_reason",
 ]
 
+
+def payment_view(payment: Payment) -> dict[str, Any]:
+    data = plain(payment, PAYMENT_FIELDS)
+    data["reviewable"] = payments.awaiting_review(payment)
+    data["review_amount"] = payments.disputed_credit(payment)
+    return data
+
+
 ORDER_SORT = {"id": Order.id, "amount": Order.amount, "created_at": Order.created_at, "status": Order.status}
 PAYMENT_SORT = {
     "id": Payment.id,
@@ -128,7 +136,7 @@ async def list_payments(
     rows, total = await paginate(db, apply_sort(stmt, sort, PAYMENT_SORT, Payment.id), page)
     items = []
     for payment in rows:
-        data = plain(payment, PAYMENT_FIELDS)
+        data = payment_view(payment)
         data["customer"] = payment.customer.display_name
         data["has_receipt"] = bool(payment.receipt_file_id)
         items.append(data)
@@ -172,7 +180,7 @@ async def approve(
     await db.commit()
     result = await payments.fulfill_one(db, payment.id)
     await db.refresh(payment)
-    return {"payment": plain(payment, PAYMENT_FIELDS), "order_settled": bool(result and result.order_settled)}
+    return {"payment": payment_view(payment), "order_settled": bool(result and result.order_settled)}
 
 
 class RejectBody(BaseModel):
@@ -206,7 +214,7 @@ async def reject(
         shop_id=ctx.shop_id,
     )
     await db.refresh(payment)
-    return {"payment": plain(payment, PAYMENT_FIELDS)}
+    return {"payment": payment_view(payment)}
 
 
 @router.post("/orders/{order_id}/refund")
