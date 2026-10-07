@@ -388,5 +388,10 @@
   "bulk_summary": "🛒 <b>{n} × {plan}</b>\nEach: {one} Toman\nTotal: {total} Toman\nYour balance: {balance} Toman",
   "bulk_started": "✅ Paid. {n} services are being created; you'll get every link in one file when they're ready.",
   "batch_done": "📦 Your bulk purchase is ready: {ready} services. {failed} could not be created and were refunded.",
-  "report_batch": "📦 Bulk purchase: {customer} ({telegram_id}), {n} services"
+  "report_batch": "📦 Bulk purchase: {customer} ({telegram_id}), {n} services",
+  "btn_stock": "📦 Bought configs",
+  "stock_header": "📦 <b>Your bought configs</b>",
+  "stock_ready": "✅ <b>Your config is ready.</b> Copy it into your app:",
+  "order_kind_stock": "Ready config",
+  "out_of_stock": "This plan is sold out right now."
 }

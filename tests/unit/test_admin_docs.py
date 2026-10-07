@@ -130,6 +130,8 @@ def test_quoted_labels_match_the_panel() -> None:
         "Errors",
         "Change location",
         "Buy several",
+        "Bought configs",
+        "Stock",
         "Panels",
         "Backups",
         "Daily report",

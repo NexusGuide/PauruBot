@@ -40,6 +40,7 @@ PLAN_FIELDS = [
     "panel_options",
     "username_prefix",
     "addons",
+    "delivery",
 ]
 
 
@@ -104,6 +105,7 @@ class PlanBody(BaseModel):
     panel_options: PlanPanelOptions = Field(default_factory=PlanPanelOptions)
     addons: PlanAddons = Field(default_factory=PlanAddons)
     button_style: ButtonStyle = Field(default_factory=ButtonStyle)
+    delivery: Literal["panel", "stock"] = "panel"
 
     def values(self) -> dict[str, Any]:
         data = self.model_dump()
@@ -145,10 +147,16 @@ async def catalog(ctx: Reader, db: DB) -> dict[str, Any]:
             )
         ).all()
     )
+    from paurubot.core import stock
+
+    plan_list = list(plans)
+    stocked = await stock.counts(db, [p.id for p in plan_list if p.delivery == "stock"])
     plan_rows = []
-    for plan in plans:
+    for plan in plan_list:
         data = plain(plan, PLAN_FIELDS)
         data["services"] = int(counts.get(plan.id, 0))
+        if plan.id in stocked:
+            data["stock"] = stocked[plan.id]
         plan_rows.append(data)
     return {
         "locations": [plain(x, LOCATION_FIELDS) for x in locations],
@@ -161,6 +169,10 @@ async def _check_refs(db: DB, ctx: StaffContext, body: PlanBody) -> None:
     for model, value in ((Category, body.category_id), (Location, body.location_id), (Panel, body.panel_id)):
         if value is not None:
             await owned(db, model, value, ctx)
+    if body.delivery == "stock":
+        if body.location_id is None:
+            raise HTTPException(status_code=422, detail="stock_plan_needs_location")
+        return
     if body.panel_id is None and body.location_id is None:
         raise HTTPException(status_code=422, detail="plan_needs_panel_or_location")
 
@@ -284,3 +296,99 @@ async def archive_plan(row_id: int, ctx: Writer, db: DB) -> dict[str, Any]:
         db, shop_id=ctx.shop_id, actor=ctx.actor, action="plan.archive", entity="plan", entity_id=row.id
     )
     return plain(row, PLAN_FIELDS)
+
+
+# ---------------------------------------------------------------- ready-made config stock (CAT-05)
+
+
+class StockBody(BaseModel):
+    text: str = Field(min_length=1, max_length=2_000_000)
+    note: str | None = Field(default=None, max_length=128)
+
+
+def _preview(text: str) -> str:
+    return text if len(text) <= 32 else text[:24] + "…" + text[-6:]
+
+
+async def _stock_plan(db: DB, ctx: StaffContext, plan_id: int) -> Plan:
+    plan = await owned(db, Plan, plan_id, ctx)
+    if plan.delivery != "stock":
+        raise HTTPException(status_code=409, detail="not_a_stock_plan")
+    return plan
+
+
+@router.get("/plans/{plan_id}/stock")
+async def list_stock(plan_id: int, ctx: Writer, db: DB, status: str | None = None) -> dict[str, Any]:
+    from paurubot.core import stock
+    from paurubot.db.models import Customer, StockItem
+
+    plan = await _stock_plan(db, ctx, plan_id)
+    stmt = select(StockItem).where(StockItem.plan_id == plan.id).order_by(StockItem.id.desc()).limit(200)
+    if status in {stock.AVAILABLE, stock.SOLD, stock.DISABLED}:
+        stmt = stmt.where(StockItem.status == status)
+    items = []
+    for item in await db.scalars(stmt):
+        customer = await db.get(Customer, item.customer_id) if item.customer_id else None
+        items.append(
+            {
+                "id": item.id,
+                "status": item.status,
+                "note": item.note,
+                "preview": _preview(stock.payload(item)),
+                "created_at": item.created_at.isoformat(),
+                "sold_at": item.sold_at.isoformat() if item.sold_at else None,
+                "customer_id": item.customer_id,
+                "customer": customer.display_name if customer else None,
+                "order_id": item.order_id,
+            }
+        )
+    return {"counts": (await stock.counts(db, [plan.id]))[plan.id], "items": items}
+
+
+@router.post("/plans/{plan_id}/stock")
+async def add_stock(plan_id: int, body: StockBody, ctx: Writer, db: DB) -> dict[str, Any]:
+    from paurubot.core import stock
+
+    plan = await _stock_plan(db, ctx, plan_id)
+    try:
+        result = await stock.add(db, plan, body.text, body.note)
+    except stock.StockError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="stock.add",
+        entity="plan",
+        entity_id=plan.id,
+        after={"added": result.added, "duplicates": result.duplicates, "too_long": result.too_long},
+    )
+    return {"added": result.added, "duplicates": result.duplicates, "too_long": result.too_long}
+
+
+@router.get("/stock/{item_id}")
+async def show_stock_item(item_id: int, ctx: Writer, db: DB) -> dict[str, Any]:
+    """The full config, for support. Every look is audited."""
+    from paurubot.core import stock
+    from paurubot.db.models import StockItem
+
+    item = await owned(db, StockItem, item_id, ctx)
+    await record(
+        db, shop_id=ctx.shop_id, actor=ctx.actor, action="stock.view", entity="stock", entity_id=item.id
+    )
+    return {"id": item.id, "status": item.status, "payload": stock.payload(item)}
+
+
+@router.delete("/stock/{item_id}")
+async def delete_stock_item(item_id: int, ctx: Writer, db: DB) -> dict[str, bool]:
+    from paurubot.core import stock
+    from paurubot.db.models import StockItem
+
+    item = await owned(db, StockItem, item_id, ctx)
+    if item.status == stock.SOLD:
+        raise HTTPException(status_code=409, detail="stock_sold")
+    await db.delete(item)
+    await record(
+        db, shop_id=ctx.shop_id, actor=ctx.actor, action="stock.delete", entity="stock", entity_id=item_id
+    )
+    return {"ok": True}

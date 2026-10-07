@@ -28,6 +28,7 @@ from paurubot.db.models import (
     Service,
     Shop,
     Staff,
+    StockItem,
     Ticket,
 )
 from paurubot.i18n import Texts, texts_for
@@ -501,6 +502,53 @@ async def reseller_notice(session: AsyncSession, job: queue.Claimed) -> None:
         )
 
 
+async def stock_delivered(session: AsyncSession, job: queue.Claimed) -> None:
+    """Send the customer the ready-made config they bought (CAT-05)."""
+    from paurubot.bot.views import qr_png
+    from paurubot.core import stock
+
+    order = await session.get(Order, int(job.payload["order_id"]))
+    if order is None or not order.params.get("stock_item_id"):
+        return
+    customer = await session.get(Customer, order.customer_id)
+    item = await session.get(StockItem, int(order.params["stock_item_id"]))
+    if customer is None or item is None:
+        return
+    t = await _texts(session, customer)
+    config = stock.payload(item)
+    if len(config) <= 3500:
+        await _to_customer(session, customer, t("stock_ready") + "\n\n<code>" + esc(config) + "</code>")
+        if "\n" not in config and len(config) <= 1500:
+            try:
+                await telegram.send_photo(
+                    customer.telegram_id, BufferedInputFile(qr_png(config), "qr.png"), caption=t("qr_caption")
+                )
+            except telegram.Undeliverable:
+                pass
+    else:
+        try:
+            await telegram.send_document(
+                customer.telegram_id,
+                BufferedInputFile(config.encode(), f"config-{order.id}.txt"),
+                caption=t("stock_ready"),
+            )
+        except telegram.Undeliverable:
+            pass
+    await report(
+        session,
+        order.shop_id,
+        "orders",
+        t(
+            "report_order",
+            kind=t("order_kind_stock"),
+            customer=esc(customer.display_name),
+            telegram_id=customer.telegram_id,
+            amount=money(order.amount),
+            username=f"#{item.id}",
+        ),
+    )
+
+
 async def batch_done(session: AsyncSession, job: queue.Claimed) -> None:
     """When every order of a bulk purchase has finished, send all the links in one file (CAT-07)."""
     from paurubot import kv
@@ -519,7 +567,15 @@ async def batch_done(session: AsyncSession, job: queue.Claimed) -> None:
     cfg = await shop_settings.load(session, customer.shop_id)
     lines: list[str] = []
     ready = failed = 0
+    from paurubot.core import stock
+
     for order in rows:
+        if order.status == OrderStatus.COMPLETED and order.params.get("stock_item_id"):
+            item = await session.get(StockItem, int(order.params["stock_item_id"]))
+            if item is not None:
+                ready += 1
+                lines.append(f"{order.params.get('label') or order.id}\t{stock.payload(item)}")
+                continue
         service = await session.get(Service, order.service_id) if order.service_id else None
         if order.status != OrderStatus.COMPLETED or service is None:
             failed += 1
@@ -549,6 +605,7 @@ register_queue(
     QueueSpec(
         {
             "batch_progress": batch_done,
+            "stock_delivered": stock_delivered,
             "reseller_notice": reseller_notice,
             "panel_alert": panel_alert,
             "job_dead": job_dead,

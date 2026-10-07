@@ -159,10 +159,15 @@ async def draft(
             return Draft(kind, None, None, params, custom_price(cfg, custom_gb, custom_days))
         if plan is None:
             raise OrderError("plan_unavailable")
+        if plan.delivery == "stock":
+            from paurubot.core import stock
+
+            if (await stock.counts(session, [plan.id]))[plan.id][stock.AVAILABLE] < 1:
+                raise OrderError("out_of_stock")
         return Draft(kind, plan, None, params, plan.price)
     if kind == OrderKind.RENEW:
         assert service is not None
-        if plan is None or not plan.renewable:
+        if plan is None or not plan.renewable or plan.delivery == "stock":
             raise OrderError("plan_unavailable")
         if plan.panel_id and plan.panel_id != service.panel_id:
             raise OrderError("plan_wrong_panel")
@@ -183,7 +188,7 @@ async def draft(
         return Draft(kind, None, service, params, extra_days * day_price)
     if kind == OrderKind.UPGRADE:
         assert service is not None
-        if not cfg["upgrade_enabled"] or plan is None:
+        if not cfg["upgrade_enabled"] or plan is None or plan.delivery == "stock":
             raise OrderError("plan_unavailable")
         if plan.panel_id and plan.panel_id != service.panel_id:
             raise OrderError("plan_wrong_panel")

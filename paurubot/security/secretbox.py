@@ -17,7 +17,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from paurubot.config import get_settings
 from paurubot.security.redact import register_secret
 
-PURPOSES = frozenset({"panel", "bot-token", "payment", "webhook", "backup-key", "totp"})
+PURPOSES = frozenset({"panel", "bot-token", "payment", "webhook", "backup-key", "totp", "stock"})
 _SALT = b"paurubot/secretbox/v1"
 
 
@@ -44,14 +44,15 @@ def encrypt(purpose: str, plaintext: str) -> str:
     return _fernet(_master(), purpose).encrypt(plaintext.encode()).decode()
 
 
-def decrypt(purpose: str, token: str) -> str:
+def decrypt(purpose: str, token: str, *, redact_in_logs: bool = True) -> str:
     try:
         value = _fernet(_master(), purpose).decrypt(token.encode()).decode()
     except InvalidToken as exc:
         raise SecretBoxError(
             f"cannot decrypt {purpose} secret (wrong MASTER_KEY or corrupted value)"
         ) from exc
-    register_secret(value)
+    if redact_in_logs:
+        register_secret(value)
     return value
 
 
