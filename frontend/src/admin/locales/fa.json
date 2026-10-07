@@ -1327,5 +1327,16 @@
   "funnel_first_purchase": "اولین خرید",
   "funnel_repeat": "خرید دوباره",
   "funnel_from_prev": "{percent}٪ از مرحله‌ی قبل",
-  "funnel_days_to_first": "نیمی از خریدارها تا {days} روز بعد از عضویت اولین خریدشان را انجام داده‌اند."
+  "funnel_days_to_first": "نیمی از خریدارها تا {days} روز بعد از عضویت اولین خریدشان را انجام داده‌اند.",
+  "setting_info_card_enabled": "کارت تصویری سرویس",
+  "setting_info_card_enabled_hint": "روی هر سرویس دکمهٔ «کارت سرویس» می‌آید که تصویری با حجم مصرفی، روزهای باقی‌مانده، تاریخ پایان و QR می‌فرستد. بعد از خرید هم همین کارت به‌جای QR خالی فرستاده می‌شود.",
+  "setting_info_card_theme": "رنگ کارت",
+  "setting_info_card_theme_hint": "رنگ‌بندی همهٔ کارت‌های سرویس.",
+  "setting_info_card_qr": "QR روی کارت",
+  "setting_info_card_qr_hint": "اگر مشتری‌ها کارت را جایی عمومی می‌گذارند و لینک باید خصوصی بماند، خاموشش کنید.",
+  "info_card_theme_midnight": "آبی شب",
+  "info_card_theme_paper": "روشن",
+  "info_card_theme_rose": "صورتی",
+  "info_card_theme_amber": "کهربایی",
+  "err_info_card_theme_invalid": "یکی از رنگ‌های فهرست را انتخاب کنید."
 }

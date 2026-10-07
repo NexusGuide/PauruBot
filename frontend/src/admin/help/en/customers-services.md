@@ -42,6 +42,10 @@ In the services list, select several services or take every result of a filter a
 
 With **Subscription links on your domain** on, customers get a /s/... link on the bot's domain and the panel address stays hidden. In a browser the link shows a page with usage, end date and buttons that add it to an app; in VPN apps it returns the configs directly. Change the app buttons under **App buttons on the subscription page**.
 
+## Service card
+
+With **Service info card** on (the **Services** group of [Settings](/settings)), every service in the bot has a **Card** button that sends one picture with remaining data, days left, end date, location, plan and the QR. Customers can keep it or forward it to whoever uses the service. After a purchase the card is sent in place of the bare QR. **Card colours** picks the colour set, and turning off **QR on the card** leaves the link out when customers post cards publicly.
+
 ## Tickets
 
 Customers' support messages collect in [Tickets](/tickets). Your reply goes to the customer in the bot. Once it's solved, tap **Close ticket**. Resellers can also send you tickets from their own panel with **Message the shop**.

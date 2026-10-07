@@ -9,7 +9,7 @@ from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from paurubot.bot import keyboards
+from paurubot.bot import infocard, keyboards
 from paurubot.bot.callbacks import Svc
 from paurubot.bot.routers.start import menu
 from paurubot.bot.states import ServiceStates
@@ -42,6 +42,7 @@ def _service_markup(t: Texts, service: Service, cfg: dict[str, Any]):  # type: i
         extras=service_extras(cfg, service),
         upgrade=bool(cfg["upgrade_enabled"]),
         move=bool(cfg["move_enabled"]) and service.status in MOVABLE,
+        card=bool(cfg["info_card_enabled"]),
     )
 
 
@@ -166,6 +167,35 @@ async def qr(
     await call.answer()
     if isinstance(call.message, Message):
         await call.message.answer_photo(BufferedInputFile(qr_png(link), "qr.png"), caption=t("qr_caption"))
+
+
+@router.callback_query(Svc.filter(F.action == "card"))
+async def info_card(
+    call: CallbackQuery,
+    callback_data: Svc,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+) -> None:
+    """A picture of the service with usage, days left and the QR (BOT-06)."""
+    service = await owned(session, customer, callback_data.id)
+    if service is None or not cfg["info_card_enabled"]:
+        await call.answer(t("service_not_found"), show_alert=True)
+        return
+    await call.answer()
+    if not isinstance(call.message, Message):
+        return
+    try:
+        image = await infocard.make(t, service, customer_link(service, cfg), cfg, call.bot)
+    except (OSError, ValueError) as exc:
+        log.warning("info card for service %s failed: %s", service.id, exc)
+        await call.message.answer(t("infocard_failed"))
+        return
+    name = esc(service.label or service.panel_username)
+    await call.message.answer_photo(
+        BufferedInputFile(image, "card.png"), caption=t("infocard_caption", name=name)
+    )
 
 
 @router.callback_query(Svc.filter(F.action == "revoke"))

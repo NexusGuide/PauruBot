@@ -170,6 +170,13 @@ def _check_crypto(values: dict[str, Any]) -> None:
         raise HTTPException(status_code=422, detail="fx_source_invalid")
 
 
+def _check_services(values: dict[str, Any]) -> None:
+    from paurubot.bot.infocard import THEMES
+
+    if values.get("info_card_theme") not in (None, *THEMES):
+        raise HTTPException(status_code=422, detail="info_card_theme_invalid")
+
+
 @router.put("/settings")
 async def write_settings(
     body: SettingsBody, ctx: Annotated[StaffContext, Depends(require("settings.write"))], db: DB
@@ -194,6 +201,7 @@ async def write_settings(
         except BonusRuleError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     _check_crypto(body.values)
+    _check_services(body.values)
     if "app_links" in body.values:
         from paurubot.provisioning.subscription import validate_app_links
 

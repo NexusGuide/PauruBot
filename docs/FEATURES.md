@@ -158,7 +158,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | BOT-03 | Bot appearance, colored buttons, premium emoji | v1.1 | done |
 | BOT-04 | Multi-language (fa, en, ru, zh) | MVP | done |
 | BOT-05 | Help buttons and app downloads from GitHub releases | v1.1 | done |
-| BOT-06 | Generated user info card image | v2 | todo |
+| BOT-06 | Generated user info card image | v2 | done |
 | BOT-07 | Telegram Business account automation | v2 | todo |
 | BOT-08 | User color/risk tags | v1.1 | done |
 | BOT-09 | Delete-with-reason and user notification | v1.1 | done |

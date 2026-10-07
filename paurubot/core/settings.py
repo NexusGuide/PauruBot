@@ -109,6 +109,9 @@ SPECS: dict[str, Spec] = {
     "app_links": Spec(list, [], "services"),
     "move_enabled": Spec(bool, True, "services"),
     "move_price": Spec(int, 0, "services"),
+    "info_card_enabled": Spec(bool, True, "services"),
+    "info_card_theme": Spec(str, "midnight", "services"),
+    "info_card_qr": Spec(bool, True, "services"),
     # custom purchase: the customer picks data and days (CAT-03)
     "custom_buy_enabled": Spec(bool, False, "custom"),
     "custom_panel_id": Spec(int, None, "custom"),

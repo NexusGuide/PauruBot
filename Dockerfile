@@ -18,7 +18,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 # pg_dump must match the PostgreSQL 16 server, so the client comes from the PGDG repository.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl gnupg tini \
+    && apt-get install -y --no-install-recommends ca-certificates curl gnupg tini libfribidi0 \
     && install -d /usr/share/postgresql-common/pgdg \
     && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
         | gpg --dearmor -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg \

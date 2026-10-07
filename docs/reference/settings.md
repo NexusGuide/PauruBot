@@ -104,6 +104,9 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `app_links` | list | [] | App buttons on the subscription page. {url} becomes the subscription link and {title} the shop name |
 | `move_enabled` | bool | true | Customers can change location. A button on each active service moves it to another location with its remaining data and end date |
 | `move_price` | int | 0 | Location change price. 0 means free |
+| `info_card_enabled` | bool | true | Service info card. A Card button on each service sends a picture with usage, days left, end date and the QR. After a purchase the card is sent instead of the bare QR |
+| `info_card_theme` | str | "midnight" | Card colours. The colour set used for every service card |
+| `info_card_qr` | bool | true | QR on the card. Turn off if customers share cards publicly and the link should stay private |
 | `username_method` | str | "telegram_id" | Default username style |
 | `username_prefix` | str | "" | Default prefix |
 

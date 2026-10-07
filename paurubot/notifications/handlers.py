@@ -113,9 +113,26 @@ async def report(session: AsyncSession, shop_id: int, topic: str, text: str) -> 
 # --- handlers -------------------------------------------------------------------------
 
 
+async def _delivery_photo(
+    t: Texts, service: Service, link: str, cfg: dict[str, Any]
+) -> tuple[BufferedInputFile, str]:
+    """The info card when it carries the QR (BOT-06), otherwise the bare QR."""
+    from paurubot.bot import infocard
+    from paurubot.bot.views import qr_png
+
+    if cfg["info_card_enabled"] and cfg["info_card_qr"]:
+        try:
+            image = await infocard.make(t, service, link, cfg, telegram.get_bot())
+            name = esc(service.label or service.panel_username)
+            return BufferedInputFile(image, "card.png"), t("infocard_caption", name=name)
+        except (OSError, ValueError) as exc:
+            log.warning("info card for service %s failed: %s", service.id, exc)
+    return BufferedInputFile(qr_png(link), "qr.png"), t("qr_caption")
+
+
 async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
     from paurubot.bot import keyboards
-    from paurubot.bot.views import qr_png, service_card
+    from paurubot.bot.views import service_card
 
     order = await session.get(Order, int(job.payload["order_id"]))
     if order is None or order.service_id is None:
@@ -140,7 +157,11 @@ async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
     else:
         heading = t("service_updated")
     markup = keyboards.service_kb(
-        t, service, extras=service_extras(cfg, service), upgrade=bool(cfg["upgrade_enabled"])
+        t,
+        service,
+        extras=service_extras(cfg, service),
+        upgrade=bool(cfg["upgrade_enabled"]),
+        card=bool(cfg["info_card_enabled"]),
     )
     from paurubot.provisioning.subscription import customer_link
 
@@ -150,12 +171,9 @@ async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
     )
     new_link = order.kind == OrderKind.MOVE and not cfg["branded_sub_links"]
     if link and (order.kind in {OrderKind.PURCHASE, OrderKind.TRIAL} or new_link):
+        photo, caption = await _delivery_photo(t, service, link, cfg)
         try:
-            await telegram.send_photo(
-                customer.telegram_id,
-                BufferedInputFile(qr_png(link), "qr.png"),
-                caption=t("qr_caption"),
-            )
+            await telegram.send_photo(customer.telegram_id, photo, caption=caption)
         except telegram.Undeliverable:
             pass
     await report(

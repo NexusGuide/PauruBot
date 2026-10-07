@@ -134,6 +134,7 @@ def test_quoted_labels_match_the_panel() -> None:
         "Stock",
         "Lucky wheel",
         "Lottery",
+        "Card",
         "Panels",
         "Backups",
         "Daily report",

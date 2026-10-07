@@ -284,6 +284,21 @@ function SettingControl({
       </Field>
     );
   }
+  if (item.key === "info_card_theme") {
+    return (
+      <Field label={label} hint={hint}>
+        {(id) => (
+          <Select id={id} value={String(value ?? "midnight")} onChange={(e) => onChange(e.target.value)}>
+            {["midnight", "paper", "rose", "amber"].map((theme) => (
+              <option key={theme} value={theme}>
+                {t(`info_card_theme_${theme}`)}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+    );
+  }
   if (item.key === "username_method") {
     return (
       <Field label={label} hint={hint}>
