@@ -22,7 +22,7 @@ Legend: ✅ allowed · 🔸 allowed, scoped to the actor's own customers/service
 | `customers.ban`      | ✅ | ✅ | — | ✅ | — | ✅ |
 | `wallet.adjust`      | ✅ | ✅ | ✅ | — | — | ✅ |
 | `services.read`      | ✅ | ✅ | ✅ | ✅ | 🔸 | ✅ |
-| `services.write`     | ✅ | ✅ | — | ✅ | 🔸 | ✅ |
+| `services.write`     | ✅ | ✅ | — | ✅ | 🔸 | — |
 | `services.create`    | ✅ | ✅ | — | — | 🔸 | — |
 | `orders.read`        | ✅ | ✅ | ✅ | ✅ | 🔸 | ✅ |
 | `payments.read`      | ✅ | ✅ | ✅ | ✅ | — | ✅ |

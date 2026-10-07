@@ -100,7 +100,6 @@ MATRIX: dict[StaffRole, frozenset[str]] = {
             "customers.ban",
             "wallet.adjust",
             "services.read",
-            "services.write",
             "orders.read",
             "payments.read",
             "payments.review",

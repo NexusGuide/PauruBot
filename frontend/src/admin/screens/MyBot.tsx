@@ -17,6 +17,7 @@ interface BotSettings {
 
 export interface ResellerBot {
   connected: boolean;
+  blocked?: boolean;
   balance: number;
   discount_percent: number;
   metered: boolean;
@@ -94,6 +95,7 @@ export function MyBot() {
         {(data) => (
           <>
             <p className="max-w-2xl text-[0.9rem] text-[var(--hint)]">{t("my_bot_intro", { percent: data.discount_percent })}</p>
+            {data.blocked && <p className="rounded-xl bg-anar-100 px-3 py-2 text-[0.85rem] font-semibold text-anar-700">{t("my_bot_blocked")}</p>}
             {data.metered && <p className="rounded-xl bg-saffron-100 px-3 py-2 text-[0.85rem] font-semibold text-saffron-700">{t("my_bot_needs_prepaid")}</p>}
             {data.connected && (
               <Section title={t("my_bot_overview")}>
@@ -110,7 +112,7 @@ export function MyBot() {
                 </Field>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
-                <Button tone="primary" busy={busy} disabled={!token.trim() || data.metered} onClick={() => void save(true)}>
+                <Button tone="primary" busy={busy} disabled={!token.trim() || data.metered || data.blocked} onClick={() => void save(true)}>
                   {data.connected ? t("my_bot_replace") : t("my_bot_connect")}
                 </Button>
                 {data.connected && <Button tone="danger" busy={busy} onClick={() => void stop()}>{t("my_bot_stop")}</Button>}

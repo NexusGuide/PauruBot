@@ -815,6 +815,8 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
     if row is None or row.status in {JobStatus.DONE, JobStatus.CANCELED}:
         return
     bot = await telegram.bot_for(row.shop_id)
+    if bot is None:
+        raise Permanent("this shop's bot is stopped")
     if row.source_chat_id is not None and row.source_message_id is not None:
         source_chat, source_message = int(row.source_chat_id), int(row.source_message_id)
 

@@ -97,6 +97,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | PUT | `/api/admin/reseller-groups/{group_id}` | `resellers.manage` | Update group |
 | POST | `/api/admin/reseller-groups` | `resellers.manage` | Create group |
 | GET | `/api/admin/resellers/{profile_id}/billing` | `resellers.manage` | Reseller billing |
+| POST | `/api/admin/resellers/{profile_id}/bot/allow` | `resellers.manage` | Allow reseller bot |
 | POST | `/api/admin/resellers/{profile_id}/bot/stop` | `resellers.manage` | Stop reseller bot |
 | GET | `/api/admin/resellers/{profile_id}/bot` | `resellers.manage` | Reseller bot |
 | POST | `/api/admin/resellers/{profile_id}/suspend` | `resellers.manage` | Suspend reseller |

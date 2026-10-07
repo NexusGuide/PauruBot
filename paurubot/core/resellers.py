@@ -7,7 +7,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot import kv
@@ -133,9 +133,17 @@ async def pay_commission(session: AsyncSession, order: Order) -> int:
 # --- limits ------------------------------------------------------------------------
 
 
-async def check_purchase(session: AsyncSession, customer: Customer, *, kind: OrderKind, add_gb: int) -> None:
-    """Reseller limits that apply before an order is created (TEN-07, TEN-08)."""
+async def check_purchase(
+    session: AsyncSession, customer: Customer, *, kind: OrderKind, add_gb: int, bot_shop_id: int | None = None
+) -> None:
+    """Reseller limits that apply before an order is created (TEN-07, TEN-08). With `bot_shop_id`,
+    what the reseller's own bot sold counts against the same limits (TEN-04)."""
     profile = customer.reseller_profile
+    own_orders = Order.customer_id == customer.id
+    own_services = Service.customer_id == customer.id
+    if bot_shop_id is not None:
+        own_orders = or_(own_orders, Order.shop_id == bot_shop_id)
+        own_services = or_(own_services, Service.shop_id == bot_shop_id)
     if profile is None or not profile.is_current:
         return
     if profile.suspended_at is not None:
@@ -145,7 +153,7 @@ async def check_purchase(session: AsyncSession, customer: Customer, *, kind: Ord
             day_start = local(utcnow()).replace(hour=0, minute=0, second=0, microsecond=0)
             bought = await session.scalar(
                 select(func.count(Order.id)).where(
-                    Order.customer_id == customer.id,
+                    own_orders,
                     Order.kind == OrderKind.PURCHASE,
                     Order.status.in_([OrderStatus.PAID, OrderStatus.PROVISIONING, OrderStatus.COMPLETED]),
                     Order.created_at >= day_start,
@@ -156,9 +164,7 @@ async def check_purchase(session: AsyncSession, customer: Customer, *, kind: Ord
         cap = profile.max_active_services or (profile.group.max_active_services if profile.group else None)
         if cap:
             live = await session.scalar(
-                select(func.count(Service.id)).where(
-                    Service.customer_id == customer.id, Service.status.in_(LIVE)
-                )
+                select(func.count(Service.id)).where(own_services, Service.status.in_(LIVE))
             )
             if int(live or 0) >= cap:
                 raise ResellerError("reseller_service_limit", limit=cap)
@@ -167,7 +173,7 @@ async def check_purchase(session: AsyncSession, customer: Customer, *, kind: Ord
             raise ResellerError("reseller_volume_limit", limit=profile.max_total_gb)
         allotted = await session.scalar(
             select(func.coalesce(func.sum(Service.data_limit), 0)).where(
-                Service.customer_id == customer.id, Service.status.in_(LIVE)
+                own_services, Service.status.in_(LIVE)
             )
         )
         if int(allotted or 0) + add_gb * GB > profile.max_total_gb * GB:

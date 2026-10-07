@@ -1064,6 +1064,14 @@ function ResellerBotInfo({ profileId }: { profileId: number }) {
       toast(errorText(err), "error");
     }
   };
+  const allow = async () => {
+    try {
+      await run(() => call(`/api/admin/resellers/${profileId}/bot/allow`, { method: "POST" }));
+      void state.reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
   return (
     <section className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
       <h3 className="text-[0.88rem] font-bold">{t("my_bot_owner_title")}</h3>
@@ -1071,6 +1079,11 @@ function ResellerBotInfo({ profileId }: { profileId: number }) {
       {state.data.connected && (
         <Button small tone="danger" busy={busy} className="self-start" onClick={() => void stop()}>
           {t("my_bot_stop")}
+        </Button>
+      )}
+      {state.data.blocked && (
+        <Button small busy={busy} className="self-start" onClick={() => void allow()}>
+          {t("my_bot_allow")}
         </Button>
       )}
     </section>
