@@ -169,7 +169,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 |----|---------|-------|--------|
 | APP-01 | React + TypeScript Mini App: home, buy wizard, services, renew, wallet, transactions | MVP | done |
 | APP-02 | PWA install and icons | v1.1 | done |
-| APP-03 | Role-aware Mini App for resellers / admins | v2 | todo |
+| APP-03 | Role-aware Mini App for resellers / admins | v2 | done |
 
 ## Admin Web Panel
 

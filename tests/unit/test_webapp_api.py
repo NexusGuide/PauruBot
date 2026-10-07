@@ -133,3 +133,50 @@ async def test_customers_cannot_touch_each_others_services(session, app_env) -> 
     )
     assert renew.status_code == 404
     assert await session.scalar(select(Service).where(Service.id == service.id)) is not None
+
+
+async def test_staff_tools_follow_the_role(session, app_env) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.auth.staff import create_staff
+    from paurubot.db.models import AuditLog, StaffRole
+
+    client, shop = app_env["client"], app_env["shop"]
+    plain = (await client.get("/api/webapp/me", headers=h(8501))).json()
+    assert plain["staff"] is None
+    assert (await client.get("/api/webapp/staff/dashboard", headers=h(8501))).status_code == 403
+    await create_staff(
+        session, shop.id, role=StaffRole.FINANCE, username="fin8502", password=None, telegram_id=8502
+    )
+    await create_staff(
+        session, shop.id, role=StaffRole.SUPPORT, username="sup8503", password=None, telegram_id=8503
+    )
+    await session.commit()
+
+    finance = (await client.get("/api/webapp/me", headers=h(8502))).json()["staff"]
+    assert finance == {"role": "finance", "scoped": False, "dashboard": True, "review": True}
+    support = (await client.get("/api/webapp/me", headers=h(8503))).json()["staff"]
+    assert support["dashboard"] and not support["review"]
+    assert (await client.get("/api/webapp/staff/reviews", headers=h(8503))).status_code == 403
+    board = (await client.get("/api/webapp/staff/dashboard", headers=h(8503))).json()
+    assert "revenue_today" in board and "series" not in board
+
+    # a customer's card receipt shows up for finance and is approved from the Mini App
+    started = await client.post(
+        "/api/webapp/wallet/topup", headers=h(8504), json={"amount": 100_000, "method": "card"}
+    )
+    payment_id = started.json()["payment"]["payment_id"]
+    await client.post(
+        f"/api/webapp/payments/{payment_id}/receipt",
+        headers=h(8504),
+        files={"file": ("r.png", png_bytes(), "image/png")},
+    )
+    items = (await client.get("/api/webapp/staff/reviews", headers=h(8502))).json()["items"]
+    assert [i["id"] for i in items] == [payment_id] and items[0]["has_receipt"]
+    approved = await client.post(f"/api/webapp/staff/reviews/{payment_id}/approve", headers=h(8502))
+    assert approved.status_code == 200 and approved.json()["status"] == "paid"
+    again = await client.post(f"/api/webapp/staff/reviews/{payment_id}/approve", headers=h(8502))
+    assert again.status_code == 409
+    assert (await client.get("/api/webapp/staff/reviews", headers=h(8502))).json()["items"] == []
+    entry = await session.scalar(
+        select(AuditLog).where(AuditLog.action == "payment.approved", AuditLog.entity_id == payment_id)
+    )
+    assert entry is not None

@@ -50,3 +50,6 @@ Rules:
    can never hold it, and their discount can never exceed their parent's (TEN-01).
 6. Customers (bot and Mini App users) have no staff permissions. Their actions are limited to their
    own customer row, services, orders, payments and tickets; every handler loads by `(shop_id, customer_id)`.
+7. A Mini App user whose Telegram id belongs to an active staff account gets that account's role in the
+   Mini App's management view (APP-03), through the same handlers and checks as the admin API. Shop-wide
+   actions there (reviewing payments) are refused to resellers even if a role would allow them.

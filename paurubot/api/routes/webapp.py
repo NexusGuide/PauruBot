@@ -10,6 +10,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from paurubot.api.routes import webapp_staff
 from paurubot.api.webapp_auth import WebApp
 from paurubot.core import catalog, customers, orders, pricing, trials
 from paurubot.db.models import (
@@ -151,6 +152,7 @@ async def me(ctx: WebApp) -> dict[str, Any]:
         },
         "payment_methods": await payments.available(ctx.session, ctx.shop.id),
         "topup_bounds": list(await payments.topup_bounds(ctx.session, customer)),
+        "staff": await webapp_staff.describe(ctx),
     }
 
 

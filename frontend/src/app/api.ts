@@ -16,6 +16,41 @@ export interface Me {
   extras: { enabled: boolean; gb_price: number; day_price: number; upgrade: boolean };
   payment_methods: string[];
   topup_bounds: [number, number];
+  staff: StaffAccess | null;
+}
+
+export interface StaffAccess {
+  role: string;
+  scoped: boolean;
+  dashboard: boolean;
+  review: boolean;
+}
+
+export interface StaffDashboard {
+  customers?: number;
+  customers_today?: number;
+  active_services?: number;
+  revenue_today?: number;
+  revenue_month?: number;
+  orders_month?: number;
+  pending_receipts?: number;
+  open_tickets?: number;
+  spent_month?: number;
+  panels?: { id: number; name: string; active: boolean; healthy: boolean | null }[];
+  reseller?: { balance: number; debt: number; suspended: boolean; discount_percent: number; sub_resellers: number };
+}
+
+export interface Review {
+  id: number;
+  provider: string;
+  amount: number;
+  review_amount: number | null;
+  customer: string | null;
+  customer_id: number;
+  created_at: string | null;
+  has_receipt: boolean;
+  receipt_text: string | null;
+  duplicate_of_id: number | null;
 }
 
 export interface Plan {
@@ -160,4 +195,13 @@ export const api = {
   revoke: (id: number) => post<{ service: Service }>(`/services/${id}/revoke`),
   rename: (id: number, label: string) => post<{ service: Service }>(`/services/${id}/rename`, { label }),
   trial: () => post<{ order: Order }>("/trial"),
+  staffDashboard: () => get<StaffDashboard>("/staff/dashboard"),
+  reviews: () => get<{ items: Review[] }>("/staff/reviews"),
+  approve: (id: number) => post<{ status: string; order_settled: boolean }>(`/staff/reviews/${id}/approve`),
+  reject: (id: number, reason: string) => post<{ status: string }>(`/staff/reviews/${id}/reject`, { reason }),
+  receipt: async (id: number): Promise<string> => {
+    const response = await fetch(`/api/webapp/staff/reviews/${id}/receipt`, { headers: auth() });
+    if (!response.ok) throw new Error(`http_${response.status}`);
+    return URL.createObjectURL(await response.blob());
+  },
 };

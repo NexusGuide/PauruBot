@@ -45,3 +45,7 @@ Send the key in the `Authorization: Bearer pbk_...` header.
 Every important action (approving a receipt, changing a balance, changing settings, deleting a service, changing a password and so on) is recorded with who did it, when and from which address in the [Audit log](/audit), and cannot be deleted. Filter by action, for example payment, to quickly find who did what.
 
 > Never share the owner's password; give each person their own account with the smallest role they need.
+
+## Managing from the Mini App
+
+Staff whose account has a **Telegram ID** see a **Manage** entry under More in the bot's Mini App. It shows the dashboard figures their role allows, and finance, admin and owner accounts can approve or reject waiting receipts there, with the receipt picture and the same checks and [Audit log](/audit) entries as this panel. Resellers see their own services, purchases and wallet. Removing the Telegram ID from a staff account, or deactivating it, takes this away immediately.
