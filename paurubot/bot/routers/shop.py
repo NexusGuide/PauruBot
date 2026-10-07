@@ -16,7 +16,7 @@ from paurubot.bot.states import ShopStates
 from paurubot.bot.utils import Btn, error_text, show
 from paurubot.core import catalog, orders, pricing
 from paurubot.core import settings as shop_settings
-from paurubot.core.formatting import money, parse_int, processing_key
+from paurubot.core.formatting import esc, money, parse_int, processing_key
 from paurubot.db.models import Customer, DiscountCode, Order, OrderKind, OrderStatus, Plan, Service
 from paurubot.db.models import Shop as ShopRow
 from paurubot.i18n import Texts
@@ -596,7 +596,12 @@ async def bulk_count(
     await state.set_state(None)
     await state.update_data(bulk_ready={"plan": plan.id, "n": count})
     text = t(
-        "bulk_summary", n=count, plan=plan.title, one=money(one), total=money(total), balance=money(balance)
+        "bulk_summary",
+        n=count,
+        plan=esc(plan.title),
+        one=money(one),
+        total=money(total),
+        balance=money(balance),
     )
     if balance < total:
         await message.answer(text + "\n" + t("checkout_need_more", amount=money(total - balance)))

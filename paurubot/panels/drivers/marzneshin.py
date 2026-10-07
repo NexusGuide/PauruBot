@@ -16,6 +16,7 @@ from paurubot.panels.base import (
     UserSpec,
     number,
     parse_expire,
+    seg,
     whole,
 )
 from paurubot.panels.drivers.token_api import TokenApiDriver
@@ -44,7 +45,7 @@ class MarzneshinDriver(TokenApiDriver):
         return self._token
 
     def user_path(self, ref: PanelRef) -> str:
-        return f"/api/users/{ref.username}"
+        return f"/api/users/{seg(ref.username)}"
 
     @staticmethod
     def iso(value: datetime) -> str:

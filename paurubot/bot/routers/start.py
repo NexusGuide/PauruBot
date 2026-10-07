@@ -156,6 +156,16 @@ async def contact(
     await home(message, t, cfg, staff, "phone_saved")
 
 
+@router.message(Btn("btn_miniapp"))
+async def miniapp(message: Message, t: Texts, cfg: dict[str, Any], staff: StaffIdentity | None) -> None:
+    from paurubot.bot.menu import available, miniapp_button
+
+    if "miniapp" not in available(cfg):
+        await home(message, t, cfg, staff, "unknown_command")
+        return
+    await message.answer(t("miniapp_open"), reply_markup=miniapp_button(t))
+
+
 @router.message(Btn("btn_guide"))
 @router.message(Command("help"))
 async def guide(message: Message, t: Texts, cfg: dict[str, Any]) -> None:

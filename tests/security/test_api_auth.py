@@ -144,3 +144,11 @@ def test_client_ip_uses_trusted_hops_not_leftmost() -> None:
     assert client_ip("172.18.0.5", xff, trusted_hops=1) == "203.0.113.9"
     assert client_ip("172.18.0.5", xff, trusted_hops=0) == "172.18.0.5"
     assert client_ip("172.18.0.5", "garbage", trusted_hops=1) == "172.18.0.5"
+
+
+async def test_frontend_redirects_stay_on_this_site(client: httpx.AsyncClient) -> None:
+    for path in ("/app", "/admin"):
+        for query in ("", "?name=/evil.example", "?name=//evil.example"):
+            resp = await client.get(f"{path}{query}", follow_redirects=False)
+            assert resp.status_code in (302, 307)
+            assert resp.headers["location"] == f"{path}/"

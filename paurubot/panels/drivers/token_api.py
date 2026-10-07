@@ -16,6 +16,7 @@ from paurubot.panels.base import (
     UserSpec,
     number,
     parse_expire,
+    seg,
     system_figures,
     whole,
 )
@@ -57,7 +58,11 @@ class TokenApiDriver(PanelDriver):
             if resp.status_code == 404:
                 raise PanelNotFound(f"{method} {path} not found", 404)
             if resp.status_code >= 400:
-                raise PanelError(f"{method} {path} failed", resp.status_code, resp.text[:300])
+                raise PanelError(
+                    f"{method} {path} failed ({resp.status_code}): {reason(resp)}",
+                    resp.status_code,
+                    resp.text[:300],
+                )
             if not resp.content:
                 return None
             try:
@@ -104,7 +109,7 @@ class TokenApiDriver(PanelDriver):
         return int(expire_at.timestamp()) if expire_at else 0
 
     def user_path(self, ref: PanelRef) -> str:
-        return f"/api/user/{ref.username}"
+        return f"/api/user/{seg(ref.username)}"
 
     def lifecycle_fields(self, spec: UserSpec) -> dict[str, Any]:
         if spec.on_hold_days:
@@ -199,3 +204,15 @@ def _owner(value: Any) -> str | None:
     if isinstance(value, dict):
         value = value.get("username")
     return str(value) if value else None
+
+
+def reason(resp: Any) -> str:
+    """The panel's own short explanation of a refusal (FastAPI `detail`), for staff to read."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return " ".join(resp.text.split())[:200] or "no details"
+    detail = body.get("detail", body) if isinstance(body, dict) else body
+    if isinstance(detail, list):  # validation errors: [{"loc": [...], "msg": "..."}]
+        detail = "; ".join(str(d.get("msg", d)) if isinstance(d, dict) else str(d) for d in detail[:3])
+    return " ".join(str(detail).split())[:200] or "no details"

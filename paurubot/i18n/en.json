@@ -68,6 +68,8 @@
   "btn_language": "🌐 Language",
   "btn_links": "🔗 Configs",
   "btn_miniapp": "📱 Pauru app",
+  "miniapp_open": "📱 Open the Pauru app with the button below.",
+  "btn_miniapp_open": "📱 Open the app",
   "btn_more": "⬇️ More",
   "btn_new_ticket": "✉️ New ticket",
   "btn_next": "Next ▶️",

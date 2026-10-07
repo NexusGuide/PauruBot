@@ -223,7 +223,9 @@ async def test_username_methods(session) -> None:  # type: ignore[no-untyped-def
     second = await usernames.generate(session, panel, cust)
     assert first != second and first.startswith("pb")
     panel.username_method = UsernameMethod.CUSTOM_LABEL
-    assert (await usernames.generate(session, panel, cust, "Office ۱ PC")).startswith("pboffice__pc")
+    # No "__": panels like PasarGuard refuse two special characters in a row.
+    assert (await usernames.generate(session, panel, cust, "Office ۱ PC")).startswith("pboffice_pc_")
+    assert usernames.slug("a -  b__c") == "a_b_c"
 
 
 async def test_location_pool_picks_least_loaded_panel_with_room(session) -> None:  # type: ignore[no-untyped-def]
