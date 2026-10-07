@@ -141,13 +141,13 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | ID | Feature | Phase | Status |
 |----|---------|-------|--------|
 | GRW-01 | Referral system with rewards | v1.1 | done |
-| GRW-02 | Loyalty tiers, rules and rewards | v2 | todo |
-| GRW-03 | Lucky wheel | v2 | todo |
-| GRW-04 | Lottery | v2 | todo |
+| GRW-02 | Loyalty tiers, rules and rewards | v2 | done |
+| GRW-03 | Lucky wheel | v2 | done |
+| GRW-04 | Lottery | v2 | done |
 | GRW-05 | Discount codes incl. sticky discount | MVP | done |
 | GRW-06 | Broadcast with rate-limited queue and job tracking | MVP | done |
 | GRW-07 | Forced channel join | MVP | done |
-| GRW-08 | Trust channel | v2 | todo |
+| GRW-08 | Trust channel | v2 | done |
 
 ## Telegram Bot UX
 

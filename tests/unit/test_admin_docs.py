@@ -132,6 +132,8 @@ def test_quoted_labels_match_the_panel() -> None:
         "Buy several",
         "Bought configs",
         "Stock",
+        "Lucky wheel",
+        "Lottery",
         "Panels",
         "Backups",
         "Daily report",

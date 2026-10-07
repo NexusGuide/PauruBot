@@ -340,10 +340,43 @@ async def migrate_bot(session: AsyncSession, job: queue.Claimed) -> None:
     )
 
 
+async def loyalty_recount(session: AsyncSession, job: queue.Claimed) -> None:
+    """Recompute every customer's loyalty tier after the tiers change (GRW-02)."""
+    from paurubot.core import growth
+    from paurubot.core import settings as shop_settings
+    from paurubot.db.models import Customer, Order, OrderStatus
+
+    shop_id = job.shop_id
+    if shop_id is None:
+        return
+    cfg = await shop_settings.load(session, shop_id, fresh=True)
+    ids = list(
+        await session.scalars(
+            select(Customer.id).where(
+                Customer.shop_id == shop_id,
+                (Customer.tier_percent > 0)
+                | Customer.id.in_(select(Order.customer_id).where(Order.status == OrderStatus.COMPLETED)),
+            )
+        )
+    )
+    for start in range(0, len(ids), 500):
+        for customer in await session.scalars(
+            select(Customer).where(Customer.id.in_(ids[start : start + 500]))
+        ):
+            if not customer.is_reseller:
+                await growth.refresh_tier(session, customer, cfg)
+        await session.commit()
+
+
 register_queue(
     "ops",
     QueueSpec(
-        {"backup": backup_now, "import_panel": import_panel_users, "migrate": migrate_bot},
+        {
+            "backup": backup_now,
+            "import_panel": import_panel_users,
+            "migrate": migrate_bot,
+            "loyalty_recount": loyalty_recount,
+        },
         batch=1,
         lease_seconds=3600,
     ),
@@ -484,6 +517,30 @@ async def refresh_apps() -> None:
     for shop_id, cfg in configs.items():
         if cfg.get("download_apps"):
             await apps.refresh(shop_id, cfg["download_apps"], cfg.get("app_cache_chat_id"))
+
+
+@every(60, "lottery.draw")
+async def draw_lotteries() -> None:
+    """Draw every lottery whose time is up and tell the winners (GRW-04)."""
+    from paurubot.core import growth
+    from paurubot.db.models import Lottery
+
+    async with session_scope() as session:
+        due = await growth.due_lotteries(session)
+    for lottery_id in due:
+        async with session_scope() as session:
+            lottery = await session.get(Lottery, lottery_id, with_for_update=True)
+            if lottery is None or lottery.status != "open":
+                continue
+            await growth.draw(session, lottery)
+            await queue.enqueue(
+                session,
+                "notify",
+                "lottery_result",
+                {"lottery_id": lottery.id},
+                shop_id=lottery.shop_id,
+                dedupe_key=f"lottery:{lottery.id}:result",
+            )
 
 
 @every(30, "errors.flush")

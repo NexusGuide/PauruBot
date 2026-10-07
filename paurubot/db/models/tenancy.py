@@ -58,6 +58,9 @@ class Customer(Base, TimestampMixin):
     risk: Mapped[str] = mapped_column(String(8), default="none", server_default="none")
     last_seen_at: Mapped[datetime | None] = mapped_column()
     blocked_bot_at: Mapped[datetime | None] = mapped_column()
+    # Loyalty (GRW-02): lifetime spend on completed orders and the tier discount it earns.
+    total_spent: Mapped[int] = mapped_column(default=0, server_default="0")
+    tier_percent: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     reseller_profile: Mapped[ResellerProfile | None] = relationship(
         back_populates="customer", foreign_keys="ResellerProfile.customer_id", uselist=False, lazy="selectin"

@@ -23,6 +23,8 @@ BUTTONS: dict[str, str] = {
     "guide": "btn_guide",
     "apps": "btn_apps",
     "language": "btn_language",
+    "wheel": "btn_wheel",
+    "lottery": "btn_lottery",
 }
 
 DEFAULT_LAYOUT: list[list[str]] = [
@@ -31,6 +33,7 @@ DEFAULT_LAYOUT: list[list[str]] = [
     ["wallet", "trial"],
     ["referral", "reseller"],
     ["tickets", "guide"],
+    ["wheel", "lottery"],
     ["apps", "language"],
 ]
 
@@ -107,6 +110,10 @@ def available(cfg: dict[str, Any]) -> set[str]:
         hidden.add("referral")
     if not (cfg.get("download_apps") or []):
         hidden.add("apps")
+    if not cfg.get("wheel_enabled"):
+        hidden.add("wheel")
+    if not cfg.get("lottery_enabled"):
+        hidden.add("lottery")
     if not get_settings().public_url.startswith("https://"):
         hidden.add("miniapp")
     return set(BUTTONS) - hidden

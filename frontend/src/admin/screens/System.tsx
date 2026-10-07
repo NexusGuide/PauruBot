@@ -100,6 +100,78 @@ function BonusRules({ value, onChange }: { value: BonusRule[]; onChange: (value:
   );
 }
 
+interface Tier {
+  title: string;
+  min_spent: number;
+  percent: number;
+}
+
+function LoyaltyTiers({ value, onChange }: { value: Tier[]; onChange: (value: Tier[]) => void }) {
+  const { t } = useSession();
+  const update = (index: number, patch: Partial<Tier>) => onChange(value.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  return (
+    <div className="flex flex-col gap-3">
+      {value.map((tier, index) => (
+        <div key={index} className="grid gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-[1.2fr_1.2fr_0.6fr_auto]">
+          <Input aria-label={t("tier_title")} placeholder={t("tier_title")} maxLength={32} value={tier.title}
+            onChange={(e) => update(index, { title: e.target.value })} />
+          <NumberInput aria-label={t("tier_min_spent")} placeholder={t("tier_min_spent")} value={tier.min_spent}
+            onChange={(v) => update(index, { min_spent: v ?? 0 })} />
+          <NumberInput aria-label={t("percent")} placeholder="%" value={tier.percent}
+            onChange={(v) => update(index, { percent: Math.min(50, v ?? 0) })} />
+          <Button small tone="ghost" icon="close" aria-label={t("remove")} onClick={() => onChange(value.filter((_, i) => i !== index))} />
+        </div>
+      ))}
+      <Button small icon="plus" className="self-start" disabled={value.length >= 10}
+        onClick={() => onChange([...value, { title: "", min_spent: 0, percent: 5 }])}>
+        {t("add_tier")}
+      </Button>
+    </div>
+  );
+}
+
+interface Prize {
+  label: string;
+  kind: "wallet" | "discount" | "nothing";
+  value: number;
+  weight: number;
+}
+
+function WheelPrizes({ value, onChange }: { value: Prize[]; onChange: (value: Prize[]) => void }) {
+  const { t } = useSession();
+  const total = value.reduce((sum, p) => sum + (p.weight || 0), 0);
+  const update = (index: number, patch: Partial<Prize>) => onChange(value.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  return (
+    <div className="flex flex-col gap-3">
+      {value.map((prize, index) => (
+        <div key={index} className="grid gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-[1.2fr_1fr_1fr_0.7fr_auto]">
+          <Input aria-label={t("prize_label")} placeholder={t("prize_label")} maxLength={64} value={prize.label}
+            onChange={(e) => update(index, { label: e.target.value })} />
+          <Select aria-label={t("prize_kind")} value={prize.kind} onChange={(e) => update(index, { kind: e.target.value as Prize["kind"] })}>
+            <option value="wallet">{t("prize_kind_wallet")}</option>
+            <option value="discount">{t("prize_kind_discount")}</option>
+            <option value="nothing">{t("prize_kind_nothing")}</option>
+          </Select>
+          <NumberInput aria-label={t("prize_value")} placeholder={t(prize.kind === "discount" ? "percent" : "amount_toman")}
+            value={prize.value} disabled={prize.kind === "nothing"} onChange={(v) => update(index, { value: v ?? 0 })} />
+          <NumberInput aria-label={t("prize_weight")} placeholder={t("prize_weight")} value={prize.weight}
+            onChange={(v) => update(index, { weight: v ?? 0 })} />
+          <Button small tone="ghost" icon="close" aria-label={t("remove")} onClick={() => onChange(value.filter((_, i) => i !== index))} />
+          {total > 0 && (
+            <p className="text-[0.75rem] text-[var(--hint)] sm:col-span-5">
+              {t("prize_chance", { percent: Math.round(((prize.weight || 0) * 1000) / total) / 10 })}
+            </p>
+          )}
+        </div>
+      ))}
+      <Button small icon="plus" className="self-start" disabled={value.length >= 12}
+        onClick={() => onChange([...value, { label: "", kind: "wallet", value: 5000, weight: 10 }])}>
+        {t("add_prize")}
+      </Button>
+    </div>
+  );
+}
+
 interface AppLink {
   name: string;
   url: string;
@@ -227,6 +299,20 @@ function SettingControl({
       </Field>
     );
   }
+  if (item.key === "loyalty_tiers") {
+    return (
+      <Field label={label} hint={hint}>
+        {() => <LoyaltyTiers value={(value as Tier[]) ?? []} onChange={onChange} />}
+      </Field>
+    );
+  }
+  if (item.key === "wheel_prizes") {
+    return (
+      <Field label={label} hint={hint}>
+        {() => <WheelPrizes value={(value as Prize[]) ?? []} onChange={onChange} />}
+      </Field>
+    );
+  }
   if (item.key === "app_links") {
     return (
       <Field label={label} hint={hint}>
@@ -343,7 +429,7 @@ export function Settings() {
               <Section key={group} title={t(`settings_group_${group}`)}>
                 <div className="grid gap-5 md:grid-cols-2">
                   {items.map((item) => (
-                    <div key={item.key} className={["card_accounts", "topup_bonus_rules", "app_links"].includes(item.key) || item.type === "bool" ? "md:col-span-2" : ""}>
+                    <div key={item.key} className={["card_accounts", "topup_bonus_rules", "app_links", "loyalty_tiers", "wheel_prizes"].includes(item.key) || item.type === "bool" ? "md:col-span-2" : ""}>
                       <SettingControl
                         item={item}
                         value={item.key in changes ? changes[item.key] : item.value}

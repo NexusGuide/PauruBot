@@ -335,3 +335,113 @@ async def gift_redemptions(
             for r, c in rows.all()
         ]
     }
+
+
+# ---------------------------------------------------------------- lotteries (GRW-04)
+
+Sender = Annotated[StaffContext, Depends(require("broadcast.send"))]
+LOTTERY_FIELDS = [
+    "id",
+    "title",
+    "prize",
+    "prize_amount",
+    "winners",
+    "mode",
+    "starts_at",
+    "ends_at",
+    "status",
+    "result",
+]
+
+
+class LotteryBody(BaseModel):
+    title: str = Field(min_length=1, max_length=96)
+    prize: str = Field(min_length=1, max_length=255)
+    prize_amount: int = Field(default=0, ge=0, le=10**10)
+    winners: int = Field(default=1, ge=1, le=100)
+    mode: str = Field(default="join", pattern=r"^(join|purchases)$")
+    starts_at: datetime | None = None
+    ends_at: datetime
+
+
+@router.get("/lotteries")
+async def list_lotteries(ctx: Sender, db: DB) -> dict[str, Any]:
+    from paurubot.core import growth
+    from paurubot.db.models import Customer, Lottery
+
+    rows = list(
+        await db.scalars(
+            select(Lottery).where(Lottery.shop_id == ctx.shop_id).order_by(Lottery.id.desc()).limit(50)
+        )
+    )
+    items = []
+    for row in rows:
+        data = plain(row, LOTTERY_FIELDS)
+        pool = await growth.tickets(db, row)
+        data["entrants"], data["tickets"] = len(pool), sum(pool.values())
+        names = []
+        for customer_id in (row.result or {}).get("winners", []):
+            customer = await db.get(Customer, int(customer_id))
+            names.append(
+                {"id": int(customer_id), "name": customer.display_name if customer else f"#{customer_id}"}
+            )
+        data["winner_names"] = names
+        items.append(data)
+    return {"items": items}
+
+
+@router.post("/lotteries")
+async def create_lottery(body: LotteryBody, ctx: Sender, db: DB) -> dict[str, Any]:
+    from paurubot.db.base import utcnow
+    from paurubot.db.models import Lottery
+
+    starts = body.starts_at or utcnow()
+    if body.ends_at <= starts or body.ends_at <= utcnow():
+        raise HTTPException(status_code=422, detail="lottery_dates_invalid")
+    row = Lottery(shop_id=ctx.shop_id, **{**body.model_dump(), "starts_at": starts})
+    db.add(row)
+    await db.flush()
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="lottery.create",
+        entity="lottery",
+        entity_id=row.id,
+        after=snapshot(row),
+    )
+    return plain(row, LOTTERY_FIELDS)
+
+
+@router.post("/lotteries/{lottery_id}/{action}")
+async def lottery_action(lottery_id: int, action: str, ctx: Sender, db: DB) -> dict[str, Any]:
+    """`draw` now (instead of waiting for the end time) or `cancel` an open lottery."""
+    from paurubot.core import growth
+    from paurubot.db.models import Lottery
+
+    row = await owned(db, Lottery, lottery_id, ctx)
+    if row.status != "open":
+        raise HTTPException(status_code=409, detail="lottery_closed")
+    if action == "cancel":
+        row.status = "canceled"
+    elif action == "draw":
+        await growth.draw(db, row)
+        await queue.enqueue(
+            db,
+            "notify",
+            "lottery_result",
+            {"lottery_id": row.id},
+            shop_id=ctx.shop_id,
+            dedupe_key=f"lottery:{row.id}:result",
+        )
+    else:
+        raise HTTPException(status_code=404, detail="not_found")
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action=f"lottery.{action}",
+        entity="lottery",
+        entity_id=row.id,
+    )
+    return plain(row, LOTTERY_FIELDS)

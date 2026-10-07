@@ -5,7 +5,7 @@ import { Login, Setup } from "./screens/Auth";
 import { Catalog } from "./screens/Catalog";
 import { Orders, Payments } from "./screens/Commerce";
 import { CustomerPage, Customers } from "./screens/Customers";
-import { Broadcasts, Discounts } from "./screens/Growth";
+import { Broadcasts, Discounts, Lotteries } from "./screens/Growth";
 import { Home } from "./screens/Home";
 import { Panels } from "./screens/Panels";
 import { BotMenu } from "./screens/BotMenu";
@@ -55,6 +55,7 @@ function Routed() {
         <Route path="/panels" element={g("panels.read", <Panels />)} />
         <Route path="/discounts" element={g("discounts.write", <Discounts />)} />
         <Route path="/broadcasts" element={g("broadcast.send", <Broadcasts />)} />
+        <Route path="/lotteries" element={g("broadcast.send", <Lotteries />)} />
         <Route path="/resellers" element={g("resellers.manage", <Resellers />)} />
         <Route path="/sub-resellers" element={g("resellers.sub", <SubResellers />)} />
         <Route path="/billing" element={g("dashboard.view", <MyBilling />)} />

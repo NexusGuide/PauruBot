@@ -250,6 +250,8 @@ async def create(
         # Metered resellers pay for usage or service-hours instead of per order (TEN-05).
         q = pricing.Quote(d.base_price, d.base_price, 0, 0)
         d.params = {**d.params, "metered": True}
+    if q.reseller_discount and not customer.is_reseller:
+        d.params = {**d.params, "tier": pricing.reseller_percent(customer)}  # a loyalty discount (GRW-02)
     minutes = int(await shop_settings.get(session, customer.shop_id, "order_expire_minutes") or 60)
     order = Order(
         shop_id=customer.shop_id,

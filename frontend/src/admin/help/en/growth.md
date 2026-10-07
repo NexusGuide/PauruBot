@@ -1,5 +1,5 @@
-# Discounts, gifts, broadcasts and referrals
-<!-- screens: /discounts /broadcasts -->
+# Selling more: discounts, gifts, levels, the wheel and lotteries
+<!-- screens: /discounts /broadcasts /lotteries -->
 
 Tools for selling more: discount codes for purchases, gift codes for wallet credit, gifts of time and data for services, broadcasts and rewards for inviting friends.
 
@@ -29,6 +29,27 @@ To make up for an outage or for a promotion, filter services in [Services](/serv
 4. Tap **Send to everyone**.
 
 Messages go out as fast as Telegram allows, so large audiences take a few minutes. Once started, a broadcast can only be stopped, so read the text carefully before sending. People who blocked the bot are marked **Blocked the bot** on their customer page.
+
+## Loyalty levels
+
+In [Settings](/settings), **Referrals** group, turn on **Loyalty levels** and under **Levels** give each level a name, the total spend to reach it and a discount; for example "Silver" from 1 million Toman with 5%. Every completed order adds to the customer's total and they get a message when they reach a new level. The level discount applies to every purchase automatically, and the wallet shows the current level and how far the next one is. Resellers keep their own reseller discount.
+
+## Lucky wheel
+
+With **Lucky wheel** on, a **Lucky wheel** button appears in the bot. Under **Wheel prizes**, give each slice a label, a prize (wallet credit, discount code or nothing), an amount and a weight; each slice's chance is shown next to it. **Hours between spins** sets how often a customer can spin, and **Wheel only for buyers** keeps it closed to people who haven't bought yet. A discount prize is a one-time code valid for 7 days.
+
+## Lotteries
+
+In [Lotteries](/lotteries) tap **New lottery**: title, prize, an optional wallet prize per winner, how many winners and the draw time. There are two ways to enter:
+
+- **Join with a button**: customers sign up from the **Lottery** button in the bot. Turn on **Lottery button** in the settings to show it.
+- **Each purchase is a ticket**: every completed purchase between the start and the draw time is one ticket.
+
+At the draw time winners are picked by fair chance, wallet prizes are paid and the winners and staff are told. **Draw now** draws early and **Cancel** closes it with no winners.
+
+## Trust channel
+
+If you run a public channel, put its ID in **Trust channel** and make the bot an admin there. Every purchase and renewal is announced there with a masked first name (for example S***a) and the plan name, so new customers can see the shop is active. Usernames and IDs are never shown, and at most 20 posts go out per hour on busy hours.
 
 ## Referrals
 

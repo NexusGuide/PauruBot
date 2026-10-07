@@ -502,6 +502,85 @@ async def reseller_notice(session: AsyncSession, job: queue.Claimed) -> None:
         )
 
 
+async def tier_up(session: AsyncSession, job: queue.Claimed) -> None:
+    from paurubot.core import growth
+    from paurubot.core import settings as shop_settings
+
+    customer = await session.get(Customer, int(job.payload["customer_id"]))
+    if customer is None:
+        return
+    cfg = await shop_settings.load(session, customer.shop_id)
+    tier = growth.tier_for(cfg.get("loyalty_tiers") or [], customer.total_spent)
+    if tier is None:
+        return
+    t = await _texts(session, customer)
+    await _to_customer(session, customer, t("tier_up", title=esc(tier["title"]), percent=tier["percent"]))
+
+
+async def trust_post(session: AsyncSession, job: queue.Claimed) -> None:
+    """Anonymous 'someone just bought' post in the shop's public channel (GRW-08)."""
+    from paurubot import kv
+    from paurubot.core import growth
+    from paurubot.core import settings as shop_settings
+    from paurubot.db.models import Plan
+
+    order = await session.get(Order, int(job.payload["order_id"]))
+    if order is None:
+        return
+    cfg = await shop_settings.load(session, order.shop_id)
+    chat = cfg.get("trust_channel_id")
+    if not chat:
+        return
+    allowed, _ = await kv.hit(f"trust:{order.shop_id}", 20, 3600)
+    if not allowed:
+        return  # keep the channel readable on busy hours
+    customer = await session.get(Customer, order.customer_id)
+    plan = await session.get(Plan, order.plan_id) if order.plan_id else None
+    shop = await session.get(Shop, order.shop_id)
+    t = await texts_for(
+        session, order.shop_id, shop.default_locale if shop else None, {"shop": shop.title if shop else ""}
+    )
+    key = "trust_renew" if order.kind == OrderKind.RENEW else "trust_purchase"
+    text = t(
+        key,
+        name=esc(growth.masked(customer.first_name if customer else None)),
+        plan=esc(plan.title if plan else t("order_kind_purchase")),
+    )
+    try:
+        await telegram.send_text(int(chat), text)
+    except telegram.Undeliverable:
+        log.warning("trust channel post failed for shop %s", order.shop_id)
+
+
+async def lottery_result(session: AsyncSession, job: queue.Claimed) -> None:
+    from paurubot.db.models import Lottery
+
+    lottery = await session.get(Lottery, int(job.payload["lottery_id"]))
+    if lottery is None:
+        return
+    winners = [int(x) for x in (lottery.result or {}).get("winners", [])]
+    names = []
+    for customer_id in winners:
+        customer = await session.get(Customer, customer_id)
+        if customer is None:
+            continue
+        names.append(customer.display_name)
+        t = await _texts(session, customer)
+        await _to_customer(
+            session, customer, t("lottery_won", title=esc(lottery.title), prize=esc(lottery.prize))
+        )
+    shop = await session.get(Shop, lottery.shop_id)
+    t = await texts_for(session, lottery.shop_id, shop.default_locale if shop else None)
+    text = t(
+        "adm_lottery_drawn",
+        title=esc(lottery.title),
+        winners=esc(", ".join(names) or "-"),
+        entrants=int((lottery.result or {}).get("entrants", 0)),
+    )
+    await _to_staff(session, lottery.shop_id, "broadcast.send", text)
+    await report(session, lottery.shop_id, "reports", text)
+
+
 async def stock_delivered(session: AsyncSession, job: queue.Claimed) -> None:
     """Send the customer the ready-made config they bought (CAT-05)."""
     from paurubot.bot.views import qr_png
@@ -606,6 +685,9 @@ register_queue(
         {
             "batch_progress": batch_done,
             "stock_delivered": stock_delivered,
+            "tier_up": tier_up,
+            "trust_post": trust_post,
+            "lottery_result": lottery_result,
             "reseller_notice": reseller_notice,
             "panel_alert": panel_alert,
             "job_dead": job_dead,

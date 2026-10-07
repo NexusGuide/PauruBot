@@ -33,6 +33,7 @@ export const NAV_GROUPS: { key: string; items: NavItem[] }[] = [
       { to: "/panels", key: "nav_panels", icon: "panels", permission: "panels.read" },
       { to: "/discounts", key: "nav_discounts", icon: "discounts", permission: "discounts.write" },
       { to: "/broadcasts", key: "nav_broadcasts", icon: "broadcast", permission: "broadcast.send" },
+      { to: "/lotteries", key: "nav_lotteries", icon: "discounts", permission: "broadcast.send", shopWide: true },
       { to: "/resellers", key: "nav_resellers", icon: "resellers", permission: "resellers.manage" },
       { to: "/sub-resellers", key: "nav_sub_resellers", icon: "resellers", permission: "resellers.sub", resellerOnly: true },
       { to: "/reports", key: "nav_reports", icon: "reports", permission: "reports.read" },

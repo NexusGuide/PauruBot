@@ -30,8 +30,22 @@ MAX_RECEIPT_BYTES = 10 * 1024 * 1024
 
 
 async def wallet_text(session: AsyncSession, customer: Customer, t: Texts) -> str:
+    from paurubot.core import growth
+    from paurubot.core import settings as shop_settings
+
     balance = await wallet_balance(session, customer.shop_id, customer.id)
-    return t("wallet_home", balance=money(balance), id=customer.telegram_id)
+    text = t("wallet_home", balance=money(balance), id=customer.telegram_id)
+    cfg = await shop_settings.load(session, customer.shop_id)
+    tiers = cfg.get("loyalty_tiers") or []
+    if cfg.get("loyalty_enabled") and tiers and not customer.is_reseller:
+        tier = growth.tier_for(tiers, customer.total_spent)
+        if tier:
+            text += "\n" + t("tier_line", title=esc(tier["title"]), percent=tier["percent"])
+        upcoming = growth.next_tier(tiers, customer.total_spent)
+        if upcoming:
+            left = int(upcoming["min_spent"]) - int(customer.total_spent)
+            text += "\n" + t("tier_next", title=esc(upcoming["title"]), amount=money(left))
+    return text
 
 
 @router.message(Btn("btn_wallet"))

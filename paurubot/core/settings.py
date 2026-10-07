@@ -42,6 +42,23 @@ SPECS: dict[str, Spec] = {
     # referral (GRW-01)
     "referral_enabled": Spec(bool, True, "growth"),
     "referral_percent": Spec(int, 10, "growth"),
+    "loyalty_enabled": Spec(bool, False, "growth"),
+    "loyalty_tiers": Spec(list, [], "growth"),
+    "wheel_enabled": Spec(bool, False, "growth"),
+    "wheel_every_hours": Spec(int, 24, "growth"),
+    "wheel_buyers_only": Spec(bool, True, "growth"),
+    "wheel_prizes": Spec(
+        list,
+        [
+            {"label": "5,000", "kind": "wallet", "value": 5_000, "weight": 30},
+            {"label": "10%", "kind": "discount", "value": 10, "weight": 20},
+            {"label": "20,000", "kind": "wallet", "value": 20_000, "weight": 5},
+            {"label": "-", "kind": "nothing", "value": 0, "weight": 45},
+        ],
+        "growth",
+    ),
+    "lottery_enabled": Spec(bool, False, "growth"),
+    "trust_channel_id": Spec(int, None, "growth"),
     # payments
     "min_topup": Spec(int, 20_000, "payments"),
     "max_topup": Spec(int, 50_000_000, "payments"),
