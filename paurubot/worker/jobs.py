@@ -449,7 +449,7 @@ async def daily_report() -> None:
             )
         for chat_id, thread_id in targets:
             try:
-                await telegram.send_text(chat_id, text, message_thread_id=thread_id)
+                await telegram.send_text(chat_id, text, message_thread_id=thread_id, shop_id=shop_id)
             except telegram.Undeliverable:
                 log.warning("daily report to %s was not delivered", chat_id)
 

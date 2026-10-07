@@ -14,6 +14,7 @@ import {
 } from "../api";
 import { PAGE_SIZE, useAction, useList, useLoad } from "../hooks";
 import { useSession } from "../session";
+import { BotFigures, type ResellerBot } from "./MyBot";
 import {
   Async,
   Badge,
@@ -293,6 +294,7 @@ function ProfileSheet({
           ))}
         </fieldset>
         {profile.billing_mode !== "prepaid" && <BillingHistory path={`/api/admin/resellers/${profile.id}/billing`} />}
+        {profile.id && <ResellerBotInfo profileId={profile.id} />}
       </div>
     </Sheet>
   );
@@ -1045,5 +1047,32 @@ export function MyBilling() {
         <BillingHistory path="/api/admin/my/billing" />
       </Section>
     </Page>
+  );
+}
+
+
+function ResellerBotInfo({ profileId }: { profileId: number }) {
+  const { t, toast, errorText } = useSession();
+  const state = useLoad<ResellerBot>(`/api/admin/resellers/${profileId}/bot`);
+  const [busy, run] = useAction();
+  if (!state.data || !state.data.shop_id) return null;
+  const stop = async () => {
+    try {
+      await run(() => call(`/api/admin/resellers/${profileId}/bot/stop`, { method: "POST" }));
+      void state.reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <section className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
+      <h3 className="text-[0.88rem] font-bold">{t("my_bot_owner_title")}</h3>
+      <BotFigures data={state.data} />
+      {state.data.connected && (
+        <Button small tone="danger" busy={busy} className="self-start" onClick={() => void stop()}>
+          {t("my_bot_stop")}
+        </Button>
+      )}
+    </section>
   );
 }

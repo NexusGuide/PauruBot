@@ -114,7 +114,7 @@ def available(cfg: dict[str, Any]) -> set[str]:
         hidden.add("wheel")
     if not cfg.get("lottery_enabled"):
         hidden.add("lottery")
-    if not get_settings().public_url.startswith("https://"):
+    if not get_settings().public_url.startswith("https://") or not cfg.get("miniapp_enabled", True):
         hidden.add("miniapp")
     return set(BUTTONS) - hidden
 

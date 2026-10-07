@@ -1,5 +1,5 @@
 # Resellers
-<!-- screens: /resellers /sub-resellers /billing -->
+<!-- screens: /resellers /sub-resellers /billing /my-bot -->
 
 A reseller is a customer who buys at a discount and sells services to their own customers. Resellers can work from the bot and from the web panel, and always see only their own customers and services.
 
@@ -38,3 +38,12 @@ With **Bulk buying** on in the **Resellers** settings group, a **Buy several** b
 A reseller with permission to **Manage sub-resellers** can add sub-resellers in [Sub-resellers](/sub-resellers). That person must have started the bot already. A sub-reseller gets at most the parent's own discount, and when they buy, the difference between their price and the parent's is added to the parent's wallet.
 
 > If you set a channel for the **Resellers** topic in [Channels](/channels), reseller activity reports go there.
+
+## A reseller's own bot
+
+Tick **Run their own bot** in a reseller's permissions and they get [My bot](/my-bot) in their panel. There they paste a token made with @BotFather; that bot then sells your plans under their shop name and at their prices: a markup on their own price, or a fixed price per plan, never below what they pay.
+
+- Buyers in that bot are the reseller's customers: they pay the reseller (to the cards the reseller sets) and the reseller approves receipts in that bot, where they are its merchant.
+- Each sale first takes the reseller's own price from their wallet in your shop. Without enough balance the sale is refunded to the buyer and the reseller is told to top up, so nothing is handed out unpaid.
+- Only purchases and renewals are sold there; trials, extras, moves and the Mini App stay in your own bot. The reseller needs prepaid billing.
+- In the reseller's details you see how their bot is doing and can stop it at any time; its customers and services stay.

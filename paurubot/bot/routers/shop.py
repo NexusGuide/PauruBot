@@ -26,8 +26,14 @@ from paurubot.payments import engine as payments
 router = Router(name="shop")
 
 
-def priced(plans: list[Plan], customer: Customer) -> list[tuple[Plan, int]]:
-    return [(plan, pricing.quote(plan.price, customer).amount) for plan in plans]
+async def priced(session: AsyncSession, plans: list[Plan], customer: Customer) -> list[tuple[Plan, int]]:
+    from paurubot.core import resale
+
+    out = []
+    for plan in plans:
+        listed = await resale.list_price(session, plan, customer.shop_id)
+        out.append((plan, pricing.quote(listed, customer).amount))
+    return out
 
 
 async def show_start(
@@ -59,7 +65,9 @@ async def show_categories(
         await show(
             event,
             t("choose_plan"),
-            keyboards.plans_kb(t, priced(plans, customer), back_cb=Shop(step="start").pack(), custom=custom),
+            keyboards.plans_kb(
+                t, await priced(session, plans, customer), back_cb=Shop(step="start").pack(), custom=custom
+            ),
         )
         return
     await show(event, t("choose_category"), keyboards.categories_kb(t, cats, loc, bool(loose), custom=custom))
@@ -121,7 +129,9 @@ async def pick_category(
         await show(call, t("no_plans"))
         return
     back = Shop(step="loc", loc=callback_data.loc).pack()
-    await show(call, t("choose_plan"), keyboards.plans_kb(t, priced(plans, customer), back_cb=back))
+    await show(
+        call, t("choose_plan"), keyboards.plans_kb(t, await priced(session, plans, customer), back_cb=back)
+    )
 
 
 @router.callback_query(Shop.filter(F.step == "plan"))
@@ -418,7 +428,7 @@ async def renew_or_upgrade(
         t(f"choose_{callback_data.action}_plan"),
         keyboards.plans_kb(
             t,
-            priced(plans, customer),
+            await priced(session, plans, customer),
             back_cb=Svc(action="view", id=service.id).pack(),
             svc=service.id,
             kind=kind,

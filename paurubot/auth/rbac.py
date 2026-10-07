@@ -36,6 +36,7 @@ PERMISSIONS: tuple[str, ...] = (
     "staff.manage",
     "resellers.manage",
     "resellers.sub",
+    "resellers.bot",
     "backups.manage",
 )
 
@@ -87,6 +88,28 @@ MATRIX: dict[StaffRole, frozenset[str]] = {
             "tickets.reply",
             "reports.read",
             "resellers.sub",
+            "resellers.bot",
+        }
+    ),
+    # A reseller's own bot shop (TEN-04): day-to-day selling there, nothing about the platform.
+    StaffRole.MERCHANT: frozenset(
+        {
+            "dashboard.view",
+            "customers.read",
+            "customers.write",
+            "customers.ban",
+            "wallet.adjust",
+            "services.read",
+            "services.write",
+            "orders.read",
+            "payments.read",
+            "payments.review",
+            "payments.refund",
+            "broadcast.send",
+            "texts.write",
+            "tickets.read",
+            "tickets.reply",
+            "reports.read",
         }
     ),
 }
@@ -94,7 +117,7 @@ MATRIX: dict[StaffRole, frozenset[str]] = {
 # Permissions a reseller only ever holds for its own customers and services.
 SCOPED_FOR_RESELLER = MATRIX[StaffRole.RESELLER]
 # What an approved reseller gets by default; sub-resellers are granted one by one.
-DEFAULT_FOR_RESELLER = SCOPED_FOR_RESELLER - {"resellers.sub"}
+DEFAULT_FOR_RESELLER = SCOPED_FOR_RESELLER - {"resellers.sub", "resellers.bot"}
 
 
 def allowed(role: StaffRole | str, permission: str, reseller_allow_list: Iterable[str] | None = None) -> bool:

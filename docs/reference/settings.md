@@ -79,6 +79,24 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `business_quiet_minutes` | int | 30 | Stay quiet after you write (minutes). While you're talking with someone, the bot doesn't step in |
 | `business_rules` | list | [] | Keyword answers. When a message contains one of the words, its answer is sent. The first matching row wins |
 
+## Resale
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `resale_markup_percent` | int | 20 | — |
+| `resale_prices` | dict | {} | — |
+
+## Appearance
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `miniapp_enabled` | bool | true | — |
+| `menu_layout` | list | [] | — |
+| `button_styles` | dict | {} | — |
+| `help_items` | list | [] | — |
+| `download_apps` | list | [] | — |
+| `app_cache_chat_id` | int | — | — |
+
 ## Buying on the web
 
 | Key | Type | Default | Meaning |
@@ -170,16 +188,6 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `custom_max_gb` | int | 500 | Maximum data (GB) |
 | `custom_min_days` | int | 7 | Minimum days |
 | `custom_max_days` | int | 180 | Maximum days |
-
-## Appearance
-
-| Key | Type | Default | Meaning |
-|---|---|---|---|
-| `menu_layout` | list | [] | — |
-| `button_styles` | dict | {} | — |
-| `help_items` | list | [] | — |
-| `download_apps` | list | [] | — |
-| `app_cache_chat_id` | int | — | — |
 
 ## Resellers
 

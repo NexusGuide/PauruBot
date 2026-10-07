@@ -58,6 +58,9 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/migration/last` | `backups.manage` | Migration last |
 | POST | `/api/admin/migration/run` | `backups.manage` | Migration run |
 | POST | `/api/admin/migration/upload` | `backups.manage` | Store a MySQL dump or SQLite file and describe what it holds. |
+| DELETE | `/api/admin/my-bot` | `resellers.bot` | Stop my bot |
+| GET | `/api/admin/my-bot` | `resellers.bot` | My bot |
+| PUT | `/api/admin/my-bot` | `resellers.bot` | Save my bot |
 | GET | `/api/admin/my/billing` | `dashboard.view` | My billing |
 | POST | `/api/admin/orders/{order_id}/refund` | `payments.refund` | Return a completed or failed order's money to the wallet (NEW-04). The service is not touched. |
 | GET | `/api/admin/orders` | `orders.read` | List orders |
@@ -94,6 +97,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | PUT | `/api/admin/reseller-groups/{group_id}` | `resellers.manage` | Update group |
 | POST | `/api/admin/reseller-groups` | `resellers.manage` | Create group |
 | GET | `/api/admin/resellers/{profile_id}/billing` | `resellers.manage` | Reseller billing |
+| POST | `/api/admin/resellers/{profile_id}/bot/stop` | `resellers.manage` | Stop reseller bot |
+| GET | `/api/admin/resellers/{profile_id}/bot` | `resellers.manage` | Reseller bot |
 | POST | `/api/admin/resellers/{profile_id}/suspend` | `resellers.manage` | Suspend reseller |
 | GET | `/api/admin/resellers` | `resellers.manage` | Resellers |
 | PUT | `/api/admin/resellers` | `resellers.manage` | Upsert profile |
@@ -162,6 +167,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 
 | Method | Path | Access | What it does |
 |---|---|---|---|
+| POST | `/api/telegram/webhook/{shop_id}` | Telegram secret token | Updates for a reseller's own bot (TEN-04); the secret is derived from that bot's token. |
 | POST | `/api/telegram/webhook` | Telegram secret token | Telegram webhook |
 
 ## `/api/webapp`

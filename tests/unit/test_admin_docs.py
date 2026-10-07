@@ -47,8 +47,8 @@ def test_texts_built_from_server_values_exist() -> None:
     missing = [f"perm_{p.replace('.', '_')}" for p in PERMISSIONS if f"perm_{p.replace('.', '_')}" not in en]
     missing += [f"log_topic_{t}" for t in LOG_TOPICS if f"log_topic_{t}" not in en]
     shown = {
-        k: s for k, s in SPECS.items() if s.group != "appearance"
-    }  # appearance lives on the bot menu screen
+        k: s for k, s in SPECS.items() if s.group not in {"appearance", "resale"}
+    }  # appearance lives on the bot menu screen, resale on a reseller's "My bot" screen
     missing += [f"setting_{k}" for k in shown if f"setting_{k}" not in en]
     missing += sorted({f"settings_group_{s.group}" for s in shown.values()} - set(en))
     doctor = (ROOT / "paurubot" / "ops" / "doctor.py").read_text(encoding="utf-8")

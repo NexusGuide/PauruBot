@@ -90,6 +90,15 @@ def _extras(service: Service, cfg: dict[str, Any] | None) -> dict[str, int | Non
     return None if gb is None and days is None else {"gb_price": gb, "day_price": days}
 
 
+async def _priced_view(ctx: Any, plan: Plan) -> dict[str, Any]:
+    from paurubot.core import resale
+
+    listed = await resale.list_price(ctx.session, plan, ctx.shop.id)
+    view = plan_view(plan, pricing.quote(listed, ctx.customer).amount)
+    view["base_price"] = listed
+    return view
+
+
 def plan_view(plan: Plan, price: int) -> dict[str, Any]:
     return {
         "id": plan.id,
@@ -210,7 +219,7 @@ async def catalog_view(ctx: WebApp) -> dict[str, Any]:
     return {
         "locations": [{"id": loc.id, "title": loc.title, "flag": loc.flag} for loc in locations],
         "categories": [{"id": c.id, "title": c.title} for c in categories],
-        "plans": [plan_view(p, pricing.quote(p.price, ctx.customer).amount) for p in plans],
+        "plans": [await _priced_view(ctx, p) for p in plans],
         "custom": _custom_offer(ctx),
     }
 

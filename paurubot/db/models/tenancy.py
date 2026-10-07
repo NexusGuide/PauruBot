@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from paurubot.db.base import Base, TimestampMixin, UpdatedMixin, str_enum
@@ -21,6 +21,11 @@ class Shop(Base, UpdatedMixin):
     status: Mapped[ShopStatus] = mapped_column(str_enum(ShopStatus), default=ShopStatus.ACTIVE)
     bot_token_enc: Mapped[str | None] = mapped_column(Text)
     bot_username: Mapped[str | None] = mapped_column(String(64))
+    # A reseller's own bot (TEN-04): the shop it serves sells the parent's plans for that reseller.
+    reseller_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("reseller_profiles.id", ondelete="SET NULL", use_alter=True), unique=True
+    )
+    bot_user_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
 
 
 class ShopSetting(Base):

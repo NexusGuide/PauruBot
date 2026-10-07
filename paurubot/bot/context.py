@@ -21,7 +21,7 @@ from paurubot.config import get_settings
 from paurubot.core import customers
 from paurubot.core import settings as shop_settings
 from paurubot.core.shops import root_shop
-from paurubot.db.models import Customer, ForcedChannel, Shop, Staff, StaffRole
+from paurubot.db.models import Customer, ForcedChannel, Shop, ShopStatus, Staff, StaffRole
 from paurubot.db.session import get_sessionmaker
 from paurubot.i18n import Texts, texts_for
 
@@ -82,6 +82,18 @@ async def _notify(event: TelegramObject, text: str) -> None:
         pass
 
 
+async def _shop_of_bot(session: AsyncSession, bot: Any) -> int | None:
+    """The reseller shop a bot belongs to (TEN-04); None for the main bot."""
+    bot_id = getattr(bot, "id", None)
+    if not bot_id:
+        return None
+    from paurubot.notifications.telegram import bot_id_of
+
+    if bot_id == bot_id_of(get_settings().bot_token.get_secret_value()):
+        return None
+    return await session.scalar(select(Shop.id).where(Shop.bot_user_id == bot_id))
+
+
 class ContextMiddleware(BaseMiddleware):
     """Outer update middleware: opens the session and loads everything handlers need.
 
@@ -92,8 +104,10 @@ class ContextMiddleware(BaseMiddleware):
         tg_user: TgUser | None = data.get("event_from_user")
         async with get_sessionmaker()() as session:
             data["session"] = session
-            shop_id = data.get("shop_id")
+            shop_id = data.get("shop_id") or await _shop_of_bot(session, data.get("bot"))
             shop = await session.get(Shop, shop_id) if shop_id else await root_shop(session)
+            if shop is not None and shop.reseller_profile_id is not None and shop.status != ShopStatus.ACTIVE:
+                return None  # a reseller bot that was switched off
             if shop is None:
                 await _notify(event, "This bot is not set up yet.")
                 return None

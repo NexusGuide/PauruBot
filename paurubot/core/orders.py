@@ -133,6 +133,53 @@ async def draft(
     custom_days: int = 0,
     move_to: Panel | None = None,
 ) -> Draft:
+    from paurubot.core import resale
+
+    shop_resale = await resale.for_shop(session, customer.shop_id)
+    if shop_resale is not None:
+        # A reseller's own bot sells the parent's plans, purchases and renewals only (TEN-04).
+        if not shop_resale.open:
+            raise OrderError("shop_unavailable")
+        if (
+            kind not in {OrderKind.PURCHASE, OrderKind.RENEW}
+            or plan is None
+            or plan.shop_id != shop_resale.parent_id
+        ):
+            raise OrderError("plan_unavailable")
+    d = await _draft(
+        session,
+        customer,
+        kind,
+        plan=plan,
+        service=service,
+        extra_gb=extra_gb,
+        extra_days=extra_days,
+        label=label,
+        custom_gb=custom_gb,
+        custom_days=custom_days,
+        move_to=move_to,
+    )
+    if shop_resale is not None:
+        cost = resale.wholesale(shop_resale, d.base_price)
+        d.params.update(wholesale=cost, resale_profile=shop_resale.profile.id)
+        d.base_price = resale.retail(shop_resale, plan.id if plan else None, cost)
+    return d
+
+
+async def _draft(
+    session: AsyncSession,
+    customer: Customer,
+    kind: OrderKind,
+    *,
+    plan: Plan | None = None,
+    service: Service | None = None,
+    extra_gb: int = 0,
+    extra_days: int = 0,
+    label: str | None = None,
+    custom_gb: int = 0,
+    custom_days: int = 0,
+    move_to: Panel | None = None,
+) -> Draft:
     cfg = await shop_settings.load(session, customer.shop_id)
     params: dict[str, Any] = {}
     if label:

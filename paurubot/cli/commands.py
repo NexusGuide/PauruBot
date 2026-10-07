@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+from typing import Any
 
 from paurubot.cli.main import command
 from paurubot.config import get_settings
@@ -98,6 +99,14 @@ async def api(_: argparse.Namespace) -> int:
             drop_pending_updates=False,
             allowed_updates=build_dispatcher().resolve_used_update_types(),
         )
+        from paurubot.core import resale
+
+        async with session_scope() as session:
+            for shop, _token in await resale.bots(session):
+                try:
+                    await resale.point_webhook(shop.id)
+                except Exception as exc:  # one broken reseller token must not stop the api
+                    print(f"reseller bot {shop.id} webhook skipped: {exc.__class__.__name__}")
     config = uvicorn.Config(
         create_app(),
         host=settings.api_host,
@@ -180,8 +189,58 @@ async def bot(_: argparse.Namespace) -> int:
     telegram_bot = await _prepare_bot()
     await telegram_bot.delete_webhook(drop_pending_updates=False)
     dispatcher = build_dispatcher()
-    await dispatcher.start_polling(telegram_bot, allowed_updates=dispatcher.resolve_used_update_types())
-    return 0
+    while True:
+        # Reseller bots (TEN-04) poll alongside the main bot; a change to them restarts polling.
+        extra, fingerprint = await _reseller_bots()
+        watcher = asyncio.create_task(_watch_reseller_bots(dispatcher, fingerprint))
+        try:
+            await dispatcher.start_polling(
+                telegram_bot, *extra, allowed_updates=dispatcher.resolve_used_update_types()
+            )
+        finally:
+            for extra_bot in extra:
+                await extra_bot.session.close()
+        if not watcher.done():
+            watcher.cancel()
+            return 0  # stopped by a signal, not by a change of bots
+
+
+async def _reseller_bots() -> tuple[list[Any], frozenset[tuple[int, str]]]:
+    from paurubot.bot.app import set_commands
+    from paurubot.core import resale
+    from paurubot.db.session import session_scope
+    from paurubot.i18n import Texts
+    from paurubot.notifications.telegram import make_bot
+    from paurubot.security.tokens import sha256_hex
+
+    async with session_scope() as session:
+        rows = await resale.bots(session)
+    bots: list[Any] = []
+    for _shop, token in rows:
+        extra = make_bot(token)
+        try:
+            await extra.delete_webhook(drop_pending_updates=False)
+            await set_commands(extra, Texts("fa"), Texts("en"))
+        except Exception as exc:  # one broken reseller token must not stop the others
+            print(f"reseller bot skipped: {exc.__class__.__name__}")
+            await extra.session.close()
+            continue
+        bots.append(extra)
+    return bots, frozenset((shop.id, sha256_hex(token)) for shop, token in rows)
+
+
+async def _watch_reseller_bots(dispatcher: Any, fingerprint: frozenset[tuple[int, str]]) -> None:
+    from paurubot.core import resale
+    from paurubot.db.session import session_scope
+    from paurubot.security.tokens import sha256_hex
+
+    while True:
+        await asyncio.sleep(60)
+        async with session_scope() as session:
+            rows = await resale.bots(session)
+        if frozenset((shop.id, sha256_hex(token)) for shop, token in rows) != fingerprint:
+            await dispatcher.stop_polling()
+            return
 
 
 # --- backups (OPS-05) --------------------------------------------------------------

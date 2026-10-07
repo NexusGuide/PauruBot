@@ -87,6 +87,10 @@ SPECS: dict[str, Spec] = {
     "business_reply_every_hours": Spec(int, 12, "business"),
     "business_quiet_minutes": Spec(int, 30, "business"),
     "business_rules": Spec(list, [], "business"),
+    # a reseller's own bot (TEN-04); set on that bot's shop
+    "resale_markup_percent": Spec(int, 20, "resale"),
+    "resale_prices": Spec(dict, {}, "resale"),
+    "miniapp_enabled": Spec(bool, True, "appearance"),
     # guest purchase on the web (CAT-08)
     "guest_buy_enabled": Spec(bool, False, "guest"),
     "guest_plan_ids": Spec(list, [], "guest"),

@@ -37,13 +37,13 @@ import { compact } from "./Home";
 
 // ---------------------------------------------------------------- settings
 
-interface CardAccount {
+export interface CardAccount {
   number: string;
   holder: string;
   bank: string;
 }
 
-function CardAccounts({ value, onChange }: { value: CardAccount[]; onChange: (value: CardAccount[]) => void }) {
+export function CardAccounts({ value, onChange }: { value: CardAccount[]; onChange: (value: CardAccount[]) => void }) {
   const { t } = useSession();
   const update = (index: number, key: keyof CardAccount, text: string) =>
     onChange(value.map((row, i) => (i === index ? { ...row, [key]: text } : row)));
@@ -511,7 +511,7 @@ export function Settings() {
       <Async data={data} error={error} reload={reload}>
         {(value) => (
           <>
-            {Object.entries(value.groups).filter(([group]) => group !== "appearance").map(([group, items]) => (
+            {Object.entries(value.groups).filter(([group]) => group !== "appearance" && group !== "resale").map(([group, items]) => (
               <Section key={group} title={t(`settings_group_${group}`)}>
                 <div className="grid gap-5 md:grid-cols-2">
                   {items.map((item) => (

@@ -42,3 +42,39 @@ async def telegram_webhook(request: Request) -> dict[str, Any]:
     update = Update.model_validate(await request.json(), context={"bot": get_bot()})
     await dispatcher().feed_update(get_bot(), update)
     return {"ok": True}
+
+
+def shop_webhook_secret(token: str) -> str:
+    return sha256_hex("webhook:" + token)[:48]
+
+
+@router.post("/api/telegram/webhook/{shop_id}")
+async def reseller_webhook(shop_id: int, request: Request) -> dict[str, Any]:
+    """Updates for a reseller's own bot (TEN-04); the secret is derived from that bot's token."""
+    if get_settings().bot_mode != "webhook":
+        raise HTTPException(status_code=404, detail="not_found")
+    from paurubot.db.models import Shop, ShopStatus
+    from paurubot.db.session import session_scope
+    from paurubot.notifications.telegram import bot_for
+    from paurubot.security import secretbox
+
+    async with session_scope() as session:
+        shop = await session.get(Shop, shop_id)
+        token = (
+            secretbox.decrypt("bot-token", shop.bot_token_enc)
+            if shop is not None
+            and shop.bot_token_enc
+            and shop.reseller_profile_id
+            and shop.status == ShopStatus.ACTIVE
+            else None
+        )
+    if token is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    if not constant_equals(
+        request.headers.get("x-telegram-bot-api-secret-token"), shop_webhook_secret(token)
+    ):
+        raise HTTPException(status_code=403, detail="forbidden")
+    bot = await bot_for(shop_id)
+    update = Update.model_validate(await request.json(), context={"bot": bot})
+    await dispatcher().feed_update(bot, update, shop_id=shop_id)
+    return {"ok": True}
