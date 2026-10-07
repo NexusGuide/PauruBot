@@ -172,6 +172,34 @@ function WheelPrizes({ value, onChange }: { value: Prize[]; onChange: (value: Pr
   );
 }
 
+interface BusinessRule {
+  keywords: string[] | string;
+  reply: string;
+}
+
+function BusinessRules({ value, onChange }: { value: BusinessRule[]; onChange: (value: BusinessRule[]) => void }) {
+  const { t } = useSession();
+  const update = (index: number, patch: Partial<BusinessRule>) => onChange(value.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  return (
+    <div className="flex flex-col gap-3">
+      {value.map((rule, index) => (
+        <div key={index} className="grid gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-[1fr_2fr_auto]">
+          <Input aria-label={t("business_keywords")} placeholder={t("business_keywords")} maxLength={300}
+            value={Array.isArray(rule.keywords) ? rule.keywords.join(", ") : rule.keywords}
+            onChange={(e) => update(index, { keywords: e.target.value })} />
+          <Textarea aria-label={t("business_answer")} placeholder={t("business_answer")} rows={2} maxLength={1000}
+            value={rule.reply} onChange={(e) => update(index, { reply: e.target.value })} />
+          <Button small tone="ghost" icon="close" aria-label={t("remove")} onClick={() => onChange(value.filter((_, i) => i !== index))} />
+        </div>
+      ))}
+      <Button small icon="plus" className="self-start" disabled={value.length >= 40}
+        onClick={() => onChange([...value, { keywords: "", reply: "" }])}>
+        {t("business_add_rule")}
+      </Button>
+    </div>
+  );
+}
+
 interface AppLink {
   name: string;
   url: string;
@@ -335,6 +363,20 @@ function SettingControl({
       </Field>
     );
   }
+  if (item.key === "business_rules") {
+    return (
+      <Field label={label} hint={hint}>
+        {() => <BusinessRules value={(value as BusinessRule[]) ?? []} onChange={onChange} />}
+      </Field>
+    );
+  }
+  if (item.key === "business_reply") {
+    return (
+      <Field label={label} hint={hint}>
+        {(id) => <Textarea id={id} rows={3} maxLength={1000} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} />}
+      </Field>
+    );
+  }
   if (item.key === "guest_plan_ids") {
     const chosen = Array.isArray(value) ? (value as unknown[]).map(Number).filter(Number.isFinite) : [];
     return (
@@ -473,7 +515,7 @@ export function Settings() {
               <Section key={group} title={t(`settings_group_${group}`)}>
                 <div className="grid gap-5 md:grid-cols-2">
                   {items.map((item) => (
-                    <div key={item.key} className={["card_accounts", "topup_bonus_rules", "app_links", "loyalty_tiers", "wheel_prizes"].includes(item.key) || item.type === "bool" ? "md:col-span-2" : ""}>
+                    <div key={item.key} className={["card_accounts", "topup_bonus_rules", "app_links", "loyalty_tiers", "wheel_prizes", "business_rules", "business_reply", "guest_plan_ids"].includes(item.key) || item.type === "bool" ? "md:col-span-2" : ""}>
                       <SettingControl
                         item={item}
                         value={item.key in changes ? changes[item.key] : item.value}

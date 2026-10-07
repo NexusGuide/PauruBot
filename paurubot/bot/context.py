@@ -100,7 +100,19 @@ class ContextMiddleware(BaseMiddleware):
             data["shop"] = shop
             cfg = await shop_settings.load(session, shop.id)
             data["cfg"] = cfg
-            if tg_user is None or tg_user.is_bot:
+            update = event if isinstance(event, Update) else data.get("event_update")
+            business = update is not None and any(
+                getattr(update, name, None) is not None
+                for name in (
+                    "business_connection",
+                    "business_message",
+                    "edited_business_message",
+                    "deleted_business_messages",
+                )
+            )
+            if tg_user is None or tg_user.is_bot or business:
+                # Business updates come from people writing to the owner's own account: they are not
+                # bot customers, so nothing is created for them (BOT-07).
                 data["t"] = await texts_for(session, shop.id, shop.default_locale)
                 result = await handler(event, data)
                 await session.commit()

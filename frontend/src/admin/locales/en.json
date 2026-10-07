@@ -1414,5 +1414,22 @@
   "err_configuration_invalid": "Use letters, digits, dots, dashes or underscores (up to 32).",
   "err_template_user_invalid": "That doesn't look like a WG-Mate username.",
   "err_profile_invalid": "That profile name can't be used.",
-  "err_group_invalid": "That group name can't be used."
+  "err_group_invalid": "That group name can't be used.",
+  "settings_group_business": "Telegram Business",
+  "setting_business_enabled": "Answer messages to my Telegram account",
+  "setting_business_enabled_hint": "Add this bot to your account in Telegram Settings → Telegram Business → Chatbots. Only staff accounts are answered for.",
+  "setting_business_reply": "Standard reply",
+  "setting_business_reply_hint": "Sent at most once per person in the period below. {bot} becomes the link to this bot. Leave empty to answer keywords only.",
+  "setting_business_reply_every_hours": "Standard reply at most every (hours)",
+  "setting_business_quiet_minutes": "Stay quiet after you write (minutes)",
+  "setting_business_quiet_minutes_hint": "While you're talking with someone, the bot doesn't step in.",
+  "setting_business_rules": "Keyword answers",
+  "setting_business_rules_hint": "When a message contains one of the words, its answer is sent. The first matching row wins.",
+  "business_keywords": "Words, separated by commas",
+  "business_answer": "Answer",
+  "business_add_rule": "Add answer",
+  "err_business_rules_invalid": "Each row needs at least one word and an answer of up to 1000 characters.",
+  "err_business_reply_invalid": "The standard reply can be up to 1000 characters.",
+  "err_business_reply_every_hours_invalid": "Enter 1 to 720 hours.",
+  "err_business_quiet_minutes_invalid": "Enter 0 to 1440 minutes."
 }

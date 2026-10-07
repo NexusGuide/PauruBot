@@ -49,3 +49,17 @@ class LotteryEntry(Base, TimestampMixin):
     lottery_id: Mapped[int] = mapped_column(ForeignKey("lotteries.id", ondelete="CASCADE"))
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id", ondelete="CASCADE"))
     tickets: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class BusinessConnection(Base, TimestampMixin):
+    """A Telegram Business account that added the bot (BOT-07). Only staff accounts are acted on."""
+
+    __tablename__ = "business_connections"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # Telegram's connection id
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column()  # the business account owner
+    trusted: Mapped[bool] = mapped_column(default=False)  # a staff member's account
+    enabled: Mapped[bool] = mapped_column(default=True)
+    can_reply: Mapped[bool] = mapped_column(default=False)
+    replies: Mapped[int] = mapped_column(Integer, default=0)

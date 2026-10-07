@@ -486,5 +486,8 @@
   "account_no_qr": "This service signs in with a username and password; there is nothing to scan.",
   "sub_page_download_conf": "Download the .conf file",
   "sub_page_username": "Username",
-  "sub_page_password": "Password"
+  "sub_page_password": "Password",
+  "business_connected": "✅ Business account connected. People who message you get your keyword answers and, now and then, your standard reply. The bot stays quiet while you're chatting.",
+  "business_connected_off": "✅ Business account connected. Automatic replies are off; turn them on in the admin panel under Settings → Telegram Business.",
+  "business_connected_no_reply": "⚠️ Business account connected, but the bot isn't allowed to reply. Give it the right to reply to messages in Telegram's Business settings."
 }

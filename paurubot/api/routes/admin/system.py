@@ -193,6 +193,26 @@ def _check_gateways(values: dict[str, Any]) -> None:
             raise HTTPException(status_code=422, detail=f"{key}_invalid")
 
 
+def _check_business(values: dict[str, Any]) -> None:
+    from paurubot.core import business
+
+    if "business_rules" in values:
+        try:
+            values["business_rules"] = business.validate_rules(values["business_rules"])
+        except business.BusinessError as exc:
+            raise HTTPException(status_code=422, detail=exc.key) from None
+    reply = values.get("business_reply")
+    if reply is not None and (not isinstance(reply, str) or len(reply) > business.MAX_REPLY):
+        raise HTTPException(status_code=422, detail="business_reply_invalid")
+    for key, low, high in (
+        ("business_reply_every_hours", 1, 24 * 30),
+        ("business_quiet_minutes", 0, 24 * 60),
+    ):
+        value = values.get(key)
+        if value is not None and (not isinstance(value, int) or not low <= value <= high):
+            raise HTTPException(status_code=422, detail=f"{key}_invalid")
+
+
 def _check_services(values: dict[str, Any]) -> None:
     from paurubot.bot.infocard import THEMES
 
@@ -231,6 +251,7 @@ async def write_settings(
     _check_crypto(body.values)
     _check_services(body.values)
     _check_gateways(body.values)
+    _check_business(body.values)
     if "app_links" in body.values:
         from paurubot.provisioning.subscription import validate_app_links
 

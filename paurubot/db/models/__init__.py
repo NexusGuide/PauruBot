@@ -38,7 +38,7 @@ from paurubot.db.models.enums import (
     TicketStatus,
     UsernameMethod,
 )
-from paurubot.db.models.growth import Lottery, LotteryEntry, WheelSpin
+from paurubot.db.models.growth import BusinessConnection, Lottery, LotteryEntry, WheelSpin
 from paurubot.db.models.ops import (
     AuditLog,
     BotText,
@@ -67,6 +67,7 @@ __all__ = [
     "ApplicationStatus",
     "AuditLog",
     "BotText",
+    "BusinessConnection",
     "Broadcast",
     "Category",
     "Customer",
