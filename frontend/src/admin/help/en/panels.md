@@ -10,7 +10,7 @@ Every service you sell is created on one of your panels. The bot works with Pasa
 3. Enter the **Panel username** and password. On 3x-ui, an **API token** is used instead of the password when you have one. On Remnawave, Rebecca and Guard it's best to make an API token or key in the panel and give only that; for Guard also pick the panel's version (v1 or v2). On Hiddify the panel address is the admin link without the UUID at its end, the admin UUID is the API key, and **Subscription base address** is the client link without a user.
 4. Pick the panel's location so that plans in that location can create services on it.
 5. Tap **Test connection** and save.
-6. Choose the inbounds or groups new users should be created in, and save.
+6. Choose the inbounds or groups new users should be created in, and save. On PasarGuard, if the bot's admin may not read groups, type the group numbers under **Group IDs (by hand)**; with no group chosen, users go into every group that admin may use.
 
 It's best to create a separate admin for the bot on the panel. If that admin has a user or data quota, its usage shows on the panel card and you get a warning when it's nearly full.
 
