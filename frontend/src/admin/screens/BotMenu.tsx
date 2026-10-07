@@ -4,7 +4,21 @@ import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
 import { Async, Button, Empty, Field, Input, Page, Section, Select, Textarea } from "../ui";
 
-const BUTTONS = ["miniapp", "buy", "services", "wallet", "trial", "referral", "reseller", "tickets", "guide", "apps", "language"];
+const BUTTONS = [
+  "miniapp",
+  "buy",
+  "services",
+  "wallet",
+  "trial",
+  "referral",
+  "reseller",
+  "tickets",
+  "guide",
+  "apps",
+  "language",
+  "wheel",
+  "lottery",
+];
 const DEFAULT_LAYOUT = [["miniapp"], ["buy", "services"], ["wallet", "trial"], ["referral", "reseller"], ["tickets", "guide"], ["apps", "language"]];
 const LABEL_KEY: Record<string, string> = Object.fromEntries(BUTTONS.map((b) => [b, `menu_btn_${b}`]));
 const STYLES = ["", "primary", "success", "danger"];

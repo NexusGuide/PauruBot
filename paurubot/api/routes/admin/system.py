@@ -142,6 +142,20 @@ def _check_custom(values: dict[str, Any]) -> None:
             raise HTTPException(status_code=422, detail=f"{key}_invalid")
 
 
+def _check_growth(values: dict[str, Any]) -> None:
+    from paurubot.core import growth
+
+    for key, check in (("loyalty_tiers", growth.validate_tiers), ("wheel_prizes", growth.validate_prizes)):
+        if key in values:
+            try:
+                values[key] = check(values[key])
+            except growth.GrowthError as exc:
+                raise HTTPException(status_code=422, detail=exc.key) from None
+    hours = values.get("wheel_every_hours")
+    if hours is not None and (not isinstance(hours, int) or not 1 <= hours <= 24 * 90):
+        raise HTTPException(status_code=422, detail="wheel_every_hours_invalid")
+
+
 def _check_crypto(values: dict[str, Any]) -> None:
     from paurubot.payments.chains import NETWORKS, valid_address
 
@@ -189,6 +203,7 @@ async def write_settings(
             raise HTTPException(status_code=422, detail="app_links_invalid") from None
     _check_custom(body.values)
     _check_appearance(body.values)
+    _check_growth(body.values)
     before = shop_settings.public_view(await shop_settings.load(db, ctx.shop_id, fresh=True))
     try:
         await shop_settings.set_many(db, ctx.shop_id, body.values)
@@ -196,6 +211,15 @@ async def write_settings(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     after = shop_settings.public_view(await shop_settings.load(db, ctx.shop_id, fresh=True))
     changed = {k: after[k] for k in body.values}
+    if {"loyalty_enabled", "loyalty_tiers"} & set(body.values):
+        await queue.enqueue(
+            db,
+            "ops",
+            "loyalty_recount",
+            {},
+            shop_id=ctx.shop_id,
+            dedupe_key=f"loyalty:{ctx.shop_id}:{utcnow():%Y%m%d%H%M%S}",
+        )
     await record(
         db,
         shop_id=ctx.shop_id,

@@ -34,6 +34,14 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 |---|---|---|---|
 | `referral_enabled` | bool | true | Referrals on |
 | `referral_percent` | int | 10 | Reward percent. Of the referred person's first purchase |
+| `loyalty_enabled` | bool | false | Loyalty levels. Customers who spend more get a standing discount. Resellers keep their own discount |
+| `loyalty_tiers` | list | [] | Levels. Total spent on completed orders to reach each level, and its discount (up to 50%) |
+| `wheel_enabled` | bool | false | Lucky wheel. A Lucky wheel button in the bot gives a spin with a prize from the list below |
+| `wheel_every_hours` | int | 24 | Hours between spins |
+| `wheel_buyers_only` | bool | true | Wheel only for buyers |
+| `wheel_prizes` | list | [{"label": "5,000", "kind": "wallet", "value": 5000, "weight": 30}, {"label": "10%", "kind": "discount", "value": 10, "weight": 20}, {"label": "20,000", "kind": "wallet", "value": 20000, "weight": 5}, {"label": "-", "kind": "nothing", "value": 0, "weight": 45}] | Wheel prizes. The chance of each slice is its weight against the total. Discount prizes become a one-time code valid for 7 days |
+| `lottery_enabled` | bool | false | Lottery button. Shows the Lottery button in the bot. Lotteries themselves are set up on the Lotteries page |
+| `trust_channel_id` | int | — | Trust channel. ID of a public channel where the bot is an admin. Each purchase is announced there with only a masked first name |
 
 ## Payments
 

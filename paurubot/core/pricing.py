@@ -42,8 +42,11 @@ def round_price(value: float) -> int:
 
 
 def reseller_percent(customer: Customer | None) -> int:
-    if customer is None or customer.reseller_profile is None or not customer.reseller_profile.is_current:
+    """The customer's standing discount: a reseller's own, otherwise their loyalty tier (GRW-02)."""
+    if customer is None:
         return 0
+    if customer.reseller_profile is None or not customer.reseller_profile.is_current:
+        return max(0, min(50, int(customer.tier_percent or 0)))
     return customer.reseller_profile.discount_percent
 
 

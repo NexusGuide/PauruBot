@@ -73,7 +73,8 @@ def checkout_text(
         lines.append(t("checkout_label", label=esc(order.params["label"])))
     lines.append(t("checkout_price", price=money(order.base_price)))
     if order.reseller_discount:
-        lines.append(t("checkout_reseller_discount", amount=money(order.reseller_discount)))
+        key = "checkout_tier_discount" if order.params.get("tier") else "checkout_reseller_discount"
+        lines.append(t(key, amount=money(order.reseller_discount)))
     if order.code_discount:
         lines.append(t("checkout_code_discount", amount=money(order.code_discount), code=esc(code or "")))
     lines.append(t("checkout_total", amount=money(order.amount)))

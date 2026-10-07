@@ -557,3 +557,150 @@ export function Broadcasts() {
     </Page>
   );
 }
+
+// ---------------------------------------------------------------- lotteries (GRW-04)
+
+interface LotteryRow {
+  id: number;
+  title: string;
+  prize: string;
+  prize_amount: number;
+  winners: number;
+  mode: "join" | "purchases";
+  starts_at: string;
+  ends_at: string;
+  status: "open" | "drawn" | "canceled";
+  entrants: number;
+  tickets: number;
+  winner_names: { id: number; name: string }[];
+}
+
+const LOTTERY_TONE = { open: "brand", drawn: "health", canceled: "neutral" } as const;
+
+export function Lotteries() {
+  const { t, locale, toast, errorText } = useSession();
+  const confirm = useConfirm();
+  const { data, error, reload } = useLoad<{ items: LotteryRow[] }>("/api/admin/lotteries");
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ title: "", prize: "", prize_amount: 0, winners: 1, mode: "join", ends_at: null as string | null });
+  const [busy, run] = useAction();
+
+  const create = async () => {
+    try {
+      await run(() => call("/api/admin/lotteries", { method: "POST", body: form }));
+      toast(t("saved"));
+      setOpen(false);
+      setForm({ title: "", prize: "", prize_amount: 0, winners: 1, mode: "join", ends_at: null });
+      await reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  const act = async (row: LotteryRow, action: "draw" | "cancel") => {
+    const ok = await confirm({
+      title: t(`lottery_${action}_title`),
+      body: t(`lottery_${action}_body`, { title: row.title }),
+      confirm: t(`lottery_${action}`),
+      danger: action === "cancel",
+    });
+    if (!ok) return;
+    try {
+      await run(() => call(`/api/admin/lotteries/${row.id}/${action}`, { method: "POST" }));
+      await reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  return (
+    <Page
+      title={t("nav_lotteries")}
+      actions={
+        <Button tone="primary" icon="plus" onClick={() => setOpen(true)}>
+          {t("new_lottery")}
+        </Button>
+      }
+    >
+      <p className="text-[0.85rem] leading-relaxed text-[var(--hint)]">{t("lottery_intro")}</p>
+      <Async data={data} error={error} reload={reload}>
+        {(value) =>
+          value.items.length === 0 ? (
+            <Section>
+              <p className="text-[var(--hint)]">{t("lottery_empty")}</p>
+            </Section>
+          ) : (
+            <Section flush>
+              <ul className="divide-y divide-[var(--line)]">
+                {value.items.map((row) => (
+                  <li key={row.id} className="flex flex-col gap-2 px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-bold">{row.title}</span>
+                      <Badge tone={LOTTERY_TONE[row.status]}>{t(`lottery_status_${row.status}`)}</Badge>
+                    </div>
+                    <p className="text-[0.85rem]">{row.prize}</p>
+                    <p className="text-[0.8rem] text-[var(--hint)]">
+                      {t(`lottery_mode_${row.mode}`)} — {t("lottery_counts", { entrants: money(row.entrants, locale), tickets: money(row.tickets, locale) })} —{" "}
+                      <When iso={row.ends_at} time />
+                    </p>
+                    {row.winner_names.length > 0 && (
+                      <p className="text-[0.85rem]">
+                        {t("lottery_winners")}: {row.winner_names.map((w) => w.name).join(", ")}
+                      </p>
+                    )}
+                    {row.status === "open" && (
+                      <div className="flex flex-wrap gap-2">
+                        <Button small busy={busy} onClick={() => void act(row, "draw")}>
+                          {t("lottery_draw")}
+                        </Button>
+                        <Button small tone="ghost" busy={busy} onClick={() => void act(row, "cancel")}>
+                          {t("lottery_cancel")}
+                        </Button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )
+        }
+      </Async>
+      <Sheet
+        open={open}
+        onClose={() => setOpen(false)}
+        title={t("new_lottery")}
+        footer={
+          <Button tone="primary" busy={busy} disabled={!form.title.trim() || !form.prize.trim() || !form.ends_at} onClick={() => void create()}>
+            {t("save")}
+          </Button>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <Field label={t("title")}>{(id) => <Input id={id} maxLength={96} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />}</Field>
+          <Field label={t("lottery_prize_text")} hint={t("lottery_prize_text_hint")}>
+            {(id) => <Input id={id} maxLength={255} value={form.prize} onChange={(e) => setForm({ ...form, prize: e.target.value })} />}
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("lottery_prize_amount")} hint={t("lottery_prize_amount_hint")}>
+              {(id) => <NumberInput id={id} value={form.prize_amount} onChange={(v) => setForm({ ...form, prize_amount: v ?? 0 })} />}
+            </Field>
+            <Field label={t("lottery_winner_count")}>
+              {(id) => <NumberInput id={id} value={form.winners} onChange={(v) => setForm({ ...form, winners: Math.max(1, v ?? 1) })} />}
+            </Field>
+          </div>
+          <Field label={t("lottery_mode")}>
+            {(id) => (
+              <Select id={id} value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })}>
+                <option value="join">{t("lottery_mode_join")}</option>
+                <option value="purchases">{t("lottery_mode_purchases")}</option>
+              </Select>
+            )}
+          </Field>
+          <Field label={t("lottery_ends_at")}>
+            {(id) => <Input id={id} type="datetime-local" value={toLocalInput(form.ends_at)} onChange={(e) => setForm({ ...form, ends_at: fromLocalInput(e.target.value) })} />}
+          </Field>
+        </div>
+      </Sheet>
+    </Page>
+  );
+}
