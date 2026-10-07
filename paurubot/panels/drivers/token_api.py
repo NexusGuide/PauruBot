@@ -80,7 +80,16 @@ class TokenApiDriver(PanelDriver):
             data={"id": data["id"]} if data.get("id") is not None else {},
             online_at=parse_expire(data.get("online_at")),
             note=str(data.get("note") or ""),
+            owner=_owner(data.get("admin")),
         )
+
+    async def list_admins(self) -> list[str]:
+        data = await self.call("GET", "/api/admins", params={"limit": 500})
+        rows = (data.get("admins") or data.get("items")) if isinstance(data, dict) else data
+        return sorted(str(r["username"]) for r in rows or [] if isinstance(r, dict) and r.get("username"))
+
+    async def set_owner(self, ref: PanelRef, admin: str) -> None:
+        await self.call("PUT", f"{self.user_path(ref)}/set-owner", params={"admin_username": admin})
 
     async def list_users(self, offset: int = 0, limit: int = 100) -> tuple[list[PanelUser], int | None]:
         data = await self.call("GET", "/api/users", params={"offset": offset, "limit": limit})
@@ -184,3 +193,9 @@ class TokenApiDriver(PanelDriver):
     @staticmethod
     def now() -> datetime:
         return datetime.now(UTC)
+
+
+def _owner(value: Any) -> str | None:
+    if isinstance(value, dict):
+        value = value.get("username")
+    return str(value) if value else None

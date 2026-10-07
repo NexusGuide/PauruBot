@@ -449,3 +449,78 @@ async def check_now(panel_id: int, ctx: Reader, db: DB) -> dict[str, Any]:
         "uptime": up.get(panel.id),
         "check": {"ok": result.ok, "latency_ms": result.latency_ms, "error": result.error},
     }
+
+
+# ---------------------------------------------------------------- moving users between panel admins (TEN-11)
+
+
+@router.get("/panels/{panel_id}/admins")
+async def panel_admins(panel_id: int, ctx: Writer, db: DB) -> dict[str, Any]:
+    """The panel's admins and how many users each one owns."""
+    from paurubot.panels import driver_for
+    from paurubot.provisioning import importer
+
+    panel = await owned(db, Panel, panel_id, ctx)
+    try:
+        driver = await driver_for(panel)
+        names = await driver.list_admins()
+        users = await importer.all_users(panel)
+    except PanelError as exc:
+        raise HTTPException(status_code=502, detail="admins_unsupported") from exc
+    owned_by: dict[str, int] = {}
+    for user in users:
+        if user.owner:
+            owned_by[user.owner] = owned_by.get(user.owner, 0) + 1
+    rows = sorted(set(names) | set(owned_by))
+    return {"admins": [{"username": n, "users": owned_by.get(n, 0)} for n in rows], "total": len(users)}
+
+
+class TransferBody(BaseModel):
+    from_admin: str = Field(min_length=1, max_length=64)
+    to_admin: str = Field(min_length=1, max_length=64)
+
+
+@router.post("/panels/{panel_id}/transfer")
+async def transfer_users(panel_id: int, body: TransferBody, ctx: Writer, db: DB) -> dict[str, Any]:
+    """Give every user of one panel admin to another; one retrying job per user."""
+    import uuid
+
+    from paurubot.panels import driver_for
+    from paurubot.provisioning import importer
+    from paurubot.worker import queue
+
+    panel = await owned(db, Panel, panel_id, ctx)
+    if body.from_admin == body.to_admin:
+        raise HTTPException(status_code=422, detail="same_admin")
+    try:
+        if body.to_admin not in await (await driver_for(panel)).list_admins():
+            raise HTTPException(status_code=422, detail="unknown_admin")
+        users = [u for u in await importer.all_users(panel) if u.owner == body.from_admin]
+    except PanelError as exc:
+        raise HTTPException(status_code=502, detail="admins_unsupported") from exc
+    batch = uuid.uuid4().hex[:12]
+    for user in users:
+        await queue.enqueue(
+            db,
+            "bulk",
+            "set_owner",
+            {
+                "panel_id": panel.id,
+                "username": user.username,
+                "data": user.data or {},
+                "admin": body.to_admin,
+            },
+            shop_id=ctx.shop_id,
+            dedupe_key=f"owner:{batch}:{user.username}",
+            max_attempts=6,
+        )
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="panel.transfer_users",
+        entity="panel",
+        entity_id=panel.id,
+        after={"from": body.from_admin, "to": body.to_admin, "count": len(users), "batch": batch},
+    )
+    return {"queued": len(users)}

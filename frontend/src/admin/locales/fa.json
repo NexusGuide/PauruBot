@@ -1212,5 +1212,17 @@
   "err_stock_too_many": "هر بار حداکثر ۲۰۰۰ کانفیگ اضافه کن.",
   "err_not_a_stock_plan": "این پلن از موجودی نمی‌فروشد.",
   "err_out_of_stock": "موجودی تمام شده.",
-  "order_kind_stock": "کانفیگ آماده"
+  "order_kind_stock": "کانفیگ آماده",
+  "transfer_users": "جابه‌جایی بین ادمین‌ها",
+  "transfer_title": "جابه‌جایی کاربرها بین ادمین‌های {panel}",
+  "transfer_intro": "کاربرهای ادمین اول به ادمین دوم داده می‌شوند. چیز دیگری از آن‌ها تغییر نمی‌کند و اتصال مشتری‌ها قطع نمی‌شود.",
+  "transfer_from": "از ادمین",
+  "transfer_to": "به ادمین",
+  "transfer_start": "جابه‌جایی کاربرها",
+  "transfer_confirm_title": "کاربرها جابه‌جا شوند؟",
+  "transfer_confirm_body": "{n} کاربر {from} به {to} داده می‌شود.",
+  "transfer_queued": "{n} کاربر در پس‌زمینه جابه‌جا می‌شود.",
+  "err_admins_unsupported": "این پنل فهرست ادمین‌هایش را نداد.",
+  "err_unknown_admin": "این ادمین روی پنل وجود ندارد.",
+  "err_same_admin": "دو ادمین متفاوت انتخاب کن."
 }

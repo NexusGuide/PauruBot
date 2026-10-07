@@ -76,6 +76,7 @@ class MarzneshinDriver(TokenApiDriver):
             data={"id": data["id"]} if data.get("id") is not None else {},
             online_at=parse_expire(data.get("online_at")),
             note=str(data.get("note") or ""),
+            owner=str(data["owner_username"]) if data.get("owner_username") else None,
         )
 
     def service_ids(self, overrides: dict[str, Any] | None = None) -> list[int]:
