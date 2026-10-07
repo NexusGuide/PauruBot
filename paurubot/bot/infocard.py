@@ -17,6 +17,7 @@ from typing import Any
 
 import qrcode
 from PIL import Image, ImageDraw, ImageFont, features
+from qrcode.exceptions import DataOverflowError
 
 from paurubot.core.formatting import days_left, jdate, local
 from paurubot.db.models import Service, ServiceStatus
@@ -226,7 +227,10 @@ class _Canvas:
 def _qr(link: str, px: int) -> Image.Image:
     code = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, border=0)
     code.add_data(link)
-    code.make(fit=True)
+    try:
+        code.make(fit=True)
+    except DataOverflowError as exc:
+        raise ValueError("too long for a QR code") from exc
     img = code.make_image(fill_color="#111827", back_color="#FFFFFF").get_image().convert("RGB")
     return img.resize((px, px), Image.Resampling.NEAREST)
 

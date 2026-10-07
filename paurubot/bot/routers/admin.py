@@ -114,9 +114,13 @@ async def stats(call: CallbackQuery, session: AsyncSession, shop: ShopRow, t: Te
     )
     text = t(
         "adm_stats_text",
-        customers=await scalar(select(func.count(Customer.id)).where(Customer.shop_id == shop.id)),
+        customers=await scalar(
+            select(func.count(Customer.id)).where(Customer.shop_id == shop.id, Customer.telegram_id > 0)
+        ),
         customers_today=await scalar(
-            select(func.count(Customer.id)).where(Customer.shop_id == shop.id, Customer.created_at >= day)
+            select(func.count(Customer.id)).where(
+                Customer.shop_id == shop.id, Customer.telegram_id > 0, Customer.created_at >= day
+            )
         ),
         active=await scalar(
             select(func.count(Service.id)).where(

@@ -39,6 +39,8 @@ class MikrotikDriver(PanelDriver):
     kind = "mikrotik"
     supports_webhooks = False
     delivery = "account"
+    # A profile period is all or nothing, so only whole periods (renewal, another plan) are sold.
+    changes: frozenset[str] = frozenset({"renew", "upgrade", "revoke"})
 
     def _headers(self) -> dict[str, str]:
         token = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()

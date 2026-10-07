@@ -218,11 +218,17 @@ def decode_subscription(raw: str) -> list[str]:
     return [line.strip() for line in body.splitlines() if "://" in line]
 
 
+# Changes an existing account can take after it was sold. Panels that keep limits on their own side
+# (PNL-11) support fewer, and the bot neither sells nor offers the rest for their services.
+ALL_CHANGES = frozenset({"renew", "upgrade", "extra_volume", "extra_days", "gift", "revoke"})
+
+
 class PanelDriver(ABC):
     kind: str = ""
     supports_webhooks: bool = False
     # How a customer connects: a subscription link, a WireGuard .conf file, or a username and password.
     delivery: str = "subscription"
+    changes: frozenset[str] = ALL_CHANGES
 
     def __init__(
         self, http: SafeHttpClient, username: str, password: str, options: dict[str, Any] | None = None

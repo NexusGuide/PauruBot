@@ -17,6 +17,7 @@ from paurubot.db.models import BusinessConnection
 
 MAX_RULES = 40
 MAX_REPLY = 1000
+REPLIES_PER_HOUR = 6
 
 
 class BusinessError(Exception):
@@ -91,7 +92,9 @@ async def reply_for(
         return None
     answer = match(cfg.get("business_rules") or [], text)
     if answer:
-        return answer
+        allowed, _ = await kv.hit(f"biz:replies:{row.id}:{chat_id}", REPLIES_PER_HOUR, 3600)
+        # Someone repeating keywords must not make the owner's account spam them back.
+        return answer if allowed else None
     standard = str(cfg.get("business_reply") or "").strip()
     if not standard:
         return None

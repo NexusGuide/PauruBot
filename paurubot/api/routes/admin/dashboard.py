@@ -54,9 +54,13 @@ async def dashboard(ctx: Viewer, db: DB) -> dict[str, Any]:
     days = [(month + timedelta(days=i + 1)).date().isoformat() for i in range(30)]
     panels = await db.scalars(select(Panel).where(Panel.shop_id == shop).order_by(Panel.id))
     data: dict[str, Any] = {
-        "customers": await count(select(func.count(Customer.id)).where(Customer.shop_id == shop)),
+        "customers": await count(
+            select(func.count(Customer.id)).where(Customer.shop_id == shop, Customer.telegram_id > 0)
+        ),
         "customers_today": await count(
-            select(func.count(Customer.id)).where(Customer.shop_id == shop, Customer.created_at >= day)
+            select(func.count(Customer.id)).where(
+                Customer.shop_id == shop, Customer.telegram_id > 0, Customer.created_at >= day
+            )
         ),
         "active_services": await count(
             select(func.count(Service.id)).where(

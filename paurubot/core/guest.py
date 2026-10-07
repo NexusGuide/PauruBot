@@ -9,16 +9,30 @@ real Telegram account.
 
 from __future__ import annotations
 
+import ipaddress
 import secrets
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, exists, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core import catalog, orders
 from paurubot.core import settings as shop_settings
-from paurubot.db.models import Customer, Order, OrderKind, Payment, Plan, Service, Shop, ShopStatus
+from paurubot.db.base import affected, utcnow
+from paurubot.db.models import (
+    Customer,
+    LedgerAccount,
+    Order,
+    OrderKind,
+    Payment,
+    PaymentStatus,
+    Plan,
+    Service,
+    Shop,
+    ShopStatus,
+)
 from paurubot.ledger.accounts import wallet_account, wallet_balance
 from paurubot.ledger.posting import transfer
 from paurubot.payments import engine as payments
@@ -28,6 +42,9 @@ from paurubot.payments.providers.gateways import GATEWAYS
 # Online methods that finish without a person or a receipt; card transfer and Stars need Telegram.
 ONLINE_METHODS = ("zarinpal", *GATEWAYS, "nowpayments", "plisio")
 GUEST_ID_BASE = 10**15
+# A guest that never paid is removed after this; longer than a gateway may still confirm late.
+UNPAID_KEEP = timedelta(days=7)
+UNPAID = (PaymentStatus.FAILED, PaymentStatus.EXPIRED)
 
 
 class GuestError(Exception):
@@ -162,4 +179,36 @@ async def claim(session: AsyncSession, token: str, customer: Customer) -> int:
             actor=f"customer:{customer.id}",
         )
     customer.total_spent = int(customer.total_spent or 0) + int(guest.total_spent or 0)
+    guest.total_spent = 0  # counted once, on the real customer (loyalty tiers, reports)
     return int(moved.rowcount or 0)  # type: ignore[attr-defined]
+
+
+def visitor_key(address: str) -> str:
+    """Who a rate limit counts: one IPv4 address, or a whole IPv6 /64 (one home or phone line)."""
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return address[:64]
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            return str(ip.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{ip}/64", strict=False))
+    return str(ip)
+
+
+async def drop_unpaid(session: AsyncSession) -> int:
+    """Remove guests who never paid: no money in the ledger, no service, nothing still open."""
+    unpaid_only = ~exists().where(Payment.customer_id == Customer.id, Payment.status.not_in(UNPAID))
+    result = await session.execute(
+        delete(Customer)
+        .where(
+            Customer.guest_token.is_not(None),
+            Customer.telegram_id < 0,
+            Customer.created_at < utcnow() - UNPAID_KEEP,
+            ~exists().where(LedgerAccount.customer_id == Customer.id),
+            ~exists().where(Service.customer_id == Customer.id),
+            unpaid_only,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    return affected(result)

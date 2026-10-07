@@ -80,10 +80,18 @@ def extra_prices(cfg: dict[str, Any], plan: Plan | None) -> tuple[int, int] | No
     )
 
 
+def can_change(service: Service, change: str) -> bool:
+    """Whether the service's panel can apply `change` (renew, upgrade, extra_volume...) at all."""
+    from paurubot.panels.registry import changes_of
+
+    return change in changes_of(service.panel.kind if service.panel is not None else None)
+
+
 def service_extras(cfg: dict[str, Any], service: Service) -> tuple[int | None, int | None]:
     """Unit prices of extra data and extra days for one service; None where it isn't sold.
 
-    The plan decides prices (CAT-02); a panel can switch either one off (ADM-07).
+    The plan decides prices (CAT-02); a panel can switch either one off (ADM-07), and some panel
+    kinds cannot take extras at all (PNL-11).
     """
     if service.is_trial:
         return None, None
@@ -91,8 +99,16 @@ def service_extras(cfg: dict[str, Any], service: Service) -> tuple[int | None, i
     if prices is None:
         return None, None
     options = (service.panel.options if service.panel is not None else None) or {}
-    gb = None if options.get("sell_extra_volume") is False else prices[0]
-    days = None if options.get("sell_extra_days") is False else prices[1]
+    gb = (
+        None
+        if options.get("sell_extra_volume") is False or not can_change(service, "extra_volume")
+        else prices[0]
+    )
+    days = (
+        None
+        if options.get("sell_extra_days") is False or not can_change(service, "extra_days")
+        else prices[1]
+    )
     return gb, days
 
 
@@ -213,6 +229,8 @@ async def _draft(
             raise OrderError("service_not_found")
         if service.is_trial and kind != OrderKind.UPGRADE:
             raise OrderError("trial_not_renewable")
+        if kind in {OrderKind.RENEW, OrderKind.UPGRADE} and not can_change(service, kind.value):
+            raise OrderError("plan_unavailable")
     if kind == OrderKind.PURCHASE:
         if plan is None and (custom_gb or custom_days):
             params["custom"] = {"gb": custom_gb, "days": custom_days}

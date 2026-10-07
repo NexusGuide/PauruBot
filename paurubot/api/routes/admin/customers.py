@@ -439,6 +439,10 @@ async def service_action(
         if body.action in {"enable", "disable"}:
             await lifecycle.set_enabled(db, service, body.action == "enable", "staff")
         elif body.action == "revoke":
+            from paurubot.core.orders import can_change
+
+            if not can_change(service, "revoke"):
+                raise HTTPException(status_code=422, detail="panel_cannot_revoke")
             await lifecycle.revoke(db, service)
         elif body.action == "reset_usage":
             if ctx.scoped:  # fresh data for nothing: the same as a free extension
@@ -454,6 +458,10 @@ async def service_action(
         else:
             if ctx.scoped:
                 raise HTTPException(status_code=403, detail="forbidden")
+            from paurubot.core.orders import can_change
+
+            if not can_change(service, "gift"):
+                raise HTTPException(status_code=422, detail="panel_cannot_extend")
             await lifecycle.extend(db, service, days=body.days, gb=body.gb)
     except PanelError as exc:
         raise HTTPException(status_code=502, detail="panel_error") from exc

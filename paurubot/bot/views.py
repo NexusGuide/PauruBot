@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import io
 
 import qrcode
+from qrcode.exceptions import DataOverflowError
 
 from paurubot.core.formatting import days_left, esc, jdate, money, size
 from paurubot.db.models import Order, Plan, Service
@@ -89,8 +91,17 @@ def checkout_text(
     return "\n".join(lines)
 
 
-def qr_png(data: str) -> bytes:
-    img = qrcode.make(data, box_size=8, border=2)
+def qr_png(data: str) -> bytes | None:
+    """A QR code as PNG, or None when the text is too long for one (a long WireGuard file)."""
+    try:
+        img = qrcode.make(data, box_size=8, border=2)
+    except DataOverflowError:
+        return None
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
+
+
+def qr_base64(data: str) -> str:
+    png = qr_png(data) if data else None
+    return base64.b64encode(png).decode() if png else ""

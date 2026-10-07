@@ -204,6 +204,7 @@
   "plan_wrong_panel": "This plan doesn't belong to this service's server.",
   "processing": "Processing…",
   "qr_caption": "📷 Scan this QR code in your app.",
+  "qr_too_long": "This link is too long for a QR code; copy the link itself instead.",
   "receipt_expected": "Please send a photo of the receipt.",
   "receipt_received": "✅ Receipt received. We'll let you know once it's reviewed.",
   "receipt_too_large": "The file is too large; please send a photo of the receipt.",
@@ -493,5 +494,6 @@
   "shop_unavailable": "Sales are paused in this shop right now. Please try again later.",
   "reseller_balance_low": "The shop couldn't complete this order right now, so your payment was returned to your wallet.",
   "reseller_unavailable": "The shop couldn't complete this order right now, so your payment was returned to your wallet.",
-  "adm_reseller_balance_low": "⚠️ Order #{id} was refunded: your wallet in the main shop doesn't cover its price of {amount} Toman. Top it up so your bot can keep selling."
+  "adm_reseller_balance_low": "⚠️ Order #{id} was refunded: your wallet in the main shop doesn't cover its price of {amount} Toman. Top it up so your bot can keep selling.",
+  "guest_return_lost": "Open the purchase page from the address you saved, or from the browser you paid in."
 }

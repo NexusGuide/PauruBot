@@ -90,7 +90,13 @@ async def test_web_purchase_end_to_end_and_claim(session, store) -> None:  # typ
         params={"pid": payment_id, "transid": "T-1"},
         headers={"accept": "text/html"},
     )
-    assert back.status_code == 303 and back.headers["location"] == f"/buy/t/{token}"
+    assert back.status_code == 303 and back.headers["location"] == "/buy/return"
+    assert token not in back.text
+    returned = await client.get("/buy/return")  # the browser that started the purchase holds the cookie
+    assert returned.status_code == 303 and returned.headers["location"] == f"/buy/t/{token}"
+    client.cookies.clear()
+    lost = await client.get("/buy/return?lang=en")
+    assert lost.status_code != 303 and token not in lost.text  # another browser learns nothing
     building = await client.get(f"/buy/t/{token}?lang=en")
     assert "being set up" in building.text
     await drain(session, "provision")
@@ -100,8 +106,11 @@ async def test_web_purchase_end_to_end_and_claim(session, store) -> None:  # typ
     assert service is not None and service.panel_username.startswith("g")
 
     real = await factories.customer(session, shop, telegram_id=88001)
+    spent = customer.total_spent
     assert await guest.claim(session, token, real) == 1
     await session.commit()
+    await session.refresh(customer)
+    assert customer.total_spent == 0 and real.total_spent == spent  # counted once
     await session.refresh(service)
     assert service.customer_id == real.id
     order = await session.scalar(select(Order).where(Order.service_id == service.id))
@@ -147,3 +156,38 @@ async def test_claim_rules(session, store) -> None:  # type: ignore[no-untyped-d
         await guest.claim(session, str(visitor.guest_token), stranger)  # another shop's guest
     with pytest.raises(guest.GuestError):
         await guest.claim(session, "nope", stranger)
+
+
+def test_visitors_are_counted_per_line() -> None:
+    assert guest.visitor_key("203.0.113.9") == "203.0.113.9"
+    assert guest.visitor_key("2001:db8:1:2:aaaa::1") == guest.visitor_key("2001:db8:1:2:ffff::9")
+    assert guest.visitor_key("2001:db8:1:2::1") != guest.visitor_key("2001:db8:1:3::1")
+    assert guest.visitor_key("::ffff:203.0.113.9") == "203.0.113.9"
+    assert guest.visitor_key("not-an-ip") == "not-an-ip"
+
+
+async def test_unpaid_guests_are_cleaned_up(session, store) -> None:  # type: ignore[no-untyped-def]
+    from datetime import timedelta
+
+    from sqlalchemy import update
+
+    from paurubot.db.base import utcnow
+    from paurubot.db.models import Payment, PaymentStatus
+
+    shop, plan, _ = store
+    old_unpaid = (await guest.start(session, shop.id, plan.id, "aqayepardakht", "fa")).customer
+    old_open = (await guest.start(session, shop.id, plan.id, "aqayepardakht", "fa")).customer
+    fresh = (await guest.start(session, shop.id, plan.id, "aqayepardakht", "fa")).customer
+    await session.execute(
+        update(Payment).where(Payment.customer_id == old_unpaid.id).values(status=PaymentStatus.EXPIRED)
+    )
+    await session.execute(
+        update(Customer)
+        .where(Customer.id.in_([old_unpaid.id, old_open.id]))
+        .values(created_at=utcnow() - timedelta(days=8))
+    )
+    await session.commit()
+    assert await guest.drop_unpaid(session) == 1
+    await session.commit()
+    left = set(await session.scalars(select(Customer.id).where(Customer.guest_token.is_not(None))))
+    assert old_unpaid.id not in left and {old_open.id, fresh.id} <= left

@@ -19,7 +19,7 @@ from paurubot.api.deps import StaffContext
 from paurubot.api.webapp_auth import WebApp, WebAppContext
 from paurubot.auth import rbac
 from paurubot.auth import staff as staff_service
-from paurubot.db.models import Payment, PaymentStatus, Staff
+from paurubot.db.models import Payment, Staff
 from paurubot.payments import engine as payments
 
 router = APIRouter(prefix="/api/webapp/staff", tags=["webapp"])
@@ -97,10 +97,7 @@ async def reviews(ctx: WebApp) -> dict[str, Any]:
     await _need(ctx, "payments.review", shop_wide=True)
     rows = await ctx.session.scalars(
         select(Payment)
-        .where(
-            Payment.shop_id == ctx.shop.id,
-            Payment.status.in_([PaymentStatus.VERIFYING, PaymentStatus.DISPUTED]),
-        )
+        .where(Payment.shop_id == ctx.shop.id, payments.review_filter())
         .order_by(Payment.id)
         .limit(REVIEW_PAGE * 3)
     )

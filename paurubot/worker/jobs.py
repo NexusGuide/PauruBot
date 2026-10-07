@@ -218,6 +218,17 @@ def retention_days(cfg: dict[str, object]) -> int:
     return min(max(days, 1), 365)
 
 
+@every(3600, "guests.cleanup")
+async def cleanup_guests() -> None:
+    """Web guests who never paid leave no rows behind (CAT-08)."""
+    from paurubot.core import guest
+
+    async with session_scope() as session:
+        dropped = await guest.drop_unpaid(session)
+    if dropped:
+        log.info("removed %s unpaid web guests", dropped)
+
+
 @every(86400, "jobs.cleanup")
 async def cleanup_jobs() -> None:
     """Drop finished queue rows after each shop's log retention, two weeks by default (JOB-04)."""

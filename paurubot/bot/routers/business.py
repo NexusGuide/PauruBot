@@ -12,7 +12,6 @@ from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.bot.context import resolve_staff
-from paurubot.config import get_settings
 from paurubot.core import business
 from paurubot.db.models import BusinessConnection, Shop
 from paurubot.i18n import Texts
@@ -28,6 +27,10 @@ def _can_reply(connection: TgBusinessConnection) -> bool:
     return bool(getattr(connection, "can_reply", False))
 
 
+async def _still_staff(session: AsyncSession, shop_id: int, user_id: int) -> bool:
+    return await resolve_staff(session, shop_id, user_id) is not None  # owners from the config included
+
+
 @router.business_connection()
 async def connected(
     connection: TgBusinessConnection,
@@ -38,9 +41,7 @@ async def connected(
     cfg: dict[str, Any],
 ) -> None:
     owner = connection.user.id
-    trusted = (
-        owner in get_settings().owner_telegram_ids or await resolve_staff(session, shop.id, owner) is not None
-    )
+    trusted = await _still_staff(session, shop.id, owner)
     await business.remember(
         session,
         shop.id,
@@ -70,13 +71,19 @@ async def incoming(
 ) -> None:
     if not message.business_connection_id or message.from_user is None:
         return
+    if getattr(message, "sender_business_bot", None) is not None:
+        return  # a bot (this one included) wrote for the owner; that is not the owner chatting
     row = await session.get(BusinessConnection, message.business_connection_id)
     if row is None or row.shop_id != shop.id:
         return
     if message.from_user.id == row.user_id:
         await business.owner_spoke(row.id, message.chat.id, int(cfg.get("business_quiet_minutes") or 0))
         return
-    if message.from_user.is_bot:
+    if message.from_user.is_bot or not cfg.get("bot_enabled", True):
+        return
+    if row.trusted and not await _still_staff(session, shop.id, row.user_id):
+        row.trusted = False  # the owner of this account left the staff since it was connected
+        log.info("business connection %s is no longer trusted", row.id)
         return
     text = await business.reply_for(
         cfg, row, message.chat.id, message.text or message.caption or "", shop.bot_username

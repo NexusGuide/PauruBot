@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import logging
 from html import escape
 from typing import Annotated
@@ -12,7 +11,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from paurubot import kv
 from paurubot.api.deps import DB, request_ip
-from paurubot.bot.views import qr_png
+from paurubot.bot.views import qr_base64
+from paurubot.config import get_settings
 from paurubot.core import guest
 from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import days_left, jdate, money, size
@@ -23,8 +23,11 @@ from paurubot.provisioning import subscription
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["guest"])
 
+GUEST_COOKIE = "pb_guest"
+GUEST_COOKIE_AGE = 30 * 86400
 STARTS_PER_IP = 5
 STARTS_WINDOW = 600
+STARTS_PER_SHOP_HOUR = 200
 OPEN = (PaymentStatus.CREATED, PaymentStatus.PENDING, PaymentStatus.VERIFYING)
 
 
@@ -88,7 +91,7 @@ async def _store(db: DB, request: Request, shop: Shop, t: Texts, error: str = ""
 
 
 @router.get("/buy", include_in_schema=False)
-@router.get("/buy/{shop_id}", include_in_schema=False)
+@router.get("/buy/{shop_id:int}", include_in_schema=False)
 async def store(request: Request, db: DB, shop_id: int | None = None) -> Response:
     shop = await guest.shop_for(db, shop_id)
     if shop is None:
@@ -97,7 +100,7 @@ async def store(request: Request, db: DB, shop_id: int | None = None) -> Respons
     return await _store(db, request, shop, t)
 
 
-@router.post("/buy/{shop_id}", include_in_schema=False)
+@router.post("/buy/{shop_id:int}", include_in_schema=False)
 async def buy(
     shop_id: int,
     request: Request,
@@ -110,7 +113,9 @@ async def buy(
     if shop is None:
         return _not_found()
     t = await texts_for(db, shop.id, _locale(request, shop))
-    allowed, _ = await kv.hit(f"guest:start:{ip}", STARTS_PER_IP, STARTS_WINDOW)
+    allowed, _ = await kv.hit(f"guest:start:{guest.visitor_key(ip)}", STARTS_PER_IP, STARTS_WINDOW)
+    if allowed:  # many addresses at once still cannot flood the shop with half-made purchases
+        allowed, _ = await kv.hit(f"guest:start:shop:{shop.id}", STARTS_PER_SHOP_HOUR, 3600)
     if not allowed:
         return await _store(db, request, shop, t, t("guest_too_many"))
     try:
@@ -120,7 +125,32 @@ async def buy(
         text = t(exc.key)
         return await _store(db, request, shop, t, text if text != exc.key else t("gateway_error"))
     await db.commit()
-    return RedirectResponse(f"/buy/t/{checkout.customer.guest_token}?go=1", status_code=303)
+    response = RedirectResponse(f"/buy/t/{checkout.customer.guest_token}?go=1", status_code=303)
+    settings = get_settings()
+    response.set_cookie(
+        GUEST_COOKIE,
+        str(checkout.customer.guest_token),
+        max_age=GUEST_COOKIE_AGE,
+        httponly=True,
+        secure=settings.is_production or settings.public_url.startswith("https://"),
+        samesite="lax",  # sent when the gateway sends the buyer back with a plain link
+        path="/buy",
+    )
+    return response
+
+
+@router.get("/buy/return", include_in_schema=False)
+async def back_from_gateway(request: Request, db: DB) -> Response:
+    """Where gateways send a guest back; the purchase page comes from the buyer's own cookie."""
+    customer = await guest.by_token(db, request.cookies.get(GUEST_COOKIE, ""))
+    if customer is not None:
+        return RedirectResponse(f"/buy/t/{customer.guest_token}", status_code=303)
+    shop = await guest.shop_for(db, None)
+    if shop is None:
+        return _not_found()
+    t = await texts_for(db, shop.id, _locale(request, shop))
+    body = f'<section class="card"><p class="name">{escape(t("guest_return_lost"))}</p></section>'
+    return _page(t, shop.title or "PauruBot", body)
 
 
 @router.get("/buy/t/{token}", include_in_schema=False)
@@ -148,7 +178,7 @@ async def purchase(token: str, request: Request, db: DB) -> Response:
         volume = size(service.data_limit) if service.data_limit else t("unlimited")
         ends = jdate(service.expire_at) if service.expire_at else t("unlimited")
         remaining = days_left(service.expire_at) if service.expire_at else None
-        qr = base64.b64encode(qr_png(link)).decode() if link else ""
+        qr = qr_base64(link)
         image = (
             f'<img class="qr" src="data:image/png;base64,{qr}" alt="{escape(t("qr_caption"))}">' if qr else ""
         )
@@ -175,7 +205,9 @@ async def purchase(token: str, request: Request, db: DB) -> Response:
 
     if payment is not None and payment.status in OPEN:
         url = str((payment.meta or {}).get("redirect_url") or "")
-        go = request.query_params.get("go") == "1" and url.startswith("https://")
+        if not url.startswith("https://"):
+            url = ""  # never a javascript: or plain-http link on the page, whatever a gateway returned
+        go = request.query_params.get("go") == "1" and bool(url)
         button = f'<a class="btn primary" href="{escape(url)}">{escape(t("guest_go_pay"))}</a>' if url else ""
         body = f"""<section class="card"><p class="name">{escape(t("guest_waiting"))}</p>
 <p class="status">{escape(t("guest_amount", amount=money(_to_pay(payment))))}</p>{button}</section>{keep}"""

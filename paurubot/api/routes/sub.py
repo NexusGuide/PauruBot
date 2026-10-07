@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import logging
 from html import escape
 from typing import Any
@@ -13,7 +12,7 @@ from sqlalchemy import select
 
 from paurubot import kv
 from paurubot.api.deps import DB
-from paurubot.bot.views import qr_png
+from paurubot.bot.views import qr_base64
 from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import days_left, jdate, size
 from paurubot.db.models import Customer, Panel, Service, ServiceStatus, Shop
@@ -158,7 +157,8 @@ async def _page(db: DB, request: Request, service: Service, shop: Shop, panel: P
         return await _special_page(
             request, t, service, panel, kind, title, rtl, percent, bar_class, volume, remaining, expiry, link
         )
-    qr = base64.b64encode(qr_png(link)).decode()
+    qr = qr_base64(link)
+    image = f'<img class="qr" src="data:image/png;base64,{qr}" alt="{escape(t("qr_caption"))}">' if qr else ""
     apps = "".join(
         f'<a class="btn ghost" href="{escape(app["url"])}">{escape(app["name"])}</a>'
         for app in subscription.app_buttons(cfg, link, title)
@@ -197,7 +197,7 @@ async def _page(db: DB, request: Request, service: Service, shop: Shop, panel: P
 <div>{escape(t("sub_page_expiry"))}<b>{escape(expiry)}</b></div>
 </div></section>
 <section class="card">
-<img class="qr" src="data:image/png;base64,{qr}" alt="{escape(t("qr_caption"))}">
+{image}
 <div class="link">{escape(link)}</div>
 <button type="button" class="btn primary" data-copy="{escape(link)}" data-done="{escape(t("sub_page_copied"))}">
 {escape(t("sub_page_copy"))}</button>
@@ -231,10 +231,14 @@ async def _special_page(
         except PanelError:
             items = []
         if items:
-            qr = base64.b64encode(qr_png(items[0])).decode()
+            qr = qr_base64(items[0])
             access = (
-                f'<img class="qr" src="data:image/png;base64,{qr}" alt="{escape(t("qr_caption"))}">'
-                f'<a class="btn primary" href="{escape(link)}?download=1">{escape(t("sub_page_download_conf"))}</a>'
+                (
+                    f'<img class="qr" src="data:image/png;base64,{qr}" alt="{escape(t("qr_caption"))}">'
+                    if qr
+                    else ""
+                )
+                + f'<a class="btn primary" href="{escape(link)}?download=1">{escape(t("sub_page_download_conf"))}</a>'
             )
         else:
             access = f'<p class="status">{escape(t("wireguard_unavailable"))}</p>'
