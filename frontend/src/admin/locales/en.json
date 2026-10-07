@@ -1327,5 +1327,16 @@
   "funnel_first_purchase": "Made a first purchase",
   "funnel_repeat": "Bought again",
   "funnel_from_prev": "{percent}% of the step before",
-  "funnel_days_to_first": "Half of the buyers made their first purchase within {days} days of joining."
+  "funnel_days_to_first": "Half of the buyers made their first purchase within {days} days of joining.",
+  "setting_info_card_enabled": "Service info card",
+  "setting_info_card_enabled_hint": "A Card button on each service sends a picture with usage, days left, end date and the QR. After a purchase the card is sent instead of the bare QR.",
+  "setting_info_card_theme": "Card colours",
+  "setting_info_card_theme_hint": "The colour set used for every service card.",
+  "setting_info_card_qr": "QR on the card",
+  "setting_info_card_qr_hint": "Turn off if customers share cards publicly and the link should stay private.",
+  "info_card_theme_midnight": "Midnight blue",
+  "info_card_theme_paper": "Light",
+  "info_card_theme_rose": "Rose",
+  "info_card_theme_amber": "Amber",
+  "err_info_card_theme_invalid": "Pick one of the listed card colours."
 }

@@ -259,13 +259,21 @@ def back_to_services(t: Texts) -> InlineKeyboardMarkup:
 
 
 def service_kb(
-    t: Texts, service: Service, *, extras: tuple[int | None, int | None], upgrade: bool, move: bool = False
+    t: Texts,
+    service: Service,
+    *,
+    extras: tuple[int | None, int | None],
+    upgrade: bool,
+    move: bool = False,
+    card: bool = False,
 ) -> InlineKeyboardMarkup:
     sid = service.id
     kb = InlineKeyboardBuilder()
     kb.button(text=t("btn_refresh"), callback_data=Svc(action="view", id=sid))
     kb.button(text=t("btn_links"), callback_data=Svc(action="links", id=sid))
     kb.button(text=t("btn_qr"), callback_data=Svc(action="qr", id=sid))
+    if card:
+        kb.button(text=t("btn_infocard"), callback_data=Svc(action="card", id=sid))
     if not service.is_trial:
         kb.button(text=t("btn_renew"), callback_data=Svc(action="renew", id=sid))
         if extras[0] is not None:

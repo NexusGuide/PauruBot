@@ -192,3 +192,38 @@ async def test_language_switch(session, env) -> None:  # type: ignore[no-untyped
     await send(message_update(UID, Texts("en")("btn_wallet")))
     assert "Wallet" in fake.last(SendMessage).text
     assert any(isinstance(c, AnswerCallbackQuery) for c in fake.calls)
+
+
+async def test_info_card_button_sends_a_picture(session, env) -> None:  # type: ignore[no-untyped-def]
+    from aiogram.methods import SendPhoto
+
+    from paurubot.bot.callbacks import Svc
+    from paurubot.db.models import Service, ServiceStatus
+
+    send, fake = env["send"], env["fake"]
+    await send(message_update(UID, "/start"))
+    customer = await _customer(session, env["shop"].id)
+    service = Service(
+        shop_id=env["shop"].id,
+        customer_id=customer.id,
+        panel_id=env["plan"].panel_id,
+        panel_username="u_card",
+        label="Laptop",
+        status=ServiceStatus.ACTIVE,
+        data_limit=10 * 1024**3,
+        used_bytes=3 * 1024**3,
+        subscription_url="https://panel.example/sub/u_card",
+    )
+    session.add(service)
+    await session.commit()
+    await send(callback_update(UID, Svc(action="card", id=service.id).pack()))
+    photo = fake.last(SendPhoto)
+    assert photo.chat_id == UID and photo.photo.data.startswith(b"\x89PNG")
+    assert "Laptop" in photo.caption
+
+    await shop_settings.set_many(session, env["shop"].id, {"info_card_enabled": False})
+    await session.commit()
+    shop_settings.invalidate(env["shop"].id)
+    before = len([c for c in fake.calls if isinstance(c, SendPhoto)])
+    await send(callback_update(UID, Svc(action="card", id=service.id).pack()))
+    assert len([c for c in fake.calls if isinstance(c, SendPhoto)]) == before
