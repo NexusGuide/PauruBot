@@ -25,6 +25,10 @@ class PanelKind(enum.StrEnum):
     REBECCA = "rebecca"
     GUARD = "guard"
     HIDDIFY = "hiddify"
+    WGDASHBOARD = "wgdashboard"
+    WGMATE = "wgmate"
+    MIKROTIK = "mikrotik"
+    IBSNG = "ibsng"
 
 
 class UsernameMethod(enum.StrEnum):

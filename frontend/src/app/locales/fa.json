@@ -236,5 +236,11 @@
   "role_reseller": "نماینده",
   "err_forbidden": "نقش شما اجازهٔ این کار را ندارد.",
   "err_payment_already_reviewed": "کس دیگری دربارهٔ این پرداخت تصمیم گرفته است.",
-  "err_not_manual": "این پرداخت را نمی‌شود دستی تأیید کرد."
+  "err_not_manual": "این پرداخت را نمی‌شود دستی تأیید کرد.",
+  "account_login": "اطلاعات ورود",
+  "account_username": "نام کاربری",
+  "account_password": "رمز عبور",
+  "wireguard_title": "کانفیگ وایرگارد",
+  "wireguard_hint": "این را در برنامهٔ WireGuard اسکن کن، یا فایل .conf را دانلود کن و همان‌جا بازش کن.",
+  "wireguard_download": "دانلود فایل .conf"
 }

@@ -478,5 +478,13 @@
   "guest_review": "مبلغی غیر از مبلغ موردنظر رسیده. همکاران ما بررسی می‌کنند؛ این صفحه را برای پیگیری نگه دارید.",
   "guest_keep_link": "این صفحه را نشانه‌گذاری کنید: آدرسش تنها کلید خرید شماست.",
   "guest_claimed": "✅ خرید وب شما به حسابتان اضافه شد ({count} سرویس). در «سرویس‌های من» پیدایش می‌کنید.",
-  "guest_claim_invalid": "این لینک خرید قبلاً استفاده شده یا معتبر نیست."
+  "guest_claim_invalid": "این لینک خرید قبلاً استفاده شده یا معتبر نیست.",
+  "service_card_wireguard": "🔖 <b>{label}</b>\n👤 نام: <code>{username}</code>\n📶 وضعیت: {status}\n🌍 لوکیشن: {location}\n📊 حجم: {volume}\n⏳ انقضا: {expiry}\n\n🛡 این سرویس وایرگارد است: برای گرفتن فایل .conf دکمهٔ <b>کانفیگ‌ها</b> و برای اسکن در برنامهٔ WireGuard دکمهٔ <b>QR</b> را بزن.",
+  "service_card_account": "🔖 <b>{label}</b>\n📶 وضعیت: {status}\n🌍 لوکیشن: {location}\n📊 حجم: {volume}\n⏳ انقضا: {expiry}\n\n👤 نام کاربری: <code>{username}</code>\n🔑 رمز عبور: <code>{password}</code>",
+  "wireguard_caption": "🛡 فایل وایرگارد {name}. با برنامهٔ WireGuard بازش کن یا QR را اسکن کن.",
+  "wireguard_unavailable": "الان خواندن فایل وایرگارد از سرور ممکن نشد. کمی بعد دوباره امتحان کن.",
+  "account_no_qr": "این سرویس با نام کاربری و رمز عبور وصل می‌شود؛ چیزی برای اسکن ندارد.",
+  "sub_page_download_conf": "دانلود فایل .conf",
+  "sub_page_username": "نام کاربری",
+  "sub_page_password": "رمز عبور"
 }

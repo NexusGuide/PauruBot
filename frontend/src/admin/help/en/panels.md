@@ -1,7 +1,7 @@
 # Panels
 <!-- screens: /panels -->
 
-Every service you sell is created on one of your panels. The bot works with PasarGuard, Marzban, Marzneshin, Remnawave, Rebecca, Guard, Hiddify and 3x-ui, and you can run several panels of different types at once.
+Every service you sell is created on one of your panels. The bot works with PasarGuard, Marzban, Marzneshin, Remnawave, Rebecca, Guard, Hiddify and 3x-ui, with WGDashboard and WG-Mate for WireGuard, and with MikroTik User Manager and IBSng for username-and-password services, and you can run several panels of different types at once.
 
 ## Adding a panel
 
@@ -13,6 +13,13 @@ Every service you sell is created on one of your panels. The bot works with Pasa
 6. Choose the inbounds or groups new users should be created in, and save.
 
 It's best to create a separate admin for the bot on the panel. If that admin has a user or data quota, its usage shows on the panel card and you get a warning when it's nearly full.
+
+## WireGuard and username-and-password panels
+
+- **WGDashboard**: give the **API token** from WGDashboard settings and the **WireGuard configuration** name (such as wg0). Each customer gets a peer with its own keys. Data and end date are WGDashboard schedule jobs that cut the peer off when reached. Customers receive a .conf file and its QR in the bot, and the Mini App shows the same QR.
+- **WG-Mate**: give the **API token** and a **Template user**, an existing user whose protocols and server new customers copy. It works like the other subscription panels.
+- **MikroTik User Manager** (RouterOS 7, REST enabled under IP → Services): give the router address, an admin username and password, then pick the **User Manager profile** for the panel or per plan. Customers get a username and password. The profile's limits on the router are what they buy, and renewing assigns the profile again; the bot shows the data and end date it sold.
+- **IBSng**: give the admin address, username and password and the **IBSng group** new accounts join. The bot creates accounts, reads usage and deletes them; renewals and locking stay in IBSng, so plans on IBSng are best sold without renewal.
 
 ## Self-signed certificates and private addresses
 

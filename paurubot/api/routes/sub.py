@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import logging
 from html import escape
+from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, Response
@@ -111,7 +112,10 @@ async def subscription_endpoint(token: str, request: Request, db: DB) -> Respons
     if shop is None or panel is None:
         return _not_found()
     title = shop.title or "PauruBot"
-    if subscription.wants_page(request.headers.get("user-agent", ""), request.headers.get("accept", "")):
+    raw = request.query_params.get("download") == "1"
+    if not raw and subscription.wants_page(
+        request.headers.get("user-agent", ""), request.headers.get("accept", "")
+    ):
         return await _page(db, request, service, shop, panel)
     try:
         body = await (await driver_for(panel)).fetch_subscription(
@@ -147,6 +151,13 @@ async def _page(db: DB, request: Request, service: Service, shop: Shop, panel: P
         expiry = jdate(service.expire_at)
         remaining = t("sub_page_days", days=max(0, days_left(service.expire_at) or 0))
     bar_class = "full" if percent >= 100 else "hi" if percent >= 80 else ""
+    from paurubot.panels.registry import delivery_of
+
+    kind = delivery_of(panel.kind)
+    if kind != "subscription":
+        return await _special_page(
+            request, t, service, panel, kind, title, rtl, percent, bar_class, volume, remaining, expiry, link
+        )
     qr = base64.b64encode(qr_png(link)).decode()
     apps = "".join(
         f'<a class="btn ghost" href="{escape(app["url"])}">{escape(app["name"])}</a>'
@@ -194,5 +205,61 @@ async def _page(db: DB, request: Request, service: Service, shop: Shop, panel: P
 <section class="card"><h2>{escape(t("sub_page_import"))}</h2><div class="apps">{apps}</div></section>
 {configs}
 {support_html}
+</main><script src="/s/_/page.js"></script></body></html>"""
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+async def _special_page(
+    request: Request,
+    t: Any,
+    service: Service,
+    panel: Panel,
+    kind: str,
+    title: str,
+    rtl: bool,
+    percent: int,
+    bar_class: str,
+    volume: str,
+    remaining: str,
+    expiry: str,
+    link: str,
+) -> Response:
+    """WireGuard: the .conf as a QR and a download; username and password panels: the login."""
+    if kind == "wireguard":
+        try:
+            items = await (await driver_for(panel)).fetch_links(service.subscription_url)
+        except PanelError:
+            items = []
+        if items:
+            qr = base64.b64encode(qr_png(items[0])).decode()
+            access = (
+                f'<img class="qr" src="data:image/png;base64,{qr}" alt="{escape(t("qr_caption"))}">'
+                f'<a class="btn primary" href="{escape(link)}?download=1">{escape(t("sub_page_download_conf"))}</a>'
+            )
+        else:
+            access = f'<p class="status">{escape(t("wireguard_unavailable"))}</p>'
+    else:
+        password = str((service.panel_data or {}).get("password") or "-")
+        access = (
+            f'<div class="facts"><div>{escape(t("sub_page_username"))}<b dir="ltr">{escape(service.panel_username)}</b></div>'
+            f'<div>{escape(t("sub_page_password"))}<b dir="ltr">{escape(password)}</b></div></div>'
+        )
+    html = f"""<!doctype html>
+<html lang="{escape(t.locale)}" dir="{"rtl" if rtl else "ltr"}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>{escape(title)}</title>
+<link rel="stylesheet" href="/s/_/page.css"></head>
+<body><main>
+<h1>{escape(title)}</h1>
+<section class="card">
+<p class="name">{escape(service.label or service.panel_username)}</p>
+<div class="status">{escape(t(f"status_{service.status.value}"))}</div>
+<progress class="bar {bar_class}" value="{percent}" max="100">{percent}%</progress>
+<div class="facts">
+<div>{escape(t("sub_page_volume"))}<b dir="ltr">{escape(volume)}</b></div>
+<div>{escape(t("sub_page_remaining"))}<b>{escape(remaining)}</b></div>
+<div>{escape(t("sub_page_expiry"))}<b>{escape(expiry)}</b></div>
+</div></section>
+<section class="card">{access}</section>
 </main><script src="/s/_/page.js"></script></body></html>"""
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})

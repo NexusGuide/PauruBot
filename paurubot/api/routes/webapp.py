@@ -46,6 +46,26 @@ def _iso(value: datetime | None) -> str | None:
 
 
 def service_view(service: Service, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    from paurubot.panels.registry import delivery_of
+    from paurubot.provisioning.subscription import branded_url
+
+    delivery = delivery_of(service.panel.kind if service.panel else None)
+    view = _service_base(service, cfg)
+    view["delivery"] = delivery
+    if delivery == "account":
+        view["subscription_url"] = None
+        view["account"] = {
+            "username": service.panel_username,
+            "password": (service.panel_data or {}).get("password") or None,
+        }
+    elif delivery == "wireguard":
+        branded = branded_url(service)
+        view["subscription_url"] = None
+        view["download_url"] = f"{branded}?download=1" if branded else None
+    return view
+
+
+def _service_base(service: Service, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "id": service.id,
         "label": service.label or service.panel_username,

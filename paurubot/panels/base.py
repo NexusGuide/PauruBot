@@ -63,6 +63,8 @@ class PanelUser:
     online_at: datetime | None = None
     note: str = ""
     owner: str | None = None  # the panel admin the user belongs to, when the panel has admins
+    # False when the panel cannot report data and time limits (MikroTik, IBSng): ours are kept.
+    limits_known: bool = True
 
 
 SUBSCRIPTION_MAX_BYTES = 2 * 1024 * 1024
@@ -219,6 +221,8 @@ def decode_subscription(raw: str) -> list[str]:
 class PanelDriver(ABC):
     kind: str = ""
     supports_webhooks: bool = False
+    # How a customer connects: a subscription link, a WireGuard .conf file, or a username and password.
+    delivery: str = "subscription"
 
     def __init__(
         self, http: SafeHttpClient, username: str, password: str, options: dict[str, Any] | None = None

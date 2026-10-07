@@ -58,11 +58,30 @@ SAFE_OPTION_KEYS = {
     "legacy_paths",
     "guard_version",
     "timeout",
+    "configuration",
+    "template_user",
+    "profile",
+    "group",
+}
+
+# Option values that end up in panel API paths or forms: short names only.
+NAME_OPTIONS = {
+    "configuration": r"^[A-Za-z0-9_.-]{1,32}$",
+    "template_user": r"^[A-Za-z0-9_.@-]{1,64}$",
+    "profile": r"^[^\x00-\x1f/?#]{1,64}$",
+    "group": r"^[^\x00-\x1f/?#&]{1,64}$",
 }
 
 
 # Panels that can be reached with an API token alone, without a username and password.
-TOKEN_PANELS = {PanelKind.REMNAWAVE, PanelKind.REBECCA, PanelKind.GUARD, PanelKind.HIDDIFY}
+TOKEN_PANELS = {
+    PanelKind.REMNAWAVE,
+    PanelKind.REBECCA,
+    PanelKind.GUARD,
+    PanelKind.HIDDIFY,
+    PanelKind.WGDASHBOARD,
+    PanelKind.WGMATE,
+}
 
 
 def panel_out(panel: Panel, load: int | None = None) -> dict[str, Any]:
@@ -104,6 +123,12 @@ def _clean_options(options: dict[str, Any]) -> dict[str, Any]:
             raise HTTPException(status_code=422, detail=f"{key}_invalid")
     if options.get("guard_version") not in (None, "v1", "v2"):
         raise HTTPException(status_code=422, detail="guard_version_invalid")
+    import re
+
+    for key, pattern in NAME_OPTIONS.items():
+        value = options.get(key)
+        if value not in (None, "") and not re.match(pattern, str(value)):
+            raise HTTPException(status_code=422, detail=f"{key}_invalid")
     return {k: v for k, v in options.items() if v is not None}
 
 
