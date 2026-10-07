@@ -13,6 +13,7 @@ from paurubot.panels.base import (
     UserSpec,
     as_dict,
     number,
+    seg,
     system_figures,
     whole,
 )
@@ -45,14 +46,14 @@ class PasarGuardDriver(TokenApiDriver):
     async def _user_call(self, method: str, ref: PanelRef, suffix: str = "", **kwargs: Any) -> Any:
         """Newer builds address users by-username; older ones use /api/user/{name}."""
         if self.options.get("legacy_paths"):
-            return await self.call(method, f"/api/user/{ref.username}{suffix}", **kwargs)
+            return await self.call(method, f"/api/user/{seg(ref.username)}{suffix}", **kwargs)
         try:
-            return await self.call(method, f"/api/user/by-username/{ref.username}{suffix}", **kwargs)
+            return await self.call(method, f"/api/user/by-username/{seg(ref.username)}{suffix}", **kwargs)
         except PanelNotFound:
-            return await self.call(method, f"/api/user/{ref.username}{suffix}", **kwargs)
+            return await self.call(method, f"/api/user/{seg(ref.username)}{suffix}", **kwargs)
         except PanelError as exc:
             if exc.status == 405:
-                return await self.call(method, f"/api/user/{ref.username}{suffix}", **kwargs)
+                return await self.call(method, f"/api/user/{seg(ref.username)}{suffix}", **kwargs)
             raise
 
     async def nodes(self) -> list[dict[str, Any]]:

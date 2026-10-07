@@ -108,6 +108,13 @@ class PanelHealth:
     version: str | None = None
 
 
+def seg(value: Any) -> str:
+    """One URL path segment: a username imported from a panel or another bot can't reach other paths."""
+    from urllib.parse import quote
+
+    return quote(str(value), safe="")
+
+
 def number(data: dict[str, Any], *keys: str) -> float | None:
     """The first numeric value among `keys` (panels name the same figure differently)."""
     for key in keys:

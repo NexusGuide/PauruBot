@@ -16,6 +16,7 @@ from paurubot.panels.base import (
     UserSpec,
     number,
     parse_expire,
+    seg,
     system_figures,
     whole,
 )
@@ -104,7 +105,7 @@ class TokenApiDriver(PanelDriver):
         return int(expire_at.timestamp()) if expire_at else 0
 
     def user_path(self, ref: PanelRef) -> str:
-        return f"/api/user/{ref.username}"
+        return f"/api/user/{seg(ref.username)}"
 
     def lifecycle_fields(self, spec: UserSpec) -> dict[str, Any]:
         if spec.on_hold_days:

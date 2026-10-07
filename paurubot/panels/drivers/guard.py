@@ -23,6 +23,7 @@ from paurubot.panels.base import (
     as_dict,
     number,
     parse_expire,
+    seg,
     whole,
 )
 
@@ -175,7 +176,7 @@ class GuardDriver(PanelDriver):
                     "GET", "/api/subscriptions", params={"usernames": ref.username, "limit": 1}
                 )
             else:
-                data = await self.call("GET", f"/api/subscriptions/{ref.username}")
+                data = await self.call("GET", f"/api/subscriptions/{seg(ref.username)}")
         except PanelNotFound:
             return None
         user = self._unwrap(data)
@@ -208,7 +209,7 @@ class GuardDriver(PanelDriver):
             if self.v2:
                 await self.call("PUT", "/api/subscriptions", json={**payload, "usernames": [ref.username]})
             else:
-                await self.call("PUT", f"/api/subscriptions/{ref.username}", json=payload)
+                await self.call("PUT", f"/api/subscriptions/{seg(ref.username)}", json=payload)
         if enabled is not None:
             action = "enable" if enabled else "disable"
             await self.call("POST", f"/api/subscriptions/{action}", json={"usernames": [ref.username]})
