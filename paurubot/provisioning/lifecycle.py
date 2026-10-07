@@ -423,6 +423,10 @@ async def fulfill(session: AsyncSession, order_id: int) -> Service | None:
         if existing is not None and existing.status == OrderStatus.COMPLETED and existing.service_id:
             return await session.get(Service, existing.service_id)
         return None
+    plan = await session.get(Plan, order.plan_id) if order.plan_id else None
+    if order.kind == OrderKind.PURCHASE and plan is not None and plan.delivery == "stock":
+        await _deliver_stock(session, order)
+        return None
     if order.kind in {OrderKind.PURCHASE, OrderKind.TRIAL}:
         service = await _create_service(session, order)
     elif order.kind == OrderKind.MOVE:
@@ -453,6 +457,36 @@ async def fulfill(session: AsyncSession, order_id: int) -> Service | None:
         )
     await session.commit()
     return service
+
+
+async def _deliver_stock(session: AsyncSession, order: Order) -> None:
+    """Hand over one ready-made config from the plan's stock (CAT-05). No panel is involved."""
+    from paurubot.core import stock
+    from paurubot.core.resellers import pay_commission
+    from paurubot.provisioning.rewards import reward_referrer
+    from paurubot.worker import queue
+
+    item = await stock.take(session, order)
+    if item is None:
+        await session.commit()
+        raise ProvisionError("out_of_stock")
+    order.status = OrderStatus.COMPLETED
+    order.completed_at = utcnow()
+    order.params = {**(order.params or {}), "stock_item_id": item.id}
+    await reward_referrer(session, order)
+    await pay_commission(session, order)
+    if order.params.get("batch"):
+        await batch_progress(session, order)
+    else:
+        await queue.enqueue(
+            session,
+            "notify",
+            "stock_delivered",
+            {"order_id": order.id},
+            shop_id=order.shop_id,
+            dedupe_key=f"order:{order.id}:notify",
+        )
+    await session.commit()
 
 
 async def batch_progress(session: AsyncSession, order: Order) -> None:

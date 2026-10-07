@@ -74,6 +74,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/payments/{payment_id}/reject` | `payments.review` | Reject |
 | GET | `/api/admin/payments` | `payments.read` | List payments |
 | GET | `/api/admin/plans/panel-options/{panel_id}` | `catalog.write` | Groups or inbounds a plan can pick from on one panel (PNL-14). |
+| GET | `/api/admin/plans/{plan_id}/stock` | `catalog.write` | List stock |
+| POST | `/api/admin/plans/{plan_id}/stock` | `catalog.write` | Add stock |
 | DELETE | `/api/admin/plans/{row_id}` | `catalog.write` | Plans are archived, never deleted: services and orders keep pointing at them. |
 | PUT | `/api/admin/plans/{row_id}` | `catalog.write` | Update plan |
 | POST | `/api/admin/plans` | `catalog.write` | Create plan |
@@ -100,6 +102,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | PATCH | `/api/admin/staff/{staff_id}` | `staff.manage` | Update staff |
 | GET | `/api/admin/staff` | `staff.manage` | List staff |
 | POST | `/api/admin/staff` | `staff.manage` | Create staff |
+| DELETE | `/api/admin/stock/{item_id}` | `catalog.write` | Delete stock item |
+| GET | `/api/admin/stock/{item_id}` | `catalog.write` | The full config, for support. Every look is audited. |
 | PUT | `/api/admin/sub-resellers/{profile_id}` | `resellers.sub` | Update sub reseller |
 | GET | `/api/admin/sub-resellers` | `resellers.sub` | Sub resellers |
 | POST | `/api/admin/sub-resellers` | `resellers.sub` | Add sub reseller |

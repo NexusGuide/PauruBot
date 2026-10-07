@@ -238,7 +238,9 @@ export interface Plan {
   username_prefix: string | null;
   panel_options: Record<string, unknown>;
   addons: { extras?: boolean; extra_gb_price?: number | null; extra_day_price?: number | null };
+  delivery: "panel" | "stock";
   services?: number;
+  stock?: { available: number; sold: number; disabled: number };
 }
 
 export interface CatalogData {

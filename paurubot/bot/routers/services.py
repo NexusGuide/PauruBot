@@ -48,17 +48,38 @@ def _service_markup(t: Texts, service: Service, cfg: dict[str, Any]):  # type: i
 async def list_services(
     event: Message | CallbackQuery, session: AsyncSession, customer: Customer, t: Texts, page: int = 0
 ) -> None:
+    from paurubot.core import stock
+
     base = select(Service).where(Service.customer_id == customer.id, Service.status != ServiceStatus.DELETED)
     total = int(await session.scalar(select(func.count()).select_from(base.subquery())) or 0)
-    if not total:
+    has_stock = bool(await stock.for_customer(session, customer.id, limit=1))
+    if not total and not has_stock:
         await show(event, t("no_services"))
         return
     rows = list(await session.scalars(base.order_by(Service.id.desc()).offset(page * PAGE).limit(PAGE)))
     await show(
         event,
         t("services_header", count=total),
-        keyboards.services_kb(t, rows, page, (page + 1) * PAGE < total),
+        keyboards.services_kb(t, rows, page, (page + 1) * PAGE < total, stock=has_stock),
     )
+
+
+@router.callback_query(Svc.filter(F.action == "stock"))
+async def stock_list(call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts) -> None:
+    """Ready-made configs this customer bought (CAT-05)."""
+    from paurubot.core import stock
+
+    items = await stock.for_customer(session, customer.id, limit=10)
+    await call.answer()
+    if not items:
+        await show(call, t("no_services"))
+        return
+    parts = [t("stock_header")]
+    for item in items:
+        config = stock.payload(item)
+        shown = config if len(config) <= 600 else config[:600] + "…"
+        parts.append(f"#{item.id}\n<code>{esc(shown)}</code>")
+    await show(call, "\n\n".join(parts)[:4000], keyboards.back_to_services(t))
 
 
 @router.message(Btn("btn_services"))

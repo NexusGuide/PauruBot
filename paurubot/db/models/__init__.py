@@ -9,6 +9,7 @@ from paurubot.db.models.catalog import (
     PanelCheck,
     Plan,
     StickyDiscount,
+    StockItem,
     TrialGrant,
 )
 from paurubot.db.models.commerce import (
@@ -108,6 +109,7 @@ __all__ = [
     "Staff",
     "StaffRole",
     "StickyDiscount",
+    "StockItem",
     "SupportContact",
     "Ticket",
     "TicketMessage",

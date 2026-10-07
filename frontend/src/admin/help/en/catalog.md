@@ -23,6 +23,15 @@ A plan is what customers buy in the bot: data, days and a price. In [Plans](/cat
 - **Extra data and time**: with **Sell extra data and time for this plan's services**, customers can buy more GB or days without renewing. Leave the price per GB or per day empty to use the default price from the **Services** group in [Settings](/settings).
 - **Panel settings for this plan**: an inbound, group or flow just for this plan. Left empty, the panel's own settings apply.
 
+## Selling ready-made configs from stock
+
+If you have ready-made configs (for example from a server or panel the bot isn't connected to), set **Delivery** in the plan form to **Ready-made config from stock** and pick a location. After saving, paste configs into the **Stock** section: one config per line, or a blank line between configs that span several lines. Duplicates are skipped.
+
+- Each purchase hands over exactly one available config, and no config is ever given to two people.
+- The config is sent to the customer in the bot right away and stays available under **Bought configs**.
+- When the stock runs out, the plan leaves the buy menu on its own and comes back when you add more. If stock ran out after a payment, the amount goes back to the wallet.
+- Configs are stored encrypted, and every **Show** of a full config is recorded in the audit log.
+
 ## Custom data and days
 
 In [Settings](/settings), **Custom purchase** group, turn on **Sell custom data and days**. Customers pick the data and days themselves in the bot, and the price is the **Base price** plus the price per GB and per day. The minimum and maximum data and days, and the target panel or location, are set there too.

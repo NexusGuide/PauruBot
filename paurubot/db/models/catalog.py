@@ -105,9 +105,35 @@ class Plan(Base, UpdatedMixin):
     # Per-plan add-on prices for extra data / days; empty keys fall back to the shop settings.
     addons: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default="{}")
 
+    # "panel": services are created on a panel; "stock": a ready-made config from the stock (CAT-05).
+    delivery: Mapped[str] = mapped_column(String(16), default="panel", server_default="panel")
+
     category: Mapped[Category | None] = relationship(lazy="selectin")
     location: Mapped[Location | None] = relationship(lazy="selectin")
     panel: Mapped[Panel | None] = relationship(lazy="selectin")
+
+
+class StockItem(Base, TimestampMixin):
+    """One ready-made config sold as-is (CAT-05). The payload is stored encrypted."""
+
+    __tablename__ = "stock_items"
+    __table_args__ = (
+        Index("ix_stock_items_plan_status", "plan_id", "status"),
+        UniqueConstraint("shop_id", "digest"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"), index=True)
+    plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id", ondelete="CASCADE"))
+    payload_enc: Mapped[str] = mapped_column(Text)
+    digest: Mapped[str] = mapped_column(String(64))
+    note: Mapped[str | None] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(16), default="available")
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id", ondelete="SET NULL"))
+    customer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("customers.id", ondelete="SET NULL"), index=True
+    )
+    sold_at: Mapped[datetime | None] = mapped_column()
 
 
 class DiscountCode(Base, TimestampMixin):

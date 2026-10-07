@@ -76,7 +76,13 @@ async def buy_many(
         raise orders.OrderError("bulk_unavailable")
     if count < 2 or count > limit:
         raise orders.OrderError("bulk_count", low=2, high=limit)
-    await _check_limits(session, customer, plan, count)
+    if plan.delivery == "stock":
+        from paurubot.core import stock
+
+        if (await stock.counts(session, [plan.id]))[plan.id][stock.AVAILABLE] < count:
+            raise orders.OrderError("out_of_stock")
+    else:
+        await _check_limits(session, customer, plan, count)
     _one, total = await quote(session, customer, plan, count)
     balance = await wallet_balance(session, customer.shop_id, customer.id)
     if balance < total:

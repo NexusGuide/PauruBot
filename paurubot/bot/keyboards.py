@@ -224,7 +224,9 @@ def history_kb(t: Texts, before: int | None) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def services_kb(t: Texts, items: Sequence[Service], page: int, has_next: bool) -> InlineKeyboardMarkup:
+def services_kb(
+    t: Texts, items: Sequence[Service], page: int, has_next: bool, *, stock: bool = False
+) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for service in items:
         name = service.label or service.panel_username
@@ -245,6 +247,14 @@ def services_kb(t: Texts, items: Sequence[Service], page: int, has_next: bool) -
         )
     if nav:
         kb.row(*nav)
+    if stock:
+        kb.row(InlineKeyboardButton(text=t("btn_stock"), callback_data=Svc(action="stock").pack()))
+    return kb.as_markup()
+
+
+def back_to_services(t: Texts) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Svc(action="list").pack()))
     return kb.as_markup()
 
 

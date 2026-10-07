@@ -22,7 +22,7 @@ import {
   useConfirm,
 } from "../ui";
 
-type PlanDraft = Omit<Plan, "id" | "services"> & { id?: number };
+type PlanDraft = Omit<Plan, "id" | "services" | "stock"> & { id?: number };
 
 const BADGES = ["", "hot", "new", "best", "sale"];
 
@@ -45,6 +45,7 @@ const EMPTY_PLAN: PlanDraft = {
   username_prefix: null,
   panel_options: {},
   addons: {},
+  delivery: "panel",
 };
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
@@ -97,6 +98,112 @@ function PlanPanelOptions({
   );
 }
 
+interface StockData {
+  counts: { available: number; sold: number; disabled: number };
+  items: {
+    id: number;
+    status: string;
+    note: string | null;
+    preview: string;
+    created_at: string;
+    sold_at: string | null;
+    customer: string | null;
+    customer_id: number | null;
+  }[];
+}
+
+function StockEditor({ planId }: { planId: number }) {
+  const { t, locale, toast, errorText } = useSession();
+  const confirm = useConfirm();
+  const { data, reload } = useLoad<StockData>(`/api/admin/plans/${planId}/stock`);
+  const [text, setText] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, run] = useAction();
+  const [shown, setShown] = useState<{ id: number; payload: string } | null>(null);
+  const n = (value: number) => money(value, locale);
+
+  const add = async () => {
+    try {
+      const result = await run(() =>
+        call<{ added: number; duplicates: number; too_long: number }>(`/api/admin/plans/${planId}/stock`, {
+          method: "POST",
+          body: { text, note: note.trim() || null },
+        }),
+      );
+      if (result) {
+        toast(t("stock_added", { added: n(result.added), duplicates: n(result.duplicates) }));
+        setText("");
+        await reload();
+      }
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  const remove = async (id: number) => {
+    const ok = await confirm({ title: t("stock_delete_title"), body: t("stock_delete_body"), confirm: t("delete"), danger: true });
+    if (!ok) return;
+    try {
+      await run(() => call(`/api/admin/stock/${id}`, { method: "DELETE" }));
+      await reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  const reveal = async (id: number) => {
+    try {
+      const result = await run(() => call<{ id: number; payload: string }>(`/api/admin/stock/${id}`));
+      if (result) setShown(result);
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  return (
+    <Group title={t("stock_title")}>
+      {data && (
+        <p className="text-[0.85rem]">{t("stock_counts", { available: n(data.counts.available), sold: n(data.counts.sold) })}</p>
+      )}
+      <Field label={t("stock_paste")} hint={t("stock_paste_hint")}>
+        {(id) => <Textarea id={id} dir="ltr" rows={5} value={text} onChange={(e) => setText(e.target.value)} />}
+      </Field>
+      <Field label={t("stock_note")} hint={t("stock_note_hint")}>
+        {(id) => <Input id={id} maxLength={128} value={note} onChange={(e) => setNote(e.target.value)} />}
+      </Field>
+      <Button busy={busy} disabled={!text.trim()} onClick={() => void add()}>
+        {t("stock_add")}
+      </Button>
+      {data && data.items.length > 0 && (
+        <ul className="divide-y divide-[var(--line)] rounded-xl ring-1 ring-[var(--line)]">
+          {data.items.map((item) => (
+            <li key={item.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-[0.82rem]">
+              <span className="min-w-0 flex-1 truncate font-mono" dir="ltr">
+                {item.preview}
+              </span>
+              <Badge tone={item.status === "available" ? "health" : "neutral"}>{t(`stock_status_${item.status}`)}</Badge>
+              {item.customer && <span className="text-[var(--hint)]">{item.customer}</span>}
+              <Button small onClick={() => void reveal(item.id)}>
+                {t("stock_show")}
+              </Button>
+              {item.status !== "sold" && (
+                <Button small tone="danger" onClick={() => void remove(item.id)}>
+                  {t("delete")}
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {shown && (
+        <pre dir="ltr" className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-xl bg-[var(--bg)] p-3 text-[0.78rem] ring-1 ring-[var(--line)]">
+          {shown.payload}
+        </pre>
+      )}
+    </Group>
+  );
+}
+
 function PlanSheet({
   draft,
   catalog,
@@ -136,7 +243,12 @@ function PlanSheet({
       onClose={onClose}
       title={form.id ? t("edit_plan") : t("new_plan")}
       footer={
-        <Button tone="primary" busy={busy} disabled={!form.title.trim() || (!form.panel_id && !form.location_id)} onClick={() => void save()}>
+        <Button
+          tone="primary"
+          busy={busy}
+          disabled={!form.title.trim() || (form.delivery === "stock" ? !form.location_id : !form.panel_id && !form.location_id)}
+          onClick={() => void save()}
+        >
           {t("save")}
         </Button>
       }
@@ -159,18 +271,28 @@ function PlanSheet({
             {(id) => <NumberInput id={id} value={form.data_gb} onChange={(v) => set("data_gb", v ?? 0)} />}
           </Field>
         </div>
-        <Field label={t("col_panel")} hint={t("plan_panel_hint")}>
+        <Field label={t("plan_delivery")} hint={t(`plan_delivery_${form.delivery}_hint`)}>
           {(id) => (
-            <Select id={id} value={form.panel_id ?? ""} onChange={(e) => set("panel_id", idOrNull(e.target.value))}>
-              <option value="">{t("by_location")}</option>
-              {panels.map((panel) => (
-                <option key={panel.id} value={panel.id}>
-                  {panel.name}
-                </option>
-              ))}
+            <Select id={id} value={form.delivery} onChange={(e) => set("delivery", e.target.value as PlanDraft["delivery"])}>
+              <option value="panel">{t("plan_delivery_panel")}</option>
+              <option value="stock">{t("plan_delivery_stock")}</option>
             </Select>
           )}
         </Field>
+        {form.delivery === "panel" && (
+          <Field label={t("col_panel")} hint={t("plan_panel_hint")}>
+            {(id) => (
+              <Select id={id} value={form.panel_id ?? ""} onChange={(e) => set("panel_id", idOrNull(e.target.value))}>
+                <option value="">{t("by_location")}</option>
+                {panels.map((panel) => (
+                  <option key={panel.id} value={panel.id}>
+                    {panel.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Field label={t("location")}>
             {(id) => (
@@ -215,10 +337,18 @@ function PlanSheet({
         <Field label={t("sort_order")} hint={t("sort_order_hint")}>
           {(id) => <NumberInput id={id} value={form.sort} onChange={(v) => set("sort", v ?? 0)} />}
         </Field>
-        <Toggle checked={form.renewable} onChange={(v) => set("renewable", v)} label={t("renewable")} />
         <Toggle checked={form.is_active} onChange={(v) => set("is_active", v)} label={t("on_sale")} />
-        <Toggle checked={form.on_hold} onChange={(v) => set("on_hold", v)} label={t("plan_on_hold")} />
-        <p className="-mt-2 text-[0.78rem] text-[var(--hint)]">{t("plan_on_hold_hint")}</p>
+        {form.delivery === "panel" && (
+          <>
+            <Toggle checked={form.renewable} onChange={(v) => set("renewable", v)} label={t("renewable")} />
+            <Toggle checked={form.on_hold} onChange={(v) => set("on_hold", v)} label={t("plan_on_hold")} />
+            <p className="-mt-2 text-[0.78rem] text-[var(--hint)]">{t("plan_on_hold_hint")}</p>
+          </>
+        )}
+        {form.delivery === "stock" && form.id && <StockEditor planId={form.id} />}
+        {form.delivery === "stock" && !form.id && (
+          <p className="rounded-xl bg-[var(--bg)] px-3 py-2 text-[0.82rem] text-[var(--hint)]">{t("stock_save_first")}</p>
+        )}
 
         <Group title={t("plan_look")}>
           <div className="grid grid-cols-2 gap-3">
@@ -261,6 +391,7 @@ function PlanSheet({
           </Field>
         </Group>
 
+        {form.delivery === "panel" && (
         <Group title={t("plan_addons")}>
           <Toggle
             checked={form.addons.extras !== false}
@@ -292,8 +423,9 @@ function PlanSheet({
             </div>
           )}
         </Group>
+        )}
 
-        {form.panel_id && (
+        {form.delivery === "panel" && form.panel_id && (
           <Group title={t("plan_panel_options")}>
             <p className="text-[0.78rem] text-[var(--hint)]">{t("plan_panel_options_hint")}</p>
             <PlanPanelOptions
@@ -434,6 +566,11 @@ export function Catalog() {
                           {row.title}
                           {!row.is_active && <Badge>{t("off_sale")}</Badge>}
                           {row.audience !== "all" && <Badge tone="brand">{t(`audience_${row.audience}`)}</Badge>}
+                          {row.stock && (
+                            <Badge tone={row.stock.available ? "health" : "loss"}>
+                              {t("stock_left", { n: money(row.stock.available, locale) })}
+                            </Badge>
+                          )}
                         </span>
                         <span className="text-[0.8rem] text-[var(--hint)]">
                           {t("plan_specs", {

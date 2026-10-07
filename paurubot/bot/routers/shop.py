@@ -403,6 +403,7 @@ async def renew_or_upgrade(
         await call.answer(t("service_not_found"), show_alert=True)
         return
     plans = await catalog.plans(session, customer.shop_id, customer, panel_id=service.panel_id)
+    plans = [p for p in plans if p.delivery != "stock"]
     if callback_data.action == "renew":
         plans = [p for p in plans if p.renewable]
     else:

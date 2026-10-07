@@ -20,10 +20,16 @@ def visible_plans_stmt(shop_id: int, customer: Customer | None) -> Select:  # ty
     location_ok = select(Panel.location_id).where(
         Panel.shop_id == shop_id, Panel.is_active.is_(True), Panel.location_id.is_not(None)
     )
+    from paurubot.core.stock import available_stmt
+
     stmt = select(Plan).where(
         Plan.shop_id == shop_id,
         Plan.is_active.is_(True),
-        or_(Plan.panel_id.in_(panel_ok), (Plan.panel_id.is_(None) & Plan.location_id.in_(location_ok))),
+        or_(
+            (Plan.delivery == "stock") & available_stmt(Plan.id),
+            (Plan.delivery != "stock")
+            & or_(Plan.panel_id.in_(panel_ok), (Plan.panel_id.is_(None) & Plan.location_id.in_(location_ok))),
+        ),
     )
     return _audience_filter(stmt, customer)
 
