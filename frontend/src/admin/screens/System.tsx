@@ -1022,6 +1022,7 @@ export function Reports() {
           </>
         )}
       </Async>
+      <Funnel range={range} />
       <TopCustomers range={range} />
       <Exports range={range} />
       {me?.role !== "reseller" && <Settlements />}
@@ -1039,6 +1040,57 @@ interface TopCustomer {
   spent: number;
   topped_up: number;
   last_order: string | null;
+}
+
+interface FunnelData {
+  steps: { key: string; count: number }[];
+  days_to_first: number | null;
+}
+
+function Funnel({ range }: { range: { start: string; end: string } }) {
+  const { t, locale } = useSession();
+  const { data, error, reload } = useLoad<FunnelData>(`/api/admin/reports/funnel${qs(range)}`);
+  return (
+    <Section title={t("funnel_title")}>
+      <Async data={data} error={error} reload={reload}>
+        {(value) => {
+          const top = value.steps[0]?.count ?? 0;
+          if (!top) return <Empty title={t("funnel_empty")} />;
+          return (
+            <div className="flex flex-col gap-3">
+              <p className="text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("funnel_hint")}</p>
+              <ol className="flex flex-col gap-2.5">
+                {value.steps.map((step, index) => {
+                  const share = top ? step.count / top : 0;
+                  const prev = index > 0 ? value.steps[index - 1]?.count ?? 0 : 0;
+                  return (
+                    <li key={step.key} className="flex flex-col gap-1">
+                      <div className="flex items-baseline justify-between gap-3 text-[0.85rem]">
+                        <span className="font-semibold">{t(`funnel_${step.key}`)}</span>
+                        <span className="tabular-nums">
+                          {money(step.count, locale)}
+                          <span className="text-[var(--hint)]"> · {Math.round(share * 100)}%</span>
+                          {index > 0 && prev > 0 && (
+                            <span className="text-[0.75rem] text-[var(--hint)]"> ({t("funnel_from_prev", { percent: Math.round((step.count / prev) * 100) })})</span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="h-2.5 overflow-hidden rounded-full bg-[var(--line)]" aria-hidden="true">
+                        <div className="h-full rounded-full bg-firouzeh-600" style={{ width: `${Math.max(2, share * 100)}%` }} />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+              {value.days_to_first !== null && (
+                <p className="text-[0.82rem] text-[var(--hint)]">{t("funnel_days_to_first", { days: money(value.days_to_first, locale) })}</p>
+              )}
+            </div>
+          );
+        }}
+      </Async>
+    </Section>
+  );
 }
 
 function TopCustomers({ range }: { range: { start: string; end: string } }) {

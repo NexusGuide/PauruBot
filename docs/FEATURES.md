@@ -180,7 +180,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | ADM-03 | Audit log of admin actions | MVP | done |
 | ADM-04 | Table bulk actions, search, sort, paging | MVP | done |
 | ADM-05 | In-panel help docs with search | v1.1 | done |
-| ADM-06 | Sales funnel analytics | v2 | todo |
+| ADM-06 | Sales funnel analytics | v2 | done |
 | ADM-07 | Panel settings modal (PasarGuard server settings) | v1.1 | done |
 | ADM-08 | Environment analyzer / doctor | v1.1 | done |
 

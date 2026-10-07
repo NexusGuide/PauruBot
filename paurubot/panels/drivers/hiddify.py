@@ -201,7 +201,17 @@ class HiddifyDriver(PanelDriver):
         row = await self._raw(ref)
         copy = {
             k: row.get(k)
-            for k in ("name", "usage_limit_GB", "current_usage_GB", "package_days", "start_date", "mode", "enable", "comment", "telegram_id")
+            for k in (
+                "name",
+                "usage_limit_GB",
+                "current_usage_GB",
+                "package_days",
+                "start_date",
+                "mode",
+                "enable",
+                "comment",
+                "telegram_id",
+            )
             if k in row
         }
         created = as_dict(await self.call("POST", USERS, json=copy))

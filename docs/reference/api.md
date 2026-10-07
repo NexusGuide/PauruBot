@@ -86,6 +86,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | DELETE | `/api/admin/plans/{row_id}` | `catalog.write` | Plans are archived, never deleted: services and orders keep pointing at them. |
 | PUT | `/api/admin/plans/{row_id}` | `catalog.write` | Update plan |
 | POST | `/api/admin/plans` | `catalog.write` | Create plan |
+| GET | `/api/admin/reports/funnel` | `reports.read` | Of the people who joined in the period, how many shared a phone, took a trial and bought (ADM-06). |
 | GET | `/api/admin/reports/sales.csv` | `reports.read` | Sales csv |
 | GET | `/api/admin/reports/sales` | `reports.read` | Sales report |
 | GET | `/api/admin/reports/top-customers` | `reports.read` | Top customers report |

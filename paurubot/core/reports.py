@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, time, timedelta
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -110,3 +111,68 @@ async def daily_summary(session: AsyncSession, shop_id: int, start: datetime, en
 
 def as_params(summary: DailySummary) -> dict[str, int]:
     return asdict(summary)
+
+
+# --- sales funnel (ADM-06) ----------------------------------------------------------------
+
+FUNNEL_STEPS = ("joined", "phone", "trial", "first_purchase", "repeat")
+
+
+async def funnel(
+    session: AsyncSession, shop_id: int, start: datetime, end: datetime, customer_ids: list[int] | None = None
+) -> dict[str, Any]:
+    """Of the people who started the bot in the period: how many reached each step, ever."""
+
+    cohort = select(Customer.id).where(
+        Customer.shop_id == shop_id, Customer.created_at >= start, Customer.created_at < end
+    )
+    if customer_ids is not None:
+        cohort = cohort.where(Customer.id.in_(customer_ids))
+    ids = list(await session.scalars(cohort))
+    if not ids:
+        return {"steps": [{"key": k, "count": 0} for k in FUNNEL_STEPS], "days_to_first": None}
+    paid = (
+        select(
+            Order.customer_id, func.count(Order.id).label("n"), func.min(Order.completed_at).label("first")
+        )
+        .where(
+            Order.customer_id.in_(ids),
+            Order.status == OrderStatus.COMPLETED,
+            Order.amount > 0,
+            Order.kind != OrderKind.TRIAL,
+        )
+        .group_by(Order.customer_id)
+        .subquery()
+    )
+    buyers = (await session.execute(select(paid.c.customer_id, paid.c.n, paid.c.first))).all()
+    joined_at = dict(
+        (await session.execute(select(Customer.id, Customer.created_at).where(Customer.id.in_(ids)))).all()
+    )
+    phone = int(
+        await session.scalar(
+            select(func.count(Customer.id)).where(Customer.id.in_(ids), Customer.phone.is_not(None))
+        )
+        or 0
+    )
+    trial = int(
+        await session.scalar(
+            select(func.count(func.distinct(TrialGrant.customer_id))).where(
+                TrialGrant.customer_id.in_(ids), TrialGrant.status == "issued"
+            )
+        )
+        or 0
+    )
+    waits = sorted(
+        (first - joined_at[cid]).total_seconds() / 86400
+        for cid, _n, first in buyers
+        if first and cid in joined_at
+    )
+    median = round(waits[len(waits) // 2], 1) if waits else None
+    counts = {
+        "joined": len(ids),
+        "phone": phone,
+        "trial": trial,
+        "first_purchase": len(buyers),
+        "repeat": sum(1 for _cid, n, _first in buyers if n >= 2),
+    }
+    return {"steps": [{"key": k, "count": counts[k]} for k in FUNNEL_STEPS], "days_to_first": median}

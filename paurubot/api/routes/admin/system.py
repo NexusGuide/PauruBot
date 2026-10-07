@@ -659,6 +659,25 @@ async def sales_report(
     return {"start": first.isoformat(), "end": last.isoformat(), **data}
 
 
+@router.get("/reports/funnel")
+async def funnel_report(
+    ctx: Annotated[StaffContext, Depends(require("reports.read"))],
+    db: DB,
+    start: date | None = None,
+    end: date | None = None,
+) -> dict[str, Any]:
+    """Of the people who joined in the period, how many shared a phone, took a trial and bought (ADM-06)."""
+    from paurubot.core.reports import funnel
+
+    lo, hi, first, last = _range(start, end)
+    scope = await reseller_scope(db, ctx)
+    return {
+        "start": first.isoformat(),
+        "end": last.isoformat(),
+        **await funnel(db, ctx.shop_id, lo, hi, scope),
+    }
+
+
 @router.get("/reports/top-customers")
 async def top_customers_report(
     ctx: Annotated[StaffContext, Depends(require("reports.read"))],

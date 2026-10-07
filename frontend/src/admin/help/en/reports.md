@@ -9,6 +9,7 @@
 - **By plan**: which plans sold most, split into purchases, renewals and extras.
 - **By payment method**: the share of card transfer, gateways and crypto.
 - **Top customers**: who bought the most in the period.
+- **Sales funnel**: of the people who started the bot in the period, how many shared a phone, took a trial, made a first purchase and bought again; with each step as a share of the one before, and how many days it took half of the buyers to buy. A big drop between two steps shows where to improve.
 
 Resellers see this page only for their own customers.
 
