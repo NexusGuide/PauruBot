@@ -67,7 +67,10 @@ async def daily_summary(session: AsyncSession, shop_id: int, start: datetime, en
         renewals=await count(select(func.count(Order.id)).where(*sold, Order.kind == OrderKind.RENEW)),
         new_customers=await count(
             select(func.count(Customer.id)).where(
-                Customer.shop_id == shop_id, Customer.created_at >= start, Customer.created_at < end
+                Customer.shop_id == shop_id,
+                Customer.telegram_id > 0,  # unclaimed web guests are not people who started the bot
+                Customer.created_at >= start,
+                Customer.created_at < end,
             )
         ),
         trials=await count(
@@ -124,7 +127,10 @@ async def funnel(
     """Of the people who started the bot in the period: how many reached each step, ever."""
 
     cohort = select(Customer.id).where(
-        Customer.shop_id == shop_id, Customer.created_at >= start, Customer.created_at < end
+        Customer.shop_id == shop_id,
+        Customer.telegram_id > 0,
+        Customer.created_at >= start,
+        Customer.created_at < end,
     )
     if customer_ids is not None:
         cohort = cohort.where(Customer.id.in_(customer_ids))

@@ -18,8 +18,8 @@ It's best to create a separate admin for the bot on the panel. If that admin has
 
 - **WGDashboard**: give the **API token** from WGDashboard settings and the **WireGuard configuration** name (such as wg0). Each customer gets a peer with its own keys. Data and end date are WGDashboard schedule jobs that cut the peer off when reached. Customers receive a .conf file and its QR in the bot, and the Mini App shows the same QR.
 - **WG-Mate**: give the **API token** and a **Template user**, an existing user whose protocols and server new customers copy. It works like the other subscription panels.
-- **MikroTik User Manager** (RouterOS 7, REST enabled under IP → Services): give the router address, an admin username and password, then pick the **User Manager profile** for the panel or per plan. Customers get a username and password. The profile's limits on the router are what they buy, and renewing assigns the profile again; the bot shows the data and end date it sold.
-- **IBSng**: give the admin address, username and password and the **IBSng group** new accounts join. The bot creates accounts, reads usage and deletes them; renewals and locking stay in IBSng, so plans on IBSng are best sold without renewal.
+- **MikroTik User Manager** (RouterOS 7, REST enabled under IP → Services): give the router address, an admin username and password, then pick the **User Manager profile** for the panel or per plan. Customers get a username and password. The profile's limits on the router are what they buy. Renewing or upgrading assigns the plan's profile again; extra data, extra days and gifts aren't offered because a profile period can't be split. The bot shows the data and end date it sold.
+- **IBSng**: give the admin address, username and password and the **IBSng group** new accounts join. The bot creates accounts, reads usage and deletes them; renewals, extras, new passwords and locking stay in IBSng, so the bot doesn't offer them for these services.
 
 ## Self-signed certificates and private addresses
 

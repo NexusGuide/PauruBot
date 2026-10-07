@@ -143,3 +143,33 @@ async def test_strangers_and_missing_rights_are_ignored(session, env) -> None:  
     await send(connection_update("bc-1", OWNER, enabled=False))
     await send(business_message("bc-1", 9005, 9005, "price"))
     assert _replies(fake, "bc-1") == []
+
+
+async def test_bot_written_messages_flood_and_former_staff(session, env) -> None:  # type: ignore[no-untyped-def]
+    from sqlalchemy import update
+
+    from paurubot.db.models import Staff
+
+    send, fake = env["send"], env["fake"]
+    await send(connection_update("bc-2", OWNER))
+    # A message another bot sent for the owner does not count as the owner chatting.
+    plain = business_message("bc-2", 9101, OWNER, "auto text")
+    assert plain.business_message is not None
+    helper = User(id=4242, is_bot=True, first_name="Helper")
+    by_bot = plain.model_copy(
+        update={"business_message": plain.business_message.model_copy(update={"sender_business_bot": helper})}
+    )
+    await send(by_bot)
+    await send(business_message("bc-2", 9101, 9101, "price"))
+    assert _replies(fake, "bc-2")[-1].chat_id == 9101
+
+    for _ in range(business.REPLIES_PER_HOUR + 3):
+        await send(business_message("bc-2", 9102, 9102, "price price"))
+    assert len([r for r in _replies(fake, "bc-2") if r.chat_id == 9102]) == business.REPLIES_PER_HOUR
+
+    await session.execute(update(Staff).where(Staff.telegram_id == OWNER).values(is_active=False))
+    await session.commit()
+    await send(business_message("bc-2", 9103, 9103, "price"))
+    assert all(r.chat_id != 9103 for r in _replies(fake, "bc-2"))
+    await session.refresh(await session.get(Row, "bc-2"))
+    assert not (await session.get(Row, "bc-2")).trusted

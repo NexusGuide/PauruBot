@@ -37,10 +37,11 @@ def test_mask_and_replacement_rules() -> None:
     assert ipwatch.mask("185.12.33.7") == "185.12.33.x"
     assert ipwatch.mask("2001:db8:1:2::9") == "2001:0db8:0001:…"
     assert ipwatch.mask("nope") == "?"
-    assert ipwatch.replaced([], ["1.1.1.1"]) == ([], [])  # first look: nothing to compare
-    assert ipwatch.replaced(["1.1.1.1"], ["1.1.1.1", "2.2.2.2"]) == ([], [])  # just one more device
-    assert ipwatch.replaced(["1.1.1.1"], []) == ([], [])  # went offline
-    assert ipwatch.replaced(["1.1.1.1", "2.2.2.2"], ["2.2.2.2", "3.3.3.3"]) == (["1.1.1.1"], ["3.3.3.3"])
+    assert ipwatch.replaced([], ["1.1.1.1"], 1) == ([], [])  # first look: nothing to compare
+    assert ipwatch.replaced(["1.1.1.1"], ["1.1.1.1", "2.2.2.2"], 2) == ([], [])  # just one more device
+    assert ipwatch.replaced(["1.1.1.1"], [], 1) == ([], [])  # went offline
+    assert ipwatch.replaced(["1.1.1.1", "2.2.2.2"], ["2.2.2.2", "3.3.3.3"], 2) == (["1.1.1.1"], ["3.3.3.3"])
+    assert ipwatch.replaced(["1.1.1.1"], ["3.3.3.3"], 2) == ([], [])  # a free slot: the phone moved
 
 
 async def test_xui_and_rebecca_report_addresses() -> None:

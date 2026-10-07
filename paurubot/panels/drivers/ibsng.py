@@ -10,6 +10,7 @@ error rather than guessed at.
 from __future__ import annotations
 
 import html
+import logging
 import re
 import secrets
 from datetime import datetime
@@ -29,6 +30,7 @@ from paurubot.panels.base import (
     UserSpec,
 )
 
+log = logging.getLogger(__name__)
 ADMIN = "/IBSng/admin"
 MB = 1024 * 1024
 _UID_FROM_ADD = re.compile(r"user_id=(\d+)")
@@ -61,6 +63,8 @@ class IbsngDriver(PanelDriver):
     kind = "ibsng"
     supports_webhooks = False
     delivery = "account"
+    # Limits belong to the IBSng group and this driver cannot move users between groups yet.
+    changes: frozenset[str] = frozenset()
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -196,7 +200,8 @@ class IbsngDriver(PanelDriver):
         enabled: bool | None = None,
     ) -> PanelUser:
         if enabled is False:
-            raise PanelError("IBSng accounts are locked from IBSng itself")
+            # IBSng ends the account by its group's own limits; locking is done in IBSng itself.
+            log.info("IBSng account %s is left as it is; lock it in IBSng if needed", ref.username)
         info = await self.get_user(ref)
         if info is None:
             raise PanelNotFound(f"user {ref.username} not found", 404)

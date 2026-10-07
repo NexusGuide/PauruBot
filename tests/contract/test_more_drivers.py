@@ -150,8 +150,8 @@ async def test_ibsng_create_read_delete() -> None:
     ref = PanelRef("ib_1", user.data)
     assert await driver.fetch_password(ref) == user.data["password"]
     assert (await driver.update_user(ref, expire_at=None)).username == "ib_1"
-    with pytest.raises(PanelError):
-        await driver.update_user(ref, enabled=False)
+    # IBSng's group ends the account itself; turning it off from the bot changes nothing there.
+    assert (await driver.update_user(ref, enabled=False)).username == "ib_1"
     with pytest.raises(PanelError, match="already taken"):
         await driver.create_user(UserSpec(username="ib_1"))
     fake.session = False  # an expired session signs in again by itself

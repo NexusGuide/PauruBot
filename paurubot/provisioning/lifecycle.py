@@ -267,6 +267,14 @@ async def _modify_service(session: AsyncSession, order: Order) -> Service:
     expire_value = target.get("expire")
     expire_at: datetime | None = datetime.fromisoformat(str(expire_value)) if expire_value else None
     driver = await driver_for(panel)
+    if order.kind.value not in driver.changes:
+        raise ProvisionError("unsupported_order")
+    if plan is not None and order.kind in {OrderKind.RENEW, OrderKind.UPGRADE}:
+        chosen = (plan.panel_options or {}).get("profile")
+        if chosen and (service.panel_data or {}).get("profile") != chosen:
+            # Panels that sell profiles (PNL-11) renew or upgrade to the plan's own profile.
+            service.panel_data = {**(service.panel_data or {}), "profile": str(chosen)}
+            await session.flush()
     if target.get("reset"):
         await driver.reset_usage(ref(service))
     info = await driver.update_user(
@@ -634,10 +642,16 @@ async def links(session: AsyncSession, service: Service) -> list[str]:
 
 
 async def extend(session: AsyncSession, service: Service, *, days: int = 0, gb: int = 0) -> None:
-    """Add time and/or volume to a service without charging (staff gifts, outage compensation)."""
+    """Add time and/or volume to a service without charging (staff gifts, outage compensation).
+
+    Panels whose limits live on their side (PNL-11) cannot take a partial gift; they are skipped.
+    """
     panel = await session.get(Panel, service.panel_id)
     assert panel is not None
     driver = await driver_for(panel)
+    if "gift" not in driver.changes:
+        log.info("panel %s cannot take extra time or data; service %s left as it is", panel.id, service.id)
+        return
     expire: Any = UNSET
     if days and service.expire_at:
         now = utcnow().replace(microsecond=0)

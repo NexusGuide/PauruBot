@@ -105,6 +105,7 @@ export interface Service {
   delivery?: "subscription" | "wireguard" | "account";
   account?: { username: string; password: string | null };
   download_url?: string | null;
+  changes?: string[];
 }
 
 export interface Order {

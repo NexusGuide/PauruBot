@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import ColumnElement, and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -272,6 +272,17 @@ def manually_reviewable(payment: Payment) -> bool:
         payment.provider == "card"
         or bool((payment.meta or {}).get("late_tx"))
         or disputed_credit(payment) is not None
+    )
+
+
+def review_filter() -> ColumnElement[bool]:
+    """SQL side of awaiting_review(), so a review queue is never crowded out by other rows."""
+    return or_(
+        and_(
+            Payment.status == PaymentStatus.VERIFYING,
+            or_(Payment.provider == "card", Payment.meta["late_tx"].as_string().is_not(None)),
+        ),
+        and_(Payment.status == PaymentStatus.DISPUTED, Payment.meta["disputed_tx"].as_string().is_not(None)),
     )
 
 

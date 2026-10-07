@@ -267,6 +267,8 @@ def service_kb(
     move: bool = False,
     card: bool = False,
 ) -> InlineKeyboardMarkup:
+    from paurubot.core.orders import can_change
+
     sid = service.id
     kb = InlineKeyboardBuilder()
     kb.button(text=t("btn_refresh"), callback_data=Svc(action="view", id=sid))
@@ -274,17 +276,19 @@ def service_kb(
     kb.button(text=t("btn_qr"), callback_data=Svc(action="qr", id=sid))
     if card:
         kb.button(text=t("btn_infocard"), callback_data=Svc(action="card", id=sid))
-    if not service.is_trial:
+    if not service.is_trial and can_change(service, "renew"):
         kb.button(text=t("btn_renew"), callback_data=Svc(action="renew", id=sid))
+    if not service.is_trial:
         if extras[0] is not None:
             kb.button(text=t("btn_extra_volume"), callback_data=Svc(action="extra_gb", id=sid))
         if extras[1] is not None:
             kb.button(text=t("btn_extra_days"), callback_data=Svc(action="extra_days", id=sid))
-    if upgrade:
+    if upgrade and can_change(service, "upgrade"):
         kb.button(text=t("btn_upgrade"), callback_data=Svc(action="upgrade", id=sid))
     if move and not service.is_trial:
         kb.button(text=t("btn_move"), callback_data=Svc(action="move", id=sid))
-    kb.button(text=t("btn_revoke"), callback_data=Svc(action="revoke", id=sid))
+    if can_change(service, "revoke"):
+        kb.button(text=t("btn_revoke"), callback_data=Svc(action="revoke", id=sid))
     kb.button(text=t("btn_rename"), callback_data=Svc(action="rename", id=sid))
     kb.adjust(2)
     kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Svc(action="list").pack()))

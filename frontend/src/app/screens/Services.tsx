@@ -125,6 +125,8 @@ export function ServiceDetail() {
     }
   };
 
+  const can = (change: string) => !service.changes || service.changes.includes(change);
+
   const go = (kind: string) =>
     navigate(`/buy?kind=${kind}&service=${service.id}&panel=${service.panel_id}`);
 
@@ -224,8 +226,8 @@ export function ServiceDetail() {
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        {!service.is_trial && <Button onClick={() => go("renew")}>{t("renew")}</Button>}
-        {me.extras.upgrade && <Button tone="quiet" onClick={() => go("upgrade")}>{t("upgrade")}</Button>}
+        {!service.is_trial && can("renew") && <Button onClick={() => go("renew")}>{t("renew")}</Button>}
+        {me.extras.upgrade && can("upgrade") && <Button tone="quiet" onClick={() => go("upgrade")}>{t("upgrade")}</Button>}
         {service.extras?.gb_price != null && (
           <Button tone="quiet" onClick={() => navigate(`/extra/${service.id}/gb`)}>{t("extra_data")}</Button>
         )}
@@ -235,7 +237,7 @@ export function ServiceDetail() {
         {!links && service.delivery !== "wireguard" && service.delivery !== "account" && (
           <Button tone="quiet" busy={busy === "links"} onClick={showLinks}>{t("show_configs")}</Button>
         )}
-        <Button tone="danger" busy={busy === "revoke"} onClick={revoke}>{t("new_link")}</Button>
+        {can("revoke") && <Button tone="danger" busy={busy === "revoke"} onClick={revoke}>{t("new_link")}</Button>}
       </div>
     </Screen>
   );

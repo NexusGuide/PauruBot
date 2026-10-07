@@ -209,9 +209,10 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 
 | Method | Path | Access | What it does |
 |---|---|---|---|
+| GET | `/buy/return` | public | Where gateways send a guest back; the purchase page comes from the buyer's own cookie. |
 | GET | `/buy/t/{token}` | public | Purchase |
-| GET | `/buy/{shop_id}` | public | Store |
-| POST | `/buy/{shop_id}` | public | Buy |
+| GET | `/buy/{shop_id:int}` | public | Store |
+| POST | `/buy/{shop_id:int}` | public | Buy |
 | GET | `/buy` | public | Store |
 
 ## `/healthz`

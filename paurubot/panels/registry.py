@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 
 from paurubot.db.models import Panel, PanelKind
-from paurubot.panels.base import PanelDriver
+from paurubot.panels.base import ALL_CHANGES, PanelDriver
 from paurubot.panels.drivers.guard import GuardDriver
 from paurubot.panels.drivers.hiddify import HiddifyDriver
 from paurubot.panels.drivers.ibsng import IbsngDriver
@@ -104,3 +104,12 @@ def delivery_of(kind: PanelKind | str | None) -> str:
     except ValueError:
         cls = None
     return getattr(cls, "delivery", "subscription") if cls else "subscription"
+
+
+def changes_of(kind: PanelKind | str | None) -> frozenset[str]:
+    """What a sold account on this panel kind can still be changed with (renew, extras, gifts...)."""
+    try:
+        cls = DRIVERS.get(PanelKind(kind)) if kind else None
+    except ValueError:
+        cls = None
+    return frozenset(getattr(cls, "changes", ALL_CHANGES)) if cls else ALL_CHANGES

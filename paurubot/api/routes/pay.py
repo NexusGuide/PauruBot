@@ -94,7 +94,9 @@ async def _return_page(db: DB, payment: Payment, outcome: str) -> Response:
 
     customer = await db.get(Customer, payment.customer_id)
     if customer is not None and customer.guest_token:
-        return RedirectResponse(f"/buy/t/{customer.guest_token}", status_code=303)
+        # Never the token itself: anyone can hit a callback with a payment id. The buyer's own
+        # browser carries the token in a cookie set when the purchase started.
+        return RedirectResponse("/buy/return", status_code=303)
     return _back_to_bot(await db.get(Shop, payment.shop_id), outcome, payment.id)
 
 

@@ -139,19 +139,19 @@ async def _send_wireguard(session: AsyncSession, t: Texts, customer: Customer, s
             caption=t("wireguard_caption", name=name),
             shop_id=customer.shop_id,
         )
-        await telegram.send_photo(
-            customer.telegram_id,
-            BufferedInputFile(qr_png(items[0]), "wireguard.png"),
-            shop_id=customer.shop_id,
-        )
+        png = qr_png(items[0])
+        if png is not None:
+            await telegram.send_photo(
+                customer.telegram_id, BufferedInputFile(png, "wireguard.png"), shop_id=customer.shop_id
+            )
     except telegram.Undeliverable:
         customer.blocked_bot_at = utcnow()
 
 
 async def _delivery_photo(
     t: Texts, service: Service, link: str, cfg: dict[str, Any]
-) -> tuple[BufferedInputFile, str]:
-    """The info card when it carries the QR (BOT-06), otherwise the bare QR."""
+) -> tuple[BufferedInputFile, str] | None:
+    """The info card when it carries the QR (BOT-06), otherwise the bare QR, if one fits."""
     from paurubot.bot import infocard
     from paurubot.bot.views import qr_png
 
@@ -162,7 +162,8 @@ async def _delivery_photo(
             return BufferedInputFile(image, "card.png"), t("infocard_caption", name=name)
         except (OSError, ValueError) as exc:
             log.warning("info card for service %s failed: %s", service.id, exc)
-    return BufferedInputFile(qr_png(link), "qr.png"), t("qr_caption")
+    png = qr_png(link)
+    return (BufferedInputFile(png, "qr.png"), t("qr_caption")) if png is not None else None
 
 
 async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
@@ -214,9 +215,13 @@ async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
     elif (
         kind == "subscription" and link and (order.kind in {OrderKind.PURCHASE, OrderKind.TRIAL} or new_link)
     ):
-        photo, caption = await _delivery_photo(t, service, link, cfg)
+        delivered = await _delivery_photo(t, service, link, cfg)
         try:
-            await telegram.send_photo(customer.telegram_id, photo, caption=caption, shop_id=customer.shop_id)
+            if delivered is not None:
+                photo, caption = delivered
+                await telegram.send_photo(
+                    customer.telegram_id, photo, caption=caption, shop_id=customer.shop_id
+                )
         except telegram.Undeliverable:
             pass
     await report(
@@ -683,11 +688,12 @@ async def stock_delivered(session: AsyncSession, job: queue.Claimed) -> None:
     config = stock.payload(item)
     if len(config) <= 3500:
         await _to_customer(session, customer, t("stock_ready") + "\n\n<code>" + esc(config) + "</code>")
-        if "\n" not in config and len(config) <= 1500:
+        png = qr_png(config) if "\n" not in config and len(config) <= 1500 else None
+        if png is not None:
             try:
                 await telegram.send_photo(
                     customer.telegram_id,
-                    BufferedInputFile(qr_png(config), "qr.png"),
+                    BufferedInputFile(png, "qr.png"),
                     caption=t("qr_caption"),
                     shop_id=customer.shop_id,
                 )

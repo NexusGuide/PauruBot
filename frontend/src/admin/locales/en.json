@@ -205,6 +205,8 @@
   "err_nothing_to_extend": "Enter days or data.",
   "err_owner_is_fixed": "The owner role cannot change.",
   "err_panel_error": "The panel did not answer or returned an error.",
+  "err_panel_cannot_extend": "This panel keeps its own limits, so time or data can't be added from here. Change it on the panel.",
+  "err_panel_cannot_revoke": "This panel can't issue new credentials from here. Change the password on the panel.",
   "err_password_or_telegram_required": "A password or Telegram ID is required.",
   "err_password_required": "The panel password is required.",
   "err_payment_already_reviewed": "Already reviewed.",

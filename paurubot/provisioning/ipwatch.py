@@ -39,9 +39,13 @@ def mask(address: str) -> str:
     return ":".join(ip.exploded.split(":")[:3]) + ":…"
 
 
-def replaced(previous: list[str], current: list[str]) -> tuple[list[str], list[str]]:
-    """(dropped, arrived) when a connection was pushed out by a new one, else two empty lists."""
-    if not previous:
+def replaced(previous: list[str], current: list[str], limit: int) -> tuple[list[str], list[str]]:
+    """(dropped, arrived) when a connection was pushed out by a new one, else two empty lists.
+
+    A device is only pushed out when every slot was taken before and after; below the limit a
+    changed address is just a phone moving between networks.
+    """
+    if not previous or len(previous) < limit or len(current) < limit:
         return [], []
     dropped = [ip for ip in previous if ip not in current]
     arrived = [ip for ip in current if ip not in previous]
@@ -55,7 +59,7 @@ async def check(session: AsyncSession, service: Service, limit: int) -> bool:
     driver = await registry.driver_for(service.panel)
     current = (await driver.client_ips(ref(service)))[:limit]
     previous = list(service.client_ips or [])
-    dropped, arrived = replaced(previous, current)
+    dropped, arrived = replaced(previous, current, limit)
     if current != previous:
         service.client_ips = current
     if not dropped:

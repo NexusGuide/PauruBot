@@ -80,6 +80,7 @@ def _service_base(service: Service, cfg: dict[str, Any] | None = None) -> dict[s
         "plan_id": service.plan_id,
         "panel_id": service.panel_id,
         "extras": _extras(service, cfg),
+        "changes": sorted(c for c in ("renew", "upgrade", "revoke") if orders.can_change(service, c)),
     }
 
 

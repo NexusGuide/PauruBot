@@ -135,7 +135,9 @@ async def _send_wireguard(message: Message, t: Texts, service: Service, config: 
     await message.answer_document(
         BufferedInputFile(config.encode(), filename), caption=t("wireguard_caption", name=name)
     )
-    await message.answer_photo(BufferedInputFile(qr_png(config), "wireguard.png"))
+    png = qr_png(config)
+    if png is not None:
+        await message.answer_photo(BufferedInputFile(png, "wireguard.png"))
 
 
 @router.callback_query(Svc.filter(F.action == "links"))
@@ -197,7 +199,11 @@ async def qr(
         return
     await call.answer()
     if isinstance(call.message, Message):
-        await call.message.answer_photo(BufferedInputFile(qr_png(link), "qr.png"), caption=t("qr_caption"))
+        png = qr_png(link)
+        if png is None:
+            await call.message.answer(t("qr_too_long"))
+        else:
+            await call.message.answer_photo(BufferedInputFile(png, "qr.png"), caption=t("qr_caption"))
 
 
 @router.callback_query(Svc.filter(F.action == "card"))

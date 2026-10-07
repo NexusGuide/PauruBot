@@ -86,3 +86,60 @@ async def test_account_panels_show_username_and_password(session, tg) -> None:  
     sent = [c for c in tg.calls if isinstance(c, SendMessage) and c.chat_id == 9102]
     assert any(service.panel_data["password"] in (c.text or "") for c in sent)
     assert not any(isinstance(c, SendPhoto) and c.chat_id == 9102 for c in tg.calls)  # nothing to scan
+
+
+async def test_profile_panels_sell_whole_periods_only(session, tg) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.bot import keyboards
+    from paurubot.core import settings as shop_settings
+    from paurubot.db.models import Customer, Panel, Plan
+    from paurubot.provisioning import lifecycle
+
+    fake = FakeMikrotik()
+    shop, service = await _buy(session, PanelKind.MIKROTIK, fake, 9103, profile="monthly")
+    customer = await session.get(Customer, service.customer_id)
+    cfg = await shop_settings.load(session, shop.id, fresh=True)
+    assert orders.service_extras(cfg, service) == (None, None)
+    with pytest.raises(orders.OrderError):
+        await orders.draft(session, customer, OrderKind.EXTRA_VOLUME, service=service, extra_gb=5)
+    labels = [
+        b.text
+        for row in keyboards.service_kb(
+            Texts("en"), service, extras=(None, None), upgrade=True
+        ).inline_keyboard
+        for b in row
+    ]
+    assert any("enew" in label for label in labels)
+
+    panel = await session.get(Panel, service.panel_id)
+    bigger = Plan(
+        shop_id=shop.id,
+        panel_id=panel.id,
+        title="Big",
+        price=40_000,
+        days=30,
+        data_gb=100,
+        panel_options={"profile": "big"},
+    )
+    session.add(bigger)
+    await session.flush()
+    order = await orders.create(
+        session,
+        customer,
+        await orders.draft(session, customer, OrderKind.RENEW, plan=bigger, service=service),
+    )
+    await orders.settle_from_wallet(session, order.id)
+    await session.commit()
+    await drain(session, "provision")
+    assert fake.assignments[-1] == (service.panel_username, "big")  # the plan's profile, not the old one
+
+    before = len(fake.assignments)
+    await lifecycle.extend(session, service, days=10, gb=10)
+    assert len(fake.assignments) == before  # a gift would hand out a whole new period
+
+
+async def test_which_panels_take_which_changes() -> None:  # type: ignore[no-untyped-def]
+    from paurubot.panels.registry import changes_of
+
+    assert changes_of(PanelKind.IBSNG) == frozenset()
+    assert "extra_volume" not in changes_of(PanelKind.MIKROTIK) and "renew" in changes_of(PanelKind.MIKROTIK)
+    assert "gift" in changes_of(PanelKind.MARZBAN)

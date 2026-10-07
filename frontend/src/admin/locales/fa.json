@@ -205,6 +205,8 @@
   "err_nothing_to_extend": "روز یا حجم وارد کن.",
   "err_owner_is_fixed": "نقش مالک قابل تغییر نیست.",
   "err_panel_error": "پنل جواب نداد یا خطا داد.",
+  "err_panel_cannot_extend": "محدودیت‌های این پنل روی خود پنل تعیین می‌شود و از اینجا نمی‌شود زمان یا حجم اضافه کرد. روی خود پنل تغییرش دهید.",
+  "err_panel_cannot_revoke": "این پنل از اینجا اطلاعات ورود تازه نمی‌سازد. رمز را روی خود پنل عوض کنید.",
   "err_password_or_telegram_required": "رمز یا آیدی تلگرام لازم است.",
   "err_password_required": "رمز پنل لازم است.",
   "err_payment_already_reviewed": "این پرداخت قبلاً بررسی شده.",
