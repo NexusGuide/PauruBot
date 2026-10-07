@@ -54,6 +54,7 @@ class OrderKind(enum.StrEnum):
     EXTRA_DAYS = "extra_days"
     UPGRADE = "upgrade"
     TRIAL = "trial"
+    MOVE = "move"
 
 
 class OrderStatus(enum.StrEnum):

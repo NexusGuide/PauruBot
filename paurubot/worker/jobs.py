@@ -38,11 +38,30 @@ async def provision_order(session: AsyncSession, job: queue.Claimed) -> None:
 
 
 async def provision_dead(session: AsyncSession, job: queue.Claimed, error: str) -> None:
+    if job.kind != "order":
+        log.warning("gave up removing a moved account: %s", error[:200])
+        return
     await lifecycle.give_up(session, int(job.payload["order_id"]), error)
 
 
+async def cleanup_panel_user(session: AsyncSession, job: queue.Claimed) -> None:
+    data = job.payload
+    try:
+        await lifecycle.remove_panel_user(
+            session, int(data["panel_id"]), str(data["username"]), dict(data.get("data") or {})
+        )
+    except PanelError as exc:
+        raise Retry(str(exc)) from exc
+
+
 register_queue(
-    "provision", QueueSpec({"order": provision_order}, on_dead=provision_dead, batch=5, lease_seconds=180)
+    "provision",
+    QueueSpec(
+        {"order": provision_order, "cleanup_user": cleanup_panel_user},
+        on_dead=provision_dead,
+        batch=5,
+        lease_seconds=180,
+    ),
 )
 
 

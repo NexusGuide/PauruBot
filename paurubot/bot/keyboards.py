@@ -243,7 +243,7 @@ def services_kb(t: Texts, items: Sequence[Service], page: int, has_next: bool) -
 
 
 def service_kb(
-    t: Texts, service: Service, *, extras: tuple[int | None, int | None], upgrade: bool
+    t: Texts, service: Service, *, extras: tuple[int | None, int | None], upgrade: bool, move: bool = False
 ) -> InlineKeyboardMarkup:
     sid = service.id
     kb = InlineKeyboardBuilder()
@@ -258,6 +258,8 @@ def service_kb(
             kb.button(text=t("btn_extra_days"), callback_data=Svc(action="extra_days", id=sid))
     if upgrade:
         kb.button(text=t("btn_upgrade"), callback_data=Svc(action="upgrade", id=sid))
+    if move and not service.is_trial:
+        kb.button(text=t("btn_move"), callback_data=Svc(action="move", id=sid))
     kb.button(text=t("btn_revoke"), callback_data=Svc(action="revoke", id=sid))
     kb.button(text=t("btn_rename"), callback_data=Svc(action="rename", id=sid))
     kb.adjust(2)
@@ -274,6 +276,16 @@ def extra_kb(
             text=t(f"extra_{kind}_option", value=value, price=money(value * unit_price)),
             callback_data=Svc(action=f"buy_{kind}", id=service_id, value=value),
         )
+    kb.adjust(2)
+    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Svc(action="view", id=service_id).pack()))
+    return kb.as_markup()
+
+
+def move_kb(t: Texts, service_id: int, targets: Sequence[Any]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for location in targets:
+        title = f"{location.flag} {location.title}" if location.flag else location.title
+        kb.button(text=title, callback_data=Svc(action="move_to", id=service_id, value=location.id))
     kb.adjust(2)
     kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Svc(action="view", id=service_id).pack()))
     return kb.as_markup()

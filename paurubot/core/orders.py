@@ -14,7 +14,7 @@ from typing import Any
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from paurubot.core import pricing, resellers
+from paurubot.core import catalog, pricing, resellers
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import affected, utcnow
 from paurubot.db.models import (
@@ -23,9 +23,11 @@ from paurubot.db.models import (
     DiscountRedemption,
     Job,
     JobStatus,
+    Location,
     Order,
     OrderKind,
     OrderStatus,
+    Panel,
     Plan,
     Service,
     ServiceStatus,
@@ -129,6 +131,7 @@ async def draft(
     label: str | None = None,
     custom_gb: int = 0,
     custom_days: int = 0,
+    move_to: Panel | None = None,
 ) -> Draft:
     cfg = await shop_settings.load(session, customer.shop_id)
     params: dict[str, Any] = {}
@@ -139,7 +142,13 @@ async def draft(
         await resellers.check_purchase(session, customer, kind=kind, add_gb=add_gb)
     except resellers.ResellerError as exc:
         raise OrderError(exc.key, **exc.params) from exc
-    if kind in {OrderKind.RENEW, OrderKind.EXTRA_VOLUME, OrderKind.EXTRA_DAYS, OrderKind.UPGRADE}:
+    if kind in {
+        OrderKind.RENEW,
+        OrderKind.EXTRA_VOLUME,
+        OrderKind.EXTRA_DAYS,
+        OrderKind.UPGRADE,
+        OrderKind.MOVE,
+    }:
         if service is None or service.customer_id != customer.id or service.status == ServiceStatus.DELETED:
             raise OrderError("service_not_found")
         if service.is_trial and kind != OrderKind.UPGRADE:
@@ -181,7 +190,40 @@ async def draft(
         credit = 0 if service.is_trial else _remaining_value(service, service.plan)
         params["credit"] = credit
         return Draft(kind, plan, service, params, max(0, plan.price - credit))
+    if kind == OrderKind.MOVE:
+        assert service is not None
+        if not cfg["move_enabled"]:
+            raise OrderError("move_unavailable")
+        if service.status not in MOVABLE:
+            raise OrderError("move_not_now")
+        if move_to is None or move_to.shop_id != customer.shop_id or move_to.id == service.panel_id:
+            raise OrderError("move_unavailable")
+        params["move_to"] = move_to.id
+        return Draft(kind, None, service, params, max(0, int(cfg["move_price"] or 0)))
     raise OrderError("plan_unavailable")
+
+
+MOVABLE = {ServiceStatus.ACTIVE, ServiceStatus.ON_HOLD}
+
+
+async def move_targets(session: AsyncSession, service: Service) -> list[tuple[Location, Panel]]:
+    """Locations a service can move to, each with the panel it would land on (SVC-04)."""
+    current = await session.get(Panel, service.panel_id)
+    rows = list(
+        await session.scalars(
+            select(Location)
+            .where(Location.shop_id == service.shop_id, Location.is_active.is_(True))
+            .order_by(Location.sort, Location.id)
+        )
+    )
+    out: list[tuple[Location, Panel]] = []
+    for location in rows:
+        if current is not None and current.location_id == location.id:
+            continue
+        panel = await catalog.pick_panel_for(session, service.shop_id, None, location.id)
+        if panel is not None and panel.id != service.panel_id:
+            out.append((location, panel))
+    return out
 
 
 async def create(

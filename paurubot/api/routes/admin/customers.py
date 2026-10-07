@@ -470,6 +470,69 @@ async def service_action(
     return {"service": service_out(service)}
 
 
+class MoveBody(BaseModel):
+    panel_id: int
+
+
+async def _move_order(db: DB, ctx: StaffContext, service: Service, panel: Panel) -> int | None:
+    """A free location change made by staff (SVC-04); None when the service can't go there."""
+    from paurubot.core import catalog
+
+    if service.status == ServiceStatus.DELETED or service.panel_id == panel.id:
+        return None
+    if await catalog.pick_panel_for(db, ctx.shop_id, panel.id, None) is None:
+        return None
+    order = Order(
+        shop_id=ctx.shop_id,
+        customer_id=service.customer_id,
+        kind=OrderKind.MOVE,
+        status=OrderStatus.PAID,
+        service_id=service.id,
+        params={"move_to": panel.id},
+        base_price=0,
+        amount=0,
+        paid_at=datetime.now(UTC),
+        source="staff",
+    )
+    db.add(order)
+    await db.flush()
+    await queue.enqueue(
+        db,
+        "provision",
+        "order",
+        {"order_id": order.id},
+        shop_id=ctx.shop_id,
+        dedupe_key=f"order:{order.id}:provision",
+    )
+    return order.id
+
+
+@router.post("/services/{service_id}/move")
+async def move_service(
+    service_id: int,
+    body: MoveBody,
+    ctx: Annotated[StaffContext, Depends(require("services.write"))],
+    db: DB,
+) -> dict[str, Any]:
+    """Move a service to another panel with its remaining data and end date; the link stays (SVC-04)."""
+    service = await scoped_service(db, service_id, ctx)
+    panel = await owned(db, Panel, body.panel_id, ctx)
+    order_id = await _move_order(db, ctx, service, panel)
+    if order_id is None:
+        raise HTTPException(status_code=409, detail="move_unavailable")
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="service.move",
+        entity="service",
+        entity_id=service.id,
+        before={"panel_id": service.panel_id},
+        after={"panel_id": panel.id, "order_id": order_id},
+    )
+    return {"order_id": order_id}
+
+
 class ManualService(BaseModel):
     customer_id: int
     plan_id: int
@@ -519,11 +582,32 @@ async def create_service(
     return {"order_id": order.id}
 
 
+async def _bulk_move(db: DB, ctx: StaffContext, ids: list[int], panel_id: int | None) -> dict[str, Any]:
+    if panel_id is None:
+        raise HTTPException(status_code=422, detail="panel_required")
+    panel = await owned(db, Panel, panel_id, ctx)
+    queued = 0
+    for service_id in ids:
+        service = await db.get(Service, service_id)
+        if service is not None and await _move_order(db, ctx, service, panel) is not None:
+            queued += 1
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="service.bulk_move",
+        entity="service",
+        after={"panel_id": panel.id, "count": queued},
+    )
+    return {"queued": queued, "skipped": len(ids) - queued}
+
+
 class BulkServices(BaseModel):
     """Act on explicit ids or on everything matching a filter (SVC-07, ADM-04)."""
 
-    action: Literal["enable", "disable", "extend", "delete"]
+    action: Literal["enable", "disable", "extend", "delete", "move"]
     ids: list[int] = Field(default_factory=list, max_length=BULK_LIMIT)
+    panel_id: int | None = None
     filter: ServiceFilter | None = None
     days: int = Field(default=0, ge=0, le=3650)
     gb: int = Field(default=0, ge=0, le=100_000)
@@ -553,6 +637,8 @@ async def bulk_services(
     ids = list(await db.scalars(stmt.with_only_columns(Service.id).limit(BULK_LIMIT + 1)))
     if len(ids) > BULK_LIMIT:
         raise HTTPException(status_code=422, detail="too_many")
+    if body.action == "move":
+        return await _bulk_move(db, ctx, ids, body.panel_id)
     batch = uuid.uuid4().hex[:12]
     payload = {
         "action": body.action,

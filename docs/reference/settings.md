@@ -94,6 +94,8 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `ban_disables_services` | bool | true | Banning disables services. Banning a customer turns their services off; unbanning turns them back on |
 | `branded_sub_links` | bool | true | Subscription links on your domain. Customers see a /s/... link on the bot's domain and the panel address stays hidden |
 | `app_links` | list | [] | App buttons on the subscription page. {url} becomes the subscription link and {title} the shop name |
+| `move_enabled` | bool | true | Customers can change location. A button on each active service moves it to another location with its remaining data and end date |
+| `move_price` | int | 0 | Location change price. 0 means free |
 | `username_method` | str | "telegram_id" | Default username style |
 | `username_prefix` | str | "" | Default prefix |
 

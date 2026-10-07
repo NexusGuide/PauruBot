@@ -30,12 +30,13 @@ In [Services](/services) or on the customer page, tap a service:
 - **Reset usage** sets the service's usage on the panel back to zero.
 - **Replace link** cancels the old subscription link and makes a new one; use it when a link has leaked.
 - **Delete service** also removes the user from the panel and cannot be undone.
+- **Move to another panel** takes the service to the target panel with its remaining data, end date and the same branded link, and removes the old account. With **Customers can change location** on in the settings, customers can do the same from the **Change location** button in the bot, paying the **Location change price** from their wallet.
 
 **Give a free service** on the customer page creates a service on any plan without charging the wallet.
 
 ### Bulk actions
 
-In the services list, select several services or take every result of a filter and act on all of them; for example, after an outage use **Gift time and data** to give extra days to every service on one panel. The work runs in the background and you can follow it in the [Job queue](/jobs).
+In the services list, select several services or take every result of a filter and act on all of them; for example, after an outage use **Gift time and data** to give extra days to every service on one panel. To empty a panel, filter the list by that panel and use **Move all listed**. The work runs in the background and you can follow it in the [Job queue](/jobs).
 
 ## Subscription link
 

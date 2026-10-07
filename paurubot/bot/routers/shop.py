@@ -281,6 +281,11 @@ async def checkout(
             label=data.get("label"),
             custom_gb=int(data.get("custom_gb") or 0),
             custom_days=int(data.get("custom_days") or 0),
+            move_to=(
+                await catalog.pick_panel_for(session, customer.shop_id, None, int(data["move_loc"]))
+                if data.get("move_loc")
+                else None
+            ),
         )
         try:
             order = await orders.create(session, customer, draft, code=code)
@@ -458,6 +463,58 @@ async def extras_checkout(
             "svc_id": callback_data.id,
             "extra_gb": callback_data.value if is_gb else 0,
             "extra_days": 0 if is_gb else callback_data.value,
+            "code_id": 0,
+        }
+    )
+    await checkout(call, session, customer, t, cfg, state)
+
+
+@router.callback_query(Svc.filter(F.action == "move"))
+async def move_menu(
+    call: CallbackQuery,
+    callback_data: Svc,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+) -> None:
+    """Change the location of a service, keeping its data, end date and link (SVC-04)."""
+    service = await session.get(Service, callback_data.id)
+    if (
+        service is None
+        or service.customer_id != customer.id
+        or not cfg["move_enabled"]
+        or service.is_trial
+        or service.status not in orders.MOVABLE
+    ):
+        await call.answer(t("move_unavailable"), show_alert=True)
+        return
+    targets = [location for location, _panel in await orders.move_targets(session, service)]
+    if not targets:
+        await call.answer(t("move_no_targets"), show_alert=True)
+        return
+    await call.answer()
+    price = int(cfg["move_price"] or 0)
+    text = t("move_choose") + "\n" + (t("move_price", price=money(price)) if price else t("move_free"))
+    await show(call, text, keyboards.move_kb(t, service.id, targets))
+
+
+@router.callback_query(Svc.filter(F.action == "move_to"))
+async def move_checkout(
+    call: CallbackQuery,
+    callback_data: Svc,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    await call.answer()
+    await state.set_data(
+        {
+            "kind": OrderKind.MOVE.value,
+            "svc_id": callback_data.id,
+            "move_loc": callback_data.value,
             "code_id": 0,
         }
     )

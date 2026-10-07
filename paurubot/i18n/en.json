@@ -369,5 +369,16 @@
   "alert_reason": "Reason: {reason}",
   "trial_unavailable": "A free trial isn't available for your account. Message support for details.",
   "staff_login_code": "🔐 Panel login code: <code>{code}</code>\nValid for 5 minutes. Requested from IP {ip}; if this wasn't you, ignore it and change your password.",
-  "report_job_dead": "☠️ Job #{id} in queue {queue} ({kind}) failed after all retries.\nError: {error}\nIt can be retried from the Jobs page in the panel."
+  "report_job_dead": "☠️ Job #{id} in queue {queue} ({kind}) failed after all retries.\nError: {error}\nIt can be retried from the Jobs page in the panel.",
+  "btn_move": "📍 Change location",
+  "move_unavailable": "Changing location isn't available for this service.",
+  "move_not_now": "Only an active service can change location.",
+  "move_no_targets": "There's no other location to move to right now.",
+  "move_choose": "📍 <b>Choose the new location</b>\nYour remaining data and end date move with the service.",
+  "move_price": "Price: {price} Toman",
+  "move_free": "Free of charge.",
+  "checkout_header_move": "🧾 <b>Location change summary</b>",
+  "order_kind_move": "Location change",
+  "service_moved": "📍 <b>Your service moved to its new location.</b> Your link stays the same; just refresh the subscription in your app.",
+  "service_moved_new_link": "📍 <b>Your service moved to its new location.</b> Replace the old link in your app with the new one below."
 }
