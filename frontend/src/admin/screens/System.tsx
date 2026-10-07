@@ -71,7 +71,7 @@ interface BonusRule {
   max_bonus: number | null;
 }
 
-const BONUS_PROVIDERS = ["*", "card", "zarinpal", "stars", "usdt_trc20", "trx", "ton", "nowpayments", "plisio"];
+const BONUS_PROVIDERS = ["*", "card", "zarinpal", "stars", "usdt_trc20", "trx", "ton", "nowpayments", "plisio", "aqayepardakht", "tetra98", "variza", "abangateway", "blupal", "tronado", "cubepay", "atlaspay"];
 
 function BonusRules({ value, onChange }: { value: BonusRule[]; onChange: (value: BonusRule[]) => void }) {
   const { t } = useSession();

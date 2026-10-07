@@ -443,5 +443,14 @@
   "infocard_unit_kb": "KB",
   "infocard_unit_mb": "MB",
   "infocard_unit_gb": "GB",
-  "infocard_unit_tb": "TB"
+  "infocard_unit_tb": "TB",
+  "btn_pay_aqayepardakht": "🏦 Aqayepardakht gateway",
+  "btn_pay_tetra98": "🏦 Tetra98 gateway",
+  "btn_pay_variza": "🏦 Variza gateway",
+  "btn_pay_abangateway": "🏦 AbanGateway gateway",
+  "btn_pay_blupal": "🏦 BluPal gateway",
+  "btn_pay_tronado": "🪙 TRX via Tronado",
+  "btn_pay_cubepay": "🏦 CubePay gateway",
+  "btn_pay_atlaspay": "🏦 AtlasPay gateway",
+  "payment_return_wait": "⏳ The gateway hasn't confirmed yet. We'll send the result here as soon as it does."
 }

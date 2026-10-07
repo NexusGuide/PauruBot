@@ -217,7 +217,7 @@ async def pay(
         )
     elif checkout.redirect_url:
         await message.answer(
-            t("gateway_instructions", amount=money(payment.amount), payment_id=payment.id),
+            t("gateway_instructions", amount=money(payments.amount_to_pay(payment)), payment_id=payment.id),
             reply_markup=keyboards.url_button(t("btn_open_gateway"), checkout.redirect_url),
         )
 

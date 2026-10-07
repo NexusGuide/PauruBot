@@ -28,6 +28,7 @@ from paurubot.payments.base import Checkout, PaymentError, PaymentProvider
 from paurubot.payments.bonus import bonus_for
 from paurubot.payments.providers.card import CardProvider
 from paurubot.payments.providers.crypto import PROVIDERS as CRYPTO_PROVIDERS
+from paurubot.payments.providers.gateways import GATEWAYS
 from paurubot.payments.providers.invoices import NowPaymentsProvider, PlisioProvider
 from paurubot.payments.providers.stars import StarsProvider
 from paurubot.payments.providers.zarinpal import ZarinpalProvider
@@ -43,6 +44,7 @@ PROVIDERS: dict[str, PaymentProvider] = {
     **CRYPTO_PROVIDERS,
     "nowpayments": NowPaymentsProvider(),
     "plisio": PlisioProvider(),
+    **GATEWAYS,
 }
 OPEN_STATUSES = (PaymentStatus.CREATED, PaymentStatus.PENDING, PaymentStatus.VERIFYING)
 LEASE_SECONDS = 120
@@ -284,10 +286,23 @@ async def reject(session: AsyncSession, payment_id: int, *, staff_id: int | None
 async def verify(session: AsyncSession, payment_id: int, params: dict[str, Any]) -> bool:
     """Server-to-server verification for gateway callbacks and Telegram payments."""
     payment = await session.get(Payment, payment_id)
-    if payment is None or payment.status not in OPEN_STATUSES:
-        return bool(payment and payment.status == PaymentStatus.PAID)
+    if payment is None:
+        return False
+    prov = provider(payment.provider)
+    late = payment.status == PaymentStatus.EXPIRED and getattr(prov, "late_ok", False)
+    if payment.status not in OPEN_STATUSES and not late:
+        return payment.status == PaymentStatus.PAID
     cfg = await shop_settings.load(session, payment.shop_id)
-    result = await provider(payment.provider).verify(payment, cfg, params)
+    result = await prov.verify(payment, cfg, params)
+    if result.paid and result.provider_tx_id and late:
+        # The gateway confirms the money arrived after our deadline: still the customer's money.
+        reopened = await session.execute(
+            update(Payment)
+            .where(Payment.id == payment_id, Payment.status == PaymentStatus.EXPIRED)
+            .values(status=PaymentStatus.VERIFYING, review_note="paid after expiry")
+        )
+        if not affected(reopened):
+            return False
     if not result.paid or not result.provider_tx_id:
         if "canceled" in result.detail:
             await session.execute(
@@ -392,6 +407,54 @@ async def pending_fulfillment(session: AsyncSession, limit: int = 50) -> list[in
         .limit(limit)
     )
     return list(rows)
+
+
+POLL_LATE = timedelta(hours=6)
+
+
+async def pollable(session: AsyncSession, limit: int = 100) -> list[int]:
+    """Open (and recently expired) payments of gateways that are settled by asking them."""
+    names = [name for name, prov in PROVIDERS.items() if getattr(prov, "polls", False)]
+    now = utcnow()
+    rows = await session.scalars(
+        select(Payment.id)
+        .where(
+            Payment.provider.in_(names),
+            Payment.provider_ref.is_not(None),
+            or_(
+                Payment.status == PaymentStatus.PENDING,
+                (Payment.status == PaymentStatus.EXPIRED) & (Payment.expires_at > now - POLL_LATE),
+            ),
+            Payment.created_at < now - timedelta(seconds=20),
+        )
+        .order_by(Payment.id)
+        .limit(limit)
+    )
+    return list(rows)
+
+
+async def poll_gateways(session: AsyncSession) -> int:
+    """Ask polling gateways about each open payment; returns how many were confirmed. Commits."""
+    confirmed = 0
+    for payment_id in await pollable(session):
+        try:
+            ok = await verify(session, payment_id, {"source": "poll"})
+        except PaymentError:
+            ok = False
+        await session.commit()
+        if ok:
+            confirmed += 1
+            await fulfill_one(session, payment_id)
+    return confirmed
+
+
+def amount_to_pay(payment: Payment) -> int:
+    """What the customer pays at the gateway in Toman, including any gateway fee or markup."""
+    if payment.provider_currency == "IRT" and payment.provider_amount:
+        return int(payment.provider_amount)
+    if payment.provider_currency == "IRR" and payment.provider_amount:
+        return int(payment.provider_amount) // 10
+    return int(payment.amount)
 
 
 async def expire_stale(session: AsyncSession) -> int:

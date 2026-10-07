@@ -145,6 +145,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 
 | Method | Path | Access | What it does |
 |---|---|---|---|
+| GET | `/api/pay/gw/{name}` | gateway callback, verified with the provider | One entry point for the redirect gateways (PAY-08, PAY-09): the payer's browser coming |
+| POST | `/api/pay/gw/{name}` | gateway callback, verified with the provider | One entry point for the redirect gateways (PAY-08, PAY-09): the payer's browser coming |
 | POST | `/api/pay/nowpayments/ipn` | gateway callback, verified with the provider | Nowpayments ipn |
 | POST | `/api/pay/plisio/callback` | gateway callback, verified with the provider | Plisio callback |
 | GET | `/api/pay/zarinpal/callback` | gateway callback, verified with the provider | Zarinpal callback |

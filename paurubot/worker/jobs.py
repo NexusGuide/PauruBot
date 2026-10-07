@@ -475,6 +475,17 @@ async def refresh_rates() -> None:
         await fx.refresh()
 
 
+@every(60, "gateways.poll")
+async def poll_gateways() -> None:
+    """BluPal and AtlasPay are settled by asking them; AtlasPay has no callback at all."""
+    from paurubot.payments import engine
+
+    async with session_scope() as session:
+        confirmed = await engine.poll_gateways(session)
+    if confirmed:
+        log.info("gateway poll confirmed %s payment(s)", confirmed)
+
+
 @every(30, "crypto.scan")
 async def scan_crypto() -> None:
     from paurubot.payments import watch
