@@ -47,10 +47,10 @@ async def _texts(session: AsyncSession, customer: Customer) -> Texts:
         customer.shop_id,
         customer.locale or (shop.default_locale if shop else None),
         {
-            "name": customer.first_name or "",
-            "first_name": customer.first_name or "",
-            "username": customer.username or "",
-            "shop": shop.title if shop else "",
+            "name": esc(customer.first_name or ""),
+            "first_name": esc(customer.first_name or ""),
+            "username": esc(customer.username or ""),
+            "shop": esc(shop.title if shop else ""),
         },
     )
 
@@ -629,7 +629,10 @@ async def trust_post(session: AsyncSession, job: queue.Claimed) -> None:
     plan = await session.get(Plan, order.plan_id) if order.plan_id else None
     shop = await session.get(Shop, order.shop_id)
     t = await texts_for(
-        session, order.shop_id, shop.default_locale if shop else None, {"shop": shop.title if shop else ""}
+        session,
+        order.shop_id,
+        shop.default_locale if shop else None,
+        {"shop": esc(shop.title if shop else "")},
     )
     key = "trust_renew" if order.kind == OrderKind.RENEW else "trust_purchase"
     text = t(

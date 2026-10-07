@@ -23,6 +23,7 @@ from paurubot.panels.base import (
     as_dict,
     number,
     parse_expire,
+    seg,
     whole,
 )
 
@@ -116,7 +117,7 @@ class RemnawaveDriver(PanelDriver):
     async def _uuid(self, ref: PanelRef) -> str:
         if ref.data.get("uuid"):
             return str(ref.data["uuid"])
-        found = await self.call("GET", f"/api/users/by-username/{ref.username}")
+        found = await self.call("GET", f"/api/users/by-username/{seg(ref.username)}")
         uuid = as_dict(found).get("uuid")
         if not uuid:
             raise PanelNotFound(f"user {ref.username} not found", 404)
@@ -205,7 +206,7 @@ class RemnawaveDriver(PanelDriver):
             if ref.data.get("uuid"):
                 data = await self.call("GET", f"/api/users/{ref.data['uuid']}")
             else:
-                data = await self.call("GET", f"/api/users/by-username/{ref.username}")
+                data = await self.call("GET", f"/api/users/by-username/{seg(ref.username)}")
         except PanelNotFound:
             return None
         return self.parse_user(as_dict(data))

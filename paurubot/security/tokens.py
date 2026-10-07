@@ -77,11 +77,18 @@ def validate_init_data(
     received = pairs.pop("hash", None)
     if not received:
         raise InitDataError("missing hash")
-    pairs.pop("signature", None)
-    check_string = "\n".join(f"{key}={pairs[key]}" for key in sorted(pairs))
     secret = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
-    expected = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, received):
+
+    def digest(fields: dict[str, str]) -> str:
+        check_string = "\n".join(f"{key}={fields[key]}" for key in sorted(fields))
+        return hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
+
+    # Telegram's hash covers every field but `hash`, the Ed25519 `signature` included; only the
+    # third-party check leaves `signature` out. Both forms are keyed with the bot token.
+    candidates = [pairs]
+    if "signature" in pairs:
+        candidates.append({k: v for k, v in pairs.items() if k != "signature"})
+    if not any(hmac.compare_digest(digest(fields), received) for fields in candidates):
         raise InitDataError("bad signature")
     try:
         auth_date = int(pairs.get("auth_date", "0"))

@@ -5,7 +5,13 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    WebAppInfo,
+)
 
 from paurubot.config import get_settings
 from paurubot.i18n import Texts
@@ -119,6 +125,13 @@ def available(cfg: dict[str, Any]) -> set[str]:
     return set(BUTTONS) - hidden
 
 
+def miniapp_button(t: Texts) -> InlineKeyboardMarkup:
+    url = f"{get_settings().public_url}/app/"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=t("btn_miniapp_open"), web_app=WebAppInfo(url=url))]]
+    )
+
+
 def main_menu(t: Texts, cfg: dict[str, Any], *, is_staff: bool) -> ReplyKeyboardMarkup:
     layout = cfg.get("menu_layout") or DEFAULT_LAYOUT
     styles: dict[str, dict[str, str]] = cfg.get("button_styles") or {}
@@ -129,11 +142,10 @@ def main_menu(t: Texts, cfg: dict[str, Any], *, is_staff: bool) -> ReplyKeyboard
         for item in row:
             if item not in shown:
                 continue
-            if item == "miniapp":
-                url = f"{get_settings().public_url}/app/"
-                buttons.append(styled(t(BUTTONS[item]), styles.get(item), web_app=WebAppInfo(url=url)))
-            else:
-                buttons.append(styled(t(BUTTONS[item]), styles.get(item)))
+            # The Mini App button is a plain one: its handler answers with an inline web-app button.
+            # Telegram signs the user into a Mini App opened from an inline or menu button, never
+            # into one opened from a reply-keyboard button, and the app can't work signed out.
+            buttons.append(styled(t(BUTTONS[item]), styles.get(item)))
         if buttons:
             rows.append(buttons)
     if is_staff:

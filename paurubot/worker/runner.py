@@ -145,6 +145,8 @@ class Worker:
     def __init__(self, idle_sleep: float = 1.0) -> None:
         self.idle_sleep = idle_sleep
         self._stop = asyncio.Event()
+        # The loop keeps only weak references to tasks; hold periodic runs until they finish.
+        self._running: set[asyncio.Task[None]] = set()
 
     def stop(self) -> None:
         self._stop.set()
@@ -168,7 +170,9 @@ class Worker:
             for task in PERIODIC:
                 if now >= task.next_run:
                     task.next_run = now + task.every
-                    asyncio.create_task(run_periodic(task))
+                    running = asyncio.create_task(run_periodic(task))
+                    self._running.add(running)
+                    running.add_done_callback(self._running.discard)
             if not busy:
                 try:
                     await asyncio.wait_for(self._stop.wait(), timeout=self.idle_sleep)

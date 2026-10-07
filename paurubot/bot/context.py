@@ -20,6 +20,7 @@ from paurubot.auth import rbac
 from paurubot.config import get_settings
 from paurubot.core import customers
 from paurubot.core import settings as shop_settings
+from paurubot.core.formatting import esc
 from paurubot.core.shops import root_shop
 from paurubot.db.models import Customer, ForcedChannel, Shop, ShopStatus, Staff, StaffRole
 from paurubot.db.session import get_sessionmaker
@@ -155,12 +156,13 @@ class ContextMiddleware(BaseMiddleware):
                 session,
                 shop.id,
                 customer.locale or shop.default_locale,
+                # Messages are sent as HTML: a name like "<3" must not break (or style) them.
                 {
-                    "name": tg_user.first_name or "",
-                    "first_name": tg_user.first_name or "",
-                    "username": tg_user.username or "",
-                    "shop": shop.title,
-                    "support": cfg.get("support_username") or "",
+                    "name": esc(tg_user.first_name or ""),
+                    "first_name": esc(tg_user.first_name or ""),
+                    "username": esc(tg_user.username or ""),
+                    "shop": esc(shop.title),
+                    "support": esc(cfg.get("support_username") or ""),
                 },
             )
             data.update(customer=customer, is_new_customer=created, staff=staff, t=texts)
