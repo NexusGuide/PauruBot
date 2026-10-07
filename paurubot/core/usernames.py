@@ -14,9 +14,13 @@ _CLEAN = re.compile(r"[^a-z0-9_]+")
 MAX_LEN = 32
 
 
+_RUNS = re.compile(r"_{2,}")
+
+
 def slug(text: str | None, limit: int = 16) -> str:
+    """Panels such as PasarGuard refuse two special characters in a row, so runs become one `_`."""
     value = (text or "").lower().replace(" ", "_").replace("-", "_")
-    return _CLEAN.sub("", value)[:limit].strip("_")
+    return _RUNS.sub("_", _CLEAN.sub("", value))[:limit].strip("_")
 
 
 async def _next_sequence(session: AsyncSession, panel: Panel) -> int:

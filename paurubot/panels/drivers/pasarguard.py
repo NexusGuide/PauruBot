@@ -109,6 +109,20 @@ class PasarGuardDriver(TokenApiDriver):
         groups = data.get("groups", []) if isinstance(data, dict) else data or []
         return [PanelOption(id=str(g["id"]), title=str(g.get("name") or g["id"])) for g in groups]
 
+    async def default_groups(self) -> list[int]:
+        """Every enabled group, for a panel or plan that names none: PasarGuard refuses a new user
+        without at least one group (like Marzban giving a user all inbounds by default)."""
+        data = await self.call("GET", "/api/groups")
+        groups = data.get("groups", []) if isinstance(data, dict) else data or []
+        ids = [
+            int(g["id"])
+            for g in groups
+            if isinstance(g, dict) and g.get("id") is not None and not g.get("is_disabled")
+        ]
+        if not ids:
+            raise PanelError("PasarGuard has no enabled group: create one, or pick groups for this panel")
+        return ids
+
     async def create_user(self, spec: UserSpec) -> PanelUser:
         opts = {**self.options, **spec.options}
         template_id = opts.get("template_id")
@@ -126,9 +140,10 @@ class PasarGuardDriver(TokenApiDriver):
                     data_limit=spec.data_limit,
                 )
             return user
+        group_ids = [int(g) for g in opts.get("group_ids") or []] or await self.default_groups()
         payload: dict[str, Any] = {
             "username": spec.username,
-            "group_ids": [int(g) for g in opts.get("group_ids") or []],
+            "group_ids": group_ids,
             "proxy_settings": {},
             "data_limit": spec.data_limit,
             "data_limit_reset_strategy": "no_reset",
