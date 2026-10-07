@@ -440,16 +440,32 @@ async def fulfill(session: AsyncSession, order_id: int) -> Service | None:
     await pay_commission(session, order)
     from paurubot.worker import queue
 
+    if order.params.get("batch"):
+        await batch_progress(session, order)  # one message for the whole batch (CAT-07)
+    else:
+        await queue.enqueue(
+            session,
+            "notify",
+            "order_completed",
+            {"order_id": order.id},
+            shop_id=order.shop_id,
+            dedupe_key=f"order:{order.id}:notify",
+        )
+    await session.commit()
+    return service
+
+
+async def batch_progress(session: AsyncSession, order: Order) -> None:
+    from paurubot.worker import queue
+
     await queue.enqueue(
         session,
         "notify",
-        "order_completed",
-        {"order_id": order.id},
+        "batch_progress",
+        {"customer_id": order.customer_id, "batch": str(order.params["batch"])},
         shop_id=order.shop_id,
-        dedupe_key=f"order:{order.id}:notify",
+        dedupe_key=f"batch:{order.params['batch']}:{order.id}",
     )
-    await session.commit()
-    return service
 
 
 async def give_up(session: AsyncSession, order_id: int, reason: str) -> None:
@@ -472,6 +488,8 @@ async def give_up(session: AsyncSession, order_id: int, reason: str) -> None:
         shop_id=order.shop_id,
         dedupe_key=f"order:{order.id}:failed",
     )
+    if order.params.get("batch"):
+        await batch_progress(session, order)
     await session.commit()
 
 

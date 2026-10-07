@@ -9,6 +9,7 @@ class ShopStates(StatesGroup):
     extra_amount = State()
     custom_gb = State()
     custom_days = State()
+    bulk_count = State()
 
 
 class WalletStates(StatesGroup):

@@ -17,6 +17,7 @@ class Shop(CallbackData, prefix="b"):
     plan: int = 0
     svc: int = 0
     kind: str = ""
+    n: int = 0
 
 
 class Pay(CallbackData, prefix="p"):

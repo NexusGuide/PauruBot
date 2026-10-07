@@ -22,6 +22,7 @@ from paurubot.db.models import (
     LogChannel,
     Order,
     OrderKind,
+    OrderStatus,
     Payment,
     ResellerApplication,
     Service,
@@ -500,10 +501,54 @@ async def reseller_notice(session: AsyncSession, job: queue.Claimed) -> None:
         )
 
 
+async def batch_done(session: AsyncSession, job: queue.Claimed) -> None:
+    """When every order of a bulk purchase has finished, send all the links in one file (CAT-07)."""
+    from paurubot import kv
+    from paurubot.core import bulk
+    from paurubot.core import settings as shop_settings
+    from paurubot.provisioning.subscription import customer_link
+
+    customer = await session.get(Customer, int(job.payload["customer_id"]))
+    if customer is None:
+        return
+    batch = str(job.payload["batch"])
+    rows, finished = await bulk.progress(session, customer.id, batch)
+    if not finished or not await kv.set_once(f"batch:{batch}:done", 30 * 86400):
+        return
+    t = await _texts(session, customer)
+    cfg = await shop_settings.load(session, customer.shop_id)
+    lines: list[str] = []
+    ready = failed = 0
+    for order in rows:
+        service = await session.get(Service, order.service_id) if order.service_id else None
+        if order.status != OrderStatus.COMPLETED or service is None:
+            failed += 1
+            continue
+        ready += 1
+        link = customer_link(service, cfg) or ""
+        lines.append(f"{service.label or service.panel_username}\t{service.panel_username}\t{link}")
+    text = t("batch_done", ready=ready, failed=failed)
+    if lines:
+        document = BufferedInputFile(("\n".join(lines) + "\n").encode(), f"services-{batch}.txt")
+        try:
+            await telegram.send_document(customer.telegram_id, document, caption=text)
+        except telegram.Undeliverable:
+            pass
+    else:
+        await _to_customer(session, customer, text)
+    await report(
+        session,
+        customer.shop_id,
+        "orders",
+        t("report_batch", customer=esc(customer.display_name), telegram_id=customer.telegram_id, n=ready),
+    )
+
+
 register_queue(
     "notify",
     QueueSpec(
         {
+            "batch_progress": batch_done,
             "reseller_notice": reseller_notice,
             "panel_alert": panel_alert,
             "job_dead": job_dead,

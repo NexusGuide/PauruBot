@@ -129,6 +129,7 @@ def test_quoted_labels_match_the_panel() -> None:
         "Panel settings for this plan",
         "Errors",
         "Change location",
+        "Buy several",
         "Panels",
         "Backups",
         "Daily report",
