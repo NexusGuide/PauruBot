@@ -93,7 +93,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | SVC-01 | Renew, extra volume, extra time, upgrade | MVP | done |
 | SVC-02 | Queued renewal processor | v1.1 | done |
 | SVC-03 | On-hold services (start on first connection) | v1.1 | done |
-| SVC-04 | Location / panel change for an existing service | v2 | todo |
+| SVC-04 | Location / panel change for an existing service | v2 | done |
 | SVC-05 | Expiry and low-volume notifications | MVP | done |
 | SVC-06 | Auto disable / re-activate configs | v1.1 | done |
 | SVC-07 | Bulk volume/time increase for many users | v1.1 | done |

@@ -1165,5 +1165,21 @@
   "help_next": "Next",
   "help_contents": "On this page",
   "help_about": "Help: {title}",
-  "log_topic_panels": "Panels"
+  "log_topic_panels": "Panels",
+  "svc_move_title": "Move to another panel",
+  "svc_move_hint": "The service keeps its remaining data, end date and branded link. A new account is made on the target panel and the old one is removed.",
+  "svc_move_target": "Target panel",
+  "svc_move_pick_panel": "Choose a panel",
+  "svc_move_start": "Move service",
+  "svc_move_queued": "Move started; the customer is told when it's done.",
+  "svc_move_bulk_queued": "{n} services are being moved.",
+  "svc_move_all_matching": "Move all {n} listed",
+  "bulk_move_title": "Move to another panel",
+  "err_move_unavailable": "This service can't move to that panel (same panel, full, off or down).",
+  "err_panel_required": "Choose a target panel.",
+  "setting_move_enabled": "Customers can change location",
+  "setting_move_enabled_hint": "A button on each active service moves it to another location with its remaining data and end date.",
+  "setting_move_price": "Location change price",
+  "setting_move_price_hint": "0 means free.",
+  "order_kind_move": "Location change"
 }

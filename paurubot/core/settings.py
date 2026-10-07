@@ -90,6 +90,8 @@ SPECS: dict[str, Spec] = {
     "ban_disables_services": Spec(bool, True, "services"),
     "branded_sub_links": Spec(bool, True, "services"),
     "app_links": Spec(list, [], "services"),
+    "move_enabled": Spec(bool, True, "services"),
+    "move_price": Spec(int, 0, "services"),
     # custom purchase: the customer picks data and days (CAT-03)
     "custom_buy_enabled": Spec(bool, False, "custom"),
     "custom_panel_id": Spec(int, None, "custom"),
@@ -142,15 +144,18 @@ async def load(session: AsyncSession, shop_id: int, *, fresh: bool = False) -> d
     if cached and not fresh and cached[0] > time.monotonic():
         return cached[1]
     data = defaults()
-    rows = await session.scalars(select(ShopSetting).where(ShopSetting.shop_id == shop_id))
-    for row in rows:
-        spec = SPECS.get(row.key)
+    # Plain columns, not ORM rows: set_many writes with an upsert the identity map never sees.
+    rows = await session.execute(
+        select(ShopSetting.key, ShopSetting.value).where(ShopSetting.shop_id == shop_id)
+    )
+    for key, value in rows.all():
+        spec = SPECS.get(key)
         if spec is None:
             continue
-        if spec.secret and isinstance(row.value, dict) and "enc" in row.value:
-            data[row.key] = secretbox.decrypt("payment", row.value["enc"])
+        if spec.secret and isinstance(value, dict) and "enc" in value:
+            data[key] = secretbox.decrypt("payment", value["enc"])
         else:
-            data[row.key] = row.value
+            data[key] = value
     _cache[shop_id] = (time.monotonic() + _TTL, data)
     return data
 

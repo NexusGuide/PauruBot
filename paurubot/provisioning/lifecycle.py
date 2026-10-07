@@ -289,6 +289,132 @@ async def _modify_service(session: AsyncSession, order: Order) -> Service:
     return service
 
 
+def _move_target(service: Service, plan: Plan | None) -> dict[str, Any]:
+    """What the service carries to its new panel: the data still left and the same end date (SVC-04)."""
+    left = 0
+    if service.data_limit:
+        left = max(int(service.data_limit) - int(service.used_bytes), 0)
+    on_hold_days = None
+    if service.status == ServiceStatus.ON_HOLD and plan is not None and plan.days > 0:
+        on_hold_days = plan.days
+    return {
+        "limit": left if service.data_limit else 0,
+        "unlimited": not service.data_limit,
+        "expire": service.expire_at.isoformat() if service.expire_at and on_hold_days is None else None,
+        "on_hold_days": on_hold_days,
+        "ip_limit": plan.ip_limit if plan is not None else 0,
+    }
+
+
+async def _move_service(session: AsyncSession, order: Order) -> Service:
+    """Recreate the service on another panel with what it has left, then remove the old account.
+
+    The branded subscription link (sub_token) is kept, so customers using it need no new link.
+    Every step is recorded in the order first, so a retried job continues instead of duplicating.
+    """
+    service = await session.get(Service, order.service_id) if order.service_id else None
+    if service is None or service.status == ServiceStatus.DELETED:
+        raise ProvisionError("service_not_found")
+    params = dict(order.params or {})
+    target = await session.get(Panel, int(params.get("move_to") or 0))
+    if target is None or target.shop_id != service.shop_id or not target.is_active:
+        raise ProvisionError("panel_unavailable")
+    if service.panel_id == target.id and params.get("moved"):
+        return service  # finished on an earlier attempt
+    plan = await session.get(Plan, service.plan_id) if service.plan_id else None
+    if "move" not in params:
+        old_panel = await session.get(Panel, service.panel_id)
+        if old_panel is not None:
+            try:
+                await refresh(session, service)
+            except PanelError:
+                log.info("old panel unreachable while moving service %s; using last known usage", service.id)
+            if service.status == ServiceStatus.DELETED:
+                await session.commit()
+                raise ProvisionError("service_not_found")
+        customer = await session.get(Customer, service.customer_id)
+        assert customer is not None
+        params["move"] = {
+            **_move_target(service, plan),
+            "username": await usernames.generate(
+                session, target, customer, service.label, plan.username_prefix if plan else None
+            ),
+            "from_panel": service.panel_id,
+            "from_username": service.panel_username,
+            "from_data": dict(service.panel_data or {}),
+        }
+        order.params = params
+        await session.commit()
+    move = params["move"]
+    customer = await session.get(Customer, service.customer_id)
+    assert customer is not None
+    options: dict[str, Any] = {}
+    if plan is not None and plan.panel_id == target.id:
+        options = {k: v for k, v in (plan.panel_options or {}).items() if v not in (None, "", [], {})}
+    spec = UserSpec(
+        username=move["username"],
+        data_limit=int(move["limit"]) if not move.get("unlimited") else 0,
+        expire_at=datetime.fromisoformat(move["expire"]) if move.get("expire") else None,
+        note=f"tg:{customer.telegram_id}",
+        ip_limit=int(move.get("ip_limit") or 0),
+        on_hold_days=move.get("on_hold_days"),
+        options=options,
+    )
+    if not move.get("unlimited") and spec.data_limit <= 0:
+        spec.data_limit = 1  # nothing left: keep it limited instead of turning it unlimited
+    driver = await driver_for(target)
+    info = await driver.get_user(PanelRef(spec.username, {}))
+    if info is None:
+        info = await driver.create_user(spec)
+    service.panel_id = target.id
+    service.panel_username = info.username or spec.username
+    service.panel_data = info.data or {}
+    service.subscription_url = None
+    service.billed_bytes = 0  # usage starts again on the new panel; metered billing follows it
+    apply_panel_user(service, info)
+    if move.get("on_hold_days"):
+        service.status = ServiceStatus.ON_HOLD
+    params["moved"] = True
+    order.params = params
+    await session.flush()
+    from paurubot.worker import queue
+
+    await queue.enqueue(
+        session,
+        "provision",
+        "cleanup_user",
+        {"panel_id": move["from_panel"], "username": move["from_username"], "data": move["from_data"]},
+        shop_id=service.shop_id,
+        dedupe_key=f"order:{order.id}:cleanup",
+        max_attempts=12,
+    )
+    return service
+
+
+async def remove_panel_user(
+    session: AsyncSession, panel_id: int, username: str, data: dict[str, Any]
+) -> None:
+    """Delete an account the bot no longer tracks (left behind by a move). Missing is fine."""
+    from paurubot.panels import PanelNotFound
+
+    panel = await session.get(Panel, panel_id)
+    if panel is None:
+        return
+    tracked = await session.scalar(
+        select(Service.id).where(
+            Service.panel_id == panel_id,
+            Service.panel_username == username,
+            Service.status != ServiceStatus.DELETED,
+        )
+    )
+    if tracked is not None:
+        return  # a live service uses this account again; never delete it
+    try:
+        await (await driver_for(panel)).delete_user(PanelRef(username, data))
+    except PanelNotFound:
+        return
+
+
 async def fulfill(session: AsyncSession, order_id: int) -> Service | None:
     """Run one provisioning attempt. Panel errors propagate so the queue can retry."""
     order = await claim(session, order_id)
@@ -299,6 +425,8 @@ async def fulfill(session: AsyncSession, order_id: int) -> Service | None:
         return None
     if order.kind in {OrderKind.PURCHASE, OrderKind.TRIAL}:
         service = await _create_service(session, order)
+    elif order.kind == OrderKind.MOVE:
+        service = await _move_service(session, order)
     else:
         service = await _modify_service(session, order)
     order.status = OrderStatus.COMPLETED

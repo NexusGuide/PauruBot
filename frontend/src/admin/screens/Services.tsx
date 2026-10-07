@@ -105,7 +105,21 @@ function ServiceSheet({
   const [gb, setGb] = useState<number | null>(null);
   const [reason, setReason] = useState("");
   const [notify, setNotify] = useState(true);
+  const [moveTo, setMoveTo] = useState("");
   const writable = can("services.write");
+  const panels = useLoad<{ items: PanelRow[] }>(writable && can("panels.read") ? "/api/admin/panels" : null);
+
+  const move = async () => {
+    try {
+      await run(() =>
+        call(`/api/admin/services/${service.id}/move`, { method: "POST", body: { panel_id: Number(moveTo) } }),
+      );
+      toast(t("svc_move_queued"));
+      setMoveTo("");
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
 
   const act = async (action: string, extra: Record<string, unknown> = {}) => {
     try {
@@ -218,6 +232,29 @@ function ServiceSheet({
             </Button>
           </section>
         )}
+        {writable && service.status !== "deleted" && panels.data && (
+          <section className="flex flex-col gap-3 rounded-2xl bg-[var(--bg)] p-4">
+            <h3 className="font-bold">{t("svc_move_title")}</h3>
+            <p className="text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("svc_move_hint")}</p>
+            <Field label={t("svc_move_target")}>
+              {(id) => (
+                <Select id={id} value={moveTo} onChange={(event) => setMoveTo(event.target.value)}>
+                  <option value="">{t("svc_move_pick_panel")}</option>
+                  {panels.data?.items
+                    .filter((panel) => panel.id !== service.panel_id && panel.is_active)
+                    .map((panel) => (
+                      <option key={panel.id} value={panel.id}>
+                        {panel.name}
+                      </option>
+                    ))}
+                </Select>
+              )}
+            </Field>
+            <Button busy={busy} disabled={!moveTo} onClick={() => void move()}>
+              {t("svc_move_start")}
+            </Button>
+          </section>
+        )}
         {writable && service.status !== "deleted" && (
           <section className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
             <Field label={t("delete_reason")} hint={t("reason_shown_to_customer")}>
@@ -234,7 +271,7 @@ function ServiceSheet({
   );
 }
 
-type BulkAction = "enable" | "disable" | "extend" | "delete";
+type BulkAction = "enable" | "disable" | "extend" | "delete" | "move";
 
 export function Services() {
   const { t, can, me, locale, toast, errorText } = useSession();
@@ -250,6 +287,7 @@ export function Services() {
   const [gb, setGb] = useState<number | null>(null);
   const [bulkReason, setBulkReason] = useState("");
   const [bulkNotify, setBulkNotify] = useState(true);
+  const [bulkPanel, setBulkPanel] = useState("");
   const [busy, run] = useAction();
 
   const filter = {
@@ -281,10 +319,12 @@ export function Services() {
         reason: bulkReason.trim() || null,
         notify: bulkNotify,
       };
+      if (action === "move") body.panel_id = Number(bulkPanel);
       if (everything) body.filter = filter;
       else body.ids = [...selection.selected];
       const result = await run(() => call<{ queued: number }>("/api/admin/services/bulk", { method: "POST", body }));
-      toast(t("bulk_queued", { n: money(result?.queued ?? 0, locale) }));
+      toast(t(action === "move" ? "svc_move_bulk_queued" : "bulk_queued", { n: money(result?.queued ?? 0, locale) }));
+      setBulkPanel("");
       setBulkOpen(null);
       setDays(null);
       setGb(null);
@@ -304,9 +344,16 @@ export function Services() {
       wide
       actions={
         canGift && (list.data?.total ?? 0) > 0 ? (
-          <Button onClick={() => setBulkOpen({ action: "extend", everything: true })}>
-            {t("gift_all_matching", { n: money(list.data?.total ?? 0, locale) })}
-          </Button>
+          <>
+            {list.get("panel_id") && (
+              <Button onClick={() => setBulkOpen({ action: "move", everything: true })}>
+                {t("svc_move_all_matching", { n: money(list.data?.total ?? 0, locale) })}
+              </Button>
+            )}
+            <Button onClick={() => setBulkOpen({ action: "extend", everything: true })}>
+              {t("gift_all_matching", { n: money(list.data?.total ?? 0, locale) })}
+            </Button>
+          </>
         ) : null
       }
     >
@@ -360,6 +407,11 @@ export function Services() {
                 {t("gift_title")}
               </Button>
             )}
+            {canGift && panels.data && (
+              <Button small onClick={() => setBulkOpen({ action: "move", everything: false })}>
+                {t("svc_move_title")}
+              </Button>
+            )}
             <Button small tone="danger" onClick={() => setBulkOpen({ action: "delete", everything: false })}>
               {t("delete")}
             </Button>
@@ -403,7 +455,7 @@ export function Services() {
           <Button
             tone={bulkOpen?.action === "delete" ? "danger" : "primary"}
             busy={busy}
-            disabled={bulkOpen?.action === "extend" && !days && !gb}
+            disabled={(bulkOpen?.action === "extend" && !days && !gb) || (bulkOpen?.action === "move" && !bulkPanel)}
             onClick={() => void runBulk()}
           >
             {t("apply_to_n", {
@@ -421,6 +473,25 @@ export function Services() {
               <Field label={t("extra_days")}>{(id) => <NumberInput id={id} value={days} onChange={setDays} allowEmpty />}</Field>
               <Field label={t("extra_gb")}>{(id) => <NumberInput id={id} value={gb} onChange={setGb} allowEmpty />}</Field>
             </div>
+          )}
+          {bulkOpen?.action === "move" && (
+            <>
+              <p className="text-[0.85rem] leading-relaxed">{t("svc_move_hint")}</p>
+              <Field label={t("svc_move_target")}>
+                {(id) => (
+                  <Select id={id} value={bulkPanel} onChange={(event) => setBulkPanel(event.target.value)}>
+                    <option value="">{t("svc_move_pick_panel")}</option>
+                    {(panels.data?.items ?? [])
+                      .filter((panel) => panel.is_active && String(panel.id) !== list.get("panel_id"))
+                      .map((panel) => (
+                        <option key={panel.id} value={panel.id}>
+                          {panel.name}
+                        </option>
+                      ))}
+                  </Select>
+                )}
+              </Field>
+            </>
           )}
           {(bulkOpen?.action === "delete" || bulkOpen?.action === "disable") && (
             <>

@@ -96,7 +96,7 @@ def test_articles_use_only_the_supported_markup(locale: str) -> None:
 def test_quoted_labels_match_the_panel() -> None:
     """Bold English labels in help must be real button or field names (or plain emphasis we allow)."""
     labels = set(_locale("en").values())
-    words = {re.sub(r"\s*\(\{\w+\}\)$", "", v) for v in labels}
+    words = {re.sub(r"\s+", " ", re.sub(r"\(?\{\w+\}\)?", "", v)).strip() for v in labels}
     allowed = {
         "Location",
         "Category",
@@ -128,6 +128,7 @@ def test_quoted_labels_match_the_panel() -> None:
         "Start on first connection",
         "Panel settings for this plan",
         "Errors",
+        "Change location",
         "Panels",
         "Backups",
         "Daily report",

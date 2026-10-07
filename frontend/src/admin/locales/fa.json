@@ -1165,5 +1165,21 @@
   "help_next": "بعدی",
   "help_contents": "در این صفحه",
   "help_about": "راهنما: {title}",
-  "log_topic_panels": "پنل‌ها"
+  "log_topic_panels": "پنل‌ها",
+  "svc_move_title": "انتقال به پنل دیگر",
+  "svc_move_hint": "حجم باقی‌مانده، تاریخ پایان و لینک اختصاصی سرویس حفظ می‌شود. روی پنل مقصد حساب تازه ساخته و حساب قبلی حذف می‌شود.",
+  "svc_move_target": "پنل مقصد",
+  "svc_move_pick_panel": "یک پنل انتخاب کن",
+  "svc_move_start": "انتقال سرویس",
+  "svc_move_queued": "انتقال شروع شد؛ بعد از تمام شدن به مشتری خبر داده می‌شود.",
+  "svc_move_bulk_queued": "{n} سرویس در حال انتقال است.",
+  "svc_move_all_matching": "انتقال هر {n} سرویس این فهرست",
+  "bulk_move_title": "انتقال به پنل دیگر",
+  "err_move_unavailable": "این سرویس به آن پنل منتقل نمی‌شود (همان پنل است، پر است، خاموش یا قطع است).",
+  "err_panel_required": "پنل مقصد را انتخاب کن.",
+  "setting_move_enabled": "مشتری بتواند لوکیشن را عوض کند",
+  "setting_move_enabled_hint": "روی هر سرویس فعال دکمه‌ای می‌آید که آن را با حجم باقی‌مانده و تاریخ پایان به لوکیشن دیگر می‌برد.",
+  "setting_move_price": "هزینه‌ی تغییر لوکیشن",
+  "setting_move_price_hint": "صفر یعنی رایگان.",
+  "order_kind_move": "تغییر لوکیشن"
 }

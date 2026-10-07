@@ -127,9 +127,16 @@ async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
     from paurubot.core.orders import service_extras
 
     cfg = await shop_settings.load(session, customer.shop_id)
-    heading = (
-        t("service_ready") if order.kind in {OrderKind.PURCHASE, OrderKind.TRIAL} else t("service_updated")
-    )
+    if order.kind in {OrderKind.PURCHASE, OrderKind.TRIAL}:
+        heading = t("service_ready")
+    elif order.kind == OrderKind.MOVE:
+        heading = (
+            t("service_moved")
+            if service.sub_token and cfg["branded_sub_links"]
+            else t("service_moved_new_link")
+        )
+    else:
+        heading = t("service_updated")
     markup = keyboards.service_kb(
         t, service, extras=service_extras(cfg, service), upgrade=bool(cfg["upgrade_enabled"])
     )
@@ -139,7 +146,8 @@ async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
     await _to_customer(
         session, customer, heading + "\n\n" + service_card(t, service, link), reply_markup=markup
     )
-    if link and order.kind in {OrderKind.PURCHASE, OrderKind.TRIAL}:
+    new_link = order.kind == OrderKind.MOVE and not cfg["branded_sub_links"]
+    if link and (order.kind in {OrderKind.PURCHASE, OrderKind.TRIAL} or new_link):
         try:
             await telegram.send_photo(
                 customer.telegram_id,
