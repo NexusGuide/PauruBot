@@ -1387,5 +1387,6 @@
   "err_abangateway_url_invalid": "آدرس کامل https که آبان داده را وارد کنید.",
   "err_tronado_wallet_invalid": "آدرس ترون معتبر نیست.",
   "err_tronado_wage_percent_invalid": "عددی بین ۰ تا ۱۰۰ وارد کنید.",
-  "err_cubepay_fee_percent_invalid": "عددی بین ۰ تا ۱۰۰ وارد کنید."
+  "err_cubepay_fee_percent_invalid": "عددی بین ۰ تا ۱۰۰ وارد کنید.",
+  "payment_amount_differs": "مبلغ دیگری به درگاه رسیده: {amount} تومان. با تأیید همین مبلغ شارژ می‌شود، یا رد کنید."
 }

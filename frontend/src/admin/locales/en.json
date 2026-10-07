@@ -1387,5 +1387,6 @@
   "err_abangateway_url_invalid": "Enter the full https address AbanGateway gave you.",
   "err_tronado_wallet_invalid": "That TRON address is not valid.",
   "err_tronado_wage_percent_invalid": "Enter a number from 0 to 100.",
-  "err_cubepay_fee_percent_invalid": "Enter a number from 0 to 100."
+  "err_cubepay_fee_percent_invalid": "Enter a number from 0 to 100.",
+  "payment_amount_differs": "A different amount arrived at the gateway: {amount} Toman. Approve to credit that amount, or reject."
 }

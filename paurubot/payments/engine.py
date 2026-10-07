@@ -48,6 +48,8 @@ PROVIDERS: dict[str, PaymentProvider] = {
 }
 OPEN_STATUSES = (PaymentStatus.CREATED, PaymentStatus.PENDING, PaymentStatus.VERIFYING)
 LEASE_SECONDS = 120
+# How long after expiry a gateway's confirmation still credits the payment, and polling goes on.
+LATE_CREDIT = timedelta(days=2)
 
 
 def provider(name: str) -> PaymentProvider:
@@ -209,10 +211,11 @@ async def mark_paid(
         return False
     if amount is not None and amount != payment.amount:
         log.warning("payment %s amount mismatch", payment_id)
+        meta = {**(payment.meta or {}), "disputed_tx": provider_tx_id, "disputed_amount": int(amount)}
         await session.execute(
             update(Payment)
             .where(Payment.id == payment_id, Payment.status.in_(OPEN_STATUSES))
-            .values(status=PaymentStatus.DISPUTED, failure_reason="amount mismatch")
+            .values(status=PaymentStatus.DISPUTED, failure_reason="amount mismatch", meta=meta)
         )
         return False
     try:
@@ -253,9 +256,29 @@ async def approve_card(session: AsyncSession, payment_id: int, staff_id: int) ->
     return await mark_paid(session, payment_id, provider_tx_id=f"card:{payment_id}", reviewer_id=staff_id)
 
 
+def disputed_credit(payment: Payment) -> int | None:
+    """What a gateway said really arrived for a payment parked over its amount, if anything."""
+    meta = payment.meta or {}
+    if payment.status != PaymentStatus.DISPUTED or not meta.get("disputed_tx"):
+        return None
+    amount = int(meta.get("disputed_amount") or 0)
+    return amount if amount > 0 else None
+
+
 def manually_reviewable(payment: Payment) -> bool:
-    """Card receipts, and crypto transfers that arrived after the payment expired."""
-    return payment.provider == "card" or bool((payment.meta or {}).get("late_tx"))
+    """Card receipts, crypto transfers that arrived after the payment expired, and gateway
+    payments where a different amount arrived."""
+    return (
+        payment.provider == "card"
+        or bool((payment.meta or {}).get("late_tx"))
+        or disputed_credit(payment) is not None
+    )
+
+
+def awaiting_review(payment: Payment) -> bool:
+    if disputed_credit(payment) is not None:
+        return True
+    return payment.status == PaymentStatus.VERIFYING and manually_reviewable(payment)
 
 
 async def approve_manual(session: AsyncSession, payment_id: int, staff_id: int) -> bool:
@@ -264,6 +287,19 @@ async def approve_manual(session: AsyncSession, payment_id: int, staff_id: int) 
         return False
     if payment.provider == "card":
         return await approve_card(session, payment_id, staff_id)
+    credit = disputed_credit(payment)
+    if credit is not None:
+        # Staff accept what the gateway reported; the payment is credited at that amount.
+        reopened = await session.execute(
+            update(Payment)
+            .where(Payment.id == payment_id, Payment.status == PaymentStatus.DISPUTED)
+            .values(status=PaymentStatus.VERIFYING, amount=credit, failure_reason=None)
+        )
+        if not affected(reopened):
+            return False
+        await session.refresh(payment)
+        tx = str(payment.meta["disputed_tx"])
+        return await mark_paid(session, payment_id, provider_tx_id=tx, reviewer_id=staff_id)
     tx = str(payment.meta["late_tx"])
     return await mark_paid(session, payment_id, provider_tx_id=tx, reviewer_id=staff_id)
 
@@ -271,7 +307,7 @@ async def approve_manual(session: AsyncSession, payment_id: int, staff_id: int) 
 async def reject(session: AsyncSession, payment_id: int, *, staff_id: int | None, note: str = "") -> bool:
     result = await session.execute(
         update(Payment)
-        .where(Payment.id == payment_id, Payment.status.in_(OPEN_STATUSES))
+        .where(Payment.id == payment_id, Payment.status.in_([*OPEN_STATUSES, PaymentStatus.DISPUTED]))
         .values(
             status=PaymentStatus.FAILED,
             reviewed_by_staff_id=staff_id,
@@ -289,7 +325,12 @@ async def verify(session: AsyncSession, payment_id: int, params: dict[str, Any])
     if payment is None:
         return False
     prov = provider(payment.provider)
-    late = payment.status == PaymentStatus.EXPIRED and getattr(prov, "late_ok", False)
+    late = (
+        payment.status == PaymentStatus.EXPIRED
+        and getattr(prov, "late_ok", False)
+        and payment.expires_at is not None
+        and payment.expires_at > utcnow() - LATE_CREDIT
+    )
     if payment.status not in OPEN_STATUSES and not late:
         return payment.status == PaymentStatus.PAID
     cfg = await shop_settings.load(session, payment.shop_id)
@@ -409,9 +450,6 @@ async def pending_fulfillment(session: AsyncSession, limit: int = 50) -> list[in
     return list(rows)
 
 
-POLL_LATE = timedelta(hours=6)
-
-
 async def pollable(session: AsyncSession, limit: int = 100) -> list[int]:
     """Open (and recently expired) payments of gateways that are settled by asking them."""
     names = [name for name, prov in PROVIDERS.items() if getattr(prov, "polls", False)]
@@ -423,11 +461,11 @@ async def pollable(session: AsyncSession, limit: int = 100) -> list[int]:
             Payment.provider_ref.is_not(None),
             or_(
                 Payment.status == PaymentStatus.PENDING,
-                (Payment.status == PaymentStatus.EXPIRED) & (Payment.expires_at > now - POLL_LATE),
+                (Payment.status == PaymentStatus.EXPIRED) & (Payment.expires_at > now - LATE_CREDIT),
             ),
             Payment.created_at < now - timedelta(seconds=20),
         )
-        .order_by(Payment.id)
+        .order_by(func.random())  # a backlog larger than one pass can't starve newer payments
         .limit(limit)
     )
     return list(rows)

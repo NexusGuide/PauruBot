@@ -26,7 +26,7 @@ With **Auto-approve receipts**, receipts below **Auto-approve up to** are approv
 The **More gateways** group of [Settings](/settings) has Aqayepardakht, Tetra98, Variza, AbanGateway, BluPal, Tronado, CubePay and AtlasPay. Turn one on and enter the keys from your account on that gateway; it then appears as a payment button in the bot and the Mini App.
 
 - A payment is credited only after the bot checks it with the gateway itself, or, for Variza, Tronado and CubePay crypto, after a callback signed with your secret key. What the customer's browser sends back is never enough.
-- If less money arrives than was asked, the payment waits in [Payments](/payments) for staff instead of being credited.
+- If a different amount arrives than was asked, the payment waits in [Payments](/payments) instead of being credited. Opening it shows what arrived; **Approve** credits that amount, **Reject** closes it.
 - Money that the gateway confirms after the payment expired is still credited, with the note "paid after expiry".
 - **Variza** needs its webhook set to your server's public address followed by /api/pay/gw/variza. **BluPal** works without one, but setting /api/pay/gw/blupal in its dashboard credits faster. **AtlasPay** has no callback; open orders are checked every minute.
 - **CubePay fee added to the price (%)** and AtlasPay's own markup are shown to the customer as the amount to pay; the wallet always gets the original amount.

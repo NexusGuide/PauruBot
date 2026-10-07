@@ -167,7 +167,7 @@ export function PaymentSheet({
   const [busy, run] = useAction();
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
-  const reviewable = can("payments.review") && payment.provider === "card" && payment.status === "verifying";
+  const reviewable = can("payments.review") && payment.reviewable;
 
   const approve = async () => {
     try {
@@ -226,6 +226,11 @@ export function PaymentSheet({
       }
     >
       <div className="flex flex-col gap-5">
+        {payment.review_amount !== null && (
+          <p className="rounded-xl bg-saffron-100 px-3 py-2 text-[0.85rem] font-semibold text-saffron-700">
+            {t("payment_amount_differs", { amount: payment.review_amount.toLocaleString() })}
+          </p>
+        )}
         {payment.duplicate_of_id && (
           <p className="rounded-xl bg-anar-100 px-3 py-2 text-[0.85rem] font-semibold text-anar-700">
             {t("duplicate_warning", { id: payment.duplicate_of_id })}
