@@ -114,8 +114,8 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | PAY-05 | Card auto-approve rules | v1.1 | done |
 | PAY-06 | Duplicate receipt detection (image hash) | MVP* | done |
 | PAY-07 | Zarinpal | MVP | done |
-| PAY-08 | Aqayepardakht, IranPay/Tetra98, Variza | v2 | todo |
-| PAY-09 | AbanGateway, AtlasPay, Blupal, Tronado, CubePay | v2 | todo |
+| PAY-08 | Aqayepardakht, IranPay/Tetra98, Variza | v2 | done |
+| PAY-09 | AbanGateway, AtlasPay, Blupal, Tronado, CubePay | v2 | done |
 | PAY-10 | NowPayments and Plisio | v1.1 | done |
 | PAY-11 | Direct on-chain USDT-TRC20 / TRX / TON | v1.1 | done |
 | PAY-12 | Telegram Stars | MVP* | done |

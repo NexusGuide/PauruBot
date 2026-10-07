@@ -170,6 +170,29 @@ def _check_crypto(values: dict[str, Any]) -> None:
         raise HTTPException(status_code=422, detail="fx_source_invalid")
 
 
+def _check_gateways(values: dict[str, Any]) -> None:
+    from paurubot.payments.chains import valid_address
+    from paurubot.security import ssrf
+
+    url = values.get("abangateway_url")
+    if url:
+        try:
+            ssrf.check_url_shape(str(url))
+            ssrf.check_static(str(url))
+        except ssrf.UnsafeUrl:
+            raise HTTPException(status_code=422, detail="abangateway_url_invalid") from None
+        if not str(url).startswith("https://"):
+            raise HTTPException(status_code=422, detail="abangateway_url_invalid")
+        values["abangateway_url"] = str(url).strip().rstrip("/")
+    wallet = values.get("tronado_wallet")
+    if wallet and not valid_address("trx", str(wallet).strip()):
+        raise HTTPException(status_code=422, detail="tronado_wallet_invalid")
+    for key in ("tronado_wage_percent", "cubepay_fee_percent"):
+        value = values.get(key)
+        if value is not None and (not isinstance(value, int) or not 0 <= value <= 100):
+            raise HTTPException(status_code=422, detail=f"{key}_invalid")
+
+
 def _check_services(values: dict[str, Any]) -> None:
     from paurubot.bot.infocard import THEMES
 
@@ -202,6 +225,7 @@ async def write_settings(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     _check_crypto(body.values)
     _check_services(body.values)
+    _check_gateways(body.values)
     if "app_links" in body.values:
         from paurubot.provisioning.subscription import validate_app_links
 

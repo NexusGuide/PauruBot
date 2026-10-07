@@ -308,6 +308,7 @@ async def _payment_view(ctx: WebApp, started: payments.Started) -> dict[str, Any
         }
     elif checkout.redirect_url:
         view["redirect_url"] = checkout.redirect_url
+        view["pay_amount"] = payments.amount_to_pay(payment)
     return view
 
 

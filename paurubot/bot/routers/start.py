@@ -79,6 +79,9 @@ async def start(
     if arg.startswith("pay_paid_"):
         await home(message, t, cfg, staff, "payment_return_paid")
         return
+    if arg.startswith("pay_wait_"):
+        await home(message, t, cfg, staff, "payment_return_wait")
+        return
     if arg.startswith("pay_failed_"):
         await home(message, t, cfg, staff, "payment_return_failed")
         return

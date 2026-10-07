@@ -26,7 +26,7 @@ import {
 
 const ORDER_STATUSES = ["pending", "awaiting_payment", "paid", "provisioning", "completed", "failed", "canceled", "refunded"];
 const PAYMENT_STATUSES = ["created", "pending", "verifying", "paid", "failed", "expired", "refunded", "disputed"];
-const PROVIDERS = ["card", "zarinpal", "stars"];
+const PROVIDERS = ["card", "zarinpal", "stars", "usdt_trc20", "trx", "ton", "nowpayments", "plisio", "aqayepardakht", "tetra98", "variza", "abangateway", "blupal", "tronado", "cubepay", "atlaspay"];
 
 export function Orders() {
   const { t, can, toast, errorText } = useSession();

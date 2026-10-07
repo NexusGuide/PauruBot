@@ -69,6 +69,34 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `plisio_enabled` | bool | false | Plisio |
 | `plisio_api_key` | str (secret) | — | Plisio API key |
 
+## More gateways
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `aqayepardakht_enabled` | bool | false | Aqayepardakht. Needs the server's public address |
+| `aqayepardakht_pin` | str (secret) | — | Aqayepardakht PIN |
+| `tetra98_enabled` | bool | false | Tetra98 (IranPay). Needs the server's public address |
+| `tetra98_api_key` | str (secret) | — | Tetra98 API key |
+| `variza_enabled` | bool | false | Variza. In the Variza panel set the webhook to your server's public address followed by /api/pay/gw/variza. Payments are credited only from that signed webhook |
+| `variza_api_token` | str (secret) | — | Variza API token |
+| `variza_webhook_secret` | str (secret) | — | Variza webhook secret |
+| `abangateway_enabled` | bool | false | AbanGateway. Needs the server's public address |
+| `abangateway_url` | str | "" | AbanGateway address. The https address AbanGateway gave you, without /create at the end |
+| `abangateway_api_key` | str (secret) | — | AbanGateway API key |
+| `abangateway_rial` | bool | true | AbanGateway reports amounts in Rial. Leave on unless AbanGateway tells you its verify answer is in Toman. A wrong choice keeps payments waiting for review; it never credits too much |
+| `blupal_enabled` | bool | false | BluPal. Open invoices are checked every minute. For faster crediting set the webhook in the BluPal dashboard to your server's public address followed by /api/pay/gw/blupal |
+| `blupal_api_key` | str (secret) | — | BluPal API key |
+| `tronado_enabled` | bool | false | Tronado (TRX). Customers pay in TRX through the Tronado bot; the amount is converted at Tronado's rate. Needs the server's public address |
+| `tronado_api_key` | str (secret) | — | Tronado API key |
+| `tronado_ipn_key` | str (secret) | — | Tronado callback signing key |
+| `tronado_wallet` | str | "" | Tronado TRON wallet. The TRC20 address Tronado pays out to. Use a different one from the wallet in the Crypto group |
+| `tronado_wage_percent` | int | 0 | Share of Tronado's fee you pay (%). 0 means the customer pays the whole fee, 100 means you do |
+| `cubepay_enabled` | bool | false | CubePay. Card-to-card and crypto through CubePay. Needs the server's public address |
+| `cubepay_api_key` | str (secret) | — | CubePay API token |
+| `cubepay_fee_percent` | int | 0 | CubePay fee added to the price (%). Added on top of what the customer pays at CubePay; the wallet gets the original amount |
+| `atlaspay_enabled` | bool | false | AtlasPay. AtlasPay has no callback; open orders are checked every minute. AtlasPay's own markup is shown to the customer before paying |
+| `atlaspay_api_key` | str (secret) | — | AtlasPay API key |
+
 ## Crypto
 
 | Key | Type | Default | Meaning |

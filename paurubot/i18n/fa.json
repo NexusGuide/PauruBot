@@ -443,5 +443,14 @@
   "infocard_unit_kb": "کیلوبایت",
   "infocard_unit_mb": "مگ",
   "infocard_unit_gb": "گیگ",
-  "infocard_unit_tb": "ترا"
+  "infocard_unit_tb": "ترا",
+  "btn_pay_aqayepardakht": "🏦 درگاه آقای پرداخت",
+  "btn_pay_tetra98": "🏦 درگاه تترا۹۸",
+  "btn_pay_variza": "🏦 درگاه واریزا",
+  "btn_pay_abangateway": "🏦 درگاه آبان",
+  "btn_pay_blupal": "🏦 درگاه بلوپال",
+  "btn_pay_tronado": "🪙 پرداخت با ترون (ترونادو)",
+  "btn_pay_cubepay": "🏦 درگاه کیوب‌پی",
+  "btn_pay_atlaspay": "🏦 درگاه اطلس‌پی",
+  "payment_return_wait": "⏳ هنوز تأیید درگاه نرسیده. به‌محض تأیید، نتیجه رو همین‌جا برات می‌فرستیم."
 }
