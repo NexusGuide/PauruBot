@@ -182,6 +182,11 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/webapp/services/{service_id}/revoke` | Mini App initData | Service revoke |
 | GET | `/api/webapp/services/{service_id}` | Mini App initData | Service detail |
 | GET | `/api/webapp/services` | Mini App initData | Services |
+| GET | `/api/webapp/staff/dashboard` | Mini App initData | Dashboard |
+| POST | `/api/webapp/staff/reviews/{payment_id}/approve` | Mini App initData | Approve |
+| GET | `/api/webapp/staff/reviews/{payment_id}/receipt` | Mini App initData | Receipt |
+| POST | `/api/webapp/staff/reviews/{payment_id}/reject` | Mini App initData | Reject |
+| GET | `/api/webapp/staff/reviews` | Mini App initData | Reviews |
 | POST | `/api/webapp/trial` | Mini App initData | Trial |
 | POST | `/api/webapp/wallet/gift` | Mini App initData | Redeem gift |
 | GET | `/api/webapp/wallet/history` | Mini App initData | History |
