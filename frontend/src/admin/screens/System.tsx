@@ -1364,9 +1364,99 @@ export function Backups() {
                 </ul>
               )}
             </Section>
+            <BundleSection />
           </>
         )}
       </Async>
     </Page>
+  );
+}
+
+interface BundleReport {
+  dry_run: boolean;
+  created: Record<string, number>;
+  updated: Record<string, number>;
+  warnings: string[];
+}
+
+function BundleSection() {
+  const { t, locale, toast, errorText } = useSession();
+  const [file, setFile] = useState<File | null>(null);
+  const [report, setReport] = useState<BundleReport | null>(null);
+  const [busy, run] = useAction();
+  const send = async (dryRun: boolean) => {
+    if (!file) return;
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const result = await run(() => call<BundleReport>(`/api/admin/bundle?dry_run=${dryRun}`, { method: "POST", form }));
+      if (result) setReport(result);
+      if (!dryRun) {
+        toast(t("bundle_imported"));
+        setFile(null);
+      }
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  const lines = (counts: Record<string, number>) =>
+    Object.entries(counts).map(([kind, n]) => `${t(`bundle_kind_${kind}`)}: ${money(n, locale)}`);
+  return (
+    <Section title={t("bundle_title")}>
+      <p className="mb-4 text-[0.85rem] leading-relaxed text-[var(--hint)]">{t("bundle_intro")}</p>
+      <div className="flex flex-wrap gap-2">
+        <a
+          className="inline-flex min-h-10 items-center rounded-xl px-4 font-semibold ring-1 ring-[var(--line)] hover:bg-[var(--bg)]"
+          href="/api/admin/bundle"
+          download
+        >
+          {t("bundle_export")}
+        </a>
+        <label className="inline-flex min-h-10 cursor-pointer items-center rounded-xl px-4 font-semibold ring-1 ring-[var(--line)] hover:bg-[var(--bg)]">
+          {file ? file.name : t("bundle_choose")}
+          <input
+            type="file"
+            accept=".json,application/json"
+            className="sr-only"
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null);
+              setReport(null);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </div>
+      {file && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button busy={busy} onClick={() => void send(true)}>
+            {t("bundle_check")}
+          </Button>
+          <Button tone="primary" busy={busy} disabled={!report?.dry_run} onClick={() => void send(false)}>
+            {t("bundle_import")}
+          </Button>
+        </div>
+      )}
+      {report && (
+        <div className="mt-4 flex flex-col gap-2 rounded-xl bg-[var(--bg)] p-3 text-[0.85rem]">
+          <p className="font-bold">{report.dry_run ? t("bundle_would") : t("bundle_did")}</p>
+          {lines(report.created).map((line) => (
+            <p key={`c${line}`}>+ {line}</p>
+          ))}
+          {lines(report.updated).map((line) => (
+            <p key={`u${line}`}>~ {line}</p>
+          ))}
+          {!Object.keys(report.created).length && !Object.keys(report.updated).length && <p>{t("bundle_nothing")}</p>}
+          {report.warnings.length > 0 && (
+            <ul className="list-inside list-disc text-saffron-700">
+              {report.warnings.map((w) => (
+                <li key={w} dir="auto">
+                  {w}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </Section>
   );
 }

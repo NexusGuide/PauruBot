@@ -16,6 +16,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/broadcasts/{broadcast_id}/cancel` | `broadcast.send` | Cancel broadcast |
 | GET | `/api/admin/broadcasts` | `broadcast.send` | List broadcasts |
 | POST | `/api/admin/broadcasts` | `broadcast.send` | Create broadcast |
+| GET | `/api/admin/bundle` | `backups.manage` | The shop's setup (no secrets, no customers) as a JSON file. |
+| POST | `/api/admin/bundle` | `backups.manage` | Import bundle |
 | GET | `/api/admin/catalog` | `catalog.read` | Catalog |
 | PUT | `/api/admin/categories/{row_id}` | `catalog.write` | Update category |
 | POST | `/api/admin/categories` | `catalog.write` | Create category |

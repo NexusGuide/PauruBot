@@ -134,7 +134,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | FIN-04 | Finance reports and daily report | MVP | done |
 | FIN-05 | Excel export | v1.1 | done |
 | FIN-06 | Top customers report | v1.1 | done |
-| FIN-07 | Shop bundle export / import | v2 | todo |
+| FIN-07 | Shop bundle export / import | v2 | done |
 
 ## Growth & Marketing
 

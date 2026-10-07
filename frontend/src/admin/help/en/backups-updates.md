@@ -24,6 +24,12 @@ pauru restore /root/paurubot-backup.pbak
 
 If the backup was made on another server with a different backup passphrase, the installer asks for it. If the restore fails, the bot starts again on the previous data.
 
+## Copying the shop setup to another server
+
+At the bottom of [Backups](/backups), **Download setup file** gives settings, plans, locations, discount codes, reseller groups, bot texts and channels in one JSON file. Secrets, customers, wallets and panel passwords are not in it; use a backup for a full move.
+
+On the target server, first add the panels with the same names, then pick the file with **Choose a setup file** and tap **Check first** to see what would be created or changed. If it looks right, tap **Import**. Importing the same file again repeats nothing. A plan whose panel isn't on the target server is attached to its location instead.
+
 ## Updating from the panel
 
 [Updates](/updates) shows the installed version, the latest release and the version you can roll back to. To update from here, run this once on the server:
