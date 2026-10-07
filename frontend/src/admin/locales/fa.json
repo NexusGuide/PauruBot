@@ -409,6 +409,8 @@
   "panel_flow": "Flow",
   "panel_flow_hint": "برای VLESS با Reality معمولاً xtls-rprx-vision.",
   "panel_groups": "گروه‌ها",
+  "panel_group_ids": "شناسهٔ گروه‌ها (دستی)",
+  "panel_group_ids_hint": "شماره گروه‌ها رو از بخش Groups در پاسارگارد بنویس، با کاما جدا کن (مثلاً 1, 2). خالی بذاری، کاربر توی همهٔ گروه‌هایی ساخته می‌شه که این ادمین بهشون دسترسی داره. بعدش ذخیره رو بزن.",
   "panel_inbound": "اینباند",
   "panel_inbound_hint": "کاربران تازه در این اینباند ساخته می‌شوند.",
   "panel_inbounds": "اینباندها",

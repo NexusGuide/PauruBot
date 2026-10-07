@@ -409,6 +409,8 @@
   "panel_flow": "Flow",
   "panel_flow_hint": "Usually xtls-rprx-vision for VLESS Reality.",
   "panel_groups": "Groups",
+  "panel_group_ids": "Group IDs (by hand)",
+  "panel_group_ids_hint": "Group numbers from PasarGuard's Groups page, comma separated (e.g. 1, 2). Left empty, users go into every group this admin may use. Save afterwards.",
   "panel_inbound": "Inbound",
   "panel_inbound_hint": "New users are created in this inbound.",
   "panel_inbounds": "Inbounds",

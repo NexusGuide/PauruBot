@@ -104,21 +104,42 @@ class PasarGuardDriver(TokenApiDriver):
             figures["admin"] = quota
         return figures
 
+    async def groups(self) -> list[dict[str, Any]]:
+        """The groups this admin may use. A limited admin's role often lacks `groups.read`, so fall
+        back to the dropdown list (`groups.read_simple`), then to the groups its role allows."""
+        denied: PanelError | None = None
+        for path in ("/api/groups", "/api/groups/simple"):
+            try:
+                data = await self.call("GET", path)
+            except PanelError as exc:
+                if exc.status not in (403, 404, 405):
+                    raise
+                denied = exc
+                continue
+            rows = data.get("groups", []) if isinstance(data, dict) else data or []
+            return [g for g in rows if isinstance(g, dict) and g.get("id") is not None]
+        try:
+            admin = as_dict(await self.call("GET", "/api/admin"))
+        except PanelError:
+            admin = {}
+        allowed = as_dict(as_dict(admin.get("role")).get("access")).get("allowed_group_ids")
+        if isinstance(allowed, list) and allowed:
+            return [{"id": int(g), "name": f"#{int(g)}"} for g in allowed if str(g).isdigit()]
+        raise PanelError(
+            "this PasarGuard admin may not read groups (groups.read): give its role that permission, "
+            "or type the group IDs in the panel settings",
+            denied.status if denied else None,
+        )
+
     async def list_options(self) -> list[PanelOption]:
-        data = await self.call("GET", "/api/groups")
-        groups = data.get("groups", []) if isinstance(data, dict) else data or []
-        return [PanelOption(id=str(g["id"]), title=str(g.get("name") or g["id"])) for g in groups]
+        return [
+            PanelOption(id=str(g["id"]), title=str(g.get("name") or g["id"])) for g in await self.groups()
+        ]
 
     async def default_groups(self) -> list[int]:
         """Every enabled group, for a panel or plan that names none: PasarGuard refuses a new user
         without at least one group (like Marzban giving a user all inbounds by default)."""
-        data = await self.call("GET", "/api/groups")
-        groups = data.get("groups", []) if isinstance(data, dict) else data or []
-        ids = [
-            int(g["id"])
-            for g in groups
-            if isinstance(g, dict) and g.get("id") is not None and not g.get("is_disabled")
-        ]
+        ids = [int(g["id"]) for g in await self.groups() if not g.get("is_disabled")]
         if not ids:
             raise PanelError("PasarGuard has no enabled group: create one, or pick groups for this panel")
         return ids

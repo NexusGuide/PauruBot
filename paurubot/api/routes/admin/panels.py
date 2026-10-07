@@ -262,17 +262,24 @@ async def test_panel(panel_id: int, ctx: Writer, db: DB) -> dict[str, Any]:
     try:
         driver = await registry.driver_for(panel)
         health = await driver.health_check()
-        options = [{"id": o.id, "title": o.title} for o in await driver.list_options()]
     except PanelError as exc:
         panel.is_healthy, panel.health_error, panel.health_checked_at = False, str(exc)[:255], utcnow()
         return {"ok": False, "error": str(exc)[:255], "status": exc.status}
     panel.is_healthy, panel.health_error, panel.health_checked_at = True, None, utcnow()
+    # The connection works even when the panel admin may not list groups or inbounds; say why the
+    # picker is empty instead of failing the whole test.
+    options_error = None
+    try:
+        options = [{"id": o.id, "title": o.title} for o in await driver.list_options()]
+    except PanelError as exc:
+        options, options_error = [], str(exc)[:255]
     return {
         "ok": True,
         "detail": health.detail,
         "users": health.users,
         "version": health.version,
         "options": options,
+        "options_error": options_error,
     }
 
 

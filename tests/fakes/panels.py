@@ -29,6 +29,8 @@ class FakeTokenPanel:
         self.admin: dict[str, Any] | None = None
         self.admins: set[str] = set()
         self.groups: list[dict[str, Any]] = [{"id": 1, "name": "default"}]
+        # PasarGuard role permissions for groups: "read" (full list), "read_simple" or none.
+        self.group_perms: set[str] = {"read", "read_simple"}
 
     def _user_out(self, user: dict[str, Any]) -> dict[str, Any]:
         out = dict(user)
@@ -93,7 +95,14 @@ class FakeTokenPanel:
             rows = [self._user_out(u) for u in self.users.values()]
             return httpx.Response(200, json={"users": rows[offset : offset + limit], "total": len(rows)})
         if path == "/api/groups":
+            if "read" not in self.group_perms:
+                return httpx.Response(403, json={"detail": "Permission denied: groups.read"})
             return httpx.Response(200, json={"groups": self.groups, "total": len(self.groups)})
+        if path == "/api/groups/simple":
+            if "read_simple" not in self.group_perms:
+                return httpx.Response(403, json={"detail": "Permission denied: groups.read_simple"})
+            simple = [{"id": g["id"], "name": g["name"]} for g in self.groups]
+            return httpx.Response(200, json={"groups": simple, "total": len(simple)})
         if path == "/api/inbounds":
             return httpx.Response(200, json={"vless": [{"tag": "VLESS TCP"}]})
         if path == "/api/user" and request.method == "POST":
