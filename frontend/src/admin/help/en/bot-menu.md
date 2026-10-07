@@ -41,3 +41,13 @@ In [Bot texts](/texts) change any message the bot sends, separately for each lan
 - **Support contacts**: links customers see for reaching you.
 
 > Enter a channel or group ID with its minus sign (for example -100...) and make the bot an admin there before saving.
+
+## Answering your own Telegram account
+
+With Telegram Business (Telegram Premium), you can let this bot answer people who message your own account. Add the bot in Telegram under Settings → Telegram Business → Chatbots, allow it to reply, then turn on **Answer messages to my Telegram account** in the **Telegram Business** group of [Settings](/settings).
+
+- **Keyword answers**: when a message contains one of a row's words, that answer goes out, for example prices or how to buy.
+- **Standard reply**: sent at most once per person every few hours; write {bot} where the bot's link should go.
+- After you write in a conversation yourself, the bot stays out of it for **Stay quiet after you write (minutes)**.
+
+Only accounts of your staff are answered for; if someone else adds the bot to their account it does nothing. People who write to you are not added to your customers.

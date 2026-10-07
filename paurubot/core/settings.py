@@ -81,6 +81,12 @@ SPECS: dict[str, Spec] = {
     "nowpayments_ipn_secret": Spec(str, "", "payments", secret=True),
     "plisio_enabled": Spec(bool, False, "payments"),
     "plisio_api_key": Spec(str, "", "payments", secret=True),
+    # Telegram Business automation (BOT-07)
+    "business_enabled": Spec(bool, False, "business"),
+    "business_reply": Spec(str, "", "business"),
+    "business_reply_every_hours": Spec(int, 12, "business"),
+    "business_quiet_minutes": Spec(int, 30, "business"),
+    "business_rules": Spec(list, [], "business"),
     # guest purchase on the web (CAT-08)
     "guest_buy_enabled": Spec(bool, False, "guest"),
     "guest_plan_ids": Spec(list, [], "guest"),

@@ -69,6 +69,16 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `plisio_enabled` | bool | false | Plisio |
 | `plisio_api_key` | str (secret) | — | Plisio API key |
 
+## Telegram Business
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `business_enabled` | bool | false | Answer messages to my Telegram account. Add this bot to your account in Telegram Settings → Telegram Business → Chatbots. Only staff accounts are answered for |
+| `business_reply` | str | "" | Standard reply. Sent at most once per person in the period below. {bot} becomes the link to this bot. Leave empty to answer keywords only |
+| `business_reply_every_hours` | int | 12 | Standard reply at most every (hours) |
+| `business_quiet_minutes` | int | 30 | Stay quiet after you write (minutes). While you're talking with someone, the bot doesn't step in |
+| `business_rules` | list | [] | Keyword answers. When a message contains one of the words, its answer is sent. The first matching row wins |
+
 ## Buying on the web
 
 | Key | Type | Default | Meaning |

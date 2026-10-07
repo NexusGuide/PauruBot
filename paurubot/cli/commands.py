@@ -90,10 +90,13 @@ async def api(_: argparse.Namespace) -> int:
         from paurubot.api.routes.telegram import webhook_secret
 
         telegram_bot = await _prepare_bot()
+        from paurubot.bot.app import build_dispatcher
+
         await telegram_bot.set_webhook(
             f"{settings.public_url}/api/telegram/webhook",
             secret_token=webhook_secret(),
             drop_pending_updates=False,
+            allowed_updates=build_dispatcher().resolve_used_update_types(),
         )
     config = uvicorn.Config(
         create_app(),
