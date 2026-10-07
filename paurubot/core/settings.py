@@ -133,6 +133,7 @@ SPECS: dict[str, Spec] = {
     "app_links": Spec(list, [], "services"),
     "move_enabled": Spec(bool, True, "services"),
     "move_price": Spec(int, 0, "services"),
+    "ip_notice_enabled": Spec(bool, True, "services"),
     "info_card_enabled": Spec(bool, True, "services"),
     "info_card_theme": Spec(str, "midnight", "services"),
     "info_card_qr": Spec(bool, True, "services"),

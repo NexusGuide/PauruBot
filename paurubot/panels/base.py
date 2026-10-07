@@ -172,6 +172,39 @@ def parse_expire(value: Any) -> datetime | None:
     return None
 
 
+def parse_ips(value: Any) -> list[str]:
+    """Client addresses from the shapes panels use: a list of strings or {"ip": ...} objects,
+    one string per line, or a JSON list inside a string; "1.2.3.4 (2024-01-01 10:00)" keeps the
+    address. Anything that isn't an IP address is dropped; order is kept, duplicates removed."""
+    import ipaddress
+    import json
+
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("["):
+            try:
+                value = json.loads(text)
+            except ValueError:
+                value = []
+        else:
+            value = text.splitlines()
+    if not isinstance(value, list):
+        return []
+    found: list[str] = []
+    for item in value:
+        raw = item.get("ip") if isinstance(item, dict) else item
+        if not isinstance(raw, str):
+            continue
+        candidate = raw.strip().split(" ", 1)[0].strip()
+        try:
+            address = str(ipaddress.ip_address(candidate))
+        except ValueError:
+            continue
+        if address not in found:
+            found.append(address)
+    return found
+
+
 def decode_subscription(raw: str) -> list[str]:
     body = raw.strip()
     if "://" not in body:
@@ -282,6 +315,12 @@ class PanelDriver(ABC):
     async def list_users(self, offset: int = 0, limit: int = 100) -> tuple[list[PanelUser], int | None]:
         """A page of every user on the panel and the total when known (TEN-10)."""
         raise PanelError("listing users is not supported by this panel")
+
+    supports_ips = False
+
+    async def client_ips(self, ref: PanelRef) -> list[str]:
+        """Addresses this user is connected from right now, in the panel's order (JOB-03)."""
+        raise PanelError("this panel does not report client addresses")
 
     async def list_admins(self) -> list[str]:
         """Usernames of the panel's admins, for moving users between them (TEN-11)."""

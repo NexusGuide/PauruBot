@@ -10,7 +10,16 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from paurubot.panels.base import UNSET, PanelError, PanelNotFound, PanelOption, PanelRef, PanelUser, UserSpec
+from paurubot.panels.base import (
+    UNSET,
+    PanelError,
+    PanelNotFound,
+    PanelOption,
+    PanelRef,
+    PanelUser,
+    UserSpec,
+    parse_ips,
+)
 from paurubot.panels.drivers.marzban import MarzbanDriver
 
 
@@ -31,6 +40,25 @@ class RebeccaDriver(MarzbanDriver):
         opts = {**self.options, **(overrides or {})}
         ids = opts.get("service_ids") or []
         return int(ids[0]) if ids else None
+
+    supports_ips = True
+
+    async def client_ips(self, ref: PanelRef) -> list[str]:
+        """Rebecca's access insights list each user's live source addresses."""
+        data = await self.call("GET", "/api/core/access/insights")
+        if isinstance(data, dict):
+            data = data.get("items") or (data.get("data") or {}).get("items") or []
+        found: list[str] = []
+        for item in data if isinstance(data, list) else []:
+            if not isinstance(item, dict) or ref.username not in (
+                item.get("user_key"),
+                item.get("user_label"),
+            ):
+                continue
+            for address in parse_ips(item.get("sources") or []):
+                if address not in found:
+                    found.append(address)
+        return found
 
     async def list_options(self) -> list[PanelOption]:
         data = await self.call("GET", "/api/v2/services")

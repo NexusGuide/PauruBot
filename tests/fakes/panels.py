@@ -151,6 +151,7 @@ class FakeXuiPanel:
         self.traffic: dict[str, dict[str, int]] = {}
         self.logged_in = False
         self.fail_next: int | None = None
+        self.ips: dict[str, list[str]] = {}
 
     def _ok(self, obj: Any = None) -> httpx.Response:
         return httpx.Response(200, json={"success": True, "msg": "", "obj": obj})
@@ -223,6 +224,9 @@ class FakeXuiPanel:
                     "enable": client["enable"],
                 }
             )
+        if path.startswith("/panel/api/inbounds/clientIps/"):
+            seen = self.ips.get(path.rsplit("/", 1)[1])
+            return self._ok([f"{ip} (2026-10-07 10:00:00)" for ip in seen] if seen else "No IP Record")
         if "/resetClientTraffic/" in path:
             email = path.rsplit("/", 1)[1]
             self.traffic[email] = {"up": 0, "down": 0}
@@ -459,12 +463,16 @@ class FakeRebeccaPanel(FakeTokenPanel):
     def __init__(self) -> None:
         super().__init__("marzban")
         self.v2_bodies: list[dict[str, Any]] = []
+        self.sources: dict[str, list[str]] = {}
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if request.headers.get("authorization") == f"Bearer {self.token}":
             if path == "/api/v2/services":
                 return httpx.Response(200, json={"services": [{"id": 7, "name": "Main"}]})
+            if path == "/api/core/access/insights":
+                items = [{"user_key": k, "user_label": k, "sources": v} for k, v in self.sources.items()]
+                return httpx.Response(200, json={"items": items})
             if path == "/api/v2/users" and request.method == "POST":
                 body = json.loads(request.content)
                 self.v2_bodies.append(body)

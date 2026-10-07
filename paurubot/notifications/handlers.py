@@ -26,6 +26,7 @@ from paurubot.db.models import (
     Payment,
     ResellerApplication,
     Service,
+    ServiceStatus,
     Shop,
     Staff,
     StockItem,
@@ -322,6 +323,25 @@ async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
         return
     markup = None if alert == "deleted" or service.is_trial else _renew_markup(t, service.id)
     await _to_customer(session, customer, text, reply_markup=markup)
+
+
+async def ip_replaced(session: AsyncSession, job: queue.Claimed) -> None:
+    """A new device took a connection slot and an older one was cut off (JOB-03)."""
+    service = await session.get(Service, int(job.payload["service_id"]))
+    if service is None or service.status == ServiceStatus.DELETED:
+        return
+    customer = await session.get(Customer, service.customer_id)
+    if customer is None:
+        return
+    t = await _texts(session, customer)
+    text = t(
+        "ip_replaced",
+        name=esc(service.label or service.panel_username),
+        dropped=esc(", ".join(job.payload.get("dropped") or [])),
+        arrived=esc(", ".join(job.payload.get("arrived") or [])),
+        limit=int(job.payload.get("limit") or 0),
+    )
+    await _to_customer(session, customer, text)
 
 
 async def simple_customer(session: AsyncSession, job: queue.Claimed) -> None:
@@ -704,6 +724,7 @@ register_queue(
             "batch_progress": batch_done,
             "stock_delivered": stock_delivered,
             "tier_up": tier_up,
+            "ip_replaced": ip_replaced,
             "trust_post": trust_post,
             "lottery_result": lottery_result,
             "reseller_notice": reseller_notice,
