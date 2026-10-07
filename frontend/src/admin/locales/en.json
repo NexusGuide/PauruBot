@@ -1314,5 +1314,8 @@
   "panel_guard_version": "Guard version",
   "panel_api_token_hint_rebecca": "An API key from Rebecca. With a key, the username and password can stay empty.",
   "panel_api_token_hint_guard": "The API key from Guard. With a key, the username and password can stay empty.",
-  "err_guard_version_invalid": "Choose Guard v1 or v2."
+  "err_guard_version_invalid": "Choose Guard v1 or v2.",
+  "panel_kind_hiddify": "Hiddify",
+  "panel_api_token_hint_hiddify": "The admin UUID from the end of your Hiddify admin link. The panel address is that link without the UUID.",
+  "panel_sub_base_hint_hiddify": "Your client link without a user, for example https://example.com/client-path/"
 }

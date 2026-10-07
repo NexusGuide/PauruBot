@@ -580,8 +580,54 @@ class FakeGuardPanel:
         return httpx.Response(404, json={"detail": "Not Found"})
 
 
+class FakeHiddifyPanel:
+    """Hiddify Manager v2 admin API: Hiddify-API-Key, users by UUID with trailing slashes, usage in GB."""
+
+    def __init__(self, key: str = "admin-uuid") -> None:
+        self.key = key
+        self.users: dict[str, dict[str, Any]] = {}
+        self.fail_next: int | None = None
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if self.fail_next:
+            status, self.fail_next = self.fail_next, None
+            return httpx.Response(status, json={"msg": "boom"})
+        if request.headers.get("hiddify-api-key") != self.key:
+            return httpx.Response(401, json={"msg": "unauthorized"})
+        body = json.loads(request.content) if request.content else {}
+        if path == "/admin-path/api/v2/admin/server_status/":
+            return httpx.Response(200, json={"stats": {"system": {"cpu_percent": 9, "num_cpus": 2, "ram_used": 1, "ram_total": 4}}})
+        if path == "/admin-path/api/v2/admin/user/" and request.method == "GET":
+            return httpx.Response(200, json=list(self.users.values()))
+        if path == "/admin-path/api/v2/admin/user/" and request.method == "POST":
+            uid = f"{secrets.token_hex(4)}-0000-4000-8000-{secrets.token_hex(6)}"
+            user = {"uuid": uid, "current_usage_GB": 0, "enable": True, "last_online": None, **body}
+            self.users[uid] = user
+            return httpx.Response(200, json=user)
+        if path.startswith("/admin-path/api/v2/admin/user/"):
+            uid = path.rstrip("/").rsplit("/", 1)[1]
+            user = self.users.get(uid)
+            if user is None:
+                return httpx.Response(404, json={"msg": "not found"})
+            if request.method == "GET":
+                return httpx.Response(200, json=user)
+            if request.method == "PATCH":
+                user.update(body)
+                return httpx.Response(200, json=user)
+            if request.method == "DELETE":
+                del self.users[uid]
+                return httpx.Response(200, json={"status": 200})
+        return httpx.Response(404, json={"msg": "Not Found"})
+
+
 def transport(
-    fake: FakeTokenPanel | FakeXuiPanel | FakeMarzneshinPanel | FakeRemnawavePanel | FakeGuardPanel,
+    fake: FakeTokenPanel
+    | FakeXuiPanel
+    | FakeMarzneshinPanel
+    | FakeRemnawavePanel
+    | FakeGuardPanel
+    | FakeHiddifyPanel,
 ) -> httpx.MockTransport:
     return httpx.MockTransport(fake.handler)
 

@@ -24,6 +24,7 @@ class PanelKind(enum.StrEnum):
     REMNAWAVE = "remnawave"
     REBECCA = "rebecca"
     GUARD = "guard"
+    HIDDIFY = "hiddify"
 
 
 class UsernameMethod(enum.StrEnum):

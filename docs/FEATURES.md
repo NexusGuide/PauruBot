@@ -63,7 +63,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | PNL-04 | Marzban driver | MVP | done |
 | PNL-05 | Marzneshin driver | v1.1 | done |
 | PNL-06 | X-UI (Sanaei / Alireza) and S-UI drivers | MVP* | done |
-| PNL-07 | Hiddify driver | v2 | todo |
+| PNL-07 | Hiddify driver | v2 | done |
 | PNL-08 | WireGuard: WGDashboard and WGMate | v2 | todo |
 | PNL-09 | Remnawave driver + usage sync | v2 | done |
 | PNL-10 | Guard and Rebecca drivers | v2 | done |
