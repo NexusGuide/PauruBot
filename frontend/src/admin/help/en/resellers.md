@@ -29,6 +29,10 @@ In the last two modes the balance can go negative. When the debt passes the **De
 
 You can also suspend a reseller by hand with **Suspend reseller**. A manual suspension is not lifted by a top-up; tap **Lift suspension**.
 
+## Bulk buying
+
+With **Bulk buying** on in the **Resellers** settings group, a **Buy several** button appears at checkout in the bot. The reseller sends how many (up to **Most services per bulk purchase**) and all the services are paid in one wallet payment: either all of them are paid or none is. When they're all ready, the reseller gets one file in the bot with every service's name and link. Turn off **Bulk buying for resellers only** to let regular customers use it too.
+
 ## Sub-resellers
 
 A reseller with permission to **Manage sub-resellers** can add sub-resellers in [Sub-resellers](/sub-resellers). That person must have started the bot already. A sub-reseller gets at most the parent's own discount, and when they buy, the difference between their price and the parent's is added to the parent's wallet.

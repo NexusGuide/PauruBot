@@ -113,6 +113,9 @@ SPECS: dict[str, Spec] = {
     "username_prefix": Spec(str, "", "services"),
     # resellers
     "reseller_applications_enabled": Spec(bool, True, "resellers"),
+    "bulk_buy_enabled": Spec(bool, True, "resellers"),
+    "bulk_buy_max": Spec(int, 20, "resellers"),
+    "bulk_buy_resellers_only": Spec(bool, True, "resellers"),
     # reports
     "daily_report_hour": Spec(int, 23, "reports"),
     "log_retention_days": Spec(int, 30, "reports"),

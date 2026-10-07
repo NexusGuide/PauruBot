@@ -380,5 +380,13 @@
   "checkout_header_move": "🧾 <b>Location change summary</b>",
   "order_kind_move": "Location change",
   "service_moved": "📍 <b>Your service moved to its new location.</b> Your link stays the same; just refresh the subscription in your app.",
-  "service_moved_new_link": "📍 <b>Your service moved to its new location.</b> Replace the old link in your app with the new one below."
+  "service_moved_new_link": "📍 <b>Your service moved to its new location.</b> Replace the old link in your app with the new one below.",
+  "btn_bulk_buy": "🛒 Buy several",
+  "bulk_unavailable": "Buying several at once isn't available for you.",
+  "ask_bulk_count": "How many of this plan? Send a number from 2 to {max}.",
+  "bulk_count": "Send a number from {low} to {high}.",
+  "bulk_summary": "🛒 <b>{n} × {plan}</b>\nEach: {one} Toman\nTotal: {total} Toman\nYour balance: {balance} Toman",
+  "bulk_started": "✅ Paid. {n} services are being created; you'll get every link in one file when they're ready.",
+  "batch_done": "📦 Your bulk purchase is ready: {ready} services. {failed} could not be created and were refunded.",
+  "report_batch": "📦 Bulk purchase: {customer} ({telegram_id}), {n} services"
 }

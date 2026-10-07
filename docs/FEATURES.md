@@ -82,7 +82,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | CAT-04 | Trial accounts with quota generations and reservations | MVP | done |
 | CAT-05 | Manual config stock / inventory sale | v2 | todo |
 | CAT-06 | Manual service creation by admin | v1.1 | done |
-| CAT-07 | Bulk purchase | v2 | todo |
+| CAT-07 | Bulk purchase | v2 | done |
 | CAT-08 | Guest purchase (no prior registration) | v2 | todo |
 | CAT-09 | Configurable username generation methods | MVP | done |
 

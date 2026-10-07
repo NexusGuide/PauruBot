@@ -308,12 +308,15 @@ async def checkout(
     text = checkout_text(
         t, order, plan=plan, service=service, balance=balance, code=code.code if code else None
     )
+    from paurubot.core import bulk
+
     markup = keyboards.checkout_kb(
         t,
         order_id=order.id,
         can_wallet=balance >= order.amount,
         methods=methods if balance < order.amount else [],
         discount=code is None,
+        bulk_plan=plan.id if kind == OrderKind.PURCHASE and plan and bulk.allowed(cfg, customer) >= 2 else 0,
     )
     await session.commit()
     await show(event, text, markup)
@@ -519,3 +522,110 @@ async def move_checkout(
         }
     )
     await checkout(call, session, customer, t, cfg, state)
+
+
+# --- several services at once (CAT-07) -------------------------------------------------
+
+
+@router.callback_query(Shop.filter(F.step == "bulk"))
+async def bulk_start(
+    call: CallbackQuery,
+    callback_data: Shop,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    from paurubot.core import bulk
+
+    limit = bulk.allowed(cfg, customer)
+    plan = await catalog.get_plan(session, customer.shop_id, callback_data.plan, customer)
+    if plan is None or limit < 2:
+        await call.answer(t("bulk_unavailable"), show_alert=True)
+        return
+    await call.answer()
+    await _cancel_previous(session, state, customer)
+    await session.commit()
+    label = (await state.get_data()).get("label")
+    await state.set_data({"bulk_plan": plan.id, "label": label})
+    await state.set_state(ShopStates.bulk_count)
+    if isinstance(call.message, Message):
+        await call.message.answer(t("ask_bulk_count", max=limit), reply_markup=keyboards.cancel(t))
+
+
+@router.message(ShopStates.bulk_count, F.text)
+async def bulk_count(
+    message: Message,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    from paurubot.core import bulk
+
+    data = await state.get_data()
+    limit = bulk.allowed(cfg, customer)
+    count = parse_int(message.text)
+    if count is None or not 2 <= count <= limit:
+        await message.answer(t("bulk_count", low=2, high=limit))
+        return
+    plan = await catalog.get_plan(session, customer.shop_id, int(data.get("bulk_plan") or 0), customer)
+    if plan is None:
+        await state.clear()
+        await message.answer(t("plan_unavailable"))
+        return
+    try:
+        one, total = await bulk.quote(session, customer, plan, count)
+    except orders.OrderError as exc:
+        await message.answer(error_text(t, exc.key, exc.params))
+        return
+    balance = await wallet_balance(session, customer.shop_id, customer.id)
+    await state.set_state(None)
+    await state.update_data(bulk_ready={"plan": plan.id, "n": count})
+    text = t(
+        "bulk_summary", n=count, plan=plan.title, one=money(one), total=money(total), balance=money(balance)
+    )
+    if balance < total:
+        await message.answer(text + "\n" + t("checkout_need_more", amount=money(total - balance)))
+        return
+    await message.answer(
+        text,
+        reply_markup=keyboards.confirm(
+            t, Shop(step="bulk_pay", plan=plan.id, n=count).pack(), Shop(step="cancel").pack()
+        ),
+    )
+
+
+@router.callback_query(Shop.filter(F.step == "bulk_pay"))
+async def bulk_pay(
+    call: CallbackQuery,
+    callback_data: Shop,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    state: FSMContext,
+) -> None:
+    from paurubot.core import bulk
+
+    data = await state.get_data()
+    ready = data.get("bulk_ready") or {}
+    if ready != {"plan": callback_data.plan, "n": callback_data.n}:
+        await call.answer(t("order_expired"), show_alert=True)  # already paid, or an old button
+        return
+    await state.clear()
+    plan = await catalog.get_plan(session, customer.shop_id, callback_data.plan, customer)
+    if plan is None:
+        await call.answer(t("plan_unavailable"), show_alert=True)
+        return
+    try:
+        _batch, made = await bulk.buy_many(session, customer, plan, callback_data.n, data.get("label"))
+    except orders.OrderError as exc:
+        await session.rollback()
+        await call.answer()
+        await show(call, error_text(t, exc.key, exc.params))
+        return
+    await session.commit()
+    await call.answer()
+    await show(call, t("bulk_started", n=len(made)))

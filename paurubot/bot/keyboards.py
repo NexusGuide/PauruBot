@@ -154,7 +154,7 @@ def plans_kb(
 
 
 def checkout_kb(
-    t: Texts, *, order_id: int, can_wallet: bool, methods: Sequence[str], discount: bool
+    t: Texts, *, order_id: int, can_wallet: bool, methods: Sequence[str], discount: bool, bulk_plan: int = 0
 ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if can_wallet:
@@ -171,6 +171,12 @@ def checkout_kb(
         )
     if discount:
         kb.row(InlineKeyboardButton(text=t("btn_discount"), callback_data=Shop(step="discount").pack()))
+    if bulk_plan:
+        kb.row(
+            InlineKeyboardButton(
+                text=t("btn_bulk_buy"), callback_data=Shop(step="bulk", plan=bulk_plan).pack()
+            )
+        )
     kb.row(InlineKeyboardButton(text=t("btn_cancel"), callback_data=Shop(step="cancel").pack()))
     return kb.as_markup()
 

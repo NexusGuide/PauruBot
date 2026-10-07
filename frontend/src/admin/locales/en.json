@@ -1181,5 +1181,9 @@
   "setting_move_enabled_hint": "A button on each active service moves it to another location with its remaining data and end date.",
   "setting_move_price": "Location change price",
   "setting_move_price_hint": "0 means free.",
-  "order_kind_move": "Location change"
+  "order_kind_move": "Location change",
+  "setting_bulk_buy_enabled": "Bulk buying",
+  "setting_bulk_buy_enabled_hint": "A Buy several button at checkout creates many services of one plan in one payment.",
+  "setting_bulk_buy_max": "Most services per bulk purchase",
+  "setting_bulk_buy_resellers_only": "Bulk buying for resellers only"
 }

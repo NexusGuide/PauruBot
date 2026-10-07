@@ -1181,5 +1181,9 @@
   "setting_move_enabled_hint": "روی هر سرویس فعال دکمه‌ای می‌آید که آن را با حجم باقی‌مانده و تاریخ پایان به لوکیشن دیگر می‌برد.",
   "setting_move_price": "هزینه‌ی تغییر لوکیشن",
   "setting_move_price_hint": "صفر یعنی رایگان.",
-  "order_kind_move": "تغییر لوکیشن"
+  "order_kind_move": "تغییر لوکیشن",
+  "setting_bulk_buy_enabled": "خرید چندتایی",
+  "setting_bulk_buy_enabled_hint": "دکمه‌ی «خرید چندتایی» هنگام پرداخت، چند سرویس از یک پلن را با یک پرداخت می‌سازد.",
+  "setting_bulk_buy_max": "حداکثر سرویس در هر خرید چندتایی",
+  "setting_bulk_buy_resellers_only": "خرید چندتایی فقط برای نماینده‌ها"
 }
