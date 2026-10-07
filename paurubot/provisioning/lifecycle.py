@@ -426,6 +426,13 @@ async def fulfill(session: AsyncSession, order_id: int) -> Service | None:
         if existing is not None and existing.status == OrderStatus.COMPLETED and existing.service_id:
             return await session.get(Service, existing.service_id)
         return None
+    from paurubot.core import resale
+
+    try:
+        if await resale.pay_wholesale(session, order):  # a reseller bot sale: the reseller pays first
+            await session.commit()
+    except resale.ResaleError as exc:
+        raise ProvisionError(exc.key) from exc
     plan = await session.get(Plan, order.plan_id) if order.plan_id else None
     if order.kind == OrderKind.PURCHASE and plan is not None and plan.delivery == "stock":
         await _deliver_stock(session, order)
@@ -549,6 +556,9 @@ async def give_up(session: AsyncSession, order_id: int, reason: str) -> None:
     if order is None or order.status in {OrderStatus.COMPLETED, OrderStatus.REFUNDED}:
         return
     await refund_failed(session, order, reason)
+    from paurubot.core import resale
+
+    await resale.refund_wholesale(session, order)
     if order.kind == OrderKind.TRIAL and order.params.get("grant_id"):
         await trials.release(session, int(order.params["grant_id"]))
     await queue.enqueue(

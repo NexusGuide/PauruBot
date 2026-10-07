@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -40,8 +41,48 @@ def get_bot() -> Bot:
 
 
 def set_bot(bot: Bot | None) -> None:
-    global _bot
+    """Install one bot for every shop (tests); None goes back to building them from tokens."""
+    global _bot, _single
     _bot = bot
+    _single = bot is not None
+    _shop_bots.clear()
+
+
+# A reseller's own bot (TEN-04) talks to the customers of its shop; everyone else hears the main bot.
+_single = False
+_shop_bots: dict[int, tuple[float, Bot | None]] = {}
+SHOP_BOT_TTL = 120.0
+
+
+def bot_id_of(token: str) -> int | None:
+    head = token.split(":", 1)[0]
+    return int(head) if head.isdigit() else None
+
+
+async def bot_for(shop_id: int | None) -> Bot:
+    if not shop_id or _single:
+        return get_bot()
+    cached = _shop_bots.get(shop_id)
+    if cached is not None and time.monotonic() - cached[0] < SHOP_BOT_TTL:
+        return cached[1] or get_bot()
+    from paurubot.db.models import Shop
+    from paurubot.db.session import session_scope
+    from paurubot.security import secretbox
+
+    bot: Bot | None = None
+    async with session_scope() as session:
+        shop = await session.get(Shop, shop_id)
+        if shop is not None and shop.reseller_profile_id and shop.bot_token_enc:
+            bot = make_bot(secretbox.decrypt("bot-token", shop.bot_token_enc))
+    old = _shop_bots.get(shop_id)
+    _shop_bots[shop_id] = (time.monotonic(), bot)
+    if old and old[1] is not None and old[1] is not bot:
+        await old[1].session.close()
+    return bot or get_bot()
+
+
+def forget_shop_bot(shop_id: int) -> None:
+    _shop_bots.pop(shop_id, None)
 
 
 class Undeliverable(Exception):
@@ -72,22 +113,26 @@ def is_guest_chat(chat_id: int) -> bool:
     return int(chat_id) <= GUEST_CHAT_LIMIT
 
 
-async def send_text(chat_id: int, text: str, **kwargs: Any) -> None:
+async def send_text(chat_id: int, text: str, *, shop_id: int | None = None, **kwargs: Any) -> None:
     if is_guest_chat(chat_id):
         return
-    bot = get_bot()
+    bot = await bot_for(shop_id)
     await deliver(lambda: bot.send_message(chat_id, text, **kwargs))
 
 
-async def send_photo(chat_id: int, photo: Any, caption: str | None = None, **kwargs: Any) -> None:
+async def send_photo(
+    chat_id: int, photo: Any, caption: str | None = None, *, shop_id: int | None = None, **kwargs: Any
+) -> None:
     if is_guest_chat(chat_id):
         return
-    bot = get_bot()
+    bot = await bot_for(shop_id)
     await deliver(lambda: bot.send_photo(chat_id, photo, caption=caption, **kwargs))
 
 
-async def send_document(chat_id: int, document: Any, caption: str | None = None, **kwargs: Any) -> None:
+async def send_document(
+    chat_id: int, document: Any, caption: str | None = None, *, shop_id: int | None = None, **kwargs: Any
+) -> None:
     if is_guest_chat(chat_id):
         return
-    bot = get_bot()
+    bot = await bot_for(shop_id)
     await deliver(lambda: bot.send_document(chat_id, document, caption=caption, **kwargs))

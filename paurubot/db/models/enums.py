@@ -14,6 +14,7 @@ class StaffRole(enum.StrEnum):
     FINANCE = "finance"
     SUPPORT = "support"
     RESELLER = "reseller"
+    MERCHANT = "merchant"  # runs a reseller's own bot shop (TEN-04)
 
 
 class PanelKind(enum.StrEnum):

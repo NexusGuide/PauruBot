@@ -17,6 +17,7 @@ import { Account, Audit, Backups, Channels, Health, Jobs, Reports, Settings, Tex
 import { SessionProvider, useSession } from "./session";
 import { ConfirmProvider, Empty, Loading, Page, Section, Toasts } from "./ui";
 
+const MyBot = lazy(() => import("./screens/MyBot").then((m) => ({ default: m.MyBot })));
 const HelpIndex = lazy(() => import("./screens/Help").then((m) => ({ default: m.HelpIndex })));
 const HelpArticle = lazy(() => import("./screens/Help").then((m) => ({ default: m.HelpArticle })));
 
@@ -63,6 +64,7 @@ function Routed() {
         <Route path="/health" element={g("settings.write", <Health />)} />
         <Route path="/migration" element={g("backups.manage", <Migration />)} />
         <Route path="/updates" element={g("backups.manage", <Updates />)} />
+        <Route path="/my-bot" element={g("resellers.bot", <Suspense fallback={null}><MyBot /></Suspense>)} />
         <Route path="/reports" element={g("reports.read", <Reports />)} />
         <Route path="/settings" element={g("settings.read", <Settings />)} />
         <Route path="/texts" element={g("texts.write", <Texts />)} />

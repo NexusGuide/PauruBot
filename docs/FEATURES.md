@@ -44,7 +44,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | TEN-01 | Org hierarchy Owner → Level-1 → Level-2 with visible scope | v1.1 | done |
 | TEN-02 | Per-shop wallet isolation | MVP | done |
 | TEN-03 | Reseller feature permissions (deny by default) | MVP | done |
-| TEN-04 | Dedicated reseller bot with its own token | v2 | todo |
+| TEN-04 | Dedicated reseller bot with its own token | v2 | done |
 | TEN-05 | Reseller billing: PAYG, hourly and usage-based with snapshots | v1.1 | done |
 | TEN-06 | Reseller low-balance warning and auto-suspend | v1.1 | done |
 | TEN-07 | Reseller usage cap and capacity limits | v1.1 | done |

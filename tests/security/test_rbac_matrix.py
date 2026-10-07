@@ -13,7 +13,14 @@ from paurubot.db.models import StaffRole
 pytestmark = pytest.mark.security
 
 DOC = Path(__file__).resolve().parents[2] / "docs" / "AUTHZ.md"
-ROLES = [StaffRole.OWNER, StaffRole.ADMIN, StaffRole.FINANCE, StaffRole.SUPPORT, StaffRole.RESELLER]
+ROLES = [
+    StaffRole.OWNER,
+    StaffRole.ADMIN,
+    StaffRole.FINANCE,
+    StaffRole.SUPPORT,
+    StaffRole.RESELLER,
+    StaffRole.MERCHANT,
+]
 
 
 def _doc_matrix() -> dict[str, list[bool]]:

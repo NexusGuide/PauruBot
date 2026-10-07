@@ -315,7 +315,7 @@ async def message(
     from paurubot.notifications import telegram
 
     try:
-        await telegram.send_text(customer.telegram_id, esc(body.text))
+        await telegram.send_text(customer.telegram_id, esc(body.text), shop_id=customer.shop_id)
     except telegram.Undeliverable as exc:
         raise HTTPException(status_code=409, detail="undeliverable") from exc
     await record(

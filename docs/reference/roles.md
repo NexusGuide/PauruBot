@@ -2,37 +2,38 @@
 
 # Roles and permissions
 
-What each staff role may do. Resellers are always limited to their own customers and services, and may only be given these permissions: `catalog.read`, `customers.read`, `customers.write`, `dashboard.view`, `orders.read`, `reports.read`, `resellers.sub`, `services.create`, `services.read`, `services.write`, `tickets.read`, `tickets.reply`. API keys never carry `staff.manage`, `panels.secrets` or `backups.manage`.
+What each staff role may do. Resellers are always limited to their own customers and services, and may only be given these permissions: `catalog.read`, `customers.read`, `customers.write`, `dashboard.view`, `orders.read`, `reports.read`, `resellers.bot`, `resellers.sub`, `services.create`, `services.read`, `services.write`, `tickets.read`, `tickets.reply`. API keys never carry `staff.manage`, `panels.secrets` or `backups.manage`.
 
-| Permission | Meaning | Owner | Admin | Finance | Support | Reseller |
-|---|---|---|---|---|---|---|
-| `dashboard.view` | View dashboard | yes | yes | yes | yes | yes |
-| `settings.read` | View settings | yes | yes | — | — | — |
-| `settings.write` | Change settings | yes | yes | — | — | — |
-| `panels.read` | View panels | yes | yes | — | — | — |
-| `panels.write` | Change panels | yes | yes | — | — | — |
-| `panels.secrets` | Panel and gateway secrets | yes | — | — | — | — |
-| `catalog.read` | View plans | yes | yes | yes | yes | yes |
-| `catalog.write` | Change plans | yes | yes | — | — | — |
-| `customers.read` | View customers | yes | yes | yes | yes | yes |
-| `customers.write` | Edit customers | yes | yes | — | yes | yes |
-| `customers.ban` | Ban customers | yes | yes | — | yes | — |
-| `wallet.adjust` | Adjust balances | yes | yes | yes | — | — |
-| `services.read` | View services | yes | yes | yes | yes | yes |
-| `services.write` | Manage services | yes | yes | — | yes | yes |
-| `services.create` | Create services | yes | yes | — | — | yes |
-| `orders.read` | View orders | yes | yes | yes | yes | yes |
-| `payments.read` | View payments | yes | yes | yes | yes | — |
-| `payments.review` | Review receipts | yes | yes | yes | — | — |
-| `payments.refund` | Refund | yes | — | yes | — | — |
-| `discounts.write` | Discount codes | yes | yes | — | — | — |
-| `broadcast.send` | Broadcasts | yes | yes | — | — | — |
-| `texts.write` | Bot texts | yes | yes | — | — | — |
-| `tickets.read` | View tickets | yes | yes | — | yes | yes |
-| `tickets.reply` | Reply to tickets | yes | yes | — | yes | yes |
-| `reports.read` | Reports | yes | yes | yes | — | yes |
-| `audit.read` | Audit log | yes | yes | — | — | — |
-| `staff.manage` | Manage staff | yes | — | — | — | — |
-| `resellers.manage` | Manage resellers | yes | yes | — | — | — |
-| `resellers.sub` | Manage sub-resellers | yes | yes | — | — | yes |
-| `backups.manage` | Backups | yes | — | — | — | — |
+| Permission | Meaning | Owner | Admin | Finance | Support | Reseller | Merchant |
+|---|---|---|---|---|---|---|---|
+| `dashboard.view` | View dashboard | yes | yes | yes | yes | yes | yes |
+| `settings.read` | View settings | yes | yes | — | — | — | — |
+| `settings.write` | Change settings | yes | yes | — | — | — | — |
+| `panels.read` | View panels | yes | yes | — | — | — | — |
+| `panels.write` | Change panels | yes | yes | — | — | — | — |
+| `panels.secrets` | Panel and gateway secrets | yes | — | — | — | — | — |
+| `catalog.read` | View plans | yes | yes | yes | yes | yes | — |
+| `catalog.write` | Change plans | yes | yes | — | — | — | — |
+| `customers.read` | View customers | yes | yes | yes | yes | yes | yes |
+| `customers.write` | Edit customers | yes | yes | — | yes | yes | yes |
+| `customers.ban` | Ban customers | yes | yes | — | yes | — | yes |
+| `wallet.adjust` | Adjust balances | yes | yes | yes | — | — | yes |
+| `services.read` | View services | yes | yes | yes | yes | yes | yes |
+| `services.write` | Manage services | yes | yes | — | yes | yes | yes |
+| `services.create` | Create services | yes | yes | — | — | yes | — |
+| `orders.read` | View orders | yes | yes | yes | yes | yes | yes |
+| `payments.read` | View payments | yes | yes | yes | yes | — | yes |
+| `payments.review` | Review receipts | yes | yes | yes | — | — | yes |
+| `payments.refund` | Refund | yes | — | yes | — | — | yes |
+| `discounts.write` | Discount codes | yes | yes | — | — | — | — |
+| `broadcast.send` | Broadcasts | yes | yes | — | — | — | yes |
+| `texts.write` | Bot texts | yes | yes | — | — | — | yes |
+| `tickets.read` | View tickets | yes | yes | — | yes | yes | yes |
+| `tickets.reply` | Reply to tickets | yes | yes | — | yes | yes | yes |
+| `reports.read` | Reports | yes | yes | yes | — | yes | yes |
+| `audit.read` | Audit log | yes | yes | — | — | — | — |
+| `staff.manage` | Manage staff | yes | — | — | — | — | — |
+| `resellers.manage` | Manage resellers | yes | yes | — | — | — | — |
+| `resellers.sub` | Manage sub-resellers | yes | yes | — | — | yes | — |
+| `resellers.bot` | Run their own bot | yes | yes | — | — | yes | — |
+| `backups.manage` | Backups | yes | — | — | — | — | — |

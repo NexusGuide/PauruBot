@@ -57,7 +57,7 @@ async def _texts(session: AsyncSession, customer: Customer) -> Texts:
 
 async def _to_customer(session: AsyncSession, customer: Customer, text: str, **kwargs: Any) -> None:
     try:
-        await telegram.send_text(customer.telegram_id, text, **kwargs)
+        await telegram.send_text(customer.telegram_id, text, shop_id=customer.shop_id, **kwargs)
     except telegram.Undeliverable:
         customer.blocked_bot_at = utcnow()
 
@@ -73,7 +73,9 @@ async def staff_chats(session: AsyncSession, shop_id: int, permission: str) -> l
             continue  # resellers never receive shop-wide staff alerts
         if staff.telegram_id and rbac.allowed(staff.role, permission):
             chats.add(staff.telegram_id)
-    chats.update(get_settings().owner_telegram_ids)
+    shop = await session.get(Shop, shop_id)
+    if shop is None or shop.reseller_profile_id is None:
+        chats.update(get_settings().owner_telegram_ids)  # not in a reseller's own bot (TEN-04)
     return sorted(chats)
 
 
@@ -89,9 +91,11 @@ async def _to_staff(
     for chat_id in await staff_chats(session, shop_id, permission):
         try:
             if photo:
-                await telegram.send_photo(chat_id, photo, caption=text[:1024], reply_markup=markup)
+                await telegram.send_photo(
+                    chat_id, photo, caption=text[:1024], reply_markup=markup, shop_id=shop_id
+                )
             else:
-                await telegram.send_text(chat_id, text, reply_markup=markup)
+                await telegram.send_text(chat_id, text, reply_markup=markup, shop_id=shop_id)
         except telegram.Undeliverable:
             continue
 
@@ -106,7 +110,7 @@ async def report(session: AsyncSession, shop_id: int, topic: str, text: str) -> 
     if channel is None:
         return
     try:
-        await telegram.send_text(channel.chat_id, text, message_thread_id=channel.thread_id)
+        await telegram.send_text(channel.chat_id, text, message_thread_id=channel.thread_id, shop_id=shop_id)
     except telegram.Undeliverable:
         log.warning("log channel %s for %s is unreachable", channel.chat_id, topic)
 
@@ -133,8 +137,13 @@ async def _send_wireguard(session: AsyncSession, t: Texts, customer: Customer, s
             customer.telegram_id,
             BufferedInputFile(items[0].encode(), f"{service.panel_username}.conf"),
             caption=t("wireguard_caption", name=name),
+            shop_id=customer.shop_id,
         )
-        await telegram.send_photo(customer.telegram_id, BufferedInputFile(qr_png(items[0]), "wireguard.png"))
+        await telegram.send_photo(
+            customer.telegram_id,
+            BufferedInputFile(qr_png(items[0]), "wireguard.png"),
+            shop_id=customer.shop_id,
+        )
     except telegram.Undeliverable:
         customer.blocked_bot_at = utcnow()
 
@@ -148,7 +157,7 @@ async def _delivery_photo(
 
     if cfg["info_card_enabled"] and cfg["info_card_qr"]:
         try:
-            image = await infocard.make(t, service, link, cfg, telegram.get_bot())
+            image = await infocard.make(t, service, link, cfg, await telegram.bot_for(service.shop_id))
             name = esc(service.label or service.panel_username)
             return BufferedInputFile(image, "card.png"), t("infocard_caption", name=name)
         except (OSError, ValueError) as exc:
@@ -207,7 +216,7 @@ async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
     ):
         photo, caption = await _delivery_photo(t, service, link, cfg)
         try:
-            await telegram.send_photo(customer.telegram_id, photo, caption=caption)
+            await telegram.send_photo(customer.telegram_id, photo, caption=caption, shop_id=customer.shop_id)
         except telegram.Undeliverable:
             pass
     await report(
@@ -235,12 +244,18 @@ async def order_failed(session: AsyncSession, job: queue.Claimed) -> None:
     t = await _texts(session, customer)
     key = "trial_failed" if order.kind == OrderKind.TRIAL else "order_failed_refunded"
     await _to_customer(session, customer, t(key, amount=money(order.amount)))
-    text = t(
-        "adm_order_failed",
-        id=order.id,
-        customer=esc(customer.display_name),
-        reason=esc(str(job.payload.get("reason", ""))[:200]),
-    )
+    reason = str(job.payload.get("reason", ""))
+    if "reseller_balance_low" in reason:
+        # A sale in a reseller's own bot failed because the reseller's wallet ran dry (TEN-04).
+        text = t(
+            "adm_reseller_balance_low",
+            id=order.id,
+            amount=money(int((order.params or {}).get("wholesale") or 0)),
+        )
+    else:
+        text = t(
+            "adm_order_failed", id=order.id, customer=esc(customer.display_name), reason=esc(reason[:200])
+        )
     await _to_staff(session, order.shop_id, "orders.read", text)
     await report(session, order.shop_id, "errors", text)
 
@@ -618,7 +633,7 @@ async def trust_post(session: AsyncSession, job: queue.Claimed) -> None:
         plan=esc(plan.title if plan else t("order_kind_purchase")),
     )
     try:
-        await telegram.send_text(int(chat), text)
+        await telegram.send_text(int(chat), text, shop_id=order.shop_id)
     except telegram.Undeliverable:
         log.warning("trust channel post failed for shop %s", order.shop_id)
 
@@ -671,7 +686,10 @@ async def stock_delivered(session: AsyncSession, job: queue.Claimed) -> None:
         if "\n" not in config and len(config) <= 1500:
             try:
                 await telegram.send_photo(
-                    customer.telegram_id, BufferedInputFile(qr_png(config), "qr.png"), caption=t("qr_caption")
+                    customer.telegram_id,
+                    BufferedInputFile(qr_png(config), "qr.png"),
+                    caption=t("qr_caption"),
+                    shop_id=customer.shop_id,
                 )
             except telegram.Undeliverable:
                 pass
@@ -681,6 +699,7 @@ async def stock_delivered(session: AsyncSession, job: queue.Claimed) -> None:
                 customer.telegram_id,
                 BufferedInputFile(config.encode(), f"config-{order.id}.txt"),
                 caption=t("stock_ready"),
+                shop_id=customer.shop_id,
             )
         except telegram.Undeliverable:
             pass
@@ -737,7 +756,9 @@ async def batch_done(session: AsyncSession, job: queue.Claimed) -> None:
     if lines:
         document = BufferedInputFile(("\n".join(lines) + "\n").encode(), f"services-{batch}.txt")
         try:
-            await telegram.send_document(customer.telegram_id, document, caption=text)
+            await telegram.send_document(
+                customer.telegram_id, document, caption=text, shop_id=customer.shop_id
+            )
         except telegram.Undeliverable:
             pass
     else:
@@ -793,7 +814,7 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
     row = await session.get(Broadcast, int(job.payload["broadcast_id"]))
     if row is None or row.status in {JobStatus.DONE, JobStatus.CANCELED}:
         return
-    bot = telegram.get_bot()
+    bot = await telegram.bot_for(row.shop_id)
     if row.source_chat_id is not None and row.source_message_id is not None:
         source_chat, source_message = int(row.source_chat_id), int(row.source_message_id)
 

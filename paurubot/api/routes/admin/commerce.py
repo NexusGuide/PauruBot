@@ -150,10 +150,10 @@ async def receipt_image(
     payment = await owned(db, Payment, payment_id, ctx)
     if not payment.receipt_file_id:
         raise HTTPException(status_code=404, detail="no_receipt")
-    from paurubot.notifications.telegram import get_bot
+    from paurubot.notifications.telegram import bot_for
 
     try:
-        data = await get_bot().download(payment.receipt_file_id)
+        data = await (await bot_for(payment.shop_id)).download(payment.receipt_file_id)
     except Exception as exc:
         raise HTTPException(status_code=502, detail="telegram_unavailable") from exc
     body = data.read() if data else b""
