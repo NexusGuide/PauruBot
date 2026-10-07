@@ -252,7 +252,7 @@ async def mark_paid(
     return True
 
 
-async def approve_card(session: AsyncSession, payment_id: int, staff_id: int) -> bool:
+async def approve_card(session: AsyncSession, payment_id: int, staff_id: int | None) -> bool:
     return await mark_paid(session, payment_id, provider_tx_id=f"card:{payment_id}", reviewer_id=staff_id)
 
 
@@ -292,7 +292,7 @@ def awaiting_review(payment: Payment) -> bool:
     return payment.status == PaymentStatus.VERIFYING and manually_reviewable(payment)
 
 
-async def approve_manual(session: AsyncSession, payment_id: int, staff_id: int) -> bool:
+async def approve_manual(session: AsyncSession, payment_id: int, staff_id: int | None) -> bool:
     payment = await session.get(Payment, payment_id)
     if payment is None or not manually_reviewable(payment):
         return False
