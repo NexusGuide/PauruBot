@@ -11,6 +11,7 @@ import httpx
 from paurubot.db.models import Panel, PanelKind
 from paurubot.panels.base import PanelDriver
 from paurubot.panels.drivers.guard import GuardDriver
+from paurubot.panels.drivers.hiddify import HiddifyDriver
 from paurubot.panels.drivers.marzban import MarzbanDriver
 from paurubot.panels.drivers.marzneshin import MarzneshinDriver
 from paurubot.panels.drivers.pasarguard import PasarGuardDriver
@@ -28,6 +29,7 @@ DRIVERS: dict[PanelKind, type[PanelDriver]] = {
     PanelKind.REMNAWAVE: RemnawaveDriver,
     PanelKind.REBECCA: RebeccaDriver,
     PanelKind.GUARD: GuardDriver,
+    PanelKind.HIDDIFY: HiddifyDriver,
 }
 
 _cache: dict[int, tuple[str, PanelDriver]] = {}

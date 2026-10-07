@@ -1,13 +1,13 @@
 # Panels
 <!-- screens: /panels -->
 
-Every service you sell is created on one of your panels. The bot works with PasarGuard, Marzban, Marzneshin, Remnawave, Rebecca, Guard and 3x-ui, and you can run several panels of different types at once.
+Every service you sell is created on one of your panels. The bot works with PasarGuard, Marzban, Marzneshin, Remnawave, Rebecca, Guard, Hiddify and 3x-ui, and you can run several panels of different types at once.
 
 ## Adding a panel
 
 1. In [Panels](/panels) tap **New panel**.
 2. Pick the **Panel type** and enter the **Panel address** exactly as you open it in a browser to sign in.
-3. Enter the **Panel username** and password. On 3x-ui, an **API token** is used instead of the password when you have one. On Remnawave, Rebecca and Guard it's best to make an API token or key in the panel and give only that; for Guard also pick the panel's version (v1 or v2).
+3. Enter the **Panel username** and password. On 3x-ui, an **API token** is used instead of the password when you have one. On Remnawave, Rebecca and Guard it's best to make an API token or key in the panel and give only that; for Guard also pick the panel's version (v1 or v2). On Hiddify the panel address is the admin link without the UUID at its end, the admin UUID is the API key, and **Subscription base address** is the client link without a user.
 4. Pick the panel's location so that plans in that location can create services on it.
 5. Tap **Test connection** and save.
 6. Choose the inbounds or groups new users should be created in, and save.

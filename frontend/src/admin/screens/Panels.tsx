@@ -75,7 +75,7 @@ interface TestResult {
 }
 
 // Panels that can be reached with an API token alone.
-const TOKEN_KINDS = ["remnawave", "rebecca", "guard"];
+const TOKEN_KINDS = ["remnawave", "rebecca", "guard", "hiddify"];
 
 export function OptionPicker({
   kind,
@@ -273,6 +273,7 @@ function PanelSheet({
                 <option value="remnawave">Remnawave</option>
                 <option value="rebecca">Rebecca</option>
                 <option value="guard">Guard</option>
+                <option value="hiddify">Hiddify</option>
                 <option value="xui">3x-ui (Sanaei)</option>
               </Select>
             )}
@@ -302,6 +303,13 @@ function PanelSheet({
             )}
           </Field>
         </div>
+        {form.kind === "hiddify" && (
+          <Field label={t("panel_sub_base")} hint={t("panel_sub_base_hint_hiddify")}>
+            {(id) => (
+              <Input id={id} dir="ltr" value={String(form.options.sub_base_url ?? "")} onChange={(e) => setOption("sub_base_url", e.target.value)} />
+            )}
+          </Field>
+        )}
         {form.kind === "guard" && (
           <Field label={t("panel_guard_version")}>
             {(id) => (

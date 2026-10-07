@@ -62,7 +62,7 @@ SAFE_OPTION_KEYS = {
 
 
 # Panels that can be reached with an API token alone, without a username and password.
-TOKEN_PANELS = {PanelKind.REMNAWAVE, PanelKind.REBECCA, PanelKind.GUARD}
+TOKEN_PANELS = {PanelKind.REMNAWAVE, PanelKind.REBECCA, PanelKind.GUARD, PanelKind.HIDDIFY}
 
 
 def panel_out(panel: Panel, load: int | None = None) -> dict[str, Any]:

@@ -9,6 +9,7 @@ import pytest
 from paurubot.panels import GB, PanelError, PanelRef, PanelUnavailable, UserSpec
 from paurubot.panels.base import PanelDriver, decode_subscription, parse_expire
 from paurubot.panels.drivers.guard import GuardDriver
+from paurubot.panels.drivers.hiddify import HiddifyDriver
 from paurubot.panels.drivers.marzban import MarzbanDriver
 from paurubot.panels.drivers.pasarguard import PasarGuardDriver
 from paurubot.panels.drivers.rebecca import RebeccaDriver
@@ -17,6 +18,7 @@ from paurubot.panels.drivers.xui import XuiDriver
 from paurubot.panels.http import SafeHttpClient
 from tests.fakes.panels import (
     FakeGuardPanel,
+    FakeHiddifyPanel,
     FakeRebeccaPanel,
     FakeRemnawavePanel,
     FakeTokenPanel,
@@ -28,6 +30,11 @@ BASE = "https://panel.example.com"
 
 
 def make(kind: str, **options):  # type: ignore[no-untyped-def]
+    if kind == "hiddify":
+        fake = FakeHiddifyPanel()  # type: ignore[assignment]
+        options.setdefault("sub_base_url", "https://panel.example.com/client-path/")
+        http = SafeHttpClient(f"{BASE}/admin-path", transport=transport(fake))
+        return HiddifyDriver(http, "", "admin-uuid", options), fake
     if kind in {"guard", "guard_v2"}:
         fake = FakeGuardPanel(version="v2" if kind == "guard_v2" else "v1")  # type: ignore[assignment]
         options.setdefault("guard_version", "v2" if kind == "guard_v2" else "v1")
@@ -53,7 +60,17 @@ def make(kind: str, **options):  # type: ignore[no-untyped-def]
     return cls(http, "admin", "panel-password", options), fake
 
 
-KINDS = ["marzban", "pasarguard", "xui", "remnawave", "rebecca", "guard", "guard_v2"]
+KINDS = ["marzban", "pasarguard", "xui", "remnawave", "rebecca", "guard", "guard_v2", "hiddify"]
+# Panels that keep whole days only; their end dates land on a day boundary.
+DAY_GRAINED = {"hiddify"}
+
+
+def _same_end(kind: str, got: datetime | None, want: datetime) -> bool:
+    if got is None:
+        return False
+    if kind in DAY_GRAINED:
+        return abs((got - want).total_seconds()) <= 86400
+    return got == want
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -61,7 +78,8 @@ async def test_full_lifecycle(kind: str) -> None:
     driver, _ = make(kind)
     health = await driver.health_check()
     assert health.ok
-    assert await driver.list_options()
+    options = await driver.list_options()
+    assert options or kind == "hiddify"  # Hiddify has nothing to choose: users get every proxy
     expire = datetime.now(UTC).replace(microsecond=0) + timedelta(days=30)
     created = await driver.create_user(UserSpec(username="pb_1001", data_limit=10 * GB, expire_at=expire))
     assert created.username == "pb_1001"
@@ -70,11 +88,11 @@ async def test_full_lifecycle(kind: str) -> None:
     fetched = await driver.get_user(ref)
     assert fetched is not None
     assert fetched.data_limit == 10 * GB
-    assert fetched.expire_at == expire
+    assert _same_end(kind, fetched.expire_at, expire)
     later = expire + timedelta(days=30)
     updated = await driver.update_user(ref, expire_at=later, data_limit=20 * GB)
     ref = PanelRef(updated.username, {**ref.data, **updated.data})
-    assert updated.data_limit == 20 * GB and updated.expire_at == later
+    assert updated.data_limit == 20 * GB and _same_end(kind, updated.expire_at, later)
     disabled = await driver.update_user(ref, enabled=False)
     ref = PanelRef(disabled.username, {**ref.data, **disabled.data})
     assert disabled.status == "disabled"
