@@ -48,11 +48,16 @@ Rules:
 
 ## Tenancy (TEN-*)
 
-* `shops` — the root shop is created by the setup wizard. Reseller sub-shops (`parent_id`,
-  own plans, own wallet scope, optional own bot token) arrive in v1.1/v2 on the same schema.
+* `shops` — the root shop is created by the setup wizard. A reseller's own bot (TEN-04) is a child
+  shop (`parent_id`, `reseller_profile_id`, its own encrypted bot token and `bot_user_id`). It has
+  its own customers, wallets, payments, texts and merchant staff, and sells the parent's plans
+  through `core/resale.py`. Provisioning first charges the reseller's parent-shop wallet its own
+  price, so a child shop never creates a service the reseller has not paid for. The `bot` process
+  polls every connected reseller bot next to the main one; in webhook mode each has its own
+  endpoint and secret. Updates are routed to a shop by the receiving bot's id.
 * `customers` — a Telegram identity inside one shop (`unique(shop_id, telegram_id)`). Wallets are
   per customer, so wallets are isolated per shop by construction (TEN-02).
-* `staff` — people who operate a shop (owner, admin, finance, support, reseller). Permissions are
+* `staff` — people who operate a shop (owner, admin, finance, support, reseller, merchant). Permissions are
   resolved from the role matrix in `auth/rbac.py`; resellers are deny-by-default and get an explicit
   allow-list (TEN-03).
 
