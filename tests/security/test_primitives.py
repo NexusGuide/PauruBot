@@ -109,6 +109,23 @@ def test_init_data_rejects_tampering_expiry_and_wrong_bot() -> None:
         validate_init_data("", BOT_TOKEN, max_age=3600)
 
 
+def test_init_data_with_telegram_signature_field() -> None:
+    """Telegram's hash covers the Ed25519 `signature` field too; it must not be dropped first."""
+    now = int(time.time())
+    fields = {
+        "auth_date": str(now),
+        "query_id": "AAE",
+        "signature": "c2lnbmF0dXJl",
+        "user": json.dumps({"id": 42, "first_name": "A"}),
+    }
+    assert validate_init_data(sign_init_data(fields, BOT_TOKEN), BOT_TOKEN, max_age=3600).id == 42
+    signed = sign_init_data(fields, BOT_TOKEN)
+    with pytest.raises(InitDataError):
+        validate_init_data(signed.replace("c2lnbmF0dXJl", "Zm9yZ2Vk"), BOT_TOKEN, max_age=3600)
+    with pytest.raises(InitDataError):
+        validate_init_data(signed, "999:other-bot-token", max_age=3600)
+
+
 def test_passwords_and_constant_compare() -> None:
     hashed = hash_password("correct horse battery")
     assert verify_password("correct horse battery", hashed)

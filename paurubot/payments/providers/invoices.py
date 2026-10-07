@@ -113,8 +113,12 @@ class NowPaymentsProvider(_Invoice):
     async def verify(self, payment: Payment, cfg: dict[str, Any], params: dict[str, Any]) -> Verification:
         raw: bytes = params.get("raw") or b""
         given = str(params.get("signature") or "")
+        secret = str(cfg.get("nowpayments_ipn_secret") or "")
+        if not secret:
+            # Anyone can compute an HMAC with an empty key: an unset secret never verifies anything.
+            return Verification(False, detail="waiting: no ipn secret")
         try:
-            expected = self.signature(raw, str(cfg.get("nowpayments_ipn_secret") or ""))
+            expected = self.signature(raw, secret)
             data = json.loads(raw)
         except ValueError:
             return Verification(False, detail="bad body")
@@ -185,12 +189,17 @@ class PlisioProvider(_Invoice):
         return hmac.new(secret.encode(), text.encode(), hashlib.sha1).hexdigest()
 
     async def verify(self, payment: Payment, cfg: dict[str, Any], params: dict[str, Any]) -> Verification:
+        secret = str(cfg.get("plisio_api_key") or "")
+        if not secret:
+            return Verification(False, detail="waiting: no api key")
         try:
             data = json.loads(params.get("raw") or b"")
         except ValueError:
             return Verification(False, detail="bad body")
+        if not isinstance(data, dict):
+            return Verification(False, detail="bad body")
         given = str(data.get("verify_hash") or "")
-        expected = self.signature(data, str(cfg.get("plisio_api_key") or ""))
+        expected = self.signature(data, secret)
         if not given or not hmac.compare_digest(given, expected):
             return Verification(False, detail="bad signature")
         if str(data.get("order_number")) != str(payment.id) or str(data.get("txn_id")) != str(

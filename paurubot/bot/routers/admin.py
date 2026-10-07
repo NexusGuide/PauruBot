@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.audit.log import Actor, record
+from paurubot.auth import rbac
 from paurubot.bot import keyboards
 from paurubot.bot.callbacks import Admin, Review
 from paurubot.bot.context import StaffIdentity
@@ -225,7 +226,11 @@ async def approve(
     if payment is None or payment.shop_id != shop.id:
         await call.answer(t("payment_not_found"), show_alert=True)
         return
-    if not await payments.approve_card(session, payment.id, staff.id):  # type: ignore[arg-type]
+    if not payments.manually_reviewable(payment):
+        # Gateway payments settle with the gateway; only receipts and parked transfers are reviewed.
+        await call.answer(t("payment_already_reviewed"), show_alert=True)
+        return
+    if not await payments.approve_manual(session, payment.id, staff.id):
         await call.answer(t("payment_already_reviewed"), show_alert=True)
         return
     await record(
@@ -448,6 +453,9 @@ async def applications(
                 await call.answer()
                 await show(call, t("adm_choose_group") if groups else t("adm_no_groups"), kb.as_markup())
                 return
+            if callback_data.page not in {group.id for group in groups}:
+                await call.answer(t("adm_no_groups"), show_alert=True)  # an old button or a forged id
+                return
             existing = await session.scalar(
                 select(ResellerProfile).where(ResellerProfile.customer_id == application.customer_id)
             )
@@ -457,14 +465,8 @@ async def applications(
                         shop_id=shop.id,
                         customer_id=application.customer_id,
                         group_id=callback_data.page,
-                        permissions=[
-                            "services.create",
-                            "services.read",
-                            "services.write",
-                            "customers.read",
-                            "orders.read",
-                            "reports.read",
-                        ],
+                        # The same rights an approval from the web panel gives.
+                        permissions=sorted(rbac.DEFAULT_FOR_RESELLER),
                     )
                 )
             else:

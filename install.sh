@@ -254,6 +254,9 @@ cmd_install() {
   [[ -n $owner ]] || owner=$(ask "Your numeric Telegram user ID")
   [[ $token =~ ^[0-9]+:[A-Za-z0-9_-]{30,}$ ]] || die "that does not look like a bot token"
   [[ $owner =~ ^[0-9]+$ ]] || die "the Telegram user ID must be a number"
+  # The domain lands in .env and the Caddyfile: a plain host name only.
+  [[ $domain =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]] ||
+    die "that does not look like a domain name (e.g. bot.example.com)"
 
   resolve_target "$channel" "$version"
   fetch_source "$TARGET_REF"

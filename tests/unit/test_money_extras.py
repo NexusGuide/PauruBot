@@ -412,6 +412,38 @@ async def test_plisio_callback_signature(session) -> None:  # type: ignore[no-un
     ).paid
 
 
+async def test_invoice_callbacks_never_verify_with_an_unset_secret(session) -> None:  # type: ignore[no-untyped-def]
+    """An HMAC under an empty key is something anyone can compute."""
+    payment = await _invoice_payment(session, "nowpayments", 100)
+    body = {
+        "payment_id": 78,
+        "invoice_id": "INV-1",
+        "order_id": str(payment.id),
+        "payment_status": "finished",
+        "price_amount": 1.0,
+        "price_currency": "usd",
+    }
+    raw = json.dumps(body).encode()
+    forged = {"raw": raw, "signature": NowPaymentsProvider.signature(raw, "")}
+    for cfg in ({}, {"nowpayments_ipn_secret": ""}):
+        assert not (await NowPaymentsProvider().verify(payment, cfg, forged)).paid
+
+    plisio = await _invoice_payment(session, "plisio", 250)
+    data = {
+        "txn_id": "INV-1",
+        "order_number": str(plisio.id),
+        "status": "completed",
+        "source_amount": "2.50",
+        "source_currency": "USD",
+    }
+    data["verify_hash"] = hmac.new(
+        b"", json.dumps(data, separators=(",", ":")).encode(), hashlib.sha1
+    ).hexdigest()
+    result = await PlisioProvider().verify(plisio, {"plisio_api_key": ""}, {"raw": json.dumps(data).encode()})
+    assert not result.paid
+    assert not (await PlisioProvider().verify(plisio, {"plisio_api_key": "k"}, {"raw": b"[1]"})).paid
+
+
 async def test_payments_table_has_no_duplicate_chain_tx(session) -> None:  # type: ignore[no-untyped-def]
     rows = await session.scalars(select(Payment.provider_tx_id).where(Payment.provider == "usdt_trc20"))
     ids = [r for r in rows if r]

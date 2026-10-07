@@ -12,7 +12,15 @@ from paurubot.api.admin_common import owned, plain
 from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record, snapshot
 from paurubot.db.base import utcnow
-from paurubot.db.models import Customer, Panel, PanelKind, Service, ServiceStatus, UsernameMethod
+from paurubot.db.models import (
+    Customer,
+    Location,
+    Panel,
+    PanelKind,
+    Service,
+    ServiceStatus,
+    UsernameMethod,
+)
 from paurubot.panels import PanelError, drop, registry
 from paurubot.panels.drivers.pasarguard import ADMIN_READ_PATHS, PasarGuardDriver
 from paurubot.panels.http import fetch_certificate
@@ -132,6 +140,11 @@ def _clean_options(options: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in options.items() if v is not None}
 
 
+async def _check_location(db: DB, body: PanelBody, ctx: StaffContext) -> None:
+    if body.location_id is not None:
+        await owned(db, Location, body.location_id, ctx)  # never another shop's location
+
+
 async def _check_url(body: PanelBody, ctx: StaffContext) -> str:
     url = str(body.base_url).rstrip("/")
     if body.allow_private_address and not ctx.can("panels.secrets"):
@@ -169,6 +182,7 @@ async def create_panel(body: PanelBody, ctx: Writer, db: DB) -> dict[str, Any]:
     if not body.username.strip() and not token_only:
         raise HTTPException(status_code=422, detail="username_required")
     url = await _check_url(body, ctx)
+    await _check_location(db, body, ctx)
     options = _clean_options(dict(body.options))
     if body.api_token:
         options["api_token_enc"] = secretbox.encrypt("panel", body.api_token)
@@ -206,6 +220,7 @@ async def update_panel(panel_id: int, body: PanelBody, ctx: Writer, db: DB) -> d
     panel = await owned(db, Panel, panel_id, ctx)
     before = snapshot(panel)
     url = await _check_url(body, ctx)
+    await _check_location(db, body, ctx)
     secrets_changing = bool(body.password or body.api_token) or url != panel.base_url
     if secrets_changing and not ctx.can("panels.secrets"):
         raise HTTPException(status_code=403, detail="secrets_need_owner")

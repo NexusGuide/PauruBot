@@ -51,11 +51,16 @@ def mount_frontends(app: FastAPI) -> None:
 
         return serve
 
+    def to_slash(name: str):  # type: ignore[no-untyped-def]
+        # No parameters: a defaulted argument would become a query parameter (?name=//evil.com).
+        async def redirect() -> RedirectResponse:
+            return RedirectResponse(f"/{name}/")
+
+        return redirect
+
     for name in ("app", "admin"):
         handler = spa(name)
-        app.add_api_route(
-            f"/{name}", lambda name=name: RedirectResponse(f"/{name}/"), include_in_schema=False
-        )
+        app.add_api_route(f"/{name}", to_slash(name), include_in_schema=False)
         app.add_api_route(f"/{name}/", handler, include_in_schema=False)
         app.add_api_route(f"/{name}/{{path:path}}", handler, include_in_schema=False)
 

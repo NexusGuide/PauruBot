@@ -29,7 +29,14 @@ from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.notifications import telegram as notify_telegram
 from tests import factories
-from tests.fakes.telegram import callback_update, make_bot, message_update, photo_update, png_bytes
+from tests.fakes.telegram import (
+    callback_update,
+    make_bot,
+    message_update,
+    photo_update,
+    png_bytes,
+    user,
+)
 
 FA = Texts("fa")
 UID = 7001
@@ -146,6 +153,37 @@ async def test_non_staff_cannot_review_payments(session, env) -> None:  # type: 
     await send(callback_update(UID, Review(action="ok", id=payment.id).pack()))
     await session.refresh(payment)
     assert payment.status == PaymentStatus.VERIFYING
+
+
+async def test_approve_button_never_settles_a_gateway_payment(session, env, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Only receipts and parked transfers are reviewed; a gateway payment waits for its gateway."""
+    send = env["send"]
+    owner = 9_900_002
+    monkeypatch.setattr(get_settings(), "owner_telegram_ids", [owner])
+    await send(message_update(UID, "/start"))
+    customer = await _customer(session, env["shop"].id)
+    payment = Payment(
+        shop_id=env["shop"].id,
+        customer_id=customer.id,
+        purpose="topup",
+        provider="zarinpal",
+        status=PaymentStatus.PENDING,
+        amount=50_000,
+        idempotency_key="manual-test-gateway",
+    )
+    session.add(payment)
+    await session.commit()
+    await send(message_update(owner, "/start", from_user=None))
+    await send(callback_update(owner, Review(action="ok", id=payment.id).pack()))
+    await session.refresh(payment)
+    assert payment.status == PaymentStatus.PENDING
+    assert await wallet_balance(session, env["shop"].id, customer.id) == 0
+
+
+async def test_names_with_html_do_not_break_messages(session, env) -> None:  # type: ignore[no-untyped-def]
+    send, fake = env["send"], env["fake"]
+    await send(message_update(UID, "/start", from_user=user(UID, name="<b>Tom & Jerry")))
+    assert "&lt;b&gt;Tom &amp; Jerry" in fake.last(SendMessage).text
 
 
 async def test_banned_and_forced_join(session, env) -> None:  # type: ignore[no-untyped-def]
