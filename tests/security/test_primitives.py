@@ -144,3 +144,12 @@ async def test_ledger_tables_are_append_only(session) -> None:  # type: ignore[n
     with pytest.raises(Exception, match="append-only"):
         async with session.begin_nested():
             await session.execute(text("UPDATE ledger_journals SET memo = 'x'"))
+
+
+def test_panel_path_segments_cannot_leave_their_place() -> None:
+    from paurubot.panels.base import PanelRef, seg
+    from paurubot.panels.drivers.token_api import TokenApiDriver
+
+    assert seg("user_1") == "user_1"
+    assert seg("../admin?x=1#y") == "..%2Fadmin%3Fx%3D1%23y"
+    assert TokenApiDriver.user_path(None, PanelRef("../../api/admin")) == "/api/user/..%2F..%2Fapi%2Fadmin"  # type: ignore[arg-type]

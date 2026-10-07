@@ -386,7 +386,8 @@ cmd_restore() {
   fi
   name=$(basename "$file")
   compose stop api bot worker
-  compose run --rm --no-deps -T -v "$(realpath "$file"):/restore/$name:ro" -e RESTORE_PASSPHRASE="$passphrase" \
+  # `-e NAME` without a value passes it from this shell, so the passphrase never shows in `ps`.
+  RESTORE_PASSPHRASE=$passphrase compose run --rm --no-deps -T -v "$(realpath "$file"):/restore/$name:ro" -e RESTORE_PASSPHRASE \
     api restore "/restore/$name" --yes --passphrase-env RESTORE_PASSPHRASE --print-master-key \
     | tee /dev/stderr >"$DIR/.restore.log" || {
     compose up -d

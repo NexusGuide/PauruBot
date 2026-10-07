@@ -21,6 +21,7 @@ from paurubot.panels.base import (
     number,
     parse_expire,
     parse_ips,
+    seg,
     whole,
 )
 
@@ -95,11 +96,11 @@ class XuiDriver(PanelDriver):
 
     async def client_ips(self, ref: PanelRef) -> list[str]:
         try:
-            found = await self.call("POST", f"/panel/api/inbounds/clientIps/{ref.username}")
+            found = await self.call("POST", f"/panel/api/inbounds/clientIps/{seg(ref.username)}")
         except PanelError as exc:
             if exc.status != 404:
                 raise
-            found = await self.call("POST", f"/panel/api/clients/ips/{ref.username}")  # newer builds
+            found = await self.call("POST", f"/panel/api/clients/ips/{seg(ref.username)}")  # newer builds
         return parse_ips(found)
 
     async def _protocol(self, inbound_id: int) -> str:
@@ -251,7 +252,7 @@ class XuiDriver(PanelDriver):
         return users[offset : offset + limit], len(users)
 
     async def _traffic(self, email: str) -> dict[str, Any] | None:
-        return await self.call("GET", f"/panel/api/inbounds/getClientTraffics/{email}")
+        return await self.call("GET", f"/panel/api/inbounds/getClientTraffics/{seg(email)}")
 
     async def get_user(self, ref: PanelRef) -> PanelUser | None:
         if "client" not in ref.data:
@@ -266,7 +267,7 @@ class XuiDriver(PanelDriver):
         key = old_key or self.client_key(protocol, client)
         await self.call(
             "POST",
-            f"/panel/api/inbounds/updateClient/{key}",
+            f"/panel/api/inbounds/updateClient/{seg(key)}",
             data={"id": str(ref.data["inbound_id"]), "settings": json.dumps({"clients": [client]})},
         )
 
@@ -291,7 +292,8 @@ class XuiDriver(PanelDriver):
 
     async def reset_usage(self, ref: PanelRef) -> None:
         await self.call(
-            "POST", f"/panel/api/inbounds/{ref.data['inbound_id']}/resetClientTraffic/{ref.username}"
+            "POST",
+            f"/panel/api/inbounds/{seg(ref.data['inbound_id'])}/resetClientTraffic/{seg(ref.username)}",
         )
 
     async def delete_user(self, ref: PanelRef) -> None:
@@ -299,7 +301,7 @@ class XuiDriver(PanelDriver):
             return
         key = self.client_key(ref.data["protocol"], ref.data["client"])
         try:
-            await self.call("POST", f"/panel/api/inbounds/{ref.data['inbound_id']}/delClient/{key}")
+            await self.call("POST", f"/panel/api/inbounds/{seg(ref.data['inbound_id'])}/delClient/{seg(key)}")
         except PanelError as exc:
             if "not found" not in str(exc).lower():
                 raise

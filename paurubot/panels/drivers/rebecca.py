@@ -19,6 +19,7 @@ from paurubot.panels.base import (
     PanelUser,
     UserSpec,
     parse_ips,
+    seg,
 )
 from paurubot.panels.drivers.marzban import MarzbanDriver
 
@@ -107,7 +108,7 @@ class RebeccaDriver(MarzbanDriver):
         if enabled is not None:
             payload["status"] = "active" if enabled else "disabled"
         try:
-            data = await self.call("PUT", f"/api/v2/users/{ref.username}", json=payload)
+            data = await self.call("PUT", f"/api/v2/users/{seg(ref.username)}", json=payload)
         except PanelNotFound:
             data = await self.call("PUT", self.user_path(ref), json=payload)
         return self.parse_user(data)
