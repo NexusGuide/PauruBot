@@ -1308,5 +1308,11 @@
   "panel_kind_remnawave": "رمناویو",
   "panel_api_token_hint_remnawave": "در رمناویو از بخش Settings ← API tokens بساز. با توکن، نام کاربری و رمز لازم نیست.",
   "err_username_required": "نام کاربری پنل را وارد کن.",
-  "panel_squads": "اسکوادهای داخلی"
+  "panel_squads": "اسکوادهای داخلی",
+  "panel_kind_rebecca": "ربکا",
+  "panel_kind_guard": "گارد",
+  "panel_guard_version": "نسخه‌ی گارد",
+  "panel_api_token_hint_rebecca": "کلید API ساخته‌شده در ربکا. با کلید، نام کاربری و رمز لازم نیست.",
+  "panel_api_token_hint_guard": "کلید API گارد. با کلید، نام کاربری و رمز لازم نیست.",
+  "err_guard_version_invalid": "نسخه‌ی v1 یا v2 گارد را انتخاب کن."
 }

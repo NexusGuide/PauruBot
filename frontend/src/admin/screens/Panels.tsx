@@ -74,6 +74,9 @@ interface TestResult {
   options?: { id: string; title: string }[];
 }
 
+// Panels that can be reached with an API token alone.
+const TOKEN_KINDS = ["remnawave", "rebecca", "guard"];
+
 export function OptionPicker({
   kind,
   options,
@@ -106,9 +109,9 @@ export function OptionPicker({
       </Field>
     );
   }
-  const numeric = kind === "pasarguard" || kind === "marzneshin";
-  const key =
-    kind === "pasarguard" ? "group_ids" : kind === "marzneshin" ? "service_ids" : kind === "remnawave" ? "squad_ids" : "inbounds";
+  const services = kind === "marzneshin" || kind === "rebecca" || kind === "guard";
+  const numeric = kind === "pasarguard" || services;
+  const key = kind === "pasarguard" ? "group_ids" : services ? "service_ids" : kind === "remnawave" ? "squad_ids" : "inbounds";
   const selected = new Set((value[key] as (string | number)[] | undefined)?.map(String) ?? []);
   const toggle = (id: string, on: boolean) => {
     const next = new Set(selected);
@@ -122,7 +125,7 @@ export function OptionPicker({
       <legend className="mb-1 text-[0.82rem] font-semibold">
         {kind === "pasarguard"
           ? t("panel_groups")
-          : kind === "marzneshin"
+          : services
             ? t("panel_services")
             : kind === "remnawave"
               ? t("panel_squads")
@@ -235,7 +238,7 @@ function PanelSheet({
   };
 
   const editingSecrets = !form.id || owner;
-  const tokenOnly = form.kind === "remnawave" && (form.api_token.trim() || panel?.has_api_token);
+  const tokenOnly = TOKEN_KINDS.includes(form.kind) && (form.api_token.trim() || panel?.has_api_token);
   const canSave =
     form.name.trim() && form.base_url.startsWith("http") && (tokenOnly || (form.username.trim() && (form.id || form.password)));
 
@@ -268,6 +271,8 @@ function PanelSheet({
                 <option value="marzban">Marzban</option>
                 <option value="marzneshin">Marzneshin</option>
                 <option value="remnawave">Remnawave</option>
+                <option value="rebecca">Rebecca</option>
+                <option value="guard">Guard</option>
                 <option value="xui">3x-ui (Sanaei)</option>
               </Select>
             )}
@@ -297,8 +302,18 @@ function PanelSheet({
             )}
           </Field>
         </div>
-        {form.kind === "remnawave" && (
-          <Field label={t("panel_api_token")} hint={t("panel_api_token_hint_remnawave")}>
+        {form.kind === "guard" && (
+          <Field label={t("panel_guard_version")}>
+            {(id) => (
+              <Select id={id} value={String(form.options.guard_version ?? "v1")} onChange={(e) => setOption("guard_version", e.target.value)}>
+                <option value="v1">v1</option>
+                <option value="v2">v2</option>
+              </Select>
+            )}
+          </Field>
+        )}
+        {TOKEN_KINDS.includes(form.kind) && (
+          <Field label={t("panel_api_token")} hint={t(`panel_api_token_hint_${form.kind}`)}>
             {(id) => (
               <Input
                 id={id}
@@ -341,7 +356,7 @@ function PanelSheet({
             </Field>
           </>
         )}
-        {form.kind !== "pasarguard" && form.kind !== "remnawave" && (
+        {["marzban", "marzneshin", "xui", "rebecca"].includes(form.kind) && (
           <Field label={t("panel_flow")} hint={t("panel_flow_hint")}>
             {(id) => (
               <Select id={id} value={String(form.options.flow ?? "")} onChange={(e) => setOption("flow", e.target.value)}>

@@ -5,7 +5,7 @@ After installing, a few short steps make the bot ready to sell. This page gives 
 
 ## 1. Connect a panel
 
-In [Panels](/panels) tap **New panel**, pick the panel type (PasarGuard, Marzban, Marzneshin, Remnawave or 3x-ui), enter its address, username and password, then tap **Test connection**. No service is created until the connection is healthy. Details in [the panels guide](help:panels).
+In [Panels](/panels) tap **New panel**, pick the panel type (PasarGuard, Marzban, Marzneshin, Remnawave, Rebecca, Guard or 3x-ui), enter its address, username and password, then tap **Test connection**. No service is created until the connection is healthy. Details in [the panels guide](help:panels).
 
 ## 2. Create a plan
 

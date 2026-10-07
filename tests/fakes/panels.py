@@ -453,8 +453,135 @@ class FakeRemnawavePanel:
         return httpx.Response(404, json={"message": "Not Found"})
 
 
+class FakeRebeccaPanel(FakeTokenPanel):
+    """Rebecca: Marzban paths plus /api/v2/users and /api/v2/services; an API key works as the token."""
+
+    def __init__(self) -> None:
+        super().__init__("marzban")
+        self.v2_bodies: list[dict[str, Any]] = []
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if request.headers.get("authorization") == f"Bearer {self.token}":
+            if path == "/api/v2/services":
+                return httpx.Response(200, json={"services": [{"id": 7, "name": "Main"}]})
+            if path == "/api/v2/users" and request.method == "POST":
+                body = json.loads(request.content)
+                self.v2_bodies.append(body)
+                forwarded = httpx.Request(
+                    "POST", request.url.copy_with(path="/api/user"), headers=request.headers, json=body
+                )
+                return super().handler(forwarded)
+            if path.startswith("/api/v2/users/") and request.method == "PUT":
+                name = path.rsplit("/", 1)[1]
+                forwarded = httpx.Request(
+                    "PUT",
+                    request.url.copy_with(path=f"/api/user/{name}"),
+                    headers=request.headers,
+                    content=request.content,
+                )
+                return super().handler(forwarded)
+        return super().handler(request)
+
+
+class FakeGuardPanel:
+    """Guard: X-API-Key, subscriptions created in a list, bulk actions by username."""
+
+    def __init__(self, key: str = "guard-key", version: str = "v1") -> None:
+        self.key = key
+        self.version = version
+        self.subs: dict[str, dict[str, Any]] = {}
+        self.fail_next: int | None = None
+
+    def _out(self, sub: dict[str, Any]) -> dict[str, Any]:
+        return {**sub, "tag": "sub", "access_key": sub["access_key"]}
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if self.fail_next:
+            status, self.fail_next = self.fail_next, None
+            return httpx.Response(status, json={"detail": "boom"})
+        if request.headers.get("x-api-key") != self.key:
+            return httpx.Response(401, json={"detail": "bad key"})
+        body = json.loads(request.content) if request.content else {}
+        if path == "/api/admins/current":
+            return httpx.Response(200, json={"username": "bot"})
+        if path == "/api/subscriptions/stats":
+            return httpx.Response(200, json={"total": len(self.subs), "active": len(self.subs)})
+        if path == "/api/services":
+            return httpx.Response(200, json=[{"id": 1, "remark": "Default"}, {"id": 2, "remark": "Gaming"}])
+        if path == "/api/subscriptions" and request.method == "POST":
+            made = []
+            for entry in body:
+                if entry["username"] in self.subs:
+                    return httpx.Response(409, json={"detail": "exists"})
+                sub = {
+                    "id": len(self.subs) + 1,
+                    "username": entry["username"],
+                    "limit_usage": entry.get("limit_usage", 0),
+                    "limit_expire": entry.get("limit_expire", 0),
+                    "services": entry.get("services", []),
+                    "note": entry.get("note"),
+                    "telegram_id": entry.get("telegram_id"),
+                    "enabled": True,
+                    "total_usage": 0,
+                    "access_key": secrets.token_hex(6),
+                }
+                self.subs[sub["username"]] = sub
+                made.append(self._out(sub))
+            return httpx.Response(200, json=made)
+        if path == "/api/subscriptions" and request.method == "GET":
+            names = request.url.params.get("usernames")
+            rows = [self._out(s) for s in self.subs.values() if not names or s["username"] == names]
+            return httpx.Response(200, json={"items": rows, "total": len(rows)})
+        if path == "/api/subscriptions" and request.method == "PUT":
+            if self.version != "v2":
+                return httpx.Response(405, json={"detail": "Method Not Allowed"})
+            for name in body.get("usernames", []):
+                if name in self.subs:
+                    self.subs[name].update(
+                        {k: v for k, v in body.items() if k in {"limit_usage", "limit_expire"}}
+                    )
+            return httpx.Response(
+                200, json=[self._out(self.subs[n]) for n in body.get("usernames", []) if n in self.subs]
+            )
+        if path == "/api/subscriptions" and request.method == "DELETE":
+            for name in body.get("usernames", []):
+                self.subs.pop(name, None)
+            return httpx.Response(200, json={})
+        if path.startswith("/api/subscriptions/") and path.rsplit("/", 1)[1] in {
+            "enable",
+            "disable",
+            "reset",
+            "revoke",
+        }:
+            action = path.rsplit("/", 1)[1]
+            for name in body.get("usernames", []):
+                sub = self.subs.get(name)
+                if sub is None:
+                    continue
+                if action in {"enable", "disable"}:
+                    sub["enabled"] = action == "enable"
+                elif action == "reset":
+                    sub["total_usage"] = 0
+                else:
+                    sub["access_key"] = secrets.token_hex(6)
+            return httpx.Response(200, json={})
+        if path.startswith("/api/subscriptions/") and self.version == "v1":
+            name = path.rsplit("/", 1)[1]
+            sub = self.subs.get(name)
+            if sub is None:
+                return httpx.Response(404, json={"detail": "not found"})
+            if request.method == "GET":
+                return httpx.Response(200, json=self._out(sub))
+            if request.method == "PUT":
+                sub.update({k: v for k, v in body.items() if k in {"limit_usage", "limit_expire"}})
+                return httpx.Response(200, json=self._out(sub))
+        return httpx.Response(404, json={"detail": "Not Found"})
+
+
 def transport(
-    fake: FakeTokenPanel | FakeXuiPanel | FakeMarzneshinPanel | FakeRemnawavePanel,
+    fake: FakeTokenPanel | FakeXuiPanel | FakeMarzneshinPanel | FakeRemnawavePanel | FakeGuardPanel,
 ) -> httpx.MockTransport:
     return httpx.MockTransport(fake.handler)
 
