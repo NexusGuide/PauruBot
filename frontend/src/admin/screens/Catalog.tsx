@@ -78,7 +78,7 @@ function PlanPanelOptions({
         ) : (
           <div className="flex flex-col gap-3">
             <OptionPicker kind={data.kind} options={data.options} value={value} onChange={onChange} />
-            {data.kind !== "pasarguard" && (
+            {!["pasarguard", "hiddify", "wgdashboard", "wgmate", "mikrotik", "ibsng"].includes(data.kind) && (
               <Field label={t("plan_flow")} hint={t("plan_flow_hint")}>
                 {(id) => (
                   <Input

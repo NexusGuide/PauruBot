@@ -478,5 +478,13 @@
   "guest_review": "A different amount arrived than expected. Our team will check it; keep this page to follow up.",
   "guest_keep_link": "Bookmark this page: its address is the only key to your purchase.",
   "guest_claimed": "✅ Your web purchase is now in your account ({count} service). You'll find it under My services.",
-  "guest_claim_invalid": "That purchase link was already used or isn't valid."
+  "guest_claim_invalid": "That purchase link was already used or isn't valid.",
+  "service_card_wireguard": "🔖 <b>{label}</b>\n👤 Name: <code>{username}</code>\n📶 Status: {status}\n🌍 Location: {location}\n📊 Data: {volume}\n⏳ Expires: {expiry}\n\n🛡 This is a WireGuard service: tap <b>Configs</b> to get the .conf file, or <b>QR</b> to scan it into the WireGuard app.",
+  "service_card_account": "🔖 <b>{label}</b>\n📶 Status: {status}\n🌍 Location: {location}\n📊 Data: {volume}\n⏳ Expires: {expiry}\n\n👤 Username: <code>{username}</code>\n🔑 Password: <code>{password}</code>",
+  "wireguard_caption": "🛡 WireGuard config for {name}. Open it with the WireGuard app, or scan the QR.",
+  "wireguard_unavailable": "The WireGuard config couldn't be read from the server right now. Please try again shortly.",
+  "account_no_qr": "This service signs in with a username and password; there is nothing to scan.",
+  "sub_page_download_conf": "Download the .conf file",
+  "sub_page_username": "Username",
+  "sub_page_password": "Password"
 }

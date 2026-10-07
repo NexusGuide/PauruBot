@@ -58,8 +58,11 @@ def ref(service: Service) -> PanelRef:
 
 def apply_panel_user(service: Service, info: PanelUser) -> None:
     service.used_bytes = info.used_bytes
-    service.data_limit = info.data_limit
-    service.expire_at = info.expire_at
+    if info.limits_known:
+        service.data_limit = info.data_limit
+        service.expire_at = info.expire_at
+    else:  # the panel only knows usage; limits are what we sold (PNL-11)
+        info.data_limit, info.expire_at = service.data_limit, service.expire_at
     if info.online_at:
         service.online_at = info.online_at
     if info.subscription_url:
@@ -634,4 +637,8 @@ async def extend(session: AsyncSession, service: Service, *, days: int = 0, gb: 
         return
     info = await driver.update_user(ref(service), expire_at=expire, data_limit=limit, enabled=True)
     apply_panel_user(service, info)
+    if expire is not UNSET:
+        service.expire_at = expire
+    if limit is not None:
+        service.data_limit = limit
     await session.flush()

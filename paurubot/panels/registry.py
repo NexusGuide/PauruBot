@@ -12,11 +12,15 @@ from paurubot.db.models import Panel, PanelKind
 from paurubot.panels.base import PanelDriver
 from paurubot.panels.drivers.guard import GuardDriver
 from paurubot.panels.drivers.hiddify import HiddifyDriver
+from paurubot.panels.drivers.ibsng import IbsngDriver
 from paurubot.panels.drivers.marzban import MarzbanDriver
 from paurubot.panels.drivers.marzneshin import MarzneshinDriver
+from paurubot.panels.drivers.mikrotik import MikrotikDriver
 from paurubot.panels.drivers.pasarguard import PasarGuardDriver
 from paurubot.panels.drivers.rebecca import RebeccaDriver
 from paurubot.panels.drivers.remnawave import RemnawaveDriver
+from paurubot.panels.drivers.wgdashboard import WGDashboardDriver
+from paurubot.panels.drivers.wgmate import WGMateDriver
 from paurubot.panels.drivers.xui import XuiDriver
 from paurubot.panels.http import SafeHttpClient
 from paurubot.security.secretbox import decrypt
@@ -30,6 +34,10 @@ DRIVERS: dict[PanelKind, type[PanelDriver]] = {
     PanelKind.REBECCA: RebeccaDriver,
     PanelKind.GUARD: GuardDriver,
     PanelKind.HIDDIFY: HiddifyDriver,
+    PanelKind.WGDASHBOARD: WGDashboardDriver,
+    PanelKind.WGMATE: WGMateDriver,
+    PanelKind.MIKROTIK: MikrotikDriver,
+    PanelKind.IBSNG: IbsngDriver,
 }
 
 _cache: dict[int, tuple[str, PanelDriver]] = {}
@@ -87,3 +95,12 @@ async def close_all() -> None:
     for _, driver in list(_cache.values()):
         await driver.close()
     _cache.clear()
+
+
+def delivery_of(kind: PanelKind | str | None) -> str:
+    """How customers of this panel kind connect: subscription, wireguard or account (PNL-08, PNL-11)."""
+    try:
+        cls = DRIVERS.get(PanelKind(kind)) if kind else None
+    except ValueError:
+        cls = None
+    return getattr(cls, "delivery", "subscription") if cls else "subscription"

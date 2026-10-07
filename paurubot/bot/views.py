@@ -26,8 +26,13 @@ def service_card(t: Texts, service: Service, link: str | None = None) -> str:
         expiry = t("expiry_unlimited")
     else:
         expiry = t("expiry_date", date=jdate(service.expire_at), days=days_left(service.expire_at))
+    from paurubot.panels.registry import delivery_of
+
+    kind = delivery_of(service.panel.kind if service.panel else None)
+    key = {"wireguard": "service_card_wireguard", "account": "service_card_account"}.get(kind, "service_card")
     return t(
-        "service_card",
+        key,
+        password=esc((service.panel_data or {}).get("password") or "-"),
         label=esc(service.label or service.panel_username),
         username=esc(service.panel_username),
         status=t(f"status_{service.status.value}"),

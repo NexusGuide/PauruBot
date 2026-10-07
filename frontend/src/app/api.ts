@@ -102,6 +102,9 @@ export interface Service {
   plan_id: number | null;
   panel_id: number;
   extras: { gb_price: number | null; day_price: number | null } | null;
+  delivery?: "subscription" | "wireguard" | "account";
+  account?: { username: string; password: string | null };
+  download_url?: string | null;
 }
 
 export interface Order {

@@ -236,5 +236,11 @@
   "role_reseller": "Reseller",
   "err_forbidden": "Your role can't do that.",
   "err_payment_already_reviewed": "Someone already decided on this payment.",
-  "err_not_manual": "This payment can't be decided by hand."
+  "err_not_manual": "This payment can't be decided by hand.",
+  "account_login": "Sign-in details",
+  "account_username": "Username",
+  "account_password": "Password",
+  "wireguard_title": "WireGuard config",
+  "wireguard_hint": "Scan this in the WireGuard app, or download the .conf file and open it there.",
+  "wireguard_download": "Download the .conf file"
 }

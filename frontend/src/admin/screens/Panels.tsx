@@ -75,7 +75,7 @@ interface TestResult {
 }
 
 // Panels that can be reached with an API token alone.
-const TOKEN_KINDS = ["remnawave", "rebecca", "guard", "hiddify"];
+const TOKEN_KINDS = ["remnawave", "rebecca", "guard", "hiddify", "wgdashboard", "wgmate"];
 
 export function OptionPicker({
   kind,
@@ -89,6 +89,32 @@ export function OptionPicker({
   onChange: (value: Record<string, unknown>) => void;
 }) {
   const { t } = useSession();
+  if (kind === "mikrotik") {
+    return (
+      <Field label={t("panel_um_profile")} hint={t("panel_um_profile_hint")}>
+        {(id) => (
+          <Select id={id} value={String(value.profile ?? "")} onChange={(e) => onChange({ ...value, profile: e.target.value || undefined })}>
+            <option value="">—</option>
+            {options.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.title}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+    );
+  }
+  if (kind === "ibsng") {
+    return (
+      <Field label={t("panel_ibsng_group")} hint={t("panel_ibsng_group_hint")}>
+        {(id) => (
+          <Input id={id} dir="ltr" value={String(value.group ?? "")} maxLength={64} onChange={(e) => onChange({ ...value, group: e.target.value || undefined })} />
+        )}
+      </Field>
+    );
+  }
+  if (kind === "wgdashboard" || kind === "wgmate" || kind === "hiddify") return null;
   if (kind === "xui") {
     return (
       <Field label={t("panel_inbound")} hint={t("panel_inbound_hint")}>
@@ -275,6 +301,10 @@ function PanelSheet({
                 <option value="guard">Guard</option>
                 <option value="hiddify">Hiddify</option>
                 <option value="xui">3x-ui (Sanaei)</option>
+                <option value="wgdashboard">WGDashboard (WireGuard)</option>
+                <option value="wgmate">WG-Mate</option>
+                <option value="mikrotik">MikroTik User Manager</option>
+                <option value="ibsng">IBSng</option>
               </Select>
             )}
           </Field>
@@ -307,6 +337,27 @@ function PanelSheet({
           <Field label={t("panel_sub_base")} hint={t("panel_sub_base_hint_hiddify")}>
             {(id) => (
               <Input id={id} dir="ltr" value={String(form.options.sub_base_url ?? "")} onChange={(e) => setOption("sub_base_url", e.target.value)} />
+            )}
+          </Field>
+        )}
+        {form.kind === "wgdashboard" && (
+          <Field label={t("panel_wg_configuration")} hint={t("panel_wg_configuration_hint")}>
+            {(id) => (
+              <Input id={id} dir="ltr" value={String(form.options.configuration ?? "")} placeholder="wg0" maxLength={32} onChange={(e) => setOption("configuration", e.target.value)} />
+            )}
+          </Field>
+        )}
+        {form.kind === "ibsng" && (
+          <Field label={t("panel_ibsng_group")} hint={t("panel_ibsng_group_hint")}>
+            {(id) => (
+              <Input id={id} dir="ltr" value={String(form.options.group ?? "")} maxLength={64} onChange={(e) => setOption("group", e.target.value)} />
+            )}
+          </Field>
+        )}
+        {form.kind === "wgmate" && (
+          <Field label={t("panel_wgmate_template")} hint={t("panel_wgmate_template_hint")}>
+            {(id) => (
+              <Input id={id} dir="ltr" value={String(form.options.template_user ?? "")} maxLength={64} onChange={(e) => setOption("template_user", e.target.value)} />
             )}
           </Field>
         )}

@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { date, daysLeft, money, size } from "@shared/format";
 import { api, type Service } from "../api";
 import { errorText, useApp } from "../state";
-import { haptic } from "../telegram";
+import { haptic, tg } from "../telegram";
 import { Button, Empty, Loading, Panel, Ring, Row, Screen, StatusDot } from "../ui";
 import { timeRatio, usageRatio } from "./Home";
 
@@ -65,6 +65,7 @@ export function ServiceDetail() {
   const [qr, setQr] = useState<string | null>(null);
   const [links, setLinks] = useState<string[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [wgQr, setWgQr] = useState<string | null>(null);
 
   useEffect(() => {
     api.service(serviceId, true).then((r) => setService(r.service)).catch(() => navigate("/services"));
@@ -75,6 +76,14 @@ export function ServiceDetail() {
       QRCode.toDataURL(service.subscription_url, { margin: 1, width: 360 }).then(setQr);
     }
   }, [service?.subscription_url]);
+
+  useEffect(() => {
+    // A WireGuard service is its .conf: show it as a QR the WireGuard app can scan.
+    if (service?.delivery !== "wireguard") return;
+    api.links(service.id).then((r) => {
+      if (r.links[0]) QRCode.toDataURL(r.links[0], { margin: 1, width: 420 }).then(setWgQr);
+    }).catch(() => setWgQr(null));
+  }, [service?.id, service?.delivery]);
 
   if (!service || !me) return <Loading />;
   const units = t("units").split(",");
@@ -168,7 +177,37 @@ export function ServiceDetail() {
         </Panel>
       )}
 
-      {links && (
+      {service.delivery === "account" && service.account && (
+        <Panel className="mb-4">
+          <p className="mb-2 text-sm font-bold">{t("account_login")}</p>
+          {([
+            [t("account_username"), service.account.username],
+            [t("account_password"), service.account.password ?? "-"],
+          ] as [string, string][]).map(([label, value]) => (
+            <button key={label} type="button" onClick={() => copy(value)}
+              className="mb-2 flex w-full items-center justify-between gap-3 rounded-2xl bg-[var(--bg)] p-3 text-start">
+              <span className="text-sm text-[var(--hint)]">{label}</span>
+              <span dir="ltr" className="font-mono text-sm">{value}</span>
+            </button>
+          ))}
+          <p className="text-center text-xs text-[var(--hint)]">{t("tap_to_copy")}</p>
+        </Panel>
+      )}
+
+      {service.delivery === "wireguard" && (
+        <Panel className="mb-4">
+          <p className="mb-2 text-sm font-bold">{t("wireguard_title")}</p>
+          {wgQr && <img src={wgQr} alt={t("qr_alt")} className="mx-auto mb-3 w-56 rounded-2xl bg-white p-2" />}
+          <p className="mb-3 text-sm text-[var(--hint)]">{t("wireguard_hint")}</p>
+          {service.download_url && (
+            <Button tone="quiet" onClick={() => (tg ? tg.openLink(service.download_url ?? "") : window.open(service.download_url ?? "", "_blank", "noopener"))}>
+              {t("wireguard_download")}
+            </Button>
+          )}
+        </Panel>
+      )}
+
+      {links && service.delivery !== "wireguard" && (
         <Panel className="mb-4">
           {links.length === 0 && <p className="text-sm text-[var(--hint)]">{t("no_links")}</p>}
           <ul className="flex flex-col gap-2">
@@ -193,7 +232,9 @@ export function ServiceDetail() {
         {service.extras?.day_price != null && (
           <Button tone="quiet" onClick={() => navigate(`/extra/${service.id}/days`)}>{t("extra_time")}</Button>
         )}
-        {!links && <Button tone="quiet" busy={busy === "links"} onClick={showLinks}>{t("show_configs")}</Button>}
+        {!links && service.delivery !== "wireguard" && service.delivery !== "account" && (
+          <Button tone="quiet" busy={busy === "links"} onClick={showLinks}>{t("show_configs")}</Button>
+        )}
         <Button tone="danger" busy={busy === "revoke"} onClick={revoke}>{t("new_link")}</Button>
       </div>
     </Screen>

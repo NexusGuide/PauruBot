@@ -114,6 +114,31 @@ async def report(session: AsyncSession, shop_id: int, topic: str, text: str) -> 
 # --- handlers -------------------------------------------------------------------------
 
 
+async def _send_wireguard(session: AsyncSession, t: Texts, customer: Customer, service: Service) -> None:
+    """WireGuard services arrive as a .conf file and its QR (PNL-08)."""
+    from paurubot.bot.views import qr_png
+    from paurubot.panels import PanelError
+    from paurubot.provisioning import lifecycle
+
+    try:
+        items = await lifecycle.links(session, service)
+    except PanelError:
+        items = []
+    if not items:
+        await _to_customer(session, customer, t("wireguard_unavailable"))
+        return
+    name = esc(service.label or service.panel_username)
+    try:
+        await telegram.send_document(
+            customer.telegram_id,
+            BufferedInputFile(items[0].encode(), f"{service.panel_username}.conf"),
+            caption=t("wireguard_caption", name=name),
+        )
+        await telegram.send_photo(customer.telegram_id, BufferedInputFile(qr_png(items[0]), "wireguard.png"))
+    except telegram.Undeliverable:
+        customer.blocked_bot_at = utcnow()
+
+
 async def _delivery_photo(
     t: Texts, service: Service, link: str, cfg: dict[str, Any]
 ) -> tuple[BufferedInputFile, str]:
@@ -171,7 +196,15 @@ async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
         session, customer, heading + "\n\n" + service_card(t, service, link), reply_markup=markup
     )
     new_link = order.kind == OrderKind.MOVE and not cfg["branded_sub_links"]
-    if link and (order.kind in {OrderKind.PURCHASE, OrderKind.TRIAL} or new_link):
+    from paurubot.panels.registry import delivery_of
+
+    kind = delivery_of(service.panel.kind if service.panel else None)
+    fresh = order.kind in {OrderKind.PURCHASE, OrderKind.TRIAL} or order.kind == OrderKind.MOVE
+    if kind == "wireguard" and fresh:
+        await _send_wireguard(session, t, customer, service)
+    elif (
+        kind == "subscription" and link and (order.kind in {OrderKind.PURCHASE, OrderKind.TRIAL} or new_link)
+    ):
         photo, caption = await _delivery_photo(t, service, link, cfg)
         try:
             await telegram.send_photo(customer.telegram_id, photo, caption=caption)

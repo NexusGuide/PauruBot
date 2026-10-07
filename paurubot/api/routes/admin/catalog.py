@@ -68,6 +68,8 @@ class PlanPanelOptions(BaseModel):
     inbound_id: int | None = Field(default=None, ge=1)
     flow: str | None = Field(default=None, max_length=40, pattern=r"^[a-z0-9-]*$")
     limit_ip: int | None = Field(default=None, ge=0, le=100)
+    profile: str | None = Field(default=None, max_length=64, pattern=r"^[^\x00-\x1f/?#]*$")  # MikroTik
+    group: str | None = Field(default=None, max_length=64, pattern=r"^[^\x00-\x1f/?#&]*$")  # IBSng
 
 
 class PlanAddons(BaseModel):

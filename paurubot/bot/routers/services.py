@@ -20,6 +20,7 @@ from paurubot.core.orders import MOVABLE, service_extras
 from paurubot.db.models import Customer, Service, ServiceStatus
 from paurubot.i18n import Texts
 from paurubot.panels import PanelError
+from paurubot.panels.registry import delivery_of
 from paurubot.provisioning import lifecycle
 from paurubot.provisioning.subscription import customer_link
 
@@ -124,6 +125,19 @@ async def view(
     await show(call, service_card(t, service, customer_link(service, cfg)), _service_markup(t, service, cfg))
 
 
+async def _send_wireguard(message: Message, t: Texts, service: Service, config: str | None) -> None:
+    """A WireGuard service is a .conf file and its QR, not a link (PNL-08)."""
+    if not config:
+        await message.answer(t("wireguard_unavailable"))
+        return
+    name = esc(service.label or service.panel_username)
+    filename = f"{service.panel_username}.conf"
+    await message.answer_document(
+        BufferedInputFile(config.encode(), filename), caption=t("wireguard_caption", name=name)
+    )
+    await message.answer_photo(BufferedInputFile(qr_png(config), "wireguard.png"))
+
+
 @router.callback_query(Svc.filter(F.action == "links"))
 async def links(
     call: CallbackQuery,
@@ -138,8 +152,15 @@ async def links(
         await call.answer(t("service_not_found"), show_alert=True)
         return
     await call.answer()
-    items = await lifecycle.links(session, service)
     if not isinstance(call.message, Message):
+        return
+    kind = delivery_of(service.panel.kind if service.panel else None)
+    if kind == "account":
+        await show(call, service_card(t, service, None), _service_markup(t, service, cfg))
+        return
+    items = await lifecycle.links(session, service)
+    if kind == "wireguard":
+        await _send_wireguard(call.message, t, service, items[0] if items else None)
         return
     if not items:
         await call.message.answer(
@@ -160,6 +181,16 @@ async def qr(
     cfg: dict[str, Any],
 ) -> None:
     service = await owned(session, customer, callback_data.id)
+    kind = delivery_of(service.panel.kind if service is not None and service.panel else None)
+    if service is not None and kind == "account":
+        await call.answer(t("account_no_qr"), show_alert=True)
+        return
+    if service is not None and kind == "wireguard":
+        await call.answer()
+        if isinstance(call.message, Message):
+            items = await lifecycle.links(session, service)
+            await _send_wireguard(call.message, t, service, items[0] if items else None)
+        return
     link = customer_link(service, cfg) if service is not None else None
     if service is None or not link:
         await call.answer(t("service_not_found"), show_alert=True)
@@ -186,8 +217,15 @@ async def info_card(
     await call.answer()
     if not isinstance(call.message, Message):
         return
+    kind = delivery_of(service.panel.kind if service.panel else None)
+    scan: str | None = customer_link(service, cfg)
+    if kind == "account":
+        scan = None
+    elif kind == "wireguard":
+        items = await lifecycle.links(session, service)
+        scan = items[0] if items else None
     try:
-        image = await infocard.make(t, service, customer_link(service, cfg), cfg, call.bot)
+        image = await infocard.make(t, service, scan, cfg, call.bot)
     except (OSError, ValueError) as exc:
         log.warning("info card for service %s failed: %s", service.id, exc)
         await call.message.answer(t("infocard_failed"))
