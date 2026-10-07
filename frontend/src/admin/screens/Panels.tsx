@@ -107,7 +107,8 @@ export function OptionPicker({
     );
   }
   const numeric = kind === "pasarguard" || kind === "marzneshin";
-  const key = kind === "pasarguard" ? "group_ids" : kind === "marzneshin" ? "service_ids" : "inbounds";
+  const key =
+    kind === "pasarguard" ? "group_ids" : kind === "marzneshin" ? "service_ids" : kind === "remnawave" ? "squad_ids" : "inbounds";
   const selected = new Set((value[key] as (string | number)[] | undefined)?.map(String) ?? []);
   const toggle = (id: string, on: boolean) => {
     const next = new Set(selected);
@@ -119,7 +120,13 @@ export function OptionPicker({
   return (
     <fieldset className="flex flex-col gap-2">
       <legend className="mb-1 text-[0.82rem] font-semibold">
-        {kind === "pasarguard" ? t("panel_groups") : kind === "marzneshin" ? t("panel_services") : t("panel_inbounds")}
+        {kind === "pasarguard"
+          ? t("panel_groups")
+          : kind === "marzneshin"
+            ? t("panel_services")
+            : kind === "remnawave"
+              ? t("panel_squads")
+              : t("panel_inbounds")}
       </legend>
       {options.map((option) => (
         <label key={option.id} className="flex items-center gap-2 text-[0.88rem]">
@@ -228,7 +235,9 @@ function PanelSheet({
   };
 
   const editingSecrets = !form.id || owner;
-  const canSave = form.name.trim() && form.base_url.startsWith("http") && form.username.trim() && (form.id || form.password);
+  const tokenOnly = form.kind === "remnawave" && (form.api_token.trim() || panel?.has_api_token);
+  const canSave =
+    form.name.trim() && form.base_url.startsWith("http") && (tokenOnly || (form.username.trim() && (form.id || form.password)));
 
   return (
     <Sheet
@@ -258,6 +267,7 @@ function PanelSheet({
                 <option value="pasarguard">PasarGuard</option>
                 <option value="marzban">Marzban</option>
                 <option value="marzneshin">Marzneshin</option>
+                <option value="remnawave">Remnawave</option>
                 <option value="xui">3x-ui (Sanaei)</option>
               </Select>
             )}
@@ -287,6 +297,22 @@ function PanelSheet({
             )}
           </Field>
         </div>
+        {form.kind === "remnawave" && (
+          <Field label={t("panel_api_token")} hint={t("panel_api_token_hint_remnawave")}>
+            {(id) => (
+              <Input
+                id={id}
+                type="password"
+                dir="ltr"
+                autoComplete="off"
+                disabled={!editingSecrets}
+                value={form.api_token}
+                placeholder={panel?.has_api_token ? "••••••••" : ""}
+                onChange={(e) => set("api_token", e.target.value)}
+              />
+            )}
+          </Field>
+        )}
         {form.kind === "xui" && (
           <>
             <Field label={t("panel_api_token")} hint={t("panel_api_token_hint")}>
@@ -315,7 +341,7 @@ function PanelSheet({
             </Field>
           </>
         )}
-        {form.kind !== "pasarguard" && (
+        {form.kind !== "pasarguard" && form.kind !== "remnawave" && (
           <Field label={t("panel_flow")} hint={t("panel_flow_hint")}>
             {(id) => (
               <Select id={id} value={String(form.options.flow ?? "")} onChange={(e) => setOption("flow", e.target.value)}>
@@ -450,7 +476,7 @@ function PanelSheet({
           </section>
         )}
 
-        {form.id && owner && form.kind !== "xui" && form.kind !== "marzneshin" && (
+        {form.id && owner && ["pasarguard", "marzban"].includes(form.kind) && (
           <section className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
             <h3 className="font-bold">{t("webhook_title")}</h3>
             <p className="text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("webhook_hint")}</p>
@@ -872,7 +898,7 @@ export function Panels() {
                           {t("import_users")}
                         </Button>
                       )}
-                      {writable && panel.kind !== "xui" && (
+                      {writable && ["pasarguard", "marzban", "marzneshin"].includes(panel.kind) && (
                         <Button small tone="ghost" onClick={() => setTransferring(panel)}>
                           {t("transfer_users")}
                         </Button>

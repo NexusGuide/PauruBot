@@ -18,7 +18,7 @@ A plan is what customers buy in the bot: data, days and a price. In [Plans](/cat
 
 ## More options
 
-- **Start on first connection**: the service's days start when the customer first connects, not at purchase. All four panel types support this.
+- **Start on first connection**: the service's days start when the customer first connects, not at purchase. PasarGuard, Marzban, Marzneshin and 3x-ui support this; on Remnawave the days count from purchase.
 - **Look and naming**: the **Button emoji** and **Badge** (for example "Best seller") appear next to the plan name in the bot. **Prefix** replaces the panel's prefix in usernames of this plan's services.
 - **Extra data and time**: with **Sell extra data and time for this plan's services**, customers can buy more GB or days without renewing. Leave the price per GB or per day empty to use the default price from the **Services** group in [Settings](/settings).
 - **Panel settings for this plan**: an inbound, group or flow just for this plan. Left empty, the panel's own settings apply.

@@ -13,6 +13,7 @@ from paurubot.panels.base import PanelDriver
 from paurubot.panels.drivers.marzban import MarzbanDriver
 from paurubot.panels.drivers.marzneshin import MarzneshinDriver
 from paurubot.panels.drivers.pasarguard import PasarGuardDriver
+from paurubot.panels.drivers.remnawave import RemnawaveDriver
 from paurubot.panels.drivers.xui import XuiDriver
 from paurubot.panels.http import SafeHttpClient
 from paurubot.security.secretbox import decrypt
@@ -22,6 +23,7 @@ DRIVERS: dict[PanelKind, type[PanelDriver]] = {
     PanelKind.MARZBAN: MarzbanDriver,
     PanelKind.XUI: XuiDriver,
     PanelKind.MARZNESHIN: MarzneshinDriver,
+    PanelKind.REMNAWAVE: RemnawaveDriver,
 }
 
 _cache: dict[int, tuple[str, PanelDriver]] = {}
