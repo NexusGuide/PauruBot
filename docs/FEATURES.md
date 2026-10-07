@@ -179,7 +179,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | ADM-02 | Inbox of pending orders/payments with dismissals | MVP | done |
 | ADM-03 | Audit log of admin actions | MVP | done |
 | ADM-04 | Table bulk actions, search, sort, paging | MVP | done |
-| ADM-05 | In-panel help docs with search | v1.1 | todo |
+| ADM-05 | In-panel help docs with search | v1.1 | done |
 | ADM-06 | Sales funnel analytics | v2 | todo |
 | ADM-07 | Panel settings modal (PasarGuard server settings) | v1.1 | done |
 | ADM-08 | Environment analyzer / doctor | v1.1 | done |
@@ -228,7 +228,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 |----|---------|-------|--------|
 | QA-01 | Curated security regression suite in CI | MVP | done |
 | QA-02 | Ruff lint/format + compile in CI, Dependabot | MVP | done |
-| QA-03 | Docs generated from source | v1.1 | todo |
+| QA-03 | Docs generated from source | v1.1 | done |
 
 ## Added during review
 

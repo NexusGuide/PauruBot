@@ -170,16 +170,38 @@ async def reconcile_ledger() -> None:
         log.error("ledger drift detected: %s", [(d.code, d.cached, d.actual) for d in drift][:20])
 
 
+DEFAULT_RETENTION_DAYS = 14
+
+
+def retention_days(cfg: dict[str, object]) -> int:
+    try:
+        days = int(cfg.get("log_retention_days") or DEFAULT_RETENTION_DAYS)  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        days = DEFAULT_RETENTION_DAYS
+    return min(max(days, 1), 365)
+
+
 @every(86400, "jobs.cleanup")
 async def cleanup_jobs() -> None:
-    """Drop finished queue rows after two weeks (JOB-04)."""
+    """Drop finished queue rows after each shop's log retention, two weeks by default (JOB-04)."""
     from datetime import timedelta
 
+    from paurubot.core import settings as shop_settings
+
+    finished = Job.status.in_([JobStatus.DONE, JobStatus.CANCELED])
     async with session_scope() as session:
+        for shop_id in list(await session.scalars(select(Shop.id))):
+            days = retention_days(await shop_settings.load(session, shop_id))
+            await session.execute(
+                delete(Job).where(
+                    finished, Job.shop_id == shop_id, Job.finished_at < utcnow() - timedelta(days=days)
+                )
+            )
         await session.execute(
             delete(Job).where(
-                Job.status.in_([JobStatus.DONE, JobStatus.CANCELED]),
-                Job.finished_at < utcnow() - timedelta(days=14),
+                finished,
+                Job.shop_id.is_(None),
+                Job.finished_at < utcnow() - timedelta(days=DEFAULT_RETENTION_DAYS),
             )
         )
 

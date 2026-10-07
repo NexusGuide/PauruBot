@@ -1155,5 +1155,15 @@
   "err_update_running": "یک به‌روزرسانی در حال اجراست.",
   "err_update_pending": "یک درخواست دیگر منتظر سرور است.",
   "err_nothing_to_roll_back": "نسخهٔ قبلی برای برگشت وجود ندارد.",
-  "err_bad_version": "نسخه را به شکل v1.2.3 بنویسید."
+  "err_bad_version": "نسخه را به شکل v1.2.3 بنویسید.",
+  "nav_help": "راهنما",
+  "help_search": "جست‌وجو در راهنما، مثلاً رسید یا نماینده",
+  "help_no_results": "چیزی پیدا نشد",
+  "help_no_results_hint": "کلمهٔ کوتاه‌تر یا دیگری را امتحان کنید.",
+  "help_missing": "این صفحهٔ راهنما وجود ندارد.",
+  "help_all": "همهٔ راهنماها",
+  "help_next": "بعدی",
+  "help_contents": "در این صفحه",
+  "help_about": "راهنما: {title}",
+  "log_topic_panels": "پنل‌ها"
 }

@@ -108,4 +108,5 @@ def require(permission: str) -> Callable[..., Coroutine[Any, Any, StaffContext]]
             raise HTTPException(status_code=403, detail="forbidden")
         return ctx
 
+    checker.permission = permission  # type: ignore[attr-defined]  # read by the reference docs
     return checker
