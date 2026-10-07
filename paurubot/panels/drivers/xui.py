@@ -20,6 +20,7 @@ from paurubot.panels.base import (
     as_dict,
     number,
     parse_expire,
+    parse_ips,
     whole,
 )
 
@@ -89,6 +90,17 @@ class XuiDriver(PanelDriver):
                 raise PanelError(str(body.get("msg") or f"{method} {path} rejected"), resp.status_code)
             return body.get("obj")
         raise PanelError("session could not be established")
+
+    supports_ips = True
+
+    async def client_ips(self, ref: PanelRef) -> list[str]:
+        try:
+            found = await self.call("POST", f"/panel/api/inbounds/clientIps/{ref.username}")
+        except PanelError as exc:
+            if exc.status != 404:
+                raise
+            found = await self.call("POST", f"/panel/api/clients/ips/{ref.username}")  # newer builds
+        return parse_ips(found)
 
     async def _protocol(self, inbound_id: int) -> str:
         if inbound_id not in self._protocols:

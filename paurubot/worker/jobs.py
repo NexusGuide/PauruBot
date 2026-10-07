@@ -475,6 +475,17 @@ async def refresh_rates() -> None:
         await fx.refresh()
 
 
+@every(180, "services.ip_watch")
+async def ip_watch() -> None:
+    """Tell customers when a new device pushed an older one off their service (JOB-03)."""
+    from paurubot.provisioning import ipwatch
+
+    async with session_scope() as session:
+        noticed = await ipwatch.run(session)
+    if noticed:
+        log.info("address watch sent %s notice(s)", noticed)
+
+
 @every(60, "gateways.poll")
 async def poll_gateways() -> None:
     """BluPal and AtlasPay are settled by asking them; AtlasPay has no callback at all."""

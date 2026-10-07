@@ -1388,5 +1388,7 @@
   "err_tronado_wallet_invalid": "That TRON address is not valid.",
   "err_tronado_wage_percent_invalid": "Enter a number from 0 to 100.",
   "err_cubepay_fee_percent_invalid": "Enter a number from 0 to 100.",
-  "payment_amount_differs": "A different amount arrived at the gateway: {amount} Toman. Approve to credit that amount, or reject."
+  "payment_amount_differs": "A different amount arrived at the gateway: {amount} Toman. Approve to credit that amount, or reject.",
+  "setting_ip_notice_enabled": "Tell customers when a device is cut off",
+  "setting_ip_notice_enabled_hint": "For plans with a device limit on 3x-ui and Rebecca panels: when a new device pushes an older one off, the customer gets a short notice (at most once an hour)."
 }

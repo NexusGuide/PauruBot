@@ -46,6 +46,10 @@ With **Subscription links on your domain** on, customers get a /s/... link on th
 
 With **Service info card** on (the **Services** group of [Settings](/settings)), every service in the bot has a **Card** button that sends one picture with remaining data, days left, end date, location, plan and the QR. Customers can keep it or forward it to whoever uses the service. After a purchase the card is sent in place of the bare QR. **Card colours** picks the colour set, and turning off **QR on the card** leaves the link out when customers post cards publicly.
 
+## Device limit
+
+A plan's device limit is enforced by the panel: when one device too many connects, an older connection is cut off. On 3x-ui and Rebecca panels the bot notices this and, with **Tell customers when a device is cut off** on, sends the customer a short message with the partly hidden addresses, at most once an hour per service. That turns "it suddenly stopped working" into a clear reason, and hints that the config may have been shared.
+
 ## Tickets
 
 Customers' support messages collect in [Tickets](/tickets). Your reply goes to the customer in the bot. Once it's solved, tap **Close ticket**. Resellers can also send you tickets from their own panel with **Message the shop**.

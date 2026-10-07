@@ -199,7 +199,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 |----|---------|-------|--------|
 | JOB-01 | Job registry and scheduler | MVP | done |
 | JOB-02 | Daily status report | MVP | done |
-| JOB-03 | IP block notification | v2 | todo |
+| JOB-03 | IP block notification | v2 | done |
 | JOB-04 | Log cleanup | MVP | done |
 | JOB-05 | Metrics, tracing and dead-letter queues | v1.1 | done |
 

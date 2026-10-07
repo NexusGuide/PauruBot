@@ -52,6 +52,8 @@ class Service(Base, UpdatedMixin):
     sub_token: Mapped[str | None] = mapped_column(String(48), unique=True)
     # Usage already billed to a metered reseller (TEN-05).
     billed_bytes: Mapped[int] = mapped_column(default=0, server_default="0")
+    # addresses last seen on the panel, to tell the customer when a new device pushed one out (JOB-03)
+    client_ips: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
 
     customer: Mapped[Customer] = relationship(lazy="selectin")
     panel: Mapped[Panel] = relationship(lazy="selectin")
