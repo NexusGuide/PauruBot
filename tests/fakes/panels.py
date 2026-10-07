@@ -597,7 +597,10 @@ class FakeHiddifyPanel:
             return httpx.Response(401, json={"msg": "unauthorized"})
         body = json.loads(request.content) if request.content else {}
         if path == "/admin-path/api/v2/admin/server_status/":
-            return httpx.Response(200, json={"stats": {"system": {"cpu_percent": 9, "num_cpus": 2, "ram_used": 1, "ram_total": 4}}})
+            return httpx.Response(
+                200,
+                json={"stats": {"system": {"cpu_percent": 9, "num_cpus": 2, "ram_used": 1, "ram_total": 4}}},
+            )
         if path == "/admin-path/api/v2/admin/user/" and request.method == "GET":
             return httpx.Response(200, json=list(self.users.values()))
         if path == "/admin-path/api/v2/admin/user/" and request.method == "POST":

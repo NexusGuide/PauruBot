@@ -1317,5 +1317,15 @@
   "err_guard_version_invalid": "نسخه‌ی v1 یا v2 گارد را انتخاب کن.",
   "panel_kind_hiddify": "هیدیفای",
   "panel_api_token_hint_hiddify": "UUID ادمین که آخر لینک مدیریت هیدیفای است. آدرس پنل همان لینک بدون این UUID است.",
-  "panel_sub_base_hint_hiddify": "لینک کاربری بدون شناسه‌ی کاربر، مثلاً https://example.com/client-path/"
+  "panel_sub_base_hint_hiddify": "لینک کاربری بدون شناسه‌ی کاربر، مثلاً https://example.com/client-path/",
+  "funnel_title": "قیف فروش",
+  "funnel_hint": "کسانی که در این بازه ربات را استارت کرده‌اند و چند نفرشان به هر مرحله رسیده‌اند.",
+  "funnel_empty": "در این بازه کسی ربات را استارت نکرده.",
+  "funnel_joined": "استارت ربات",
+  "funnel_phone": "ثبت شماره تلفن",
+  "funnel_trial": "گرفتن تست رایگان",
+  "funnel_first_purchase": "اولین خرید",
+  "funnel_repeat": "خرید دوباره",
+  "funnel_from_prev": "{percent}٪ از مرحله‌ی قبل",
+  "funnel_days_to_first": "نیمی از خریدارها تا {days} روز بعد از عضویت اولین خریدشان را انجام داده‌اند."
 }

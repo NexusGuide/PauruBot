@@ -1317,5 +1317,15 @@
   "err_guard_version_invalid": "Choose Guard v1 or v2.",
   "panel_kind_hiddify": "Hiddify",
   "panel_api_token_hint_hiddify": "The admin UUID from the end of your Hiddify admin link. The panel address is that link without the UUID.",
-  "panel_sub_base_hint_hiddify": "Your client link without a user, for example https://example.com/client-path/"
+  "panel_sub_base_hint_hiddify": "Your client link without a user, for example https://example.com/client-path/",
+  "funnel_title": "Sales funnel",
+  "funnel_hint": "People who started the bot in this period, and how many of them went on to each step.",
+  "funnel_empty": "Nobody started the bot in this period.",
+  "funnel_joined": "Started the bot",
+  "funnel_phone": "Shared a phone number",
+  "funnel_trial": "Took a free trial",
+  "funnel_first_purchase": "Made a first purchase",
+  "funnel_repeat": "Bought again",
+  "funnel_from_prev": "{percent}% of the step before",
+  "funnel_days_to_first": "Half of the buyers made their first purchase within {days} days of joining."
 }
