@@ -1212,5 +1212,17 @@
   "err_stock_too_many": "Add at most 2000 configs at a time.",
   "err_not_a_stock_plan": "This plan doesn't sell from stock.",
   "err_out_of_stock": "Out of stock.",
-  "order_kind_stock": "Ready config"
+  "order_kind_stock": "Ready config",
+  "transfer_users": "Move between admins",
+  "transfer_title": "Move users between admins on {panel}",
+  "transfer_intro": "Users of the first panel admin are given to the second. Nothing else about them changes and customers stay connected.",
+  "transfer_from": "From admin",
+  "transfer_to": "To admin",
+  "transfer_start": "Move users",
+  "transfer_confirm_title": "Move users?",
+  "transfer_confirm_body": "{n} users of {from} will belong to {to}.",
+  "transfer_queued": "Moving {n} users in the background.",
+  "err_admins_unsupported": "This panel didn't return its admins.",
+  "err_unknown_admin": "That admin doesn't exist on the panel.",
+  "err_same_admin": "Choose two different admins."
 }

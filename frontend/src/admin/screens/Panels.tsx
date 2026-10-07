@@ -550,6 +550,92 @@ interface ImportRow {
   known_customer: boolean;
 }
 
+function TransferSheet({ panel, onClose }: { panel: PanelRow; onClose: () => void }) {
+  const { t, locale, toast, errorText } = useSession();
+  const confirm = useConfirm();
+  const admins = useLoad<{ admins: { username: string; users: number }[]; total: number }>(
+    `/api/admin/panels/${panel.id}/admins`,
+  );
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [busy, run] = useAction();
+  const count = admins.data?.admins.find((a) => a.username === from)?.users ?? 0;
+  const submit = async () => {
+    const ok = await confirm({
+      title: t("transfer_confirm_title"),
+      body: t("transfer_confirm_body", { n: money(count, locale), from, to }),
+      confirm: t("transfer_start"),
+    });
+    if (!ok) return;
+    try {
+      const result = await run(() =>
+        call<{ queued: number }>(`/api/admin/panels/${panel.id}/transfer`, {
+          method: "POST",
+          body: { from_admin: from, to_admin: to },
+        }),
+      );
+      toast(t("transfer_queued", { n: money(result?.queued ?? 0, locale) }));
+      onClose();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title={t("transfer_title", { panel: panel.name })}
+      footer={
+        <Button tone="primary" busy={busy} disabled={!from || !to || from === to || !count} onClick={() => void submit()}>
+          {t("transfer_start")}
+        </Button>
+      }
+    >
+      <Async {...admins}>
+        {(data) => (
+          <div className="flex flex-col gap-4">
+            <p className="text-[0.85rem] leading-relaxed text-[var(--hint)]">{t("transfer_intro")}</p>
+            <ul className="divide-y divide-[var(--line)] rounded-xl ring-1 ring-[var(--line)]">
+              {data.admins.map((admin) => (
+                <li key={admin.username} className="flex items-center justify-between px-3 py-2 text-[0.85rem]">
+                  <span dir="ltr">{admin.username}</span>
+                  <span className="text-[var(--hint)]">{t("gauge_users", { n: money(admin.users, locale) })}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={t("transfer_from")}>
+                {(id) => (
+                  <Select id={id} value={from} onChange={(e) => setFrom(e.target.value)}>
+                    <option value="">—</option>
+                    {data.admins.filter((a) => a.users > 0).map((a) => (
+                      <option key={a.username} value={a.username}>
+                        {a.username}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+              <Field label={t("transfer_to")}>
+                {(id) => (
+                  <Select id={id} value={to} onChange={(e) => setTo(e.target.value)}>
+                    <option value="">—</option>
+                    {data.admins.filter((a) => a.username !== from).map((a) => (
+                      <option key={a.username} value={a.username}>
+                        {a.username}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            </div>
+          </div>
+        )}
+      </Async>
+    </Sheet>
+  );
+}
+
 function ImportSheet({ panel, onClose }: { panel: PanelRow; onClose: () => void }) {
   const { t, can, toast, errorText } = useSession();
   const preview = useLoad<{ total: number; items: Omit<ImportRow, "id">[] }>(`/api/admin/panels/${panel.id}/import`);
@@ -707,6 +793,7 @@ export function Panels() {
   const [editing, setEditing] = useState<PanelRow | "new" | null>(null);
   const [nodes, setNodes] = useState<PanelRow | null>(null);
   const [importing, setImporting] = useState<PanelRow | null>(null);
+  const [transferring, setTransferring] = useState<PanelRow | null>(null);
   const [checking, setChecking] = useState<number | null>(null);
   const confirm = useConfirm();
   const checkNow = async (panel: PanelRow) => {
@@ -785,6 +872,11 @@ export function Panels() {
                           {t("import_users")}
                         </Button>
                       )}
+                      {writable && panel.kind !== "xui" && (
+                        <Button small tone="ghost" onClick={() => setTransferring(panel)}>
+                          {t("transfer_users")}
+                        </Button>
+                      )}
                       {writable && (
                         <Button small onClick={() => setEditing(panel)}>
                           {t("edit")}
@@ -854,6 +946,7 @@ export function Panels() {
       )}
       {nodes && <NodesSheet panel={nodes} onClose={() => setNodes(null)} />}
       {importing && <ImportSheet panel={importing} onClose={() => setImporting(null)} />}
+      {transferring && <TransferSheet panel={transferring} onClose={() => setTransferring(null)} />}
     </Page>
   );
 }

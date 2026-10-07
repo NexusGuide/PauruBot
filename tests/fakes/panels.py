@@ -26,10 +26,13 @@ class FakeTokenPanel:
         self.sub_agents: list[str] = []
         self.nodes: list[dict[str, Any]] | None = None
         self.admin: dict[str, Any] | None = None
+        self.admins: set[str] = set()
 
     def _user_out(self, user: dict[str, Any]) -> dict[str, Any]:
         out = dict(user)
         out["subscription_url"] = f"/sub/{user['sub']}"
+        owner = user.get("admin") or "admin"
+        out["admin"] = {"username": owner} if self.kind == "pasarguard" else owner
         return out
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -79,6 +82,9 @@ class FakeTokenPanel:
             return httpx.Response(200, json=self.nodes)
         if path == "/api/admin" and self.admin is not None:
             return httpx.Response(200, json=self.admin)
+        if path == "/api/admins" and request.method == "GET":
+            names = sorted({"admin", *self.admins, *(u.get("admin") or "admin" for u in self.users.values())})
+            return httpx.Response(200, json=[{"username": n, "is_sudo": n == "admin"} for n in names])
         if path == "/api/users" and request.method == "GET":
             offset = int(request.url.params.get("offset", 0))
             limit = int(request.url.params.get("limit", 100))
@@ -126,6 +132,15 @@ class FakeTokenPanel:
                 return httpx.Response(200, json=self._user_out(user))
             if action == "revoke_sub":
                 user["sub"] = secrets.token_hex(6)
+                return httpx.Response(200, json=self._user_out(user))
+            if request.method == "PUT" and action in {"set-owner", "set_owner"}:
+                expected = "set_owner" if self.kind == "pasarguard" else "set-owner"
+                target = request.url.params.get("admin_username")
+                if action != expected or not target:
+                    return httpx.Response(404, json={"detail": "Not Found"})
+                if target not in self.admins and target != "admin":
+                    return httpx.Response(404, json={"detail": "Admin not found"})
+                user["admin"] = target
                 return httpx.Response(200, json=self._user_out(user))
         return httpx.Response(404, json={"detail": "Not Found"})
 

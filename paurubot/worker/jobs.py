@@ -120,7 +120,25 @@ async def bulk_service(session: AsyncSession, job: queue.Claimed) -> None:
         )
 
 
-register_queue("bulk", QueueSpec({"service": bulk_service}, batch=10, lease_seconds=120))
+async def set_panel_owner(session: AsyncSession, job: queue.Claimed) -> None:
+    """Give one panel user to another panel admin (TEN-11)."""
+    from paurubot.panels import PanelRef, driver_for
+
+    data = job.payload
+    panel = await session.get(Panel, int(data["panel_id"]))
+    if panel is None:
+        return
+    try:
+        await (await driver_for(panel)).set_owner(
+            PanelRef(str(data["username"]), dict(data.get("data") or {})), str(data["admin"])
+        )
+    except PanelUnavailable as exc:
+        raise Retry(str(exc)) from exc
+
+
+register_queue(
+    "bulk", QueueSpec({"service": bulk_service, "set_owner": set_panel_owner}, batch=10, lease_seconds=120)
+)
 
 
 # --- payments ---------------------------------------------------------------

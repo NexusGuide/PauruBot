@@ -57,6 +57,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/orders/{order_id}/refund` | `payments.refund` | Return a completed or failed order's money to the wallet (NEW-04). The service is not touched. |
 | GET | `/api/admin/orders` | `orders.read` | List orders |
 | POST | `/api/admin/panels/certificate` | `panels.secrets` | Inspect certificate |
+| GET | `/api/admin/panels/{panel_id}/admins` | `panels.write` | The panel's admins and how many users each one owns. |
 | POST | `/api/admin/panels/{panel_id}/check` | `panels.read` | Run one monitoring probe right away and return the fresh figures (PNL-12, PNL-13). |
 | GET | `/api/admin/panels/{panel_id}/import` | `panels.write` | Import preview |
 | POST | `/api/admin/panels/{panel_id}/import` | `panels.write` | Import users |
@@ -65,6 +66,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/panels/{panel_id}/pin` | `panels.secrets` | Pin certificate |
 | POST | `/api/admin/panels/{panel_id}/restart` | `panels.write` | Restart the panel's Xray core (Marzban) or reconnect all nodes (PasarGuard) (ADM-07). |
 | POST | `/api/admin/panels/{panel_id}/test` | `panels.write` | Test panel |
+| POST | `/api/admin/panels/{panel_id}/transfer` | `panels.write` | Give every user of one panel admin to another; one retrying job per user. |
 | POST | `/api/admin/panels/{panel_id}/webhook` | `panels.secrets` | Create a new webhook secret; it is shown once and stored encrypted. |
 | PUT | `/api/admin/panels/{panel_id}` | `panels.write` | Update panel |
 | GET | `/api/admin/panels` | `panels.read` | List panels |

@@ -172,6 +172,9 @@ class PasarGuardDriver(TokenApiDriver):
         except PanelNotFound:
             return
 
+    async def set_owner(self, ref: PanelRef, admin: str) -> None:
+        await self._user_call("PUT", ref, "/set_owner", params={"admin_username": admin})
+
     async def revoke_subscription(self, ref: PanelRef) -> PanelUser:
         return self.parse_user(await self._user_call("POST", ref, "/revoke_sub"))
 

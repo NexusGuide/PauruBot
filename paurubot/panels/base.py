@@ -62,6 +62,7 @@ class PanelUser:
     data: dict[str, Any] = field(default_factory=dict)
     online_at: datetime | None = None
     note: str = ""
+    owner: str | None = None  # the panel admin the user belongs to, when the panel has admins
 
 
 SUBSCRIPTION_MAX_BYTES = 2 * 1024 * 1024
@@ -281,3 +282,11 @@ class PanelDriver(ABC):
     async def list_users(self, offset: int = 0, limit: int = 100) -> tuple[list[PanelUser], int | None]:
         """A page of every user on the panel and the total when known (TEN-10)."""
         raise PanelError("listing users is not supported by this panel")
+
+    async def list_admins(self) -> list[str]:
+        """Usernames of the panel's admins, for moving users between them (TEN-11)."""
+        raise PanelError("this panel has no admins to move users between")
+
+    async def set_owner(self, ref: PanelRef, admin: str) -> None:
+        """Give a user to another panel admin (TEN-11)."""
+        raise PanelError("this panel has no admins to move users between")

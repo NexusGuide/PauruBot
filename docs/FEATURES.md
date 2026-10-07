@@ -51,7 +51,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | TEN-08 | Agent expiry and max-buy limits | v1.1 | done |
 | TEN-09 | Reseller application / approval workflow | v1.1 | done |
 | TEN-10 | Import existing panel users into a reseller | v1.1 | done |
-| TEN-11 | Move users between panel admins | v2 | todo |
+| TEN-11 | Move users between panel admins | v2 | done |
 
 ## VPN Panel Integrations
 

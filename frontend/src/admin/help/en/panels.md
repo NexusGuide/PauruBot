@@ -40,4 +40,8 @@ If the panel has users the bot doesn't know, tap **Import users**. Nothing chang
 - The rest go to the customer or reseller you pick as **Owner**, or are left out with **Skip users without an ID**.
 - The result is recorded in the [Audit log](/audit).
 
+## Moving users between panel admins
+
+On PasarGuard, Marzban and Marzneshin every user belongs to a panel admin. **Move between admins** on the panel card lists the admins with how many users each owns, and gives all users of one admin to another; for example when a reseller gets their own panel admin, or when you retire an admin. Nothing else about the users changes and customers stay connected. The bot's admin on the panel must be allowed to do this.
+
 > To bring customers and balances over from your previous bot, see [the migration guide](help:migration).
