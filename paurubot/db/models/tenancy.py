@@ -61,6 +61,8 @@ class Customer(Base, TimestampMixin):
     # Loyalty (GRW-02): lifetime spend on completed orders and the tier discount it earns.
     total_spent: Mapped[int] = mapped_column(default=0, server_default="0")
     tier_percent: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # set while a customer exists only as a web guest (CAT-08); the key to their purchase page
+    guest_token: Mapped[str | None] = mapped_column(String(48), unique=True)
 
     reseller_profile: Mapped[ResellerProfile | None] = relationship(
         back_populates="customer", foreign_keys="ResellerProfile.customer_id", uselist=False, lazy="selectin"
@@ -71,6 +73,11 @@ class Customer(Base, TimestampMixin):
         if self.username:
             return f"@{self.username}"
         return self.first_name or str(self.telegram_id)
+
+    @property
+    def is_guest(self) -> bool:
+        """Web guests have no Telegram account; their placeholder id is negative (CAT-08)."""
+        return self.telegram_id < 0
 
     @property
     def is_reseller(self) -> bool:

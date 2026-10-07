@@ -193,6 +193,15 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 |---|---|---|---|
 | POST | `/api/webhooks/panel/{panel_id}` | panel webhook secret | Panel webhook |
 
+## `/buy`
+
+| Method | Path | Access | What it does |
+|---|---|---|---|
+| GET | `/buy/t/{token}` | public | Purchase |
+| GET | `/buy/{shop_id}` | public | Store |
+| POST | `/buy/{shop_id}` | public | Buy |
+| GET | `/buy` | public | Store |
+
 ## `/healthz`
 
 | Method | Path | Access | What it does |

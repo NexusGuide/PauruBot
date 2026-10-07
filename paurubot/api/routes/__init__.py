@@ -11,6 +11,7 @@ OPTIONAL_ROUTERS: list[str] = [
     "telegram",
     "webapp",
     "sub",
+    "guest",
     "admin.dashboard",
     "admin.customers",
     "admin.commerce",

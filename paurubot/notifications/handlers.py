@@ -829,6 +829,7 @@ def _audience(row: Broadcast) -> list[Any]:
         Customer.shop_id == row.shop_id,
         Customer.is_banned.is_(False),
         Customer.blocked_bot_at.is_(None),
+        Customer.telegram_id > telegram.GUEST_CHAT_LIMIT,  # web guests have no chat
     ]
     audience = row.audience or {}
     if audience.get("resellers_only"):

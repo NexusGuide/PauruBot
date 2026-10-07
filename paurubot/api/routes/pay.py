@@ -37,13 +37,7 @@ async def zarinpal_callback(
     await db.commit()
     if ok:
         await engine.fulfill_one(db, pid)
-    shop = await db.get(Shop, payment.shop_id)
-    outcome = "paid" if ok else "failed"
-    if shop is not None and shop.bot_username:
-        return RedirectResponse(
-            f"https://t.me/{shop.bot_username}?start=pay_{outcome}_{pid}", status_code=303
-        )
-    return Response(f"payment {outcome}", media_type="text/plain")
+    return await _return_page(db, payment, "paid" if ok else "failed")
 
 
 async def _invoice_callback(
@@ -92,6 +86,16 @@ async def plisio_callback(request: Request, db: DB) -> Response:
 
 
 GATEWAY_CHECKS_PER_MINUTE = 6
+
+
+async def _return_page(db: DB, payment: Payment, outcome: str) -> Response:
+    """Where the payer's browser lands: a guest's purchase page (CAT-08), else back in the bot."""
+    from paurubot.db.models import Customer
+
+    customer = await db.get(Customer, payment.customer_id)
+    if customer is not None and customer.guest_token:
+        return RedirectResponse(f"/buy/t/{customer.guest_token}", status_code=303)
+    return _back_to_bot(await db.get(Shop, payment.shop_id), outcome, payment.id)
 
 
 def _back_to_bot(shop: Shop | None, outcome: str, pid: int) -> Response:
@@ -155,5 +159,5 @@ async def gateway_callback(name: str, request: Request, db: DB) -> Response:
     if payment.status == PaymentStatus.DISPUTED:
         outcome = "wait"
     if request.method == "GET" and "text/html" in request.headers.get("accept", ""):
-        return _back_to_bot(await db.get(Shop, payment.shop_id), outcome, payment_id)
+        return await _return_page(db, payment, outcome)
     return JSONResponse({"status": {"paid": "paid", "wait": "waiting"}.get(outcome, "failed")})

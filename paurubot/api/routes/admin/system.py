@@ -198,6 +198,11 @@ def _check_services(values: dict[str, Any]) -> None:
 
     if values.get("info_card_theme") not in (None, *THEMES):
         raise HTTPException(status_code=422, detail="info_card_theme_invalid")
+    plans = values.get("guest_plan_ids")
+    if plans is not None:
+        if not isinstance(plans, list) or len(plans) > 200 or not all(str(p).isdigit() for p in plans):
+            raise HTTPException(status_code=422, detail="guest_plan_ids_invalid")
+        values["guest_plan_ids"] = sorted({int(p) for p in plans})
 
 
 @router.put("/settings")

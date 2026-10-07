@@ -69,6 +69,13 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `plisio_enabled` | bool | false | Plisio |
 | `plisio_api_key` | str (secret) | — | Plisio API key |
 
+## Buying on the web
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `guest_buy_enabled` | bool | false | Guests can buy on the web. A public page at /buy on your server address sells plans without Telegram, paid through an online gateway. The buyer gets the link on a private page and can move it into the bot later |
+| `guest_plan_ids` | list | [] | Plans on the web page. Leave empty to offer every ordinary plan |
+
 ## More gateways
 
 | Key | Type | Default | Meaning |

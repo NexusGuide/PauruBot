@@ -76,6 +76,17 @@ async def start(
             },
             shop_id=shop.id,
         )
+    if arg.startswith("claim_"):
+        from paurubot.core import guest
+
+        try:
+            moved = await guest.claim(session, arg[6:], customer)
+        except guest.GuestError:
+            await home(message, t, cfg, staff, "guest_claim_invalid")
+            return
+        await session.commit()
+        await message.answer(t("guest_claimed", count=moved), reply_markup=menu(t, cfg, staff))
+        return
     if arg.startswith("pay_paid_"):
         await home(message, t, cfg, staff, "payment_return_paid")
         return

@@ -43,7 +43,9 @@ async def generate(
     method = UsernameMethod(panel.username_method)
     prefix = slug(prefix if prefix else panel.username_prefix, 8)
     tail = secrets.token_hex(2)
-    if method == UsernameMethod.TELEGRAM_USERNAME:
+    if customer.telegram_id < 0:  # a web guest has no id worth showing (CAT-08)
+        body = "g" + secrets.token_hex(4)
+    elif method == UsernameMethod.TELEGRAM_USERNAME:
         body = slug(customer.username) or str(customer.telegram_id)
     elif method == UsernameMethod.RANDOM:
         body = secrets.token_hex(4)
