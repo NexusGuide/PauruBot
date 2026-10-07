@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import secrets
 from datetime import UTC, datetime
 from typing import Any
@@ -27,6 +28,7 @@ class FakeTokenPanel:
         self.nodes: list[dict[str, Any]] | None = None
         self.admin: dict[str, Any] | None = None
         self.admins: set[str] = set()
+        self.groups: list[dict[str, Any]] = [{"id": 1, "name": "default"}]
 
     def _user_out(self, user: dict[str, Any]) -> dict[str, Any]:
         out = dict(user)
@@ -91,12 +93,22 @@ class FakeTokenPanel:
             rows = [self._user_out(u) for u in self.users.values()]
             return httpx.Response(200, json={"users": rows[offset : offset + limit], "total": len(rows)})
         if path == "/api/groups":
-            return httpx.Response(200, json={"groups": [{"id": 1, "name": "default"}]})
+            return httpx.Response(200, json={"groups": self.groups, "total": len(self.groups)})
         if path == "/api/inbounds":
             return httpx.Response(200, json={"vless": [{"tag": "VLESS TCP"}]})
         if path == "/api/user" and request.method == "POST":
             body = json.loads(request.content)
             name = body["username"]
+            if self.kind == "pasarguard":  # PasarGuard's own UserCreate validation
+                problems = []
+                if not body.get("group_ids"):
+                    problems.append("Value error, you must select at least one group")
+                if re.search(r"[-_@.]{2,}", name):
+                    problems.append("Value error, Username cannot have consecutive special characters")
+                if problems:
+                    return httpx.Response(
+                        422, json={"detail": [{"loc": ["body"], "msg": m} for m in problems]}
+                    )
             if name in self.users:
                 return httpx.Response(409, json={"detail": "exists"})
             user = {

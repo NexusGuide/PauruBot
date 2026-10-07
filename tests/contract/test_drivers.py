@@ -155,6 +155,32 @@ async def test_pasarguard_sends_groups_and_iso_expiry() -> None:
     assert sent["group_ids"] == [1, 2] and sent["expire"] == "2031-01-01T00:00:00Z"
 
 
+async def test_pasarguard_without_chosen_groups_uses_every_enabled_group() -> None:
+    """PasarGuard refuses a user with no group; a panel set up without groups must still sell."""
+    driver, fake = make("pasarguard")
+    fake.groups = [
+        {"id": 1, "name": "main"},
+        {"id": 2, "name": "old", "is_disabled": True},
+        {"id": 5, "name": "eu"},
+    ]
+    await driver.create_user(UserSpec(username="pg_default", data_limit=GB))
+    assert fake.users["pg_default"]["request"]["group_ids"] == [1, 5]
+
+
+async def test_pasarguard_with_no_enabled_group_says_so() -> None:
+    driver, fake = make("pasarguard")
+    fake.groups = [{"id": 2, "name": "old", "is_disabled": True}]
+    with pytest.raises(PanelError, match="no enabled group"):
+        await driver.create_user(UserSpec(username="pg_none"))
+    assert "pg_none" not in fake.users
+
+
+async def test_panel_refusals_carry_the_panels_reason() -> None:
+    driver, _fake = make("pasarguard", group_ids=[1])
+    with pytest.raises(PanelError, match=r"\(422\): Value error, Username cannot have consecutive"):
+        await driver.create_user(UserSpec(username="bad__name"))
+
+
 async def test_pasarguard_falls_back_to_legacy_paths() -> None:
     driver, fake = make("pasarguard")
     fake.kind = "marzban"  # fake now only answers legacy /api/user/{name}

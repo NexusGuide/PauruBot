@@ -186,6 +186,16 @@ async def test_names_with_html_do_not_break_messages(session, env) -> None:  # t
     assert "&lt;b&gt;Tom &amp; Jerry" in fake.last(SendMessage).text
 
 
+async def test_miniapp_button_answers_with_an_inline_web_app_button(session, env, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    send, fake = env["send"], env["fake"]
+    monkeypatch.setattr(get_settings(), "public_url", "https://bot.example.com")
+    await send(message_update(UID, "/start"))
+    await send(message_update(UID, FA("btn_miniapp")))
+    markup = fake.last(SendMessage).reply_markup
+    button = markup.inline_keyboard[0][0]
+    assert button.web_app is not None and button.web_app.url == "https://bot.example.com/app/"
+
+
 async def test_banned_and_forced_join(session, env) -> None:  # type: ignore[no-untyped-def]
     send, fake = env["send"], env["fake"]
     await send(message_update(UID, "/start"))

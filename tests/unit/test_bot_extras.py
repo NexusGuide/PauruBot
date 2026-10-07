@@ -55,7 +55,11 @@ def test_menu_layout_and_styles(monkeypatch) -> None:  # type: ignore[no-untyped
     ]
     buy = kb.keyboard[0][1]
     assert buy.style == "success" and buy.icon_custom_emoji_id == "5368324170671202286"
-    assert kb.keyboard[2][0].web_app is not None
+    # A reply-keyboard Mini App gets no signed user data from Telegram: the button is plain and its
+    # answer carries an inline web-app button instead.
+    assert kb.keyboard[2][0].web_app is None
+    inline = menu.miniapp_button(t).inline_keyboard[0][0]
+    assert inline.web_app is not None and inline.web_app.url == "https://bot.example.com/app/"
     default = menu.main_menu(t, {**cfg, "menu_layout": []}, is_staff=False)
     assert [b.text for b in default.keyboard[1]] == [t("btn_buy"), t("btn_services")]
 
