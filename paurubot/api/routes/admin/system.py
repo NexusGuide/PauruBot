@@ -844,6 +844,67 @@ async def cancel_update(ctx: Backups, db: DB) -> dict[str, bool]:
     return {"canceled": canceled}
 
 
+# ---------------------------------------------------------------- shop bundle (FIN-07)
+
+MAX_BUNDLE_BYTES = 5 * 1024 * 1024
+
+
+@router.get("/bundle")
+async def export_bundle(ctx: Backups, db: DB) -> Response:
+    """The shop's setup (no secrets, no customers) as a JSON file."""
+    import json
+
+    from paurubot.core import bundle
+
+    data = await bundle.export(db, ctx.shop_id)
+    await record(db, shop_id=ctx.shop_id, actor=ctx.actor, action="bundle.export", entity="shop")
+    await db.commit()
+    stamp = utcnow().strftime("%Y%m%d-%H%M")
+    return Response(
+        json.dumps(data, ensure_ascii=False, indent=1, default=str),
+        media_type="application/json",
+        headers={"content-disposition": f'attachment; filename="paurubot-bundle-{stamp}.json"'},
+    )
+
+
+@router.post("/bundle")
+async def import_bundle(
+    ctx: Backups, db: DB, dry_run: bool = True, file: UploadFile = File(...)
+) -> dict[str, Any]:
+    import json
+
+    from paurubot.core import bundle
+
+    raw = await file.read(MAX_BUNDLE_BYTES + 1)
+    if len(raw) > MAX_BUNDLE_BYTES:
+        raise HTTPException(status_code=413, detail="bundle_too_large")
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="bundle_invalid") from exc
+    nested = await db.begin_nested()
+    try:
+        report = await bundle.apply(db, ctx.shop_id, data, dry_run=dry_run)
+    except (bundle.BundleError, KeyError, TypeError, ValueError) as exc:
+        await nested.rollback()
+        detail = str(exc) if isinstance(exc, bundle.BundleError) else "bundle_invalid"
+        raise HTTPException(status_code=422, detail=detail) from exc
+    if dry_run:
+        await nested.rollback()
+        shop_settings.invalidate(ctx.shop_id)
+    else:
+        await nested.commit()
+        await record(
+            db,
+            shop_id=ctx.shop_id,
+            actor=ctx.actor,
+            action="bundle.import",
+            entity="shop",
+            after={"created": report.created, "updated": report.updated},
+        )
+    return report.as_dict()
+
+
 # ---------------------------------------------------------------- moving from another bot (MIG-01)
 
 MAX_IMPORT_BYTES = 300 * 1024 * 1024
