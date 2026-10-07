@@ -66,7 +66,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | PNL-07 | Hiddify driver | v2 | todo |
 | PNL-08 | WireGuard: WGDashboard and WGMate | v2 | todo |
 | PNL-09 | Remnawave driver + usage sync | v2 | done |
-| PNL-10 | Guard and Rebecca drivers | v2 | todo |
+| PNL-10 | Guard and Rebecca drivers | v2 | done |
 | PNL-11 | MikroTik and IBSng drivers | v2 | todo |
 | PNL-12 | Panel and node uptime monitoring with alerts | v1.1 | done |
 | PNL-13 | Node traffic and host resource gauges | v1.1 | done |

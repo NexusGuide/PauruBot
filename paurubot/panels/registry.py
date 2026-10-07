@@ -10,9 +10,11 @@ import httpx
 
 from paurubot.db.models import Panel, PanelKind
 from paurubot.panels.base import PanelDriver
+from paurubot.panels.drivers.guard import GuardDriver
 from paurubot.panels.drivers.marzban import MarzbanDriver
 from paurubot.panels.drivers.marzneshin import MarzneshinDriver
 from paurubot.panels.drivers.pasarguard import PasarGuardDriver
+from paurubot.panels.drivers.rebecca import RebeccaDriver
 from paurubot.panels.drivers.remnawave import RemnawaveDriver
 from paurubot.panels.drivers.xui import XuiDriver
 from paurubot.panels.http import SafeHttpClient
@@ -24,6 +26,8 @@ DRIVERS: dict[PanelKind, type[PanelDriver]] = {
     PanelKind.XUI: XuiDriver,
     PanelKind.MARZNESHIN: MarzneshinDriver,
     PanelKind.REMNAWAVE: RemnawaveDriver,
+    PanelKind.REBECCA: RebeccaDriver,
+    PanelKind.GUARD: GuardDriver,
 }
 
 _cache: dict[int, tuple[str, PanelDriver]] = {}

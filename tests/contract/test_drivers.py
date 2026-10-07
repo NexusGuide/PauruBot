@@ -8,17 +8,35 @@ import pytest
 
 from paurubot.panels import GB, PanelError, PanelRef, PanelUnavailable, UserSpec
 from paurubot.panels.base import PanelDriver, decode_subscription, parse_expire
+from paurubot.panels.drivers.guard import GuardDriver
 from paurubot.panels.drivers.marzban import MarzbanDriver
 from paurubot.panels.drivers.pasarguard import PasarGuardDriver
+from paurubot.panels.drivers.rebecca import RebeccaDriver
 from paurubot.panels.drivers.remnawave import RemnawaveDriver
 from paurubot.panels.drivers.xui import XuiDriver
 from paurubot.panels.http import SafeHttpClient
-from tests.fakes.panels import FakeRemnawavePanel, FakeTokenPanel, FakeXuiPanel, transport
+from tests.fakes.panels import (
+    FakeGuardPanel,
+    FakeRebeccaPanel,
+    FakeRemnawavePanel,
+    FakeTokenPanel,
+    FakeXuiPanel,
+    transport,
+)
 
 BASE = "https://panel.example.com"
 
 
 def make(kind: str, **options):  # type: ignore[no-untyped-def]
+    if kind in {"guard", "guard_v2"}:
+        fake = FakeGuardPanel(version="v2" if kind == "guard_v2" else "v1")  # type: ignore[assignment]
+        options.setdefault("guard_version", "v2" if kind == "guard_v2" else "v1")
+        http = SafeHttpClient(BASE, transport=transport(fake))
+        return GuardDriver(http, "", "guard-key", options), fake
+    if kind == "rebecca":
+        fake = FakeRebeccaPanel()  # type: ignore[assignment]
+        http = SafeHttpClient(BASE, transport=transport(fake))
+        return RebeccaDriver(http, "admin", "panel-password", options), fake
     if kind == "remnawave":
         fake = FakeRemnawavePanel()  # type: ignore[assignment]
         http = SafeHttpClient(BASE, transport=transport(fake))
@@ -35,7 +53,7 @@ def make(kind: str, **options):  # type: ignore[no-untyped-def]
     return cls(http, "admin", "panel-password", options), fake
 
 
-KINDS = ["marzban", "pasarguard", "xui", "remnawave"]
+KINDS = ["marzban", "pasarguard", "xui", "remnawave", "rebecca", "guard", "guard_v2"]
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -82,7 +100,7 @@ async def test_unlimited_and_on_hold(kind: str) -> None:
         assert held.status == "on_hold"
 
 
-@pytest.mark.parametrize("kind", ["marzban", "pasarguard", "remnawave"])
+@pytest.mark.parametrize("kind", ["marzban", "pasarguard", "remnawave", "rebecca"])
 async def test_token_refresh_after_expiry(kind: str) -> None:
     driver, fake = make(kind)
     await driver.health_check()
@@ -99,8 +117,8 @@ async def test_server_errors_raise_and_bad_credentials(kind: str) -> None:
     with pytest.raises(PanelError):
         await driver.create_user(UserSpec(username="x_1"))
     bad, _ = make(kind)
-    bad.password = "wrong"
-    with pytest.raises(PanelError, match="login failed"):
+    bad.password = "wrong"  # Guard sends the password field as its API key
+    with pytest.raises(PanelError, match="login failed|API key rejected"):
         await bad.health_check()
 
 
@@ -176,3 +194,24 @@ async def test_remnawave_api_token_squads_and_plain_http() -> None:
     fake.api_token = "rotated"
     with pytest.raises(PanelError):
         await driver.health_check()  # a fixed token is never swapped for a login
+
+
+async def test_rebecca_uses_services_and_an_api_key() -> None:
+    fake = FakeRebeccaPanel()
+    driver = RebeccaDriver(
+        SafeHttpClient(BASE, transport=transport(fake)), "", "", {"api_token": fake.token, "service_ids": [7]}
+    )
+    assert [o.id for o in await driver.list_options()] == ["7"]
+    await driver.create_user(UserSpec(username="rb_1", data_limit=GB, ip_limit=3))
+    assert fake.v2_bodies[0]["service_id"] == 7 and fake.v2_bodies[0]["ip_limit"] == 3
+    assert fake.logins == 0
+
+
+async def test_guard_on_hold_and_telegram_id() -> None:
+    driver, fake = make("guard", service_ids=[2])
+    held = await driver.create_user(UserSpec(username="g_hold", data_limit=GB, on_hold_days=10, note="tg:77"))
+    sub = fake.subs["g_hold"]
+    assert held.status == "on_hold" and sub["limit_expire"] == -10 * 86400
+    assert sub["services"] == [2] and sub["telegram_id"] == "77"
+    users, total = await driver.list_users()
+    assert total == 1 and users[0].username == "g_hold"
