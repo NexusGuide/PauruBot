@@ -173,3 +173,56 @@ async def test_updates_to_the_reseller_bot_land_in_its_shop(session, env) -> Non
     menu = fake.last(SendMessage).reply_markup
     labels = [b.text for row in menu.keyboard for b in row]
     assert all(getattr(b, "web_app", None) is None for row in menu.keyboard for b in row), labels
+
+
+async def test_reseller_limits_cover_its_bot_and_free_plans_are_not_resold(session, env) -> None:  # type: ignore[no-untyped-def]
+    child = await resale.connect(session, env["profile"], TOKEN, "Sara VPN")
+    env["profile"].max_purchases_per_day = 1
+    await session.commit()
+    await _sell(session, child, env["plan"], 62101, 96_000)
+    second = await factories.customer(session, child, telegram_id=62102)
+    with pytest.raises(orders.OrderError, match="shop_unavailable"):
+        await orders.draft(session, second, OrderKind.PURCHASE, plan=env["plan"])
+    env["profile"].max_purchases_per_day = None
+    from paurubot.db.models import Panel
+
+    panel = await session.get(Panel, env["plan"].panel_id)
+    free = await factories.plan(session, env["shop"], panel, price=0)
+    await session.flush()
+    with pytest.raises(orders.OrderError, match="plan_unavailable"):
+        await orders.draft(session, second, OrderKind.PURCHASE, plan=free)
+
+
+async def test_a_bot_stopped_by_staff_stays_stopped(session, env) -> None:  # type: ignore[no-untyped-def]
+    child = await resale.connect(session, env["profile"], TOKEN, "Sara VPN")
+    await resale.disconnect(session, env["profile"], by_staff=True)
+    with pytest.raises(resale.ResaleError, match="reseller_bot_blocked"):
+        await resale.connect(session, env["profile"], TOKEN, "")
+    await resale.allow(session, env["profile"])
+    assert (await resale.connect(session, env["profile"], TOKEN, "")).id == child.id
+
+
+async def test_a_stopped_bot_neither_serves_the_main_shop_nor_speaks(session, env) -> None:  # type: ignore[no-untyped-def]
+    from aiogram import Bot
+    from aiogram.client.default import DefaultBotProperties
+    from aiogram.fsm.storage.memory import MemoryStorage
+
+    from paurubot.bot.app import build_dispatcher
+    from paurubot.db.models import Customer
+    from tests.fakes.telegram import FakeSession, message_update
+
+    child = await resale.connect(session, env["profile"], TOKEN, "Sara VPN")
+    buyer = await factories.customer(session, child, telegram_id=63101)
+    await resale.disconnect(session, env["profile"])
+    await session.commit()
+    fake = FakeSession()
+    stale = Bot(TOKEN, session=fake, default=DefaultBotProperties(parse_mode="HTML"))
+    await build_dispatcher(MemoryStorage(), shop_id=None).feed_update(stale, message_update(63102, "/start"))
+    assert await session.scalar(select(Customer).where(Customer.telegram_id == 63102)) is None
+    assert fake.calls == []
+    notify_telegram.set_bot(None)
+    try:
+        assert await notify_telegram.bot_for(child.id) is None
+        await notify_telegram.send_text(buyer.telegram_id, "hello", shop_id=child.id)  # silently skipped
+    finally:
+        notify_telegram.forget_shop_bot(child.id)

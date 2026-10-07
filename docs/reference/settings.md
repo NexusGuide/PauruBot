@@ -85,6 +85,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 |---|---|---|---|
 | `resale_markup_percent` | int | 20 | — |
 | `resale_prices` | dict | {} | — |
+| `resale_blocked` | bool | false | — |
 
 ## Appearance
 

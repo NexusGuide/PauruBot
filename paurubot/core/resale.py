@@ -254,6 +254,8 @@ async def connect(session: AsyncSession, profile: ResellerProfile, token: str, t
     shop = await shop_of(session, profile)
     if taken is not None and (shop is None or taken.id != shop.id):
         raise ResaleError("bot_token_in_use")
+    if shop is not None and (await shop_settings.load(session, shop.id, fresh=True)).get("resale_blocked"):
+        raise ResaleError("reseller_bot_blocked")
     parent = await session.get(Shop, profile.shop_id)
     assert parent is not None
     if shop is None:
@@ -293,13 +295,18 @@ async def connect(session: AsyncSession, profile: ResellerProfile, token: str, t
     return shop
 
 
-async def disconnect(session: AsyncSession, profile: ResellerProfile) -> Shop | None:
-    """Stop the bot. Its customers, wallets and history stay; connecting again brings them back."""
+async def disconnect(
+    session: AsyncSession, profile: ResellerProfile, *, by_staff: bool = False
+) -> Shop | None:
+    """Stop the bot. Its customers, wallets and history stay; connecting again brings them back,
+    unless the shop's staff stopped it: then only they can let the reseller connect again."""
     from paurubot.notifications.telegram import forget_shop_bot
 
     shop = await shop_of(session, profile)
     if shop is None:
         return None
+    if by_staff:
+        await shop_settings.set_many(session, shop.id, {"resale_blocked": True})
     shop.status = ShopStatus.SUSPENDED
     shop.bot_token_enc = None
     shop.bot_user_id = None
@@ -353,6 +360,8 @@ async def point_webhook(shop_id: int) -> None:
     if token is None:
         return
     bot = await bot_for(shop_id)
+    if bot is None:
+        return
     if settings.bot_mode == "webhook":
         await bot.set_webhook(
             f"{settings.public_url}/api/telegram/webhook/{shop_id}",
@@ -361,3 +370,11 @@ async def point_webhook(shop_id: int) -> None:
             allowed_updates=dispatcher().resolve_used_update_types(),
         )
     await set_commands(bot, Texts("fa"), Texts("en"))
+
+
+async def allow(session: AsyncSession, profile: ResellerProfile) -> Shop | None:
+    """Lift a stop made by staff so the reseller may connect its bot again."""
+    shop = await shop_of(session, profile)
+    if shop is not None:
+        await shop_settings.set_many(session, shop.id, {"resale_blocked": False})
+    return shop

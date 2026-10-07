@@ -46,6 +46,7 @@ async def _view(db: AsyncSession, profile: ResellerProfile) -> dict[str, Any]:
     orders, revenue = sold.one()
     data.update(
         connected=shop.bot_token_enc is not None,
+        blocked=bool(cfg.get("resale_blocked")),
         shop_id=shop.id,
         title=shop.title,
         bot_username=shop.bot_username,
@@ -153,13 +154,29 @@ async def reseller_bot(profile_id: int, ctx: Manager, db: DB) -> dict[str, Any]:
 @router.post("/resellers/{profile_id}/bot/stop")
 async def stop_reseller_bot(profile_id: int, ctx: Manager, db: DB) -> dict[str, Any]:
     profile = await owned(db, ResellerProfile, profile_id, ctx)
-    shop = await resale.disconnect(db, profile)
+    shop = await resale.disconnect(db, profile, by_staff=True)
     if shop is not None:
         await record(
             db,
             shop_id=ctx.shop_id,
             actor=ctx.actor,
             action="reseller_bot.stopped_by_staff",
+            entity="reseller_profile",
+            entity_id=profile.id,
+        )
+    await db.commit()
+    return await _view(db, profile)
+
+
+@router.post("/resellers/{profile_id}/bot/allow")
+async def allow_reseller_bot(profile_id: int, ctx: Manager, db: DB) -> dict[str, Any]:
+    profile = await owned(db, ResellerProfile, profile_id, ctx)
+    if await resale.allow(db, profile) is not None:
+        await record(
+            db,
+            shop_id=ctx.shop_id,
+            actor=ctx.actor,
+            action="reseller_bot.allowed",
             entity="reseller_profile",
             entity_id=profile.id,
         )

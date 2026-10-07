@@ -75,6 +75,8 @@ async def reseller_webhook(shop_id: int, request: Request) -> dict[str, Any]:
     ):
         raise HTTPException(status_code=403, detail="forbidden")
     bot = await bot_for(shop_id)
+    if bot is None:
+        raise HTTPException(status_code=404, detail="not_found")
     update = Update.model_validate(await request.json(), context={"bot": bot})
     await dispatcher().feed_update(bot, update, shop_id=shop_id)
     return {"ok": True}

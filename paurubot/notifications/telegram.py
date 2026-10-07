@@ -59,12 +59,14 @@ def bot_id_of(token: str) -> int | None:
     return int(head) if head.isdigit() else None
 
 
-async def bot_for(shop_id: int | None) -> Bot:
+async def bot_for(shop_id: int | None) -> Bot | None:
+    """The bot that speaks for a shop. None for a reseller's shop whose bot is stopped: its
+    customers must not suddenly hear from the main bot."""
     if not shop_id or _single:
         return get_bot()
     cached = _shop_bots.get(shop_id)
     if cached is not None and time.monotonic() - cached[0] < SHOP_BOT_TTL:
-        return cached[1] or get_bot()
+        return cached[1]
     from paurubot.db.models import Shop
     from paurubot.db.session import session_scope
     from paurubot.security import secretbox
@@ -72,13 +74,15 @@ async def bot_for(shop_id: int | None) -> Bot:
     bot: Bot | None = None
     async with session_scope() as session:
         shop = await session.get(Shop, shop_id)
-        if shop is not None and shop.reseller_profile_id and shop.bot_token_enc:
+        if shop is None or shop.reseller_profile_id is None:
+            bot = get_bot()
+        elif shop.bot_token_enc:
             bot = make_bot(secretbox.decrypt("bot-token", shop.bot_token_enc))
     old = _shop_bots.get(shop_id)
     _shop_bots[shop_id] = (time.monotonic(), bot)
-    if old and old[1] is not None and old[1] is not bot:
+    if old and old[1] is not None and old[1] is not bot and old[1] is not _bot:
         await old[1].session.close()
-    return bot or get_bot()
+    return bot
 
 
 def forget_shop_bot(shop_id: int) -> None:
@@ -117,6 +121,8 @@ async def send_text(chat_id: int, text: str, *, shop_id: int | None = None, **kw
     if is_guest_chat(chat_id):
         return
     bot = await bot_for(shop_id)
+    if bot is None:
+        return
     await deliver(lambda: bot.send_message(chat_id, text, **kwargs))
 
 
@@ -126,6 +132,8 @@ async def send_photo(
     if is_guest_chat(chat_id):
         return
     bot = await bot_for(shop_id)
+    if bot is None:
+        return
     await deliver(lambda: bot.send_photo(chat_id, photo, caption=caption, **kwargs))
 
 
@@ -135,4 +143,6 @@ async def send_document(
     if is_guest_chat(chat_id):
         return
     bot = await bot_for(shop_id)
+    if bot is None:
+        return
     await deliver(lambda: bot.send_document(chat_id, document, caption=caption, **kwargs))

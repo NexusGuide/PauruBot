@@ -146,6 +146,17 @@ async def draft(
             or plan.shop_id != shop_resale.parent_id
         ):
             raise OrderError("plan_unavailable")
+        try:
+            # The reseller's own limits cover what its bot sells, too.
+            await resellers.check_purchase(
+                session,
+                shop_resale.reseller,
+                kind=kind,
+                add_gb=plan.data_gb if kind == OrderKind.PURCHASE else 0,
+                bot_shop_id=shop_resale.shop.id,
+            )
+        except resellers.ResellerError as exc:
+            raise OrderError("shop_unavailable") from exc
     d = await _draft(
         session,
         customer,
@@ -161,6 +172,8 @@ async def draft(
     )
     if shop_resale is not None:
         cost = resale.wholesale(shop_resale, d.base_price)
+        if cost <= 0:
+            raise OrderError("plan_unavailable")  # nothing for the reseller to pay means nothing to resell
         d.params.update(wholesale=cost, resale_profile=shop_resale.profile.id)
         d.base_price = resale.retail(shop_resale, plan.id if plan else None, cost)
     return d

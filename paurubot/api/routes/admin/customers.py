@@ -441,6 +441,8 @@ async def service_action(
         elif body.action == "revoke":
             await lifecycle.revoke(db, service)
         elif body.action == "reset_usage":
+            if ctx.scoped:  # fresh data for nothing: the same as a free extension
+                raise HTTPException(status_code=403, detail="forbidden")
             panel = await db.get(Panel, service.panel_id)
             assert panel is not None
             from paurubot.panels import driver_for

@@ -82,6 +82,9 @@ async def _notify(event: TelegramObject, text: str) -> None:
         pass
 
 
+UNKNOWN_BOT = -1  # a bot that is neither the main bot nor a connected reseller bot
+
+
 async def _shop_of_bot(session: AsyncSession, bot: Any) -> int | None:
     """The reseller shop a bot belongs to (TEN-04); None for the main bot."""
     bot_id = getattr(bot, "id", None)
@@ -91,7 +94,8 @@ async def _shop_of_bot(session: AsyncSession, bot: Any) -> int | None:
 
     if bot_id == bot_id_of(get_settings().bot_token.get_secret_value()):
         return None
-    return await session.scalar(select(Shop.id).where(Shop.bot_user_id == bot_id))
+    shop_id = await session.scalar(select(Shop.id).where(Shop.bot_user_id == bot_id))
+    return shop_id if shop_id is not None else UNKNOWN_BOT
 
 
 class ContextMiddleware(BaseMiddleware):
@@ -105,6 +109,8 @@ class ContextMiddleware(BaseMiddleware):
         async with get_sessionmaker()() as session:
             data["session"] = session
             shop_id = data.get("shop_id") or await _shop_of_bot(session, data.get("bot"))
+            if shop_id == UNKNOWN_BOT:
+                return None  # e.g. a reseller bot that was just stopped: never serve the main shop
             shop = await session.get(Shop, shop_id) if shop_id else await root_shop(session)
             if shop is not None and shop.reseller_profile_id is not None and shop.status != ShopStatus.ACTIVE:
                 return None  # a reseller bot that was switched off
