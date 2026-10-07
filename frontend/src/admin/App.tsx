@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Shell } from "./layout";
 import { Login, Setup } from "./screens/Auth";
@@ -16,6 +16,9 @@ import { Services } from "./screens/Services";
 import { Account, Audit, Backups, Channels, Health, Jobs, Reports, Settings, Texts } from "./screens/System";
 import { SessionProvider, useSession } from "./session";
 import { ConfirmProvider, Empty, Loading, Page, Section, Toasts } from "./ui";
+
+const HelpIndex = lazy(() => import("./screens/Help").then((m) => ({ default: m.HelpIndex })));
+const HelpArticle = lazy(() => import("./screens/Help").then((m) => ({ default: m.HelpArticle })));
 
 function Guard({ permission, children }: { permission: string; children: ReactNode }) {
   const { can, t } = useSession();
@@ -68,6 +71,8 @@ function Routed() {
         <Route path="/jobs" element={g("settings.write", <Jobs />)} />
         <Route path="/backups" element={g("backups.manage", <Backups />)} />
         <Route path="/account" element={<Account />} />
+        <Route path="/help" element={<Suspense fallback={<Loading />}><HelpIndex /></Suspense>} />
+        <Route path="/help/:slug" element={<Suspense fallback={<Loading />}><HelpArticle /></Suspense>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>

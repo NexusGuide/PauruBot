@@ -1155,5 +1155,15 @@
   "err_update_running": "An update is already running.",
   "err_update_pending": "A request is already waiting for the server.",
   "err_nothing_to_roll_back": "There is no earlier version to go back to.",
-  "err_bad_version": "Write the version like v1.2.3."
+  "err_bad_version": "Write the version like v1.2.3.",
+  "nav_help": "Help",
+  "help_search": "Search the help, e.g. receipt or reseller",
+  "help_no_results": "Nothing found",
+  "help_no_results_hint": "Try a shorter or different word.",
+  "help_missing": "This help page doesn't exist.",
+  "help_all": "All help",
+  "help_next": "Next",
+  "help_contents": "On this page",
+  "help_about": "Help: {title}",
+  "log_topic_panels": "Panels"
 }

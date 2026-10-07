@@ -115,3 +115,48 @@ async def test_pwa_files_are_served_as_files(tmp_path, monkeypatch) -> None:  # 
         assert manifest.json()["name"] == "Pauru Admin"
         assert "shell" in (await client.get("/admin/secret.txt")).text  # unknown names get the app shell
         assert "shell" in (await client.get("/admin/customers/12")).text
+
+
+async def test_finished_jobs_follow_the_shop_log_retention(session) -> None:  # type: ignore[no-untyped-def]
+    from datetime import timedelta
+
+    from paurubot.core import settings as shop_settings
+    from paurubot.db.base import utcnow
+    from paurubot.worker.jobs import cleanup_jobs, retention_days
+    from tests import factories
+
+    shop = await factories.shop(session)
+    await shop_settings.set_many(session, shop.id, {"log_retention_days": 3})
+    now = utcnow()
+    rows = [
+        Job(
+            shop_id=shop.id,
+            queue="ops",
+            kind="old",
+            status=JobStatus.DONE,
+            finished_at=now - timedelta(days=5),
+        ),
+        Job(
+            shop_id=shop.id,
+            queue="ops",
+            kind="new",
+            status=JobStatus.DONE,
+            finished_at=now - timedelta(days=1),
+        ),
+        Job(
+            shop_id=shop.id,
+            queue="ops",
+            kind="dead",
+            status=JobStatus.DEAD,
+            finished_at=now - timedelta(days=9),
+        ),
+    ]
+    session.add_all(rows)
+    await session.commit()
+    await cleanup_jobs()
+    kinds = set(await session.scalars(select(Job.kind).where(Job.shop_id == shop.id)))
+    assert kinds == {"new", "dead"}
+    assert (
+        retention_days({"log_retention_days": 0}) == 14
+        and retention_days({"log_retention_days": 9999}) == 365
+    )

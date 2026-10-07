@@ -12,6 +12,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { date, dateTime, money, size } from "@shared/format";
 import { useSession } from "./session";
 
@@ -51,6 +52,7 @@ const ICONS: Record<string, string> = {
   down: "M6 9l6 6 6-6",
   copy: "M8 8h11v11H8zM5 16V5h11",
   external: "M14 4h6v6M20 4l-9 9M18 14v6H4V6h6",
+  help: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01",
 };
 
 export function Icon({ name, size: px = 20, className = "" }: { name: string; size?: number; className?: string }) {
@@ -74,6 +76,28 @@ export function Icon({ name, size: px = 20, className = "" }: { name: string; si
 
 // ---------------------------------------------------------------- layout blocks
 
+/** The help article for a screen; the help bundle loads in the background so pages never wait on it. */
+function useHelpFor(locale: string, pathname: string): { slug: string; title: string } | undefined {
+  const [help, setHelp] = useState<{ slug: string; title: string } | undefined>();
+  useEffect(() => {
+    let alive = true;
+    if (pathname.startsWith("/help")) {
+      setHelp(undefined);
+      return;
+    }
+    void import("./help")
+      .then(({ articleForPath }) => {
+        const found = articleForPath(locale, pathname);
+        if (alive) setHelp(found ? { slug: found.slug, title: found.title } : undefined);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [locale, pathname]);
+  return help;
+}
+
 export function Page({
   title,
   actions,
@@ -85,10 +109,25 @@ export function Page({
   children: ReactNode;
   wide?: boolean;
 }) {
+  const { t, locale } = useSession();
+  const { pathname } = useLocation();
+  const help = useHelpFor(locale, pathname);
   return (
     <div className={`mx-auto w-full px-4 pb-28 pt-5 md:px-8 md:pb-12 md:pt-8 ${wide ? "max-w-7xl" : "max-w-5xl"}`}>
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-extrabold tracking-tight md:text-[1.75rem]">{title}</h1>
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="text-2xl font-extrabold tracking-tight md:text-[1.75rem]">{title}</h1>
+          {help && (
+            <Link
+              to={`/help/${help.slug}`}
+              aria-label={t("help_about", { title: help.title })}
+              title={help.title}
+              className="grid size-9 shrink-0 place-items-center rounded-full text-[var(--hint)] hover:bg-[var(--surface)] hover:text-firouzeh-700"
+            >
+              <Icon name="help" size={20} />
+            </Link>
+          )}
+        </div>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </header>
       <div className="flex flex-col gap-6">{children}</div>
