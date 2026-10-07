@@ -51,6 +51,7 @@ SAFE_OPTION_KEYS = {
     "limit_ip",
     "template_id",
     "service_ids",
+    "squad_ids",
     "sell_extra_volume",
     "sell_extra_days",
     "renew_resets_usage",
@@ -77,7 +78,7 @@ class PanelBody(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     kind: PanelKind
     base_url: HttpUrl
-    username: str = Field(min_length=1, max_length=128)
+    username: str = Field(default="", max_length=128)
     password: str | None = Field(default=None, max_length=256)
     api_token: str | None = Field(default=None, max_length=512)
     location_id: int | None = None
@@ -130,8 +131,11 @@ async def list_panels(ctx: Reader, db: DB) -> dict[str, Any]:
 
 @router.post("/panels")
 async def create_panel(body: PanelBody, ctx: Writer, db: DB) -> dict[str, Any]:
-    if not body.password:
+    token_only = body.kind == PanelKind.REMNAWAVE and bool(body.api_token)
+    if not body.password and not token_only:
         raise HTTPException(status_code=422, detail="password_required")
+    if not body.username.strip() and not token_only:
+        raise HTTPException(status_code=422, detail="username_required")
     url = await _check_url(body, ctx)
     options = _clean_options(dict(body.options))
     if body.api_token:
@@ -142,7 +146,7 @@ async def create_panel(body: PanelBody, ctx: Writer, db: DB) -> dict[str, Any]:
         kind=body.kind,
         base_url=url,
         username=body.username,
-        password_enc=secretbox.encrypt("panel", body.password),
+        password_enc=secretbox.encrypt("panel", body.password or ""),
         location_id=body.location_id,
         capacity=body.capacity,
         username_method=body.username_method,
@@ -178,6 +182,8 @@ async def update_panel(panel_id: int, body: PanelBody, ctx: Writer, db: DB) -> d
         options["api_token_enc"] = panel.options["api_token_enc"]
     if body.api_token:
         options["api_token_enc"] = secretbox.encrypt("panel", body.api_token)
+    if not body.username.strip() and not (body.kind == PanelKind.REMNAWAVE and options.get("api_token_enc")):
+        raise HTTPException(status_code=422, detail="username_required")
     if url != panel.base_url:
         panel.tls_cert_pem = None  # a pinned certificate belongs to the old address
     panel.name, panel.kind, panel.base_url, panel.username = body.name, body.kind, url, body.username
@@ -270,7 +276,7 @@ async def rotate_webhook(
 ) -> dict[str, Any]:
     """Create a new webhook secret; it is shown once and stored encrypted."""
     panel = await owned(db, Panel, panel_id, ctx)
-    if panel.kind in {PanelKind.XUI, PanelKind.MARZNESHIN}:
+    if panel.kind in {PanelKind.XUI, PanelKind.MARZNESHIN, PanelKind.REMNAWAVE}:
         raise HTTPException(status_code=400, detail="webhooks_not_supported")
     secret = new_token(24)
     panel.webhook_secret_enc = secretbox.encrypt("webhook", secret)

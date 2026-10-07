@@ -1304,5 +1304,9 @@
   "add_prize": "Add slice",
   "err_loyalty_tiers_invalid": "Each level needs a name, a spend from 0 and a discount from 0 to 50%.",
   "err_wheel_prizes_invalid": "The wheel needs 2 to 12 slices with a label, and at least one with a weight above 0.",
-  "err_wheel_every_hours_invalid": "Use 1 to 2160 hours."
+  "err_wheel_every_hours_invalid": "Use 1 to 2160 hours.",
+  "panel_kind_remnawave": "Remnawave",
+  "panel_api_token_hint_remnawave": "Make one in Remnawave under Settings → API tokens. With a token, the username and password can stay empty.",
+  "err_username_required": "Enter the panel username.",
+  "panel_squads": "Internal squads"
 }

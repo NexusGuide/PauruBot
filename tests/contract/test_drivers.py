@@ -10,14 +10,19 @@ from paurubot.panels import GB, PanelError, PanelRef, PanelUnavailable, UserSpec
 from paurubot.panels.base import PanelDriver, decode_subscription, parse_expire
 from paurubot.panels.drivers.marzban import MarzbanDriver
 from paurubot.panels.drivers.pasarguard import PasarGuardDriver
+from paurubot.panels.drivers.remnawave import RemnawaveDriver
 from paurubot.panels.drivers.xui import XuiDriver
 from paurubot.panels.http import SafeHttpClient
-from tests.fakes.panels import FakeTokenPanel, FakeXuiPanel, transport
+from tests.fakes.panels import FakeRemnawavePanel, FakeTokenPanel, FakeXuiPanel, transport
 
 BASE = "https://panel.example.com"
 
 
 def make(kind: str, **options):  # type: ignore[no-untyped-def]
+    if kind == "remnawave":
+        fake = FakeRemnawavePanel()  # type: ignore[assignment]
+        http = SafeHttpClient(BASE, transport=transport(fake))
+        return RemnawaveDriver(http, "admin", "panel-password", options), fake
     if kind == "xui":
         fake = FakeXuiPanel()
         options.setdefault("inbound_id", 3)
@@ -30,7 +35,7 @@ def make(kind: str, **options):  # type: ignore[no-untyped-def]
     return cls(http, "admin", "panel-password", options), fake
 
 
-KINDS = ["marzban", "pasarguard", "xui"]
+KINDS = ["marzban", "pasarguard", "xui", "remnawave"]
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -70,10 +75,14 @@ async def test_unlimited_and_on_hold(kind: str) -> None:
     user = await driver.create_user(UserSpec(username="pb_free"))
     assert user.data_limit == 0 and user.expire_at is None
     held = await driver.create_user(UserSpec(username="pb_hold", data_limit=GB, on_hold_days=30))
-    assert held.status == "on_hold"
+    if kind == "remnawave":
+        # No first-connection start on Remnawave: the days count from purchase.
+        assert held.status == "active" and held.expire_at is not None
+    else:
+        assert held.status == "on_hold"
 
 
-@pytest.mark.parametrize("kind", ["marzban", "pasarguard"])
+@pytest.mark.parametrize("kind", ["marzban", "pasarguard", "remnawave"])
 async def test_token_refresh_after_expiry(kind: str) -> None:
     driver, fake = make(kind)
     await driver.health_check()
@@ -144,3 +153,26 @@ def test_helpers() -> None:
     assert parse_expire(1_900_000_000_000) == datetime.fromtimestamp(1_900_000_000, tz=UTC)
     raw = base64.b64encode(b"vless://a@b:1#x\ntrojan://c@d:2#y").decode()
     assert decode_subscription(raw) == ["vless://a@b:1#x", "trojan://c@d:2#y"]
+
+
+async def test_remnawave_api_token_squads_and_plain_http() -> None:
+    fake = FakeRemnawavePanel(api_token="fixed")
+    driver = RemnawaveDriver(
+        SafeHttpClient("http://10.0.0.5:3000", allow_private=True, transport=transport(fake)),
+        "",
+        "",
+        {"api_token": "fixed", "squad_ids": ["sq-1"]},
+    )
+    assert [o.id for o in await driver.list_options()] == ["sq-1"]
+    user = await driver.create_user(UserSpec(username="pb_sq", data_limit=GB, note="tg:42", ip_limit=2))
+    stored = next(iter(fake.users.values()))
+    assert stored["activeInternalSquads"] == [{"uuid": "sq-1", "name": "sq-1"}] and stored["telegramId"] == 42
+    assert user.data["uuid"] == stored["uuid"] and fake.logins == 0
+    assert set(fake.forwarded) == {"https"}  # plain HTTP is announced as coming through TLS
+    users, total = await driver.list_users()
+    assert total == 1 and users[0].username == "pb_sq"
+    stats = await driver.stats()
+    assert stats["users_total"] == 1 and stats["nodes"][0]["status"] == "connected"
+    fake.api_token = "rotated"
+    with pytest.raises(PanelError):
+        await driver.health_check()  # a fixed token is never swapped for a login

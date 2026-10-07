@@ -330,7 +330,132 @@ class FakeMarzneshinPanel:
         return httpx.Response(404, json={"detail": "Not Found"})
 
 
-def transport(fake: FakeTokenPanel | FakeXuiPanel | FakeMarzneshinPanel) -> httpx.MockTransport:
+class FakeRemnawavePanel:
+    """Remnawave: {"response": ...} envelopes, users by UUID, actions under /actions, squads."""
+
+    def __init__(self, api_token: str = "rw-token") -> None:
+        self.api_token = api_token
+        self.users: dict[str, dict[str, Any]] = {}  # uuid -> user
+        self.fail_next: int | None = None
+        self.forwarded: list[str | None] = []
+        self.logins = 0
+
+    @property
+    def token(self) -> str:
+        return self.api_token
+
+    @token.setter
+    def token(self, value: str) -> None:
+        self.api_token = value
+
+    @staticmethod
+    def _ok(obj: Any, status: int = 200) -> httpx.Response:
+        return httpx.Response(status, json={"response": obj})
+
+    def _out(self, u: dict[str, Any]) -> dict[str, Any]:
+        out = {k: v for k, v in u.items() if k != "used"}
+        out["userTraffic"] = {"usedTrafficBytes": u["used"], "onlineAt": None}
+        out["subscriptionUrl"] = f"https://sub.example.com/{u['shortUuid']}"
+        return out
+
+    def _by_name(self, name: str) -> dict[str, Any] | None:
+        return next((u for u in self.users.values() if u["username"] == name), None)
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        self.forwarded.append(request.headers.get("x-forwarded-proto"))
+        if self.fail_next:
+            status, self.fail_next = self.fail_next, None
+            return httpx.Response(status, json={"message": "boom"})
+        if path == "/api/auth/login":
+            body = json.loads(request.content)
+            if body.get("password") != "panel-password":
+                return httpx.Response(401, json={"message": "bad"})
+            self.logins += 1
+            return self._ok({"accessToken": self.api_token}, 201)
+        if request.headers.get("authorization") != f"Bearer {self.api_token}":
+            return httpx.Response(401, json={"message": "unauthorized"})
+        if path == "/api/system/stats":
+            return self._ok(
+                {
+                    "cpu": {"cores": 4},
+                    "memory": {"total": 8 * 1024**3, "used": 2 * 1024**3, "free": 6 * 1024**3},
+                    "users": {"totalUsers": len(self.users), "statusCounts": {"ACTIVE": len(self.users)}},
+                    "onlineStats": {"onlineNow": 1, "lastDay": 2, "lastWeek": 3, "neverOnline": 0},
+                    "nodes": {"totalOnline": 1, "totalBytesLifetime": "0"},
+                }
+            )
+        if path == "/api/nodes":
+            return self._ok([{"uuid": "n1", "name": "DE", "isConnected": True, "isDisabled": False}])
+        if path == "/api/internal-squads":
+            return self._ok({"total": 1, "internalSquads": [{"uuid": "sq-1", "name": "Default"}]})
+        if path == "/api/users" and request.method == "GET":
+            start = int(request.url.params.get("start", 0))
+            size = int(request.url.params.get("size", 25))
+            rows = [self._out(u) for u in self.users.values()]
+            return self._ok({"users": rows[start : start + size], "total": len(rows)})
+        if path == "/api/users" and request.method == "POST":
+            body = json.loads(request.content)
+            if self._by_name(body["username"]):
+                return httpx.Response(400, json={"message": "User username already exists"})
+            uid = f"uuid-{len(self.users) + 1}"
+            user = {
+                "uuid": uid,
+                "id": len(self.users) + 1,
+                "shortUuid": secrets.token_hex(4),
+                "username": body["username"],
+                "status": body.get("status", "ACTIVE"),
+                "trafficLimitBytes": body.get("trafficLimitBytes", 0),
+                "expireAt": body["expireAt"],
+                "description": body.get("description"),
+                "activeInternalSquads": [
+                    {"uuid": s, "name": s} for s in body.get("activeInternalSquads", [])
+                ],
+                "telegramId": body.get("telegramId"),
+                "used": 0,
+            }
+            self.users[uid] = user
+            return self._ok(self._out(user), 201)
+        if path == "/api/users" and request.method == "PATCH":
+            body = json.loads(request.content)
+            user = self.users.get(body.get("uuid", ""))
+            if user is None:
+                return httpx.Response(404, json={"message": "not found"})
+            for key in ("expireAt", "trafficLimitBytes", "status"):
+                if key in body:
+                    user[key] = body[key]
+            return self._ok(self._out(user))
+        if path.startswith("/api/users/by-username/"):
+            user = self._by_name(path.rsplit("/", 1)[1])
+            return self._ok(self._out(user)) if user else httpx.Response(404, json={"message": "not found"})
+        if path.startswith("/api/users/"):
+            rest = path[len("/api/users/") :]
+            uid, _, action = rest.partition("/")
+            user = self.users.get(uid)
+            if user is None:
+                return httpx.Response(404, json={"message": "not found"})
+            if request.method == "GET" and not action:
+                return self._ok(self._out(user))
+            if request.method == "DELETE" and not action:
+                del self.users[uid]
+                return self._ok({"isDeleted": True})
+            if action == "actions/enable":
+                user["status"] = "ACTIVE"
+            elif action == "actions/disable":
+                user["status"] = "DISABLED"
+            elif action == "actions/reset-traffic":
+                user["used"] = 0
+            elif action == "actions/revoke":
+                user["shortUuid"] = secrets.token_hex(4)
+            else:
+                return httpx.Response(404, json={"message": "not found"})
+            return self._ok(self._out(user))
+        return httpx.Response(404, json={"message": "Not Found"})
+
+
+def transport(
+    fake: FakeTokenPanel | FakeXuiPanel | FakeMarzneshinPanel | FakeRemnawavePanel,
+) -> httpx.MockTransport:
     return httpx.MockTransport(fake.handler)
 
 
