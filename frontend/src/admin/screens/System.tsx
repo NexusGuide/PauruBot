@@ -229,6 +229,27 @@ function RefSelect({
   );
 }
 
+function PlanPicker({ value, onChange }: { value: number[]; onChange: (value: number[]) => void }) {
+  const { t } = useSession();
+  const catalog = useLoad<{ plans: { id: number; title: string; is_active: boolean; delivery: string }[] }>("/api/admin/catalog");
+  const plans = (catalog.data?.plans ?? []).filter((plan) => plan.is_active && plan.delivery !== "stock");
+  if (!plans.length) return <p className="text-[0.85rem] text-[var(--muted)]">{t("no_plans")}</p>;
+  return (
+    <div className="flex flex-col gap-2">
+      {plans.map((plan) => (
+        <label key={plan.id} className="flex items-center gap-2 text-[0.88rem]">
+          <Checkbox
+            label={plan.title}
+            checked={value.includes(plan.id)}
+            onChange={(on) => onChange(on ? [...value, plan.id] : value.filter((id) => id !== plan.id))}
+          />
+          {plan.title}
+        </label>
+      ))}
+    </div>
+  );
+}
+
 function SettingControl({
   item,
   value,
@@ -311,6 +332,14 @@ function SettingControl({
             ))}
           </Select>
         )}
+      </Field>
+    );
+  }
+  if (item.key === "guest_plan_ids") {
+    const chosen = Array.isArray(value) ? (value as unknown[]).map(Number).filter(Number.isFinite) : [];
+    return (
+      <Field label={label} hint={hint}>
+        {() => <PlanPicker value={chosen} onChange={onChange} />}
       </Field>
     );
   }

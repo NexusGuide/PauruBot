@@ -81,6 +81,9 @@ SPECS: dict[str, Spec] = {
     "nowpayments_ipn_secret": Spec(str, "", "payments", secret=True),
     "plisio_enabled": Spec(bool, False, "payments"),
     "plisio_api_key": Spec(str, "", "payments", secret=True),
+    # guest purchase on the web (CAT-08)
+    "guest_buy_enabled": Spec(bool, False, "guest"),
+    "guest_plan_ids": Spec(list, [], "guest"),
     # more Iranian gateways (PAY-08, PAY-09)
     "aqayepardakht_enabled": Spec(bool, False, "gateways"),
     "aqayepardakht_pin": Spec(str, "", "gateways", secret=True),

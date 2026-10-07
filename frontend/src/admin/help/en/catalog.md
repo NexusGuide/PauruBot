@@ -36,6 +36,14 @@ If you have ready-made configs (for example from a server or panel the bot isn't
 
 In [Settings](/settings), **Custom purchase** group, turn on **Sell custom data and days**. Customers pick the data and days themselves in the bot, and the price is the **Base price** plus the price per GB and per day. The minimum and maximum data and days, and the target panel or location, are set there too.
 
+## Buying on the web
+
+With **Guests can buy on the web** on (the **Buying on the web** group of [Settings](/settings)), your server address followed by /buy is a public page where anyone can buy a plan without Telegram. It offers the online gateways you have turned on (Zarinpal and the gateways in **More gateways**, plus NowPayments and Plisio); card transfer and Stars need the bot.
+
+After paying, the buyer lands on a private page that shows the subscription link and QR; its address is the only key to the purchase, so they should bookmark it. The **Add it to my Telegram** button there opens the bot and moves the service into their account, where it renews and sends alerts like any other.
+
+In [Customers](/customers) these buyers carry the tag guest until they move to Telegram. **Plans on the web page** limits the page to the plans you tick; ready-made stock configs are never offered there.
+
 ## Renewals
 
 - **Renewal resets usage** in the **Services** group decides whether leftover data carries over to the next period. Each panel can override this for itself.

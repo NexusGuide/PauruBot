@@ -64,16 +64,30 @@ async def deliver[R](call: Callable[[], Awaitable[R]]) -> R:
         raise Retry(f"telegram unavailable: {exc.__class__.__name__}") from exc
 
 
+GUEST_CHAT_LIMIT = -(10**15)  # web guests (CAT-08) have placeholder ids at or below this
+
+
+def is_guest_chat(chat_id: int) -> bool:
+    """Telegram channel ids stay far above this; anything here is a guest with no chat at all."""
+    return int(chat_id) <= GUEST_CHAT_LIMIT
+
+
 async def send_text(chat_id: int, text: str, **kwargs: Any) -> None:
+    if is_guest_chat(chat_id):
+        return
     bot = get_bot()
     await deliver(lambda: bot.send_message(chat_id, text, **kwargs))
 
 
 async def send_photo(chat_id: int, photo: Any, caption: str | None = None, **kwargs: Any) -> None:
+    if is_guest_chat(chat_id):
+        return
     bot = get_bot()
     await deliver(lambda: bot.send_photo(chat_id, photo, caption=caption, **kwargs))
 
 
 async def send_document(chat_id: int, document: Any, caption: str | None = None, **kwargs: Any) -> None:
+    if is_guest_chat(chat_id):
+        return
     bot = get_bot()
     await deliver(lambda: bot.send_document(chat_id, document, caption=caption, **kwargs))

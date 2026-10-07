@@ -60,6 +60,14 @@ h2{font-size:15px;margin:0 0 10px}
 details summary{cursor:pointer;color:var(--muted);font-size:14px}
 details .link{margin:8px 0 0}
 .note{font-size:13px;color:var(--muted);text-align:center}
+.opt{display:flex;gap:10px;align-items:flex-start;padding:12px;border:1px solid var(--line);border-radius:10px;
+margin-bottom:8px;cursor:pointer}
+.opt input{margin-top:5px;accent-color:var(--accent)}
+.opt small{display:block;color:var(--muted);font-size:13px}
+.opt:has(input:checked){border-color:var(--accent)}
+.price{display:block;font-weight:700;margin-top:2px}
+.err{background:var(--card);border:1px solid var(--bad);color:var(--bad);border-radius:10px;padding:10px 12px;
+font-weight:600}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 """
 

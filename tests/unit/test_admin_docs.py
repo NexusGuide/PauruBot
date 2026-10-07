@@ -135,6 +135,7 @@ def test_quoted_labels_match_the_panel() -> None:
         "Lucky wheel",
         "Lottery",
         "Card",
+        "Add it to my Telegram",
         "Panels",
         "Backups",
         "Daily report",

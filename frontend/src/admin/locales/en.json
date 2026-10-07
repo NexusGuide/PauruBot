@@ -1390,5 +1390,11 @@
   "err_cubepay_fee_percent_invalid": "Enter a number from 0 to 100.",
   "payment_amount_differs": "A different amount arrived at the gateway: {amount} Toman. Approve to credit that amount, or reject.",
   "setting_ip_notice_enabled": "Tell customers when a device is cut off",
-  "setting_ip_notice_enabled_hint": "For plans with a device limit on 3x-ui and Rebecca panels: when a new device pushes an older one off, the customer gets a short notice (at most once an hour)."
+  "setting_ip_notice_enabled_hint": "For plans with a device limit on 3x-ui and Rebecca panels: when a new device pushes an older one off, the customer gets a short notice (at most once an hour).",
+  "settings_group_guest": "Buying on the web",
+  "setting_guest_buy_enabled": "Guests can buy on the web",
+  "setting_guest_buy_enabled_hint": "A public page at /buy on your server address sells plans without Telegram, paid through an online gateway. The buyer gets the link on a private page and can move it into the bot later.",
+  "setting_guest_plan_ids": "Plans on the web page",
+  "setting_guest_plan_ids_hint": "Leave empty to offer every ordinary plan.",
+  "err_guest_plan_ids_invalid": "Pick plans from the list."
 }
