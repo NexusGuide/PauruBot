@@ -66,8 +66,13 @@ ask() {
 }
 
 confirm() {
-  local reply
-  read -r -p "$1 [y/N]: " reply </dev/tty || true
+  local reply default=${2:-n}
+  if [[ $default == y ]]; then
+    read -r -p "$1 [Y/n]: " reply </dev/tty || true
+    reply=${reply:-y}
+  else
+    read -r -p "$1 [y/N]: " reply </dev/tty || true
+  fi
   [[ $reply =~ ^[Yy]([Ee][Ss])?$ ]]
 }
 
@@ -81,8 +86,14 @@ install_docker() {
   if curl -fsSL https://get.docker.com | sh; then
     systemctl enable --now docker >/dev/null 2>&1 || true
   else
-    warn "get.docker.com is unreachable; trying the distribution packages"
-    apt-get update -q && apt-get install -yq docker.io docker-compose-v2 || apt-get install -yq docker.io docker-compose-plugin
+    warn "Docker's own repository is unreachable; trying the distribution packages"
+    # A half-finished get.docker.com run leaves its repository behind, which breaks apt-get update.
+    rm -f /etc/apt/sources.list.d/docker.list /etc/apt/sources.list.d/docker.sources
+    apt-get update -q || true
+    apt-get install -yq docker.io docker-compose-v2 ||
+      apt-get install -yq docker.io docker-compose-plugin ||
+      apt-get install -yq docker.io docker-compose || true
+    systemctl enable --now docker >/dev/null 2>&1 || true
   fi
   docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required"
   ok "Docker is ready"
