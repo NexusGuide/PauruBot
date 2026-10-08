@@ -56,3 +56,9 @@ If you run a public channel, put its ID in **Trust channel** and make the bot an
 In [Settings](/settings), **Referrals** group, with **Referrals on** every customer has a personal invite link. When someone comes through it and makes their first purchase, **Reward percent** of that purchase is added to the inviter's wallet. Each customer's referrals are listed on their page.
 
 > Resellers earn through sub-resellers rather than invite links; see [the resellers guide](help:resellers).
+
+## Referral limits and the welcome gift
+
+"Smallest first order that earns a referral reward" ignores small first purchases (a later, larger first purchase still earns it). "Referral rewards per inviter per day" caps how many rewards one inviter can earn a day, which stops farming with fake accounts. Banned inviters earn nothing.
+
+"Welcome gift for new customers" adds that much to a new customer's wallet once, on their first /start; with "Welcome gift only for invited customers" on, only those who came through an invite link get it. Keep it small: anyone can make a new Telegram account.

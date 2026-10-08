@@ -50,19 +50,144 @@ async def wallet_text(session: AsyncSession, customer: Customer, t: Texts) -> st
 
 @router.message(Btn("btn_wallet"))
 async def wallet_entry(
-    message: Message, session: AsyncSession, customer: Customer, t: Texts, state: FSMContext
+    message: Message,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    state: FSMContext,
 ) -> None:
     await state.clear()
-    await message.answer(await wallet_text(session, customer, t), reply_markup=keyboards.wallet_kb(t))
+    await message.answer(
+        await wallet_text(session, customer, t),
+        reply_markup=keyboards.wallet_kb(t, transfer=bool(cfg["wallet_transfer_enabled"])),
+    )
 
 
 @router.callback_query(Wallet.filter(F.action == "home"))
 async def wallet_home(
-    call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts, state: FSMContext
+    call: CallbackQuery,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    state: FSMContext,
 ) -> None:
     await state.clear()
     await call.answer()
-    await show(call, await wallet_text(session, customer, t), keyboards.wallet_kb(t))
+    await show(
+        call,
+        await wallet_text(session, customer, t),
+        keyboards.wallet_kb(t, transfer=bool(cfg["wallet_transfer_enabled"])),
+    )
+
+
+# --- moving balance to another customer (FIN-08) ------------------------------------------
+
+
+@router.callback_query(Wallet.filter(F.action == "transfer"))
+async def transfer_start(call: CallbackQuery, t: Texts, cfg: dict[str, Any], state: FSMContext) -> None:
+    await call.answer()
+    if not cfg["wallet_transfer_enabled"]:
+        await show(call, t("transfer_off"))
+        return
+    await state.set_state(WalletStates.transfer_to)
+    if isinstance(call.message, Message):
+        await call.message.answer(t("transfer_ask_to"), reply_markup=keyboards.cancel(t))
+
+
+@router.message(WalletStates.transfer_to, F.text)
+async def transfer_to(
+    message: Message, session: AsyncSession, customer: Customer, t: Texts, state: FSMContext
+) -> None:
+    from paurubot.core import transfers
+
+    try:
+        recipient = await transfers.find_recipient(session, customer, message.text or "")
+    except transfers.TransferError as exc:
+        await message.answer(t(exc.key))
+        return
+    await state.update_data(transfer_to=recipient.id)
+    await state.set_state(WalletStates.transfer_amount)
+    await message.answer(t("transfer_ask_amount", name=esc(recipient.display_name)))
+
+
+@router.message(WalletStates.transfer_amount, F.text)
+async def transfer_amount(
+    message: Message,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    staff: Any,
+    state: FSMContext,
+) -> None:
+    from paurubot.core import transfers
+
+    amount = parse_int(message.text)
+    data = await state.get_data()
+    recipient = await session.get(Customer, int(data.get("transfer_to") or 0))
+    if amount is None or recipient is None:
+        await message.answer(t("number_expected"))
+        return
+    try:
+        await transfers.check(session, customer, amount)
+    except transfers.TransferError as exc:
+        await message.answer(error_text(t, exc.key, exc.params))
+        return
+    await state.update_data(transfer_amount=amount)
+    await state.set_state(None)
+    await message.answer(
+        t("transfer_confirm", amount=money(amount), name=esc(recipient.display_name)),
+        reply_markup=keyboards.confirm(
+            t,
+            Wallet(action="transfer_go", amount=amount, before=message.message_id).pack(),
+            Wallet(action="home").pack(),
+        ),
+    )
+
+
+@router.callback_query(Wallet.filter(F.action == "transfer_go"))
+async def transfer_go(
+    call: CallbackQuery,
+    callback_data: Wallet,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    state: FSMContext,
+) -> None:
+    from paurubot.core import transfers
+
+    data = await state.get_data()
+    recipient = await session.get(Customer, int(data.get("transfer_to") or 0))
+    amount = int(data.get("transfer_amount") or 0)
+    if recipient is None or amount <= 0 or amount != callback_data.amount:
+        await call.answer(t("button_expired"), show_alert=True)
+        return
+    try:
+        await transfers.send(
+            session, customer, recipient, amount, key=f"{customer.id}:{callback_data.before}"
+        )
+    except transfers.TransferError as exc:
+        await session.rollback()
+        await call.answer(error_text(t, exc.key, exc.params), show_alert=True)
+        return
+    await queue.enqueue(
+        session,
+        "notify",
+        "transfer_received",
+        {"customer_id": recipient.id, "amount": amount, "name": customer.display_name},
+        shop_id=customer.shop_id,
+        dedupe_key=f"transfer:{customer.id}:{callback_data.before}",
+    )
+    await session.commit()
+    await state.clear()
+    await call.answer(t("transfer_done_short"))
+    balance = await wallet_balance(session, customer.shop_id, customer.id)
+    await show(
+        call,
+        t("transfer_done", amount=money(amount), name=esc(recipient.display_name), balance=money(balance)),
+    )
 
 
 @router.callback_query(Wallet.filter(F.action == "history"))

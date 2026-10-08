@@ -73,6 +73,11 @@ def home_kb(t: Texts, staff: StaffIdentity, cfg: dict[str, Any]) -> InlineKeyboa
     if staff.can("settings.write"):
         key = "adm_maintenance_on" if cfg["bot_enabled"] else "adm_maintenance_off"
         kb.button(text=t(key), callback_data=Admin(section="maintenance"))
+    from paurubot.bot.routers.admin_ops import ops_buttons
+    from paurubot.bot.routers.admin_tools import tools_kb
+
+    for text, data in [*tools_kb(t, staff), *ops_buttons(t, staff)]:
+        kb.button(text=text, callback_data=data)
     kb.adjust(2)
     url = get_settings().public_url
     if url:
@@ -573,8 +578,17 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
         reseller=t("yes") if customer.is_reseller else t("no"),
     )
     kb = InlineKeyboardBuilder()
+    if staff.can("services.read"):
+        kb.button(text=t("adm_user_btn_services"), callback_data=Admin(section="usvc", id=customer.id))
+    if staff.can("services.create"):
+        kb.button(text=t("adm_user_btn_give"), callback_data=Admin(section="ugive", id=customer.id))
     if staff.can("wallet.adjust"):
         kb.button(text=t("btn_adjust_balance"), callback_data=Admin(section="adjust", id=customer.id))
+    if staff.can("customers.write"):
+        kb.button(text=t("adm_user_btn_message"), callback_data=Admin(section="umsg", id=customer.id))
+    kb.button(text=t("adm_user_btn_referrals"), callback_data=Admin(section="uref", id=customer.id))
+    if customer.is_reseller and staff.can("resellers.manage"):
+        kb.button(text=t("adm_user_btn_group"), callback_data=Admin(section="ugroup", id=customer.id))
     if staff.can("customers.ban"):
         kb.button(
             text=t("btn_unban") if customer.is_banned else t("btn_ban"),
@@ -597,6 +611,28 @@ async def lookup(
     rows, _ = await customers.search(session, shop.id, message.text or "", limit=1)
     await state.clear()
     if not rows:
+        # Not a customer: maybe a service's panel username or label (ADM-09).
+        query = (message.text or "").strip().lstrip("@")[:64]
+        service = (
+            await session.scalar(
+                select(Service)
+                .where(
+                    Service.shop_id == shop.id,
+                    Service.status != ServiceStatus.DELETED,
+                    (Service.panel_username == query) | (Service.label == query),
+                )
+                .order_by(Service.id.desc())
+                .limit(1)
+            )
+            if query
+            else None
+        )
+        if service is not None and staff.can("services.read"):
+            from paurubot.bot.routers.admin_tools import service_kb, service_text
+
+            await message.answer(t("adm_found"), reply_markup=menu(t, cfg, staff))
+            await message.answer(service_text(t, service), reply_markup=service_kb(t, service, staff))
+            return
         await message.answer(t("adm_customer_not_found"), reply_markup=menu(t, cfg, staff))
         return
     text, kb = await customer_card(session, t, rows[0], staff)
@@ -738,7 +774,7 @@ async def broadcast_draft(
         source_chat_id=message.chat.id,
         source_message_id=message.message_id,
         status=JobStatus.DRAFT,
-        audience={"all": True},
+        audience={"kind": "all"},
     )
     session.add(row)
     await session.flush()
@@ -750,13 +786,10 @@ async def broadcast_draft(
         )
         or 0
     )
+    from paurubot.bot.routers.admin_tools import broadcast_kb
+
     await message.answer(t("adm_saved"), reply_markup=menu(t, cfg, staff))
-    await message.answer(
-        t("adm_broadcast_confirm", count=count),
-        reply_markup=keyboards.confirm(
-            t, Admin(section="broadcast", action="send", id=row.id).pack(), Admin(section="home").pack()
-        ),
-    )
+    await message.answer(t("adm_bc_options", count=count), reply_markup=broadcast_kb(t, row))
 
 
 @router.callback_query(Admin.filter(F.section == "maintenance"), StaffOnly("settings.write"))

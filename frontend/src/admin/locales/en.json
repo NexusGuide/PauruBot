@@ -1540,5 +1540,15 @@
   "desk_no_renewal": "Can't renew",
   "desk_active": "Active services",
   "desk_expiring_count": "Running out",
-  "desk_month": "Last 30 days"
+  "desk_month": "Last 30 days",
+  "setting_wallet_transfer_enabled": "Customers can send balance to each other",
+  "setting_wallet_transfer_min": "Smallest transfer (Toman)",
+  "setting_wallet_transfer_daily_max": "Most a customer can send a day (Toman)",
+  "setting_wallet_transfer_daily_max_hint": "0 means no daily limit.",
+  "setting_referral_min_order": "Smallest first order that earns a referral reward (Toman)",
+  "setting_referral_daily_max": "Referral rewards per inviter per day",
+  "setting_referral_daily_max_hint": "Stops reward farming with fake accounts; 0 means no limit.",
+  "setting_start_gift_amount": "Welcome gift for new customers (Toman)",
+  "setting_start_gift_amount_hint": "Added to the wallet once, on first /start. 0 turns it off; keep it small.",
+  "setting_start_gift_referred_only": "Welcome gift only for invited customers"
 }

@@ -1540,5 +1540,15 @@
   "desk_no_renewal": "قابل تمدید نیست",
   "desk_active": "سرویس فعال",
   "desk_expiring_count": "رو به اتمام",
-  "desk_month": "۳۰ روز اخیر"
+  "desk_month": "۳۰ روز اخیر",
+  "setting_wallet_transfer_enabled": "انتقال موجودی بین مشتری‌ها",
+  "setting_wallet_transfer_min": "حداقل انتقال (تومان)",
+  "setting_wallet_transfer_daily_max": "سقف انتقال روزانهٔ هر مشتری (تومان)",
+  "setting_wallet_transfer_daily_max_hint": "۰ یعنی بدون سقف روزانه.",
+  "setting_referral_min_order": "حداقل اولین خرید برای پاداش دعوت (تومان)",
+  "setting_referral_daily_max": "حداکثر پاداش دعوت هر معرف در روز",
+  "setting_referral_daily_max_hint": "جلوی پاداش‌گرفتن با حساب‌های جعلی را می‌گیرد؛ ۰ یعنی بدون سقف.",
+  "setting_start_gift_amount": "هدیهٔ خوش‌آمد مشتری جدید (تومان)",
+  "setting_start_gift_amount_hint": "یک بار، در اولین استارت، به کیف پول اضافه می‌شود. ۰ یعنی خاموش؛ کم نگهش دارید.",
+  "setting_start_gift_referred_only": "هدیهٔ خوش‌آمد فقط برای دعوت‌شده‌ها"
 }

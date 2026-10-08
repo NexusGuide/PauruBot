@@ -478,6 +478,12 @@ async def simple_customer(session: AsyncSession, job: queue.Claimed) -> None:
     elif job.kind == "wallet_adjusted":
         delta = int(job.payload["delta"])
         text = t("wallet_credited" if delta > 0 else "wallet_debited", amount=money(abs(delta)))
+    elif job.kind == "transfer_received":
+        text = t(
+            "transfer_received",
+            amount=money(int(job.payload["amount"])),
+            name=esc(str(job.payload.get("name", ""))),
+        )
     elif job.kind == "reseller_decision":
         text = t("reseller_approved" if job.payload.get("approved") else "reseller_rejected")
         if job.payload.get("approved") and job.payload.get("web_username"):
@@ -880,6 +886,7 @@ register_queue(
             "referral_reward": simple_customer,
             "wallet_adjusted": simple_customer,
             "reseller_decision": simple_customer,
+            "transfer_received": simple_customer,
             "reseller_application": reseller_application,
             "ticket_new_message": ticket_new_message,
             "ticket_reply": ticket_reply,
@@ -896,6 +903,13 @@ BROADCAST_BATCH = 200
 BROADCAST_RATE = 25  # messages per second, under Telegram's global limit
 
 
+async def _pin(bot: Any, chat_id: int, message_id: int) -> None:
+    try:
+        await bot.pin_chat_message(chat_id, message_id, disable_notification=True)
+    except Exception:  # a pin is a nicety; the message itself was delivered
+        log.debug("could not pin broadcast in %s", chat_id)
+
+
 async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
     row = await session.get(Broadcast, int(job.payload["broadcast_id"]))
     if row is None or row.status in {JobStatus.DONE, JobStatus.CANCELED}:
@@ -903,22 +917,23 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
     bot = await telegram.bot_for(row.shop_id)
     if bot is None:
         raise Permanent("this shop's bot is stopped")
+    markup = None
+    if row.buttons:
+        markup = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=b["text"], url=b["url"])]
+                for b in row.buttons
+                if b.get("text") and b.get("url")
+            ]
+        )
+    pin = bool((row.audience or {}).get("pin"))
     if row.source_chat_id is not None and row.source_message_id is not None:
         source_chat, source_message = int(row.source_chat_id), int(row.source_message_id)
 
         def copier(chat_id: int) -> Callable[[], Awaitable[Any]]:
-            return lambda: bot.copy_message(chat_id, source_chat, source_message)
+            return lambda: bot.copy_message(chat_id, source_chat, source_message, reply_markup=markup)
     elif row.text:
         text = esc(row.text)
-        markup = None
-        if row.buttons:
-            markup = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text=b["text"], url=b["url"])]
-                    for b in row.buttons
-                    if b.get("text") and b.get("url")
-                ]
-            )
 
         def copier(chat_id: int) -> Callable[[], Awaitable[Any]]:
             return lambda: bot.send_message(chat_id, text, reply_markup=markup)
@@ -948,8 +963,10 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
         for customer in batch:
             chat_id = customer.telegram_id
             try:
-                await telegram.deliver(copier(chat_id))
+                sent = await telegram.deliver(copier(chat_id))
                 row.sent += 1
+                if pin and sent is not None:
+                    await _pin(bot, chat_id, int(sent.message_id))
             except telegram.Undeliverable:
                 customer.blocked_bot_at = utcnow()
                 row.failed += 1
@@ -966,25 +983,97 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
     await session.commit()
 
 
-def _audience(row: Broadcast) -> list[Any]:
+def audience_conditions(shop_id: int, kind: str = "all") -> list[Any]:
+    """Who a broadcast or a mass gift reaches (GRW-06, ADM-09)."""
+    from paurubot.db.models import ResellerProfile
+
     conditions: list[Any] = [
-        Customer.shop_id == row.shop_id,
+        Customer.shop_id == shop_id,
         Customer.is_banned.is_(False),
         Customer.blocked_bot_at.is_(None),
         Customer.telegram_id > telegram.GUEST_CHAT_LIMIT,  # web guests have no chat
     ]
-    audience = row.audience or {}
-    if audience.get("resellers_only"):
-        from paurubot.db.models import ResellerProfile
-
+    if kind == "resellers":
         conditions.append(
             Customer.id.in_(select(ResellerProfile.customer_id).where(ResellerProfile.is_active.is_(True)))
         )
-    if audience.get("buyers_only"):
-        conditions.append(Customer.id.in_(select(Service.customer_id)))
+    elif kind == "buyers":
+        conditions.append(Customer.id.in_(select(Service.customer_id).where(Service.is_trial.is_(False))))
+    elif kind == "active":
+        conditions.append(
+            Customer.id.in_(
+                select(Service.customer_id).where(
+                    Service.status == ServiceStatus.ACTIVE, Service.is_trial.is_(False)
+                )
+            )
+        )
+    elif kind == "never_bought":
+        conditions.append(Customer.id.not_in(select(Service.customer_id).where(Service.is_trial.is_(False))))
+    return conditions
+
+
+def _audience(row: Broadcast) -> list[Any]:
+    audience = row.audience or {}
+    kind = str(audience.get("kind") or "all")
+    if audience.get("resellers_only"):
+        kind = "resellers"
+    elif audience.get("buyers_only") and kind == "all":
+        kind = "buyers"
+    conditions = audience_conditions(row.shop_id, kind)
     if audience.get("locale"):
         conditions.append(or_(Customer.locale == audience["locale"], Customer.locale.is_(None)))
     return conditions
 
 
-register_queue("broadcast", QueueSpec({"run": run_broadcast}, batch=1, lease_seconds=3600))
+async def run_mass_gift(session: AsyncSession, job: queue.Claimed) -> None:
+    """The same wallet gift for everyone in an audience (ADM-09). Each credit has its own ledger
+    key, so a retried job never pays anyone twice; progress is kept in the job payload."""
+    from paurubot.ledger import wallet
+
+    data = dict(job.payload)
+    batch, amount, kind = str(data["batch"]), int(data["amount"]), str(data["audience"])
+    shop_id = job.shop_id
+    if shop_id is None or amount <= 0:
+        raise Permanent("gift without a shop or an amount")
+    cursor = int(data.get("cursor") or 0)
+    paid = 0
+    while True:
+        rows = list(
+            await session.scalars(
+                select(Customer)
+                .where(*audience_conditions(shop_id, kind), Customer.id > cursor)
+                .order_by(Customer.id)
+                .limit(BROADCAST_BATCH)
+            )
+        )
+        if not rows:
+            break
+        for customer in rows:
+            posted = await wallet.reward(
+                session,
+                shop_id,
+                customer.id,
+                amount,
+                key=f"gift:{batch}:{customer.id}",
+                memo="gift from the shop",
+            )
+            cursor = customer.id
+            if not posted.created:
+                continue  # paid on an earlier attempt, and already told
+            paid += 1
+            t = await _texts(session, customer)
+            try:
+                await telegram.send_text(
+                    customer.telegram_id, t("gift_received", amount=money(amount)), shop_id=shop_id
+                )
+            except telegram.Undeliverable:
+                customer.blocked_bot_at = utcnow()
+            await asyncio.sleep(1 / BROADCAST_RATE)
+        await queue.update_payload(session, job, {**data, "cursor": cursor})
+        await session.commit()
+    log.info("gift %s paid %s customers %s each", batch, paid, amount)
+
+
+register_queue(
+    "broadcast", QueueSpec({"run": run_broadcast, "gift": run_mass_gift}, batch=1, lease_seconds=3600)
+)

@@ -16,6 +16,8 @@ class WalletStates(StatesGroup):
     amount = State()
     receipt = State()
     gift = State()
+    transfer_to = State()
+    transfer_amount = State()
 
 
 class ServiceStates(StatesGroup):

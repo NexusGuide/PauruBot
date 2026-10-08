@@ -260,5 +260,6 @@
   "customer_label": "Customer name",
   "label_hint": "Name this service after your customer to find it later.",
   "label_current": "Customer: {label}",
-  "label_set": "Name saved on the order."
+  "label_set": "Name saved on the order.",
+  "tx_transfer": "Transfer"
 }

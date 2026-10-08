@@ -139,6 +139,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | FIN-05 | Excel export | v1.1 | done |
 | FIN-06 | Top customers report | v1.1 | done |
 | FIN-07 | Shop bundle export / import | v2 | done |
+| FIN-08 | Wallet transfer between customers with a minimum and a daily cap | v1.1* | done |
 
 ## Growth & Marketing
 
@@ -152,6 +153,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | GRW-06 | Broadcast with rate-limited queue and job tracking | MVP | done |
 | GRW-07 | Forced channel join | MVP | done |
 | GRW-08 | Trust channel | v2 | done |
+| GRW-09 | Welcome gift and referral limits (minimum order, daily cap per referrer, banned referrers) | v1.1* | done |
 
 ## Telegram Bot UX
 
@@ -187,6 +189,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | ADM-06 | Sales funnel analytics | v2 | done |
 | ADM-07 | Panel settings modal (PasarGuard server settings) | v1.1 | done |
 | ADM-08 | Environment analyzer / doctor | v1.1 | done |
+| ADM-09 | Admin tools in the bot: customer services, free service, message, referrals, reseller group, plans and bulk prices, panels, money figures with Excel, settings, gift to many, broadcast audience/button/pin | v1.1* | done |
 
 ## Support & Communication
 
@@ -196,6 +199,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | SUP-02 | Internal panel tickets reseller↔owner | v1.1 | done |
 | SUP-03 | Report channel split by topics | MVP | done |
 | SUP-04 | Support contacts | MVP | done |
+| SUP-05 | "Report a problem" on a service: a ticket with its state, and a known-outage answer | v1.1* | done |
 
 ## Jobs & Monitoring
 
@@ -219,6 +223,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | OPS-06 | Scheduled backup sent to Telegram | MVP | done |
 | OPS-07 | Panel-based update with rollback UI | v1.1 | done |
 | OPS-08 | SQLite → PostgreSQL migration tool | v1.1 | done |
+| OPS-09 | Ops in the bot: system status, backups on demand and download, log groups set with /setlog (forum topics included) | v1.1* | done |
 
 ## Migration & Import
 
