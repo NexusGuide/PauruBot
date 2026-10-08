@@ -59,9 +59,12 @@ def provider(name: str) -> PaymentProvider:
         raise PaymentError("method_disabled") from exc
 
 
-async def available(session: AsyncSession, shop_id: int) -> list[str]:
+async def available(session: AsyncSession, shop_id: int, customer: Customer | None = None) -> list[str]:
     cfg = await shop_settings.load(session, shop_id)
-    return [name for name, prov in PROVIDERS.items() if await prov.enabled(cfg)]
+    names = [name for name, prov in PROVIDERS.items() if await prov.enabled(cfg)]
+    if customer is not None and customer.card_trust == "blocked":
+        names = [name for name in names if name != "card"]  # PAY-17
+    return names
 
 
 async def topup_bounds(session: AsyncSession, customer: Customer) -> tuple[int, int]:
@@ -105,6 +108,15 @@ async def start(
         raise PaymentError("amount_out_of_range", low=low, high=high)
     if order is not None and (order.customer_id != customer.id or order.status != OrderStatus.PENDING):
         raise PaymentError("order_expired")
+    if prov.name == "card":
+        from paurubot.core import cards
+
+        if customer.card_trust == "blocked":
+            raise PaymentError("card_blocked")
+        if await cards.needs_verification(session, customer, amount):
+            raise PaymentError("card_verify_required")
+        if cfg["card_random_tail"]:
+            amount = cards.random_tail(amount, high)
     minutes = int(cfg["payment_expire_minutes"] or 60)
     payment = Payment(
         shop_id=customer.shop_id,
@@ -157,6 +169,7 @@ async def attach_receipt(
         )
         payment.duplicate_of_id = duplicate.id if duplicate else None
     payment.status = PaymentStatus.VERIFYING
+    payment.meta = {**(payment.meta or {}), "receipt_at": utcnow().isoformat()}
     await session.flush()
     cfg = await shop_settings.load(session, payment.shop_id)
     if duplicate is not None and duplicate.receipt_sha256 == payment.receipt_sha256:
@@ -171,11 +184,15 @@ async def attach_receipt(
 
 async def auto_approvable(session: AsyncSession, payment: Payment, cfg: dict[str, Any]) -> bool:
     """Card auto-approve rules (PAY-05): small amounts from customers with a clean card history."""
-    if not cfg.get("card_auto_approve") or payment.receipt_file_id is None:
+    if payment.receipt_file_id is None:
+        return False
+    customer = await session.get(Customer, payment.customer_id)
+    if customer is not None and customer.card_trust == "trusted":
+        return True  # the shop vouched for this customer (PAY-17)
+    if not cfg.get("card_auto_approve"):
         return False
     if payment.amount > int(cfg.get("card_auto_max_amount") or 0):
         return False
-    customer = await session.get(Customer, payment.customer_id)
     if customer is not None and customer.risk in {"medium", "high"}:
         return False  # risky customers always get a human look (BOT-08)
     history = await session.scalar(

@@ -21,6 +21,7 @@ import {
   Select,
   Sheet,
   Status,
+  Textarea,
   Table,
   Toolbar,
   Usage,
@@ -190,6 +191,7 @@ function ServiceSheet({
             <CopyText text={service.subscription_url} />
           </div>
         )}
+        <ServiceNote service={service} writable={writable} onChange={onChange} />
         <div className="flex flex-wrap gap-2">
           <Button icon="refresh" busy={busy} onClick={() => void refresh()}>
             {t("refresh_from_panel")}
@@ -505,5 +507,35 @@ export function Services() {
         </div>
       </Sheet>
     </Page>
+  );
+}
+
+function ServiceNote({ service, writable, onChange }: { service: Service; writable: boolean; onChange: (s: Service) => void }) {
+  const { t, toast, errorText } = useSession();
+  const [note, setNote] = useState(service.staff_note ?? "");
+  const [busy, run] = useAction();
+  const save = async () => {
+    try {
+      const result = await run(() =>
+        call<{ service: Service }>(`/api/admin/services/${service.id}/note`, { method: "PUT", body: { note: note.trim() || null } }),
+      );
+      if (result) onChange(result.service);
+      toast(t("saved"));
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-[0.78rem] text-[var(--hint)]">{t("service_staff_note")}</p>
+      <Textarea value={note} maxLength={255} disabled={!writable} onChange={(e) => setNote(e.target.value)} />
+      {writable && note !== (service.staff_note ?? "") && (
+        <div>
+          <Button small busy={busy} onClick={() => void save()}>
+            {t("save")}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }

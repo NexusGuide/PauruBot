@@ -376,7 +376,7 @@ export function CustomerPage() {
     }
   };
 
-  const saveMarkers = async (patch: { color?: string | null; risk?: string }) => {
+  const saveMarkers = async (patch: { color?: string | null; risk?: string; card_trust?: string }) => {
     try {
       const result = await run(() =>
         call<{ customer: Customer }>(`/api/admin/customers/${id}`, { method: "PATCH", body: patch }),
@@ -469,6 +469,17 @@ export function CustomerPage() {
                         {RISKS.map((risk) => (
                           <option key={risk} value={risk}>
                             {t(`risk_${risk}`)}
+                          </option>
+                        ))}
+                      </Select>
+                    )}
+                  </Field>
+                  <Field label={t("customer_card_trust")} hint={t("customer_card_trust_hint")}>
+                    {(fid) => (
+                      <Select id={fid} value={c.card_trust ?? "normal"} onChange={(e) => void saveMarkers({ card_trust: e.target.value })}>
+                        {["normal", "trusted", "blocked"].map((level) => (
+                          <option key={level} value={level}>
+                            {t(`card_trust_${level}`)}
                           </option>
                         ))}
                       </Select>

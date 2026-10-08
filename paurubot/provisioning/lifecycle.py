@@ -82,21 +82,42 @@ def apply_panel_user(service: Service, info: PanelUser) -> None:
     service.synced_at = utcnow()
 
 
-def renewal_target(service: Service, plan: Plan, resets_usage: bool) -> tuple[datetime | None, int, bool]:
+# How a renewal treats the time and data left (SVC-13): the end date either extends from the
+# current one or starts again today; data either resets to the plan or carries what's left over.
+RENEW_MODES = ("extend_reset", "extend_carry", "restart_reset", "restart_carry")
+
+
+def renew_mode(plan: Plan | None, panel: Panel | None, cfg: dict[str, Any]) -> str:
+    """The plan's own mode, else the panel's reset choice, else the shop's."""
+    if plan is not None and plan.renew_mode in RENEW_MODES:
+        return str(plan.renew_mode)
+    panel_reset = (panel.options or {}).get("renew_resets_usage") if panel is not None else None
+    if panel_reset is not None:
+        return "extend_reset" if panel_reset else "extend_carry"
+    if cfg.get("renew_mode") in RENEW_MODES:
+        return str(cfg["renew_mode"])
+    return "extend_reset" if cfg.get("renew_resets_usage", True) else "extend_carry"
+
+
+def renewal_target(service: Service, plan: Plan, mode: str) -> tuple[datetime | None, int, bool]:
     """New expiry, data limit and whether usage resets when renewing with `plan`."""
     now = datetime.now(UTC).replace(microsecond=0)
     lapsed = service.status in {ServiceStatus.EXPIRED, ServiceStatus.LIMITED, ServiceStatus.DISABLED}
+    restart = mode.startswith("restart") or lapsed
+    carry = mode.endswith("carry") and not lapsed
     if plan.days > 0:
-        start = service.expire_at if service.expire_at and service.expire_at > now and not lapsed else now
+        start = service.expire_at if service.expire_at and service.expire_at > now and not restart else now
         new_expire: datetime | None = start + timedelta(days=plan.days)
     else:
         new_expire = None
     plan_bytes = int(plan.data_gb) * GB if plan.data_gb > 0 else 0
     if plan_bytes == 0:
-        return new_expire, 0, resets_usage or lapsed
-    if resets_usage or lapsed:
+        return new_expire, 0, not carry
+    if not carry:
         return new_expire, plan_bytes, True
     remaining = max(0, int(service.data_limit) - int(service.used_bytes)) if service.data_limit else 0
+    if mode == "restart_carry":
+        return new_expire, remaining + plan_bytes, True  # a fresh period with the leftover data
     return new_expire, int(service.used_bytes) + remaining + plan_bytes, False
 
 
@@ -213,7 +234,7 @@ async def _create_service(session: AsyncSession, order: Order) -> Service:
     return service
 
 
-def _target_for(service: Service, order: Order, plan: Plan | None, resets_usage: bool) -> dict[str, object]:
+def _target_for(service: Service, order: Order, plan: Plan | None, mode: str) -> dict[str, object]:
     """Absolute end state of a modification, computed once so retries are idempotent."""
     now = datetime.now(UTC).replace(microsecond=0)
     target: dict[str, object] = {"set_expire": False, "expire": None, "limit": None, "reset": False}
@@ -228,7 +249,7 @@ def _target_for(service: Service, order: Order, plan: Plan | None, resets_usage:
         )
     elif order.kind == OrderKind.RENEW:
         assert plan is not None
-        expire, limit, reset = renewal_target(service, plan, resets_usage)
+        expire, limit, reset = renewal_target(service, plan, mode)
         target.update(
             set_expire=True, expire=expire.isoformat() if expire else None, limit=limit, reset=reset
         )
@@ -257,10 +278,10 @@ async def _modify_service(session: AsyncSession, order: Order) -> Service:
     params = dict(order.params or {})
     if "target" not in params:
         cfg = await shop_settings.load(session, order.shop_id)
-        panel_mode = (panel.options or {}).get("renew_resets_usage")
-        default = bool(cfg["renew_resets_usage"]) if panel_mode is None else bool(panel_mode)
-        resets = default or bool(params.get("queued"))
-        params["target"] = _target_for(service, order, plan, resets)
+        mode = renew_mode(plan, panel, cfg)
+        if params.get("queued") and mode.endswith("carry"):
+            mode = "extend_reset"  # a queued renewal starts when the period ends, with fresh data
+        params["target"] = _target_for(service, order, plan, mode)
         order.params = params
         await session.commit()
     target = params["target"]

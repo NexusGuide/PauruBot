@@ -121,6 +121,7 @@ export interface Customer {
   note: string | null;
   color: string | null;
   risk: string;
+  card_trust?: string;
   created_at: string;
   last_seen_at: string | null;
   blocked_bot_at: string | null;
@@ -142,6 +143,7 @@ export interface Service {
   subscription_url: string | null;
   branded_url: string | null;
   disabled_reason: string | null;
+  staff_note?: string | null;
   synced_at: string | null;
   created_at: string;
   panel: string | null;
@@ -241,6 +243,7 @@ export interface Plan {
   panel_options: Record<string, unknown>;
   addons: { extras?: boolean; extra_gb_price?: number | null; extra_day_price?: number | null };
   delivery: "panel" | "stock";
+  renew_mode?: string | null;
   services?: number;
   stock?: { available: number; sold: number; disabled: number };
 }
@@ -316,6 +319,7 @@ export interface Discount {
   plan_ids: number[];
   first_purchase_only: boolean;
   sticky: boolean;
+  customer_telegram_id: number | null;
   starts_at: string | null;
   expires_at: string | null;
   is_active: boolean;

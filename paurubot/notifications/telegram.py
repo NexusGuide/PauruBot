@@ -26,11 +26,15 @@ log = logging.getLogger(__name__)
 _bot: Bot | None = None
 
 
-def make_bot(token: str | None = None) -> Bot:
-    return Bot(
+def make_bot(token: str | None = None, shop_id: int | None = None) -> Bot:
+    from paurubot.bot.premium_emoji import PremiumEmojiMiddleware
+
+    bot = Bot(
         token or get_settings().bot_token.get_secret_value(),
         default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True),
     )
+    bot.session.middleware(PremiumEmojiMiddleware(shop_id))  # BOT-10
+    return bot
 
 
 def get_bot() -> Bot:
@@ -77,7 +81,7 @@ async def bot_for(shop_id: int | None) -> Bot | None:
         if shop is None or shop.reseller_profile_id is None:
             bot = get_bot()
         elif shop.bot_token_enc:
-            bot = make_bot(secretbox.decrypt("bot-token", shop.bot_token_enc))
+            bot = make_bot(secretbox.decrypt("bot-token", shop.bot_token_enc), shop_id)
     old = _shop_bots.get(shop_id)
     _shop_bots[shop_id] = (time.monotonic(), bot)
     if old and old[1] is not None and old[1] is not bot and old[1] is not _bot:

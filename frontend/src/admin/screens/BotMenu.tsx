@@ -270,6 +270,7 @@ export function BotMenu() {
   const [help, setHelp] = useState<HelpItem[]>([]);
   const [apps, setApps] = useState<AppItem[]>([]);
   const [cacheChat, setCacheChat] = useState<number | null>(null);
+  const [menuMode, setMenuMode] = useState("reply");
   const [busy, run] = useAction();
   const writable = can("settings.write");
 
@@ -281,6 +282,7 @@ export function BotMenu() {
     setHelp(((values.help_items as HelpItem[]) ?? []).map((h) => ({ title: h.title, text: h.text ?? "", url: h.url ?? "" })));
     setApps(((values.download_apps as AppItem[]) ?? []).map((a) => ({ ...a, repo: a.repo ?? "", pattern: a.pattern ?? "", store_url: a.store_url ?? "" })));
     setCacheChat((values.app_cache_chat_id as number | null) ?? null);
+    setMenuMode((values.menu_mode as string) || "reply");
   }, [data, values]);
 
   const save = async () => {
@@ -295,6 +297,7 @@ export function BotMenu() {
               help_items: help.filter((h) => h.title.trim()),
               download_apps: apps.filter((a) => a.name.trim()),
               app_cache_chat_id: cacheChat,
+              menu_mode: menuMode,
             },
           },
         }),
@@ -328,6 +331,19 @@ export function BotMenu() {
                 </Button>
               }
             >
+              <div className="mb-4 max-w-sm">
+                <Field label={t("menu_mode")} hint={t("menu_mode_hint")}>
+                  {(id) => (
+                    <Select id={id} value={menuMode} onChange={(e) => setMenuMode(e.target.value)}>
+                      {["reply", "inline", "miniapp"].map((mode) => (
+                        <option key={mode} value={mode}>
+                          {t(`menu_mode_${mode}`)}
+                        </option>
+                      ))}
+                    </Select>
+                  )}
+                </Field>
+              </div>
               <LayoutEditor layout={layout} styles={styles} onLayout={setLayout} onStyles={setStyles} />
             </Section>
             <Section title={t("help_topics")}>

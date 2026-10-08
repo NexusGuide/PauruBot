@@ -62,3 +62,9 @@ In [Settings](/settings), **Referrals** group, with **Referrals on** every custo
 "Smallest first order that earns a referral reward" ignores small first purchases (a later, larger first purchase still earns it). "Referral rewards per inviter per day" caps how many rewards one inviter can earn a day, which stops farming with fake accounts. Banned inviters earn nothing.
 
 "Welcome gift for new customers" adds that much to a new customer's wallet once, on their first /start; with "Welcome gift only for invited customers" on, only those who came through an invite link get it. Keep it small: anyone can make a new Telegram account.
+
+## Referral on every purchase and private codes
+
+With "Referral reward on every purchase", the inviter earns on each of the invited customer's purchases, not only the first; "Referral percent on later purchases" can set a lower share for them. "Referral rewards per inviter per 30 days" caps it.
+
+A discount code with "Only for this customer" set to a Telegram ID works for that customer alone. The customer is told about it and finds it under Wallet → My discounts in the bot, with a copy button.

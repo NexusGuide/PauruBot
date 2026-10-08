@@ -67,6 +67,10 @@ In the web panel the reseller sees only its own customers and services. On the [
 
 In the Mini App a reseller can name each purchase after its customer at checkout, and "Open the reseller desk" under More shows its figures and the services running out, with "Renew all".
 
+## Paid reseller membership
+
+Set "Reseller membership price", "Group for paid members" (the group's ID) and "Membership period" under the Resellers section of [Settings](/settings). The Reseller button in the bot then offers membership: the customer pays from the wallet and becomes a reseller in that group at once, with the web panel sign-in. Before it ends, "Renew membership" in the reseller panel adds another period. A reseller you switched off can't reopen itself by paying. With applications also on, customers can still apply without paying.
+
 ## Bulk buying
 
 With **Bulk buying** on in the **Resellers** settings group, a **Buy several** button appears at checkout in the bot. The reseller sends how many (up to **Most services per bulk purchase**) and all the services are paid in one wallet payment: either all of them are paid or none is. When they're all ready, the reseller gets one file in the bot with every service's name and link. Turn off **Bulk buying for resellers only** to let regular customers use it too.

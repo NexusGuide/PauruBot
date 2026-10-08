@@ -529,6 +529,41 @@ async def reseller_billing() -> None:
         log.info("billed %s metered resellers", billed)
 
 
+@every(600, "broadcasts.unpin")
+async def unpin_due() -> None:
+    """Timed broadcast pins whose hours are up (GRW-06)."""
+    from paurubot.db.models import BroadcastPin
+
+    async with session_scope() as session:
+        shops = list(
+            await session.scalars(
+                select(BroadcastPin.shop_id)
+                .where(BroadcastPin.unpin_at.is_not(None), BroadcastPin.unpin_at <= utcnow())
+                .distinct()
+            )
+        )
+        for shop_id in shops:
+            await queue.enqueue(
+                session,
+                "broadcast",
+                "unpin",
+                {},
+                shop_id=shop_id,
+                dedupe_key=f"unpin:{shop_id}:{utcnow().strftime('%Y%m%d%H%M')[:-1]}",
+            )
+
+
+@every(60, "cards.late_approve")
+async def approve_late_receipts() -> None:
+    """Card receipts nobody reviewed in time (PAY-17), when the shop allows it."""
+    from paurubot.core import cards
+
+    async with session_scope() as session:
+        approved = await cards.approve_late(session)
+    if approved:
+        log.info("auto-approved %s card receipts after the review window", approved)
+
+
 @every(600, "accounts.sync")
 async def sync_panel_accounts() -> None:
     """Usage, alerts and expiry for sold panel admin accounts (TEN-14)."""

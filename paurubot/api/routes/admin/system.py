@@ -248,6 +248,25 @@ async def write_settings(
             )
         except BonusRuleError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if "menu_mode" in body.values and body.values["menu_mode"] not in ("reply", "inline", "miniapp"):
+        raise HTTPException(status_code=422, detail="menu_mode_invalid")
+    for key in ("premium_emojis", "start_media"):
+        if key in body.values and not isinstance(body.values[key], dict):
+            raise HTTPException(status_code=422, detail=f"{key}_invalid")
+    if "premium_emojis" in body.values:
+        from paurubot.bot.premium_emoji import clean_map
+
+        body.values["premium_emojis"] = clean_map(body.values["premium_emojis"])
+    if "renew_mode" in body.values:
+        from paurubot.provisioning.lifecycle import RENEW_MODES
+
+        if body.values["renew_mode"] not in ("", None, *RENEW_MODES):
+            raise HTTPException(status_code=422, detail="renew_mode_invalid")
+    if "card_pick" in body.values:
+        from paurubot.core.cards import CARD_PICKS
+
+        if body.values["card_pick"] not in CARD_PICKS:
+            raise HTTPException(status_code=422, detail="card_pick_invalid")
     _check_crypto(body.values)
     _check_services(body.values)
     _check_gateways(body.values)
@@ -267,6 +286,9 @@ async def write_settings(
         await shop_settings.set_many(db, ctx.shop_id, body.values)
     except shop_settings.SettingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    from paurubot.bot import premium_emoji
+
+    premium_emoji.forget(ctx.shop_id)
     after = shop_settings.public_view(await shop_settings.load(db, ctx.shop_id, fresh=True))
     changed = {k: after[k] for k in body.values}
     if {"loyalty_enabled", "loyalty_tiers"} & set(body.values):

@@ -6,6 +6,7 @@ import logging
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -439,3 +440,77 @@ def web_panel_url() -> str:
     from paurubot.config import get_settings
 
     return f"{get_settings().public_url.rstrip('/')}/admin/"
+
+
+# --- paid membership (TEN-16) -------------------------------------------------------------------
+
+
+async def membership_offer(session: AsyncSession, shop_id: int) -> tuple[int, int, Any] | None:
+    """(price, days, group) when the shop sells reseller membership, else None."""
+    from paurubot.core import settings as shop_settings
+    from paurubot.db.models import ResellerGroup
+
+    cfg = await shop_settings.load(session, shop_id)
+    price = int(cfg["reseller_membership_price"] or 0)
+    group_id = cfg["reseller_membership_group_id"]
+    if price <= 0 or not group_id:
+        return None
+    group = await session.get(ResellerGroup, int(group_id))
+    if group is None or group.shop_id != shop_id or not group.is_active:
+        return None
+    return price, int(cfg["reseller_membership_days"] or 0), group
+
+
+async def buy_membership(session: AsyncSession, customer: Customer, *, key: str) -> ResellerProfile:
+    """Pay from the wallet to become a reseller, or to extend a membership that ends. A profile
+    staff switched off is never reopened this way."""
+    from paurubot.auth import rbac
+    from paurubot.ledger.accounts import system_account, wallet_account
+    from paurubot.ledger.posting import InsufficientFunds, transfer
+
+    offer = await membership_offer(session, customer.shop_id)
+    if offer is None:
+        raise ResellerError("membership_off")
+    price, days, group = offer
+    profile = await session.scalar(select(ResellerProfile).where(ResellerProfile.customer_id == customer.id))
+    if profile is not None and (not profile.is_active or profile.parent_id is not None):
+        raise ResellerError("membership_off")
+    if profile is not None and profile.expires_at is None:
+        raise ResellerError("already_reseller")
+    source = await wallet_account(session, customer.shop_id, customer.id)
+    target = await system_account(session, customer.shop_id, "revenue")
+    try:
+        posted = await transfer(
+            session,
+            shop_id=customer.shop_id,
+            source_id=source.id,
+            target_id=target.id,
+            amount=price,
+            kind="membership",
+            idempotency_key=f"membership:{key}",
+            reference_type="customer",
+            reference_id=customer.id,
+            memo="reseller membership",
+        )
+    except InsufficientFunds as exc:
+        raise ResellerError("insufficient_balance", balance=exc.balance, required=price) from exc
+    if not posted.created and profile is not None:
+        return profile  # the same confirmation pressed twice
+    now = utcnow()
+    if profile is None:
+        profile = ResellerProfile(
+            shop_id=customer.shop_id,
+            customer_id=customer.id,
+            group_id=group.id,
+            permissions=sorted(rbac.DEFAULT_FOR_RESELLER),
+            expires_at=now + timedelta(days=days) if days > 0 else None,
+        )
+        session.add(profile)
+        await session.flush()
+        await session.refresh(customer, ["reseller_profile"])
+    else:
+        start = profile.expires_at if profile.expires_at and profile.expires_at > now else now
+        profile.expires_at = start + timedelta(days=days) if days > 0 else None
+    await web_login(session, profile)
+    await session.flush()
+    return profile

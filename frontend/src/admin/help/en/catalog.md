@@ -49,6 +49,17 @@ In [Customers](/customers) these buyers carry the tag guest until they move to T
 - **Renewal resets usage** in the **Services** group decides whether leftover data carries over to the next period. Each panel can override this for itself.
 - With **Reserve renewals for active services**, renewing a service that still has time and data applies when the current period ends, so nothing is wasted.
 
+### Renewal modes
+
+"When renewing" on a plan (or the shop-wide "When renewing" setting) decides what a renewal does with what's left:
+
+- Add the time; data starts fresh.
+- Add the time; leftover data carries over.
+- Start again today; data starts fresh.
+- Start again today; leftover data carries over.
+
+A service that already ended always starts again with fresh data. "Shop default" follows "Renewal resets usage".
+
 ## Free trial
 
 Trial settings live in [Settings](/settings), **Free trial** group: days, data, panel and **Daily trial limit**. Each Telegram account gets one trial; raising **Trial round** lets everyone take a trial again. You can require a phone number for trials. Customers marked **High risk** don't get a trial.

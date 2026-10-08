@@ -76,3 +76,9 @@ class Acc(CallbackData, prefix="acc"):
     action: str
     id: int = 0
     value: int = 0
+
+
+class Menu(CallbackData, prefix="mn"):
+    """A main-menu button shown inline (BOT-12)."""
+
+    item: str

@@ -172,7 +172,7 @@ async def _checkout(
     await call.answer()
     await state.set_data({"order_id": order.id})
     balance = await wallet_balance(session, customer.shop_id, customer.id)
-    methods = await payments.available(session, customer.shop_id)
+    methods = await payments.available(session, customer.shop_id, customer)
     what = {
         OrderKind.ACCOUNT_PURCHASE: lambda: t("acc_checkout_buy", title=esc(plan.title if plan else "")),
         OrderKind.ACCOUNT_RENEW: lambda: t(

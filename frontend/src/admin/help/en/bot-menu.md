@@ -18,6 +18,12 @@ The **⚙️ Admin (staff only)** button appears only for staff.
 
 **Button colour** (blue, green or red) shows in recent Telegram apps; older ones show a plain button. A premium emoji works only when the bot's owner has Telegram Premium.
 
+### Menu mode and appearance
+
+"How customers see the menu": the keyboard under the chat, glass buttons under the welcome message, or the Mini App only. Staff always keep the keyboard for the admin button.
+
+In the bot, Admin → Appearance sets premium emoji (send a message with premium emoji and the bot swaps the ordinary ones in every message; this needs a Fragment username for the bot, otherwise ordinary emoji stay), a sticker, GIF or photo before the welcome, and a banner photo above the buy menu.
+
 ## Help topics
 
 The topics you create with **Add topic** are listed under the **Guide** button in the bot. Each topic has a title and is either a text or a link, for example "Connecting on iPhone" pointing to a tutorial.

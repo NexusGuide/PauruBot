@@ -48,6 +48,7 @@ class Service(Base, UpdatedMixin):
     delete_reason: Mapped[str | None] = mapped_column(String(255))
     # Why the bot disabled it ("ban", "reseller"), so the matching unban re-enables only those (SVC-06).
     disabled_reason: Mapped[str | None] = mapped_column(String(32))
+    staff_note: Mapped[str | None] = mapped_column(String(255))  # seen by staff only
     # Opaque token of the shop-branded subscription link /s/<token> (SVC-08).
     sub_token: Mapped[str | None] = mapped_column(String(48), unique=True)
     # Usage already billed to a metered reseller (TEN-05).

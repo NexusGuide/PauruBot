@@ -73,6 +73,9 @@ class Customer(Base, TimestampMixin):
     # Staff markers (BOT-08): a colour to spot someone at a glance and a risk level that tightens rules.
     color: Mapped[str | None] = mapped_column(String(12))
     risk: Mapped[str] = mapped_column(String(8), default="none", server_default="none")
+    # Card to card (PAY-17): "normal", "trusted" (receipts approved at once) or "blocked".
+    card_trust: Mapped[str] = mapped_column(String(12), default="normal", server_default="normal")
+    alerts_muted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     last_seen_at: Mapped[datetime | None] = mapped_column()
     blocked_bot_at: Mapped[datetime | None] = mapped_column()
     # Loyalty (GRW-02): lifetime spend on completed orders and the tier discount it earns.

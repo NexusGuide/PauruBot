@@ -78,6 +78,12 @@ def languages(t: Texts, enabled: Sequence[str]) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
+def single(text: str, callback_data: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=text, callback_data=callback_data)]]
+    )
+
+
 def url_button(text: str, url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=text, url=url)]])
 
@@ -200,7 +206,8 @@ def wallet_kb(t: Texts, *, transfer: bool = False) -> InlineKeyboardMarkup:
     kb.button(text=t("btn_redeem_gift"), callback_data=Wallet(action="gift"))
     if transfer:
         kb.button(text=t("btn_transfer"), callback_data=Wallet(action="transfer"))
-    kb.adjust(2, 2)
+    kb.button(text=t("btn_my_codes"), callback_data=Wallet(action="codes"))
+    kb.adjust(2, 2, 1)
     return kb.as_markup()
 
 
@@ -227,7 +234,13 @@ def history_kb(t: Texts, before: int | None) -> InlineKeyboardMarkup:
 
 
 def services_kb(
-    t: Texts, items: Sequence[Service], page: int, has_next: bool, *, stock: bool = False
+    t: Texts,
+    items: Sequence[Service],
+    page: int,
+    has_next: bool,
+    *,
+    stock: bool = False,
+    muted: bool | None = None,
 ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for service in items:
@@ -251,6 +264,13 @@ def services_kb(
         kb.row(*nav)
     if stock:
         kb.row(InlineKeyboardButton(text=t("btn_stock"), callback_data=Svc(action="stock").pack()))
+    if muted is not None:
+        kb.row(
+            InlineKeyboardButton(
+                text=t("btn_alerts_on") if muted else t("btn_alerts_off"),
+                callback_data=Svc(action="mute").pack(),
+            )
+        )
     return kb.as_markup()
 
 
@@ -268,6 +288,8 @@ def service_kb(
     upgrade: bool,
     move: bool = False,
     card: bool = False,
+    cancel: bool = False,
+    link: str | None = None,
 ) -> InlineKeyboardMarkup:
     from paurubot.core.orders import can_change
 
@@ -293,7 +315,13 @@ def service_kb(
         kb.button(text=t("btn_revoke"), callback_data=Svc(action="revoke", id=sid))
     kb.button(text=t("btn_rename"), callback_data=Svc(action="rename", id=sid))
     kb.button(text=t("btn_report_problem"), callback_data=Svc(action="report", id=sid))
+    if cancel and not service.is_trial:
+        kb.button(text=t("btn_cancel_service"), callback_data=Svc(action="cancel", id=sid))
     kb.adjust(2)
+    if link:
+        from aiogram.types import CopyTextButton
+
+        kb.row(InlineKeyboardButton(text=t("btn_copy_link"), copy_text=CopyTextButton(text=link[:256])))
     kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Svc(action="list").pack()))
     return kb.as_markup()
 
@@ -355,3 +383,15 @@ def ticket_kb(t: Texts, ticket_id: int, closed: bool) -> InlineKeyboardMarkup:
     kb.button(text=t("btn_back"), callback_data=Ticket(action="list"))
     kb.adjust(2)
     return kb.as_markup()
+
+
+def copy_kb(items: Sequence[tuple[str, str]]) -> InlineKeyboardMarkup | None:
+    """One-tap copy buttons (Bot API copy_text): (label, value) pairs, empty values skipped."""
+    from aiogram.types import CopyTextButton
+
+    rows = [
+        [InlineKeyboardButton(text=label[:64], copy_text=CopyTextButton(text=str(value)[:256]))]
+        for label, value in items
+        if value
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None

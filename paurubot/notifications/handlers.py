@@ -17,6 +17,7 @@ from paurubot.core.formatting import esc, money, processing_key
 from paurubot.db.base import utcnow
 from paurubot.db.models import (
     Broadcast,
+    BroadcastPin,
     Customer,
     JobStatus,
     LogChannel,
@@ -402,6 +403,48 @@ async def receipt_review(session: AsyncSession, job: queue.Claimed) -> None:
     )
 
 
+async def card_verify(session: AsyncSession, job: queue.Claimed) -> None:
+    """A customer registered a card (PAY-18): its photo to staff with approve / reject."""
+    from paurubot.bot.callbacks import Admin
+    from paurubot.db.models import VerifiedCard
+
+    card = await session.get(VerifiedCard, int(job.payload["card_id"]))
+    if card is None or card.status != "pending":
+        return
+    customer = await session.get(Customer, card.customer_id)
+    shop = await session.get(Shop, card.shop_id)
+    if customer is None or shop is None:
+        return
+    t = await texts_for(session, shop.id, shop.default_locale)
+    caption = t(
+        "adm_card_verify",
+        customer=esc(customer.display_name),
+        telegram_id=customer.telegram_id,
+        card=esc(card.masked),
+    )
+    other_id = job.payload.get("other_customer_id")
+    if other_id:
+        other = await session.get(Customer, int(other_id))
+        if other is not None:
+            caption += "\n\n" + t(
+                "adm_card_verify_other", other=esc(other.display_name), telegram_id=other.telegram_id
+            )
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t("btn_approve"),
+                    callback_data=Admin(section="cardv", action="ok", id=card.id).pack(),
+                ),
+                InlineKeyboardButton(
+                    text=t("btn_reject"), callback_data=Admin(section="cardv", action="no", id=card.id).pack()
+                ),
+            ]
+        ]
+    )
+    await _to_staff(session, shop.id, "payments.review", caption, photo=card.photo_file_id, markup=markup)
+
+
 def _renew_markup(t: Texts, service_id: int) -> InlineKeyboardMarkup:
     from paurubot.bot.callbacks import Svc
 
@@ -428,8 +471,10 @@ async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
     customer = await session.get(Customer, service.customer_id)
     if customer is None:
         return
-    t = await _texts(session, customer)
     alert = str(job.payload["alert"])
+    if customer.alerts_muted and alert in {"low_volume", "expiring"}:
+        return  # the customer turned reminders off (SVC-15); endings are still told
+    t = await _texts(session, customer)
     name = esc(service.label or service.panel_username)
     params = {
         "name": name,
@@ -483,6 +528,13 @@ async def simple_customer(session: AsyncSession, job: queue.Claimed) -> None:
             "transfer_received",
             amount=money(int(job.payload["amount"])),
             name=esc(str(job.payload.get("name", ""))),
+        )
+    elif job.kind == "private_code":
+        text = t("private_code", code=esc(str(job.payload["code"])))
+    elif job.kind == "card_verify_result":
+        text = t(
+            "card_verify_approved" if job.payload.get("approved") else "card_verify_rejected",
+            card=esc(str(job.payload.get("card", ""))),
         )
     elif job.kind == "reseller_decision":
         text = t("reseller_approved" if job.payload.get("approved") else "reseller_rejected")
@@ -887,6 +939,9 @@ register_queue(
             "wallet_adjusted": simple_customer,
             "reseller_decision": simple_customer,
             "transfer_received": simple_customer,
+            "card_verify_result": simple_customer,
+            "private_code": simple_customer,
+            "card_verify": card_verify,
             "reseller_application": reseller_application,
             "ticket_new_message": ticket_new_message,
             "ticket_reply": ticket_reply,
@@ -903,11 +958,38 @@ BROADCAST_BATCH = 200
 BROADCAST_RATE = 25  # messages per second, under Telegram's global limit
 
 
-async def _pin(bot: Any, chat_id: int, message_id: int) -> None:
+async def _pin(bot: Any, chat_id: int, message_id: int) -> bool:
     try:
         await bot.pin_chat_message(chat_id, message_id, disable_notification=True)
     except Exception:  # a pin is a nicety; the message itself was delivered
         log.debug("could not pin broadcast in %s", chat_id)
+        return False
+    return True
+
+
+async def run_unpin(session: AsyncSession, job: queue.Claimed) -> None:
+    """Unpin broadcasts whose time is up, or all of a shop's with {"all": true} (GRW-06)."""
+    shop_id = job.shop_id
+    if shop_id is None:
+        raise Permanent("unpin without a shop")
+    bot = await telegram.bot_for(shop_id)
+    if bot is None:
+        return
+    stmt = select(BroadcastPin).where(BroadcastPin.shop_id == shop_id)
+    if not job.payload.get("all"):
+        stmt = stmt.where(BroadcastPin.unpin_at.is_not(None), BroadcastPin.unpin_at <= utcnow())
+    while True:
+        rows = list(await session.scalars(stmt.order_by(BroadcastPin.id).limit(BROADCAST_BATCH)))
+        if not rows:
+            break
+        for pin in rows:
+            try:
+                await bot.unpin_chat_message(pin.chat_id, message_id=pin.message_id)
+            except Exception:  # already unpinned, or the customer blocked the bot
+                log.debug("could not unpin %s in %s", pin.message_id, pin.chat_id)
+            await session.delete(pin)
+            await asyncio.sleep(1 / BROADCAST_RATE)
+        await session.commit()
 
 
 async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
@@ -927,10 +1009,14 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
             ]
         )
     pin = bool((row.audience or {}).get("pin"))
+    pin_hours = int((row.audience or {}).get("pin_hours") or 0)
+    forward = bool((row.audience or {}).get("forward"))
     if row.source_chat_id is not None and row.source_message_id is not None:
         source_chat, source_message = int(row.source_chat_id), int(row.source_message_id)
 
         def copier(chat_id: int) -> Callable[[], Awaitable[Any]]:
+            if forward:  # shows who sent it; buttons can't ride on a forward
+                return lambda: bot.forward_message(chat_id, source_chat, source_message)
             return lambda: bot.copy_message(chat_id, source_chat, source_message, reply_markup=markup)
     elif row.text:
         text = esc(row.text)
@@ -965,8 +1051,18 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
             try:
                 sent = await telegram.deliver(copier(chat_id))
                 row.sent += 1
-                if pin and sent is not None:
-                    await _pin(bot, chat_id, int(sent.message_id))
+                if pin and sent is not None and await _pin(bot, chat_id, int(sent.message_id)):
+                    from datetime import timedelta
+
+                    session.add(
+                        BroadcastPin(
+                            shop_id=row.shop_id,
+                            broadcast_id=row.id,
+                            chat_id=chat_id,
+                            message_id=int(sent.message_id),
+                            unpin_at=utcnow() + timedelta(hours=pin_hours) if pin_hours else None,
+                        )
+                    )
             except telegram.Undeliverable:
                 customer.blocked_bot_at = utcnow()
                 row.failed += 1
@@ -1006,6 +1102,17 @@ def audience_conditions(shop_id: int, kind: str = "all") -> list[Any]:
                     Service.status == ServiceStatus.ACTIVE, Service.is_trial.is_(False)
                 )
             )
+        )
+    elif kind == "inactive":
+        # Had a service, but none of them was used in the last week.
+        from datetime import timedelta
+
+        week_ago = utcnow() - timedelta(days=7)
+        conditions.append(
+            Customer.id.in_(select(Service.customer_id).where(Service.status != ServiceStatus.DELETED))
+        )
+        conditions.append(
+            Customer.id.not_in(select(Service.customer_id).where(Service.online_at >= week_ago))
         )
     elif kind == "never_bought":
         conditions.append(Customer.id.not_in(select(Service.customer_id).where(Service.is_trial.is_(False))))
@@ -1075,5 +1182,6 @@ async def run_mass_gift(session: AsyncSession, job: queue.Claimed) -> None:
 
 
 register_queue(
-    "broadcast", QueueSpec({"run": run_broadcast, "gift": run_mass_gift}, batch=1, lease_seconds=3600)
+    "broadcast",
+    QueueSpec({"run": run_broadcast, "gift": run_mass_gift, "unpin": run_unpin}, batch=1, lease_seconds=3600),
 )
