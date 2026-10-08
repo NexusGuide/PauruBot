@@ -49,3 +49,17 @@ Every important action (approving a receipt, changing a balance, changing settin
 ## Managing from the Mini App
 
 Staff whose account has a **Telegram ID** see a **Manage** entry under More in the bot's Mini App. It shows the dashboard figures their role allows, and finance, admin and owner accounts can approve or reject waiting receipts there, with the receipt picture and the same checks and [Audit log](/audit) entries as this panel. Resellers see their own services, purchases and wallet. Removing the Telegram ID from a staff account, or deactivating it, takes this away immediately.
+
+## Managing from the bot
+
+Staff with a Telegram ID get an admin button in the bot's menu. Each tool appears only for roles that have the permission for it, and every change goes into the [Audit log](/audit).
+
+- Customers: look up a customer by Telegram ID, @username or phone, or a service by its panel username or name. A customer's card opens its services (enable, disable, add 7 or 30 days or 10 or 50 GB, delete), a free service from any plan, a balance change, a message from support, its referrals, its reseller group and ban.
+- Plans and prices: hide or show a plan, change its price, or raise or lower every active plan's price by a percentage.
+- Panels: health and active services of each panel, and turning a panel off or on.
+- Money: sales, top-ups and new customers for today, 7 and 30 days, and an Excel file of orders for 7, 30 or 90 days.
+- Settings: the everyday payment, service, trial, reseller and timing settings. Everything else, and every secret, stays in this panel.
+- Gift to many: the same wallet gift for everyone, buyers, holders of an active service, those who never bought, or resellers. Each customer is paid once and told.
+- Broadcast: after sending the message, choose who gets it, add one link button and pin it in their chats.
+- System status (for roles that may change settings): the same checks as `paurubot doctor` (database, Redis, worker, queues, panels, backups, disk).
+- Backups (for roles that manage backups): the latest archives with a button to receive each one here, and a backup on demand. Restoring stays on the server, on purpose.

@@ -21,7 +21,7 @@ from paurubot.bot.context import StaffIdentity, forget_join_check
 from paurubot.bot.menu import main_menu
 from paurubot.bot.utils import Btn, show
 from paurubot.core import customers
-from paurubot.core.formatting import esc
+from paurubot.core.formatting import esc, money
 from paurubot.db.models import Customer, Shop
 from paurubot.i18n import Texts
 from paurubot.worker import queue
@@ -54,6 +54,7 @@ async def start(
 ) -> None:
     await state.clear()
     arg = (command.args or "").strip()
+    welcome_gift = 0
     if is_new_customer:
         if arg.startswith("ref_") and arg[4:].isdigit() and cfg["referral_enabled"]:
             referrer = await customers.set_referrer(session, customer, int(arg[4:]))
@@ -65,6 +66,16 @@ async def start(
                     {"customer_id": referrer.id, "name": customer.display_name},
                     shop_id=shop.id,
                 )
+        gift = int(cfg["start_gift_amount"] or 0)
+        if gift > 0 and (customer.referrer_id or not cfg["start_gift_referred_only"]):
+            from paurubot.ledger import wallet
+
+            # A welcome gift (GRW-09): once per customer, even if /start is pressed again.
+            posted = await wallet.reward(
+                session, shop.id, customer.id, gift, key=f"start_gift:{customer.id}", memo="welcome gift"
+            )
+            if posted.created:
+                welcome_gift = gift
         await queue.enqueue(
             session,
             "notify",
@@ -97,6 +108,8 @@ async def start(
         await home(message, t, cfg, staff, "payment_return_failed")
         return
     await home(message, t, cfg, staff)
+    if welcome_gift:
+        await message.answer(t("start_gift", amount=money(welcome_gift)))
 
 
 @router.message(Command("cancel"))
