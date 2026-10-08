@@ -68,3 +68,11 @@ class Rs(CallbackData, prefix="rs"):
     id: int = 0
     page: int = 0
     value: int = 0
+
+
+class Acc(CallbackData, prefix="acc"):
+    """Panel admin accounts (TEN-14)."""
+
+    action: str
+    id: int = 0
+    value: int = 0

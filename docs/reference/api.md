@@ -8,6 +8,11 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 
 | Method | Path | Access | What it does |
 |---|---|---|---|
+| GET | `/api/admin/account-plans/roles/{panel_id}` | `resellers.manage` | Admin roles on a PasarGuard panel a plan can give. |
+| DELETE | `/api/admin/account-plans/{row_id}` | `resellers.manage` | Archived, never deleted: sold accounts keep pointing at their plan. |
+| PUT | `/api/admin/account-plans/{row_id}` | `resellers.manage` | Update account plan |
+| GET | `/api/admin/account-plans` | `resellers.manage` | Account plans |
+| POST | `/api/admin/account-plans` | `resellers.manage` | Create account plan |
 | GET | `/api/admin/audit` | `audit.read` | Audit log |
 | GET | `/api/admin/backups/{name}` | `backups.manage` | Download backup |
 | GET | `/api/admin/backups` | `backups.manage` | List backups |
@@ -64,6 +69,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/my/billing` | `dashboard.view` | My billing |
 | POST | `/api/admin/orders/{order_id}/refund` | `payments.refund` | Return a completed or failed order's money to the wallet (NEW-04). The service is not touched. |
 | GET | `/api/admin/orders` | `orders.read` | List orders |
+| POST | `/api/admin/panel-accounts/{row_id}/{action}` | `resellers.manage` | Act on panel account |
+| GET | `/api/admin/panel-accounts` | `resellers.manage` | List panel accounts |
 | POST | `/api/admin/panels/certificate` | `panels.secrets` | Inspect certificate |
 | GET | `/api/admin/panels/{panel_id}/admins` | `panels.write` | The panel's admins and how many users each one owns. |
 | POST | `/api/admin/panels/{panel_id}/check` | `panels.read` | Run one monitoring probe right away and return the fresh figures (PNL-12, PNL-13). |

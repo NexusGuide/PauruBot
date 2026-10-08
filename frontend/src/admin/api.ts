@@ -513,3 +513,40 @@ export interface SalesReport {
 }
 
 export { ApiError };
+
+export interface AccountPlan {
+  id: number;
+  panel_id: number;
+  title: string;
+  description: string | null;
+  role_id: number;
+  data_gb: number;
+  max_users: number | null;
+  days: number;
+  price: number;
+  gb_price: number;
+  user_price: number;
+  sort: number;
+  is_active: boolean;
+}
+
+export interface PanelAccountRow {
+  id: number;
+  customer_id: number;
+  customer: string | null;
+  telegram_id: number | null;
+  panel_id: number;
+  panel: string | null;
+  plan_id: number | null;
+  plan: string | null;
+  username: string;
+  data_limit: number;
+  max_users: number | null;
+  expire_at: string | null;
+  status: "active" | "paused" | "expired" | "deleted";
+  used_bytes: number;
+  users_count: number;
+  panel_status: string | null;
+  synced_at: string | null;
+  created_at: string;
+}

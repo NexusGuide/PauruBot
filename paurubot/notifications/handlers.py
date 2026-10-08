@@ -239,6 +239,75 @@ async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
     )
 
 
+async def account_ready(session: AsyncSession, job: queue.Claimed) -> None:
+    """A panel admin account order finished (TEN-14): the card, and the login on a purchase."""
+    from paurubot.bot.routers.accounts import account_kb, account_text
+    from paurubot.core import panel_accounts
+    from paurubot.db.models import PanelAccount
+
+    order = await session.get(Order, int(job.payload["order_id"]))
+    account = await session.get(PanelAccount, int(job.payload["account_id"]))
+    if order is None or account is None:
+        return
+    customer = await session.get(Customer, account.customer_id)
+    if customer is None:
+        return
+    t = await _texts(session, customer)
+    heading = t("acc_ready" if order.kind == OrderKind.ACCOUNT_PURCHASE else "acc_updated")
+    await _to_customer(
+        session, customer, heading + "\n\n" + account_text(t, account), reply_markup=account_kb(t, account)
+    )
+    if order.kind == OrderKind.ACCOUNT_PURCHASE:
+        await _to_customer(
+            session,
+            customer,
+            t(
+                "acc_login",
+                url=esc(panel_accounts.login_url(account)),
+                username=esc(account.username),
+                password=esc(panel_accounts.password_of(account)),
+            ),
+            protect_content=True,
+        )
+    await report(
+        session,
+        order.shop_id,
+        "orders",
+        t(
+            "report_order",
+            kind=t(f"order_kind_{order.kind.value}"),
+            customer=esc(customer.display_name),
+            telegram_id=customer.telegram_id,
+            amount=money(order.amount),
+            username=esc(account.username),
+        ),
+    )
+
+
+async def account_alert(session: AsyncSession, job: queue.Claimed) -> None:
+    from paurubot.bot.callbacks import Acc
+    from paurubot.db.models import PanelAccount
+
+    account = await session.get(PanelAccount, int(job.payload["account_id"]))
+    if account is None:
+        return
+    customer = await session.get(Customer, account.customer_id)
+    if customer is None:
+        return
+    t = await _texts(session, customer)
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t("acc_btn_open"), callback_data=Acc(action="view", id=account.id).pack()
+                )
+            ]
+        ]
+    )
+    key = str(job.payload["alert"])
+    await _to_customer(session, customer, t(key, username=esc(account.username)), reply_markup=markup)
+
+
 async def order_failed(session: AsyncSession, job: queue.Claimed) -> None:
     order = await session.get(Order, int(job.payload["order_id"]))
     if order is None:
@@ -794,6 +863,8 @@ register_queue(
             "panel_alert": panel_alert,
             "job_dead": job_dead,
             "order_completed": order_completed,
+            "account_ready": account_ready,
+            "account_alert": account_alert,
             "order_failed": order_failed,
             "payment_fulfilled": payment_fulfilled,
             "payment_rejected": payment_rejected,

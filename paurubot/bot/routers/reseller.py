@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.bot import keyboards
-from paurubot.bot.callbacks import Rs, Shop, Svc, Wallet
+from paurubot.bot.callbacks import Acc, Rs, Shop, Svc, Wallet
 from paurubot.bot.routers.start import menu
 from paurubot.bot.states import ResellerStates
 from paurubot.bot.utils import show
@@ -67,7 +67,7 @@ async def hub_text(session: AsyncSession, customer: Customer, profile: ResellerP
     return "\n".join(lines)
 
 
-def hub_kb(t: Texts, profile: ResellerProfile) -> InlineKeyboardMarkup:
+def hub_kb(t: Texts, profile: ResellerProfile, *, accounts: bool = False) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text=t("rs_btn_sell"), callback_data=Shop(step="start"))
     kb.button(text=t("rs_btn_search"), callback_data=Rs(action="search"))
@@ -77,6 +77,8 @@ def hub_kb(t: Texts, profile: ResellerProfile) -> InlineKeyboardMarkup:
     kb.button(text=t("rs_btn_services"), callback_data=Svc(action="list"))
     if profile.parent_id is None and "resellers.sub" in (profile.permissions or []):
         kb.button(text=t("rs_btn_subs"), callback_data=Rs(action="subs"))
+    if accounts:
+        kb.button(text=t("rs_btn_accounts"), callback_data=Acc(action="home"))
     kb.adjust(2)
     return kb.as_markup()
 
@@ -91,7 +93,10 @@ async def show_hub(
     profile = current(customer)
     if profile is None:
         return False
-    await show(event, await hub_text(session, customer, profile, t), hub_kb(t, profile))
+    from paurubot.core import panel_accounts
+
+    accounts = await panel_accounts.available(session, customer)
+    await show(event, await hub_text(session, customer, profile, t), hub_kb(t, profile, accounts=accounts))
     return True
 
 

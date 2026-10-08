@@ -12,6 +12,7 @@ from aiogram.types import BotCommand, CallbackQuery, Message
 from paurubot.bot.context import ContextMiddleware, GateMiddleware, StaffIdentity
 from paurubot.bot.routers import (
     account,
+    accounts,
     admin,
     business,
     growth,
@@ -72,6 +73,7 @@ def build_dispatcher(storage: BaseStorage | None = None, shop_id: int | None = N
         services.router,
         wallet.router,
         reseller.router,
+        accounts.router,
         account.router,
         growth.router,
         fallback,
