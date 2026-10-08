@@ -529,6 +529,17 @@ async def reseller_billing() -> None:
         log.info("billed %s metered resellers", billed)
 
 
+@every(600, "accounts.sync")
+async def sync_panel_accounts() -> None:
+    """Usage, alerts and expiry for sold panel admin accounts (TEN-14)."""
+    from paurubot.core import panel_accounts
+
+    async with session_scope() as session:
+        synced = await panel_accounts.run(session)
+    if synced:
+        log.info("synced %s panel admin accounts", synced)
+
+
 @every(120, "panels.monitor")
 async def monitor_panels() -> None:
     """Uptime probes, live stats and node / quota alerts for every active panel (PNL-12)."""

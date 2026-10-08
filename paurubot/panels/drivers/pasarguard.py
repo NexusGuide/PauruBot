@@ -215,6 +215,76 @@ class PasarGuardDriver(TokenApiDriver):
     async def revoke_subscription(self, ref: PanelRef) -> PanelUser:
         return self.parse_user(await self._user_call("POST", ref, "/revoke_sub"))
 
+    # --- panel admin accounts sold to customers (TEN-14) ----------------------------------
+
+    async def admin_roles(self) -> list[PanelOption]:
+        """Roles a sold admin account can get."""
+        data: Any = None
+        for path in ("/api/admin-roles/simple", "/api/admin-roles"):
+            try:
+                data = await self.call("GET", path)
+                break
+            except PanelNotFound:
+                continue
+        rows = data.get("roles", []) if isinstance(data, dict) else data or []
+        return [
+            PanelOption(id=str(r["id"]), title=str(r.get("name") or r["id"]))
+            for r in rows
+            if isinstance(r, dict) and r.get("id") is not None and not r.get("is_owner")
+        ]
+
+    async def get_admin(self, username: str) -> dict[str, Any] | None:
+        data = await self.call("GET", "/api/admins", params={"usernames": username})
+        rows = data.get("admins", []) if isinstance(data, dict) else data or []
+        return next((r for r in rows if isinstance(r, dict) and r.get("username") == username), None)
+
+    async def create_admin(
+        self,
+        username: str,
+        password: str,
+        *,
+        role_id: int,
+        data_limit: int,
+        max_users: int | None,
+        telegram_id: int | None,
+        note: str = "",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "username": username,
+            "password": password,
+            "role_id": int(role_id),
+            "note": note[:500],
+        }
+        if data_limit > 0:
+            payload["data_limit"] = int(data_limit)
+        if max_users:
+            payload["permission_overrides"] = {"max_users": int(max_users)}
+        if telegram_id and telegram_id > 0:
+            payload["telegram_id"] = int(telegram_id)
+        return as_dict(await self.call("POST", "/api/admin", json=payload))
+
+    async def modify_admin(self, username: str, **fields: Any) -> dict[str, Any]:
+        """`data_limit`, `status` (active/disabled), `password`, `max_users`."""
+        payload: dict[str, Any] = {k: v for k, v in fields.items() if k != "max_users"}
+        if "max_users" in fields:
+            current = await self.get_admin(username)
+            overrides = as_dict((current or {}).get("permission_overrides"))
+            payload["permission_overrides"] = {**overrides, "max_users": fields["max_users"]}
+        return as_dict(await self.call("PUT", f"/api/admin/{seg(username)}", json=payload))
+
+    async def reset_admin_usage(self, username: str) -> None:
+        await self.call("POST", f"/api/admin/{seg(username)}/reset")
+
+    async def set_admin_users(self, username: str, enabled: bool) -> None:
+        action = "activate" if enabled else "disable"
+        await self.call("POST", f"/api/admin/{seg(username)}/users/{action}")
+
+    async def delete_admin(self, username: str) -> None:
+        try:
+            await self.call("DELETE", f"/api/admin/{seg(username)}")
+        except PanelNotFound:
+            return
+
     # --- admin views (PNL-01) ----------------------------------------------
 
     async def admin_read(self, resource: str, params: dict[str, Any] | None = None) -> Any:

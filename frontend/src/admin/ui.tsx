@@ -476,6 +476,7 @@ const STATUS_TONES: Record<string, BadgeTone> = {
   running: "brand",
   processing: "brand",
   on_hold: "wait",
+  paused: "wait",
   limited: "wait",
   created: "neutral",
   closed: "neutral",

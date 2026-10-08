@@ -198,6 +198,8 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `bulk_buy_enabled` | bool | true | Bulk buying. A Buy several button at checkout creates many services of one plan in one payment |
 | `bulk_buy_max` | int | 20 | Most services per bulk purchase |
 | `bulk_buy_resellers_only` | bool | true | Bulk buying for resellers only |
+| `panel_accounts_enabled` | bool | false | Sell PasarGuard admin accounts |
+| `panel_accounts_resellers_only` | bool | false | Admin accounts for resellers only |
 
 ## Reports
 

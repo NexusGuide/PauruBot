@@ -175,6 +175,8 @@ SPECS: dict[str, Spec] = {
     "bulk_buy_enabled": Spec(bool, True, "resellers"),
     "bulk_buy_max": Spec(int, 20, "resellers"),
     "bulk_buy_resellers_only": Spec(bool, True, "resellers"),
+    "panel_accounts_enabled": Spec(bool, False, "resellers"),
+    "panel_accounts_resellers_only": Spec(bool, False, "resellers"),
     # reports
     "daily_report_hour": Spec(int, 23, "reports"),
     "log_retention_days": Spec(int, 30, "reports"),

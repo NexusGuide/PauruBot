@@ -113,6 +113,58 @@ class Plan(Base, UpdatedMixin):
     panel: Mapped[Panel | None] = relationship(lazy="selectin")
 
 
+class AccountPlan(Base, UpdatedMixin):
+    """A panel admin account for sale (TEN-14): a PasarGuard admin with a role, a traffic quota, a
+    user cap and a period. The buyer creates and manages its own users in the panel."""
+
+    __tablename__ = "account_plans"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"), index=True)
+    panel_id: Mapped[int] = mapped_column(ForeignKey("panels.id", ondelete="CASCADE"))
+    title: Mapped[str] = mapped_column(String(96))
+    description: Mapped[str | None] = mapped_column(Text)
+    role_id: Mapped[int] = mapped_column(Integer)
+    data_gb: Mapped[int] = mapped_column(Integer, default=0)  # 0: no traffic quota
+    max_users: Mapped[int | None] = mapped_column(Integer)  # None: the role's own limit
+    days: Mapped[int] = mapped_column(Integer, default=30)  # 0: no end date
+    price: Mapped[int] = mapped_column(default=0)
+    gb_price: Mapped[int] = mapped_column(default=0)  # one extra GB; 0: not sold
+    user_price: Mapped[int] = mapped_column(default=0)  # one extra user slot; 0: not sold
+    sort: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    panel: Mapped[Panel | None] = relationship(lazy="selectin")
+
+
+class PanelAccount(Base, UpdatedMixin):
+    """A panel admin account sold to a customer (TEN-14)."""
+
+    __tablename__ = "panel_accounts"
+    __table_args__ = (UniqueConstraint("panel_id", "username"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"), index=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id", ondelete="CASCADE"), index=True)
+    panel_id: Mapped[int] = mapped_column(ForeignKey("panels.id", ondelete="CASCADE"))
+    plan_id: Mapped[int | None] = mapped_column(ForeignKey("account_plans.id", ondelete="SET NULL"))
+    username: Mapped[str] = mapped_column(String(64))
+    password_enc: Mapped[str] = mapped_column(Text)
+    data_limit: Mapped[int] = mapped_column(default=0)  # bytes; 0: no quota
+    max_users: Mapped[int | None] = mapped_column(Integer)
+    expire_at: Mapped[datetime | None] = mapped_column()
+    # active | paused (by its owner) | expired | deleted
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    used_bytes: Mapped[int] = mapped_column(default=0)
+    users_count: Mapped[int] = mapped_column(Integer, default=0)
+    panel_status: Mapped[str | None] = mapped_column(String(16))
+    alerts_sent: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    synced_at: Mapped[datetime | None] = mapped_column()
+
+    panel: Mapped[Panel | None] = relationship(lazy="selectin")
+    plan: Mapped[AccountPlan | None] = relationship(lazy="selectin")
+
+
 class StockItem(Base, TimestampMixin):
     """One ready-made config sold as-is (CAT-05). The payload is stored encrypted."""
 
