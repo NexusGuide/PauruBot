@@ -1,11 +1,12 @@
-"""Order pricing: reseller discounts, discount codes and sticky discounts (GRW-05)."""
+"""Order pricing: reseller discounts and fixed reseller prices (TEN-12), discount codes and sticky
+discounts (GRW-05)."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import false, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.db.models import (
@@ -15,6 +16,8 @@ from paurubot.db.models import (
     DiscountRedemption,
     Order,
     OrderStatus,
+    ResellerPrice,
+    ResellerProfile,
     StickyDiscount,
 )
 
@@ -67,6 +70,56 @@ def quote(base_price: int, customer: Customer | None, code: DiscountCode | None 
     after_reseller = round_price(base_price * (100 - percent) / 100) if percent else base_price
     off = code_discount_amount(code, after_reseller) if code else 0
     return Quote(base_price, base_price - after_reseller, off, max(0, after_reseller - off), code)
+
+
+async def fixed_reseller_price(
+    session: AsyncSession, profile: ResellerProfile | None, plan_id: int | None
+) -> int | None:
+    """The fixed price a reseller pays for a plan: its own price, else its group's (TEN-12).
+
+    A level-2 reseller is priced by its level-1 reseller's discount, so only its own price counts.
+    """
+    if profile is None or not profile.is_current or plan_id is None:
+        return None
+    use_group = profile.parent_id is None and profile.group is not None and profile.group.is_active
+    rows = (
+        await session.execute(
+            select(ResellerPrice.profile_id, ResellerPrice.price).where(
+                ResellerPrice.plan_id == plan_id,
+                or_(
+                    ResellerPrice.profile_id == profile.id,
+                    (ResellerPrice.group_id == profile.group_id) if use_group else false(),
+                ),
+            )
+        )
+    ).all()
+    own = next((int(price) for owner, price in rows if owner is not None), None)
+    group = next((int(price) for owner, price in rows if owner is None), None)
+    return own if own is not None else group
+
+
+async def plan_quote(
+    session: AsyncSession,
+    customer: Customer | None,
+    plan_id: int | None,
+    base_price: int,
+    code: DiscountCode | None = None,
+) -> Quote:
+    """`quote` for a plan, with fixed reseller prices. A level-2 reseller never pays less than its
+    level-1 reseller does, so the level-1 margin can't turn negative."""
+    profile = customer.reseller_profile if customer is not None else None
+    fixed = await fixed_reseller_price(session, profile, plan_id)
+    standard = quote(base_price, customer, None)
+    after = fixed if fixed is not None else standard.amount
+    if profile is not None and profile.is_current and profile.parent_id is not None:
+        parent = await session.get(ResellerProfile, profile.parent_id)
+        if parent is not None and parent.is_current:
+            parent_customer = await session.get(Customer, parent.customer_id)
+            floor = (await plan_quote(session, parent_customer, plan_id, base_price)).amount
+            after = max(after, floor)
+    base = max(int(base_price), after)
+    off = code_discount_amount(code, after) if code else 0
+    return Quote(base, base - after, off, max(0, after - off), code)
 
 
 async def find_code(session: AsyncSession, shop_id: int, text: str) -> DiscountCode | None:

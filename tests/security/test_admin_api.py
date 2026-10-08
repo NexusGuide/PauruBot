@@ -139,6 +139,7 @@ def endpoints(env: Env) -> list[tuple[str, str, str, Any]]:
         ("audit.read", "GET", "/api/admin/audit", None),
         ("staff.manage", "GET", "/api/admin/staff", None),
         ("resellers.manage", "GET", "/api/admin/resellers", None),
+        ("resellers.manage", "GET", "/api/admin/reseller-prices", None),
         ("backups.manage", "GET", "/api/admin/backups", None),
         ("resellers.sub", "GET", "/api/admin/sub-resellers", None),
     ]
@@ -360,3 +361,31 @@ async def test_reseller_writes_to_the_shop_from_the_panel(http, env) -> None:  #
     ).status_code == 200
     detail = (await owner.call("GET", f"/api/admin/tickets/{ticket_id}")).json()
     assert detail["messages"][-1]["author_type"] == "staff"
+
+
+async def test_reseller_prices_and_hidden_panels_stay_in_the_shop(session, env: Env, http) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import ResellerGroup, ResellerPrice
+
+    plan = await factories.plan(session, env.shop, env.panel, price=100_000)
+    other_plan = await factories.plan(session, env.other_shop, env.other_panel, price=100_000)
+    group = ResellerGroup(shop_id=env.shop.id, title="G", discount_percent=5)
+    session.add(group)
+    await session.commit()
+    owner = await login(http, "u_owner")
+    path = "/api/admin/reseller-prices"
+    ok = await owner.call("PUT", path, {"plan_id": plan.id, "group_id": group.id, "price": 80_000})
+    assert ok.status_code == 200 and ok.json()["item"]["price"] == 80_000
+    again = await owner.call("PUT", path, {"plan_id": plan.id, "group_id": group.id, "price": 75_000})
+    assert again.json()["item"]["price"] == 75_000
+    rows = list(await session.scalars(select(ResellerPrice).where(ResellerPrice.plan_id == plan.id)))
+    assert [r.price for r in rows] == [75_000]
+    assert (await owner.call("PUT", path, {"plan_id": plan.id, "price": 1})).status_code == 422
+    foreign = await owner.call("PUT", path, {"plan_id": other_plan.id, "group_id": group.id, "price": 1})
+    assert foreign.status_code == 404
+    cleared = await owner.call("PUT", path, {"plan_id": plan.id, "group_id": group.id, "price": None})
+    assert cleared.json()["item"] is None
+    body = {"title": "G", "discount_percent": 5, "hidden_panel_ids": [env.other_panel.id]}
+    assert (await owner.call("PUT", f"/api/admin/reseller-groups/{group.id}", body)).status_code == 404
+    body["hidden_panel_ids"] = [env.panel.id]
+    saved = await owner.call("PUT", f"/api/admin/reseller-groups/{group.id}", body)
+    assert saved.json()["hidden_panel_ids"] == [env.panel.id]

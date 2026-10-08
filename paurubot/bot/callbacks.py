@@ -59,3 +59,12 @@ class Admin(CallbackData, prefix="a"):
 
 class Lang(CallbackData, prefix="l"):
     code: str
+
+
+class Rs(CallbackData, prefix="rs"):
+    """The reseller's own panel in the bot (TEN-13)."""
+
+    action: str
+    id: int = 0
+    page: int = 0
+    value: int = 0

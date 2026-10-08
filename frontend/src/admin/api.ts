@@ -342,6 +342,15 @@ export interface ResellerGroup {
   min_topup: number;
   max_active_services: number | null;
   is_active: boolean;
+  hidden_panel_ids: number[];
+}
+
+export interface ResellerPrice {
+  id: number;
+  plan_id: number;
+  group_id: number | null;
+  profile_id: number | null;
+  price: number;
 }
 
 export interface ResellerProfile {

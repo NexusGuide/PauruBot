@@ -187,7 +187,7 @@ async def draft(
         move_to=move_to,
     )
     if shop_resale is not None:
-        cost = resale.wholesale(shop_resale, d.base_price)
+        cost = await resale.wholesale(session, shop_resale, plan.id if plan else None, d.base_price)
         if cost <= 0:
             raise OrderError("plan_unavailable")  # nothing for the reseller to pay means nothing to resell
         d.params.update(wholesale=cost, resale_profile=shop_resale.profile.id)
@@ -323,7 +323,10 @@ async def create(
         await pricing.validate_code(
             session, code, customer, plan_id=d.plan.id if d.plan else None, amount=d.base_price
         )
-    q = pricing.quote(d.base_price, customer, code)
+    if d.plan is not None and d.kind in {OrderKind.PURCHASE, OrderKind.RENEW}:
+        q = await pricing.plan_quote(session, customer, d.plan.id, d.base_price, code)  # TEN-12
+    else:
+        q = pricing.quote(d.base_price, customer, code)
     if code is None and resellers.metered(customer):
         # Metered resellers pay for usage or service-hours instead of per order (TEN-05).
         q = pricing.Quote(d.base_price, d.base_price, 0, 0)

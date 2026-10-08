@@ -95,7 +95,7 @@ async def _priced_view(ctx: Any, plan: Plan) -> dict[str, Any]:
     from paurubot.core import resale
 
     listed = await resale.list_price(ctx.session, plan, ctx.shop.id)
-    view = plan_view(plan, pricing.quote(listed, ctx.customer).amount)
+    view = plan_view(plan, (await pricing.plan_quote(ctx.session, ctx.customer, plan.id, listed)).amount)
     view["base_price"] = listed
     return view
 

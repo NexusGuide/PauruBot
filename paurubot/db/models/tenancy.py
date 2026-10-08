@@ -3,7 +3,19 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, BigInteger, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from paurubot.db.base import Base, TimestampMixin, UpdatedMixin, str_enum
@@ -135,6 +147,43 @@ class ResellerGroup(Base, TimestampMixin):
     min_topup: Mapped[int] = mapped_column(default=0)
     max_active_services: Mapped[int | None] = mapped_column(Integer)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Panels whose plans this group's resellers never see (TEN-12).
+    hidden_panel_ids: Mapped[list[int]] = mapped_column(JSON, default=list, server_default="[]")
+
+
+class ResellerPrice(Base, TimestampMixin):
+    """A fixed reseller price for one plan: for a whole group or for one reseller (TEN-12).
+
+    One reseller's own price beats its group's, which beats the group's percentage discount.
+    """
+
+    __tablename__ = "reseller_prices"
+    __table_args__ = (
+        # NULLs never collide in a unique constraint: one partial index per kind of owner.
+        Index(
+            "uq_reseller_prices_plan_group",
+            "plan_id",
+            "group_id",
+            unique=True,
+            postgresql_where=text("group_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_reseller_prices_plan_profile",
+            "plan_id",
+            "profile_id",
+            unique=True,
+            postgresql_where=text("profile_id IS NOT NULL"),
+        ),
+        CheckConstraint("(group_id IS NULL) <> (profile_id IS NULL)", name="one_owner"),
+        CheckConstraint("price > 0", name="positive"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"), index=True)
+    plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id", ondelete="CASCADE"))
+    group_id: Mapped[int | None] = mapped_column(ForeignKey("reseller_groups.id", ondelete="CASCADE"))
+    profile_id: Mapped[int | None] = mapped_column(ForeignKey("reseller_profiles.id", ondelete="CASCADE"))
+    price: Mapped[int] = mapped_column()
 
 
 class ResellerProfile(Base, TimestampMixin):

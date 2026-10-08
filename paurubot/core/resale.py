@@ -79,9 +79,10 @@ async def for_shop(session: AsyncSession, shop_id: int) -> Resale | None:
     return Resale(shop, shop.parent_id, profile, reseller, markup, prices)
 
 
-def wholesale(resale: Resale, base_price: int) -> int:
-    """What the reseller pays for something listed at `base_price` in the parent shop."""
-    return pricing.quote(base_price, resale.reseller).amount
+async def wholesale(session: AsyncSession, resale: Resale, plan_id: int | None, base_price: int) -> int:
+    """What the reseller pays for something listed at `base_price` in the parent shop, its fixed
+    reseller price included (TEN-12)."""
+    return (await pricing.plan_quote(session, resale.reseller, plan_id, base_price)).amount
 
 
 def retail(resale: Resale, plan_id: int | None, cost: int) -> int:
@@ -96,7 +97,7 @@ async def list_price(session: AsyncSession, plan: Plan, shop_id: int) -> int:
     resale = await for_shop(session, shop_id)
     if resale is None:
         return int(plan.price)
-    return retail(resale, plan.id, wholesale(resale, int(plan.price)))
+    return retail(resale, plan.id, await wholesale(session, resale, plan.id, int(plan.price)))
 
 
 def validate_prices(value: Any) -> dict[str, int]:

@@ -1480,5 +1480,11 @@
   "err_resale_setting_unknown": "That setting can't be changed here.",
   "my_bot_blocked": "The shop's staff stopped your bot. Ask them to allow it again before connecting.",
   "my_bot_allow": "Allow connecting again",
-  "err_reseller_bot_blocked": "The shop's staff stopped this bot; they need to allow it first."
+  "err_reseller_bot_blocked": "The shop's staff stopped this bot; they need to allow it first.",
+  "hidden_panels": "Hidden panels",
+  "hidden_panels_hint": "This group's resellers neither see nor buy plans on these panels.",
+  "reseller_prices": "Fixed reseller prices",
+  "reseller_prices_hint": "Set a price per plan; empty means the percentage discount applies. A reseller's own price beats its group's.",
+  "reseller_prices_after_save": "Save the group first, then set fixed prices per plan.",
+  "save_prices": "Save prices"
 }
