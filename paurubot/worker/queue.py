@@ -108,6 +108,13 @@ async def complete(session: AsyncSession, job: Claimed) -> bool:
     return bool(affected(result))
 
 
+async def update_payload(session: AsyncSession, job: Claimed, payload: dict[str, Any]) -> None:
+    """Save progress of a long job, so a retry continues where it stopped."""
+    await session.execute(
+        update(Job).where(Job.id == job.id, Job.claim_token == job.token).values(payload=payload)
+    )
+
+
 def backoff(attempt: int, base: float = 15.0, cap: float = 3600.0) -> float:
     delay = min(cap, base * (2 ** max(0, attempt - 1)))
     return delay * random.uniform(0.8, 1.2)

@@ -441,6 +441,11 @@ async def fulfill(session: AsyncSession, order_id: int) -> Service | None:
             await session.commit()
     except resale.ResaleError as exc:
         raise ProvisionError(exc.key) from exc
+    from paurubot.core import panel_accounts
+
+    if order.kind in panel_accounts.KINDS:
+        await _apply_account(session, order)
+        return None
     plan = await session.get(Plan, order.plan_id) if order.plan_id else None
     if order.kind == OrderKind.PURCHASE and plan is not None and plan.delivery == "stock":
         await _deliver_stock(session, order)
@@ -476,6 +481,32 @@ async def fulfill(session: AsyncSession, order_id: int) -> Service | None:
         )
     await session.commit()
     return service
+
+
+async def _apply_account(session: AsyncSession, order: Order) -> None:
+    """A panel admin account order (TEN-14): no service, and no level-1 commission since
+    account plans carry no reseller discount."""
+    from paurubot.core import panel_accounts
+    from paurubot.provisioning.rewards import reward_referrer
+    from paurubot.worker import queue
+
+    try:
+        account = await panel_accounts.apply(session, order)
+    except panel_accounts.ProvisionError as exc:
+        raise ProvisionError(str(exc)) from exc
+    order.status = OrderStatus.COMPLETED
+    order.completed_at = utcnow()
+    await reward_referrer(session, order)
+    await after_sale(session, order)
+    await queue.enqueue(
+        session,
+        "notify",
+        "account_ready",
+        {"order_id": order.id, "account_id": account.id},
+        shop_id=order.shop_id,
+        dedupe_key=f"order:{order.id}:notify",
+    )
+    await session.commit()
 
 
 async def _deliver_stock(session: AsyncSession, order: Order) -> None:

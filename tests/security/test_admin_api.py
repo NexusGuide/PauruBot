@@ -139,6 +139,10 @@ def endpoints(env: Env) -> list[tuple[str, str, str, Any]]:
         ("audit.read", "GET", "/api/admin/audit", None),
         ("staff.manage", "GET", "/api/admin/staff", None),
         ("resellers.manage", "GET", "/api/admin/resellers", None),
+        ("resellers.manage", "GET", "/api/admin/reseller-prices", None),
+        ("resellers.manage", "GET", "/api/admin/account-plans", None),
+        ("services.create", "GET", "/api/admin/desk", None),
+        ("resellers.manage", "GET", "/api/admin/panel-accounts", None),
         ("backups.manage", "GET", "/api/admin/backups", None),
         ("resellers.sub", "GET", "/api/admin/sub-resellers", None),
     ]
@@ -360,3 +364,67 @@ async def test_reseller_writes_to_the_shop_from_the_panel(http, env) -> None:  #
     ).status_code == 200
     detail = (await owner.call("GET", f"/api/admin/tickets/{ticket_id}")).json()
     assert detail["messages"][-1]["author_type"] == "staff"
+
+
+async def test_reseller_prices_and_hidden_panels_stay_in_the_shop(session, env: Env, http) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import ResellerGroup, ResellerPrice
+
+    plan = await factories.plan(session, env.shop, env.panel, price=100_000)
+    other_plan = await factories.plan(session, env.other_shop, env.other_panel, price=100_000)
+    group = ResellerGroup(shop_id=env.shop.id, title="G", discount_percent=5)
+    session.add(group)
+    await session.commit()
+    owner = await login(http, "u_owner")
+    path = "/api/admin/reseller-prices"
+    ok = await owner.call("PUT", path, {"plan_id": plan.id, "group_id": group.id, "price": 80_000})
+    assert ok.status_code == 200 and ok.json()["item"]["price"] == 80_000
+    again = await owner.call("PUT", path, {"plan_id": plan.id, "group_id": group.id, "price": 75_000})
+    assert again.json()["item"]["price"] == 75_000
+    rows = list(await session.scalars(select(ResellerPrice).where(ResellerPrice.plan_id == plan.id)))
+    assert [r.price for r in rows] == [75_000]
+    assert (await owner.call("PUT", path, {"plan_id": plan.id, "price": 1})).status_code == 422
+    foreign = await owner.call("PUT", path, {"plan_id": other_plan.id, "group_id": group.id, "price": 1})
+    assert foreign.status_code == 404
+    cleared = await owner.call("PUT", path, {"plan_id": plan.id, "group_id": group.id, "price": None})
+    assert cleared.json()["item"] is None
+    body = {"title": "G", "discount_percent": 5, "hidden_panel_ids": [env.other_panel.id]}
+    assert (await owner.call("PUT", f"/api/admin/reseller-groups/{group.id}", body)).status_code == 404
+    body["hidden_panel_ids"] = [env.panel.id]
+    saved = await owner.call("PUT", f"/api/admin/reseller-groups/{group.id}", body)
+    assert saved.json()["hidden_panel_ids"] == [env.panel.id]
+
+
+async def test_account_plans_and_sold_accounts_stay_in_the_shop(session, env: Env, http) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import AccountPlan, PanelAccount, PanelKind
+
+    pasarguard = await factories.panel(session, env.shop, PanelKind.PASARGUARD)
+    other_pg = await factories.panel(session, env.other_shop, PanelKind.PASARGUARD)
+    foreign_plan = AccountPlan(shop_id=env.other_shop.id, panel_id=other_pg.id, title="X", role_id=1, price=1)
+    session.add(foreign_plan)
+    await session.flush()
+    foreign_account = PanelAccount(
+        shop_id=env.other_shop.id,
+        customer_id=(await factories.customer(session, env.other_shop)).id,
+        panel_id=other_pg.id,
+        username="r1_aa",
+        password_enc="x",
+    )
+    session.add(foreign_account)
+    await session.commit()
+    owner = await login(http, "u_owner")
+    body = {"panel_id": pasarguard.id, "title": "Admin 500", "role_id": 2, "data_gb": 500, "price": 900_000}
+    created = await owner.call("POST", "/api/admin/account-plans", body)
+    assert created.status_code == 200, created.text
+    assert created.json()["max_users"] is None and created.json()["days"] == 30
+    marzban = {**body, "panel_id": env.panel.id}
+    assert (await owner.call("POST", "/api/admin/account-plans", marzban)).status_code == 422
+    alien = {**body, "panel_id": other_pg.id}
+    assert (await owner.call("POST", "/api/admin/account-plans", alien)).status_code == 404
+    assert (await owner.call("PUT", f"/api/admin/account-plans/{foreign_plan.id}", body)).status_code == 404
+    listed = (await owner.call("GET", "/api/admin/account-plans")).json()
+    assert [p["title"] for p in listed["items"]] == ["Admin 500"]
+    assert [p["id"] for p in listed["panels"]] == [pasarguard.id]
+    assert (await owner.call("GET", "/api/admin/panel-accounts")).json()["items"] == []
+    gone = await owner.call("POST", f"/api/admin/panel-accounts/{foreign_account.id}/pause")
+    assert gone.status_code == 404
+    assert (await owner.call("GET", f"/api/admin/account-plans/roles/{other_pg.id}")).status_code == 404

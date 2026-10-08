@@ -104,21 +104,42 @@ class PasarGuardDriver(TokenApiDriver):
             figures["admin"] = quota
         return figures
 
+    async def groups(self) -> list[dict[str, Any]]:
+        """The groups this admin may use. A limited admin's role often lacks `groups.read`, so fall
+        back to the dropdown list (`groups.read_simple`), then to the groups its role allows."""
+        denied: PanelError | None = None
+        for path in ("/api/groups", "/api/groups/simple"):
+            try:
+                data = await self.call("GET", path)
+            except PanelError as exc:
+                if exc.status not in (403, 404, 405):
+                    raise
+                denied = exc
+                continue
+            rows = data.get("groups", []) if isinstance(data, dict) else data or []
+            return [g for g in rows if isinstance(g, dict) and g.get("id") is not None]
+        try:
+            admin = as_dict(await self.call("GET", "/api/admin"))
+        except PanelError:
+            admin = {}
+        allowed = as_dict(as_dict(admin.get("role")).get("access")).get("allowed_group_ids")
+        if isinstance(allowed, list) and allowed:
+            return [{"id": int(g), "name": f"#{int(g)}"} for g in allowed if str(g).isdigit()]
+        raise PanelError(
+            "this PasarGuard admin may not read groups (groups.read): give its role that permission, "
+            "or type the group IDs in the panel settings",
+            denied.status if denied else None,
+        )
+
     async def list_options(self) -> list[PanelOption]:
-        data = await self.call("GET", "/api/groups")
-        groups = data.get("groups", []) if isinstance(data, dict) else data or []
-        return [PanelOption(id=str(g["id"]), title=str(g.get("name") or g["id"])) for g in groups]
+        return [
+            PanelOption(id=str(g["id"]), title=str(g.get("name") or g["id"])) for g in await self.groups()
+        ]
 
     async def default_groups(self) -> list[int]:
         """Every enabled group, for a panel or plan that names none: PasarGuard refuses a new user
         without at least one group (like Marzban giving a user all inbounds by default)."""
-        data = await self.call("GET", "/api/groups")
-        groups = data.get("groups", []) if isinstance(data, dict) else data or []
-        ids = [
-            int(g["id"])
-            for g in groups
-            if isinstance(g, dict) and g.get("id") is not None and not g.get("is_disabled")
-        ]
+        ids = [int(g["id"]) for g in await self.groups() if not g.get("is_disabled")]
         if not ids:
             raise PanelError("PasarGuard has no enabled group: create one, or pick groups for this panel")
         return ids
@@ -193,6 +214,76 @@ class PasarGuardDriver(TokenApiDriver):
 
     async def revoke_subscription(self, ref: PanelRef) -> PanelUser:
         return self.parse_user(await self._user_call("POST", ref, "/revoke_sub"))
+
+    # --- panel admin accounts sold to customers (TEN-14) ----------------------------------
+
+    async def admin_roles(self) -> list[PanelOption]:
+        """Roles a sold admin account can get."""
+        data: Any = None
+        for path in ("/api/admin-roles/simple", "/api/admin-roles"):
+            try:
+                data = await self.call("GET", path)
+                break
+            except PanelNotFound:
+                continue
+        rows = data.get("roles", []) if isinstance(data, dict) else data or []
+        return [
+            PanelOption(id=str(r["id"]), title=str(r.get("name") or r["id"]))
+            for r in rows
+            if isinstance(r, dict) and r.get("id") is not None and not r.get("is_owner")
+        ]
+
+    async def get_admin(self, username: str) -> dict[str, Any] | None:
+        data = await self.call("GET", "/api/admins", params={"usernames": username})
+        rows = data.get("admins", []) if isinstance(data, dict) else data or []
+        return next((r for r in rows if isinstance(r, dict) and r.get("username") == username), None)
+
+    async def create_admin(
+        self,
+        username: str,
+        password: str,
+        *,
+        role_id: int,
+        data_limit: int,
+        max_users: int | None,
+        telegram_id: int | None,
+        note: str = "",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "username": username,
+            "password": password,
+            "role_id": int(role_id),
+            "note": note[:500],
+        }
+        if data_limit > 0:
+            payload["data_limit"] = int(data_limit)
+        if max_users:
+            payload["permission_overrides"] = {"max_users": int(max_users)}
+        if telegram_id and telegram_id > 0:
+            payload["telegram_id"] = int(telegram_id)
+        return as_dict(await self.call("POST", "/api/admin", json=payload))
+
+    async def modify_admin(self, username: str, **fields: Any) -> dict[str, Any]:
+        """`data_limit`, `status` (active/disabled), `password`, `max_users`."""
+        payload: dict[str, Any] = {k: v for k, v in fields.items() if k != "max_users"}
+        if "max_users" in fields:
+            current = await self.get_admin(username)
+            overrides = as_dict((current or {}).get("permission_overrides"))
+            payload["permission_overrides"] = {**overrides, "max_users": fields["max_users"]}
+        return as_dict(await self.call("PUT", f"/api/admin/{seg(username)}", json=payload))
+
+    async def reset_admin_usage(self, username: str) -> None:
+        await self.call("POST", f"/api/admin/{seg(username)}/reset")
+
+    async def set_admin_users(self, username: str, enabled: bool) -> None:
+        action = "activate" if enabled else "disable"
+        await self.call("POST", f"/api/admin/{seg(username)}/users/{action}")
+
+    async def delete_admin(self, username: str) -> None:
+        try:
+            await self.call("DELETE", f"/api/admin/{seg(username)}")
+        except PanelNotFound:
+            return
 
     # --- admin views (PNL-01) ----------------------------------------------
 

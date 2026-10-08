@@ -72,6 +72,7 @@ interface TestResult {
   users?: number | null;
   version?: string | null;
   options?: { id: string; title: string }[];
+  options_error?: string | null;
 }
 
 // Panels that can be reached with an API token alone.
@@ -165,6 +166,34 @@ export function OptionPicker({
       ))}
       <p className="text-[0.78rem] text-[var(--hint)]">{t("panel_options_hint")}</p>
     </fieldset>
+  );
+}
+
+// PasarGuard group IDs typed by hand, for an admin that may not list groups (groups.read).
+function GroupIds({ value, onChange }: { value: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void }) {
+  const { t } = useSession();
+  const current = ((value.group_ids as (string | number)[] | undefined) ?? []).join(", ");
+  const [text, setText] = useState(current);
+  return (
+    <Field label={t("panel_group_ids")} hint={t("panel_group_ids_hint")}>
+      {(id) => (
+        <Input
+          id={id}
+          dir="ltr"
+          inputMode="numeric"
+          placeholder="1, 2"
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            const ids = [...new Set(e.target.value.split(/[\s,،]+/).filter((part) => /^\d+$/.test(part)).map(Number))];
+            const next = { ...value };
+            if (ids.length) next.group_ids = ids;
+            else delete next.group_ids;
+            onChange(next);
+          }}
+        />
+      )}
+    </Field>
   );
 }
 
@@ -440,6 +469,14 @@ function PanelSheet({
         )}
         {test?.ok && test.options && test.options.length > 0 && (
           <OptionPicker kind={form.kind} options={test.options} value={form.options} onChange={(options) => set("options", options)} />
+        )}
+        {test?.ok && test.options_error && (
+          <p className="rounded-2xl bg-saffron-100 p-4 text-[0.85rem] text-saffron-700" dir="auto">
+            {test.options_error}
+          </p>
+        )}
+        {form.kind === "pasarguard" && (form.id || test) && (!test?.ok || !test.options?.length) && (
+          <GroupIds value={form.options} onChange={(options) => set("options", options)} />
         )}
 
         <div className="grid gap-4 sm:grid-cols-2">

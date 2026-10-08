@@ -16,11 +16,10 @@ from paurubot.bot.routers.start import menu
 from paurubot.bot.states import ResellerStates, TicketStates
 from paurubot.bot.utils import Btn, show
 from paurubot.core import customers, tickets, trials
-from paurubot.core.formatting import esc, jdate, money
+from paurubot.core.formatting import esc, jdate
 from paurubot.db.models import ApplicationStatus, Customer, ResellerApplication, Ticket
 from paurubot.db.models import Shop as ShopRow
 from paurubot.i18n import Texts
-from paurubot.ledger.accounts import wallet_balance
 from paurubot.worker import queue
 
 router = Router(name="account")
@@ -69,29 +68,10 @@ async def reseller(
     cfg: dict[str, Any],
     state: FSMContext,
 ) -> None:
-    profile = customer.reseller_profile
-    if profile is not None and profile.is_current:
-        balance = await wallet_balance(session, customer.shop_id, customer.id)
-        group = profile.group
-        lines = [
-            t(
-                "reseller_status",
-                group=esc(group.title if group else "-"),
-                percent=profile.discount_percent,
-                min_topup=money(group.min_topup if group else 0),
-                balance=money(balance),
-                expires=jdate(profile.expires_at) if profile.expires_at else t("unlimited"),
-            )
-        ]
-        if profile.billing_mode == "usage":
-            lines.append(t("reseller_billing_usage", price=money(profile.gb_price)))
-        elif profile.billing_mode == "hourly":
-            lines.append(t("reseller_billing_hourly", price=money(profile.hourly_price)))
-        if profile.billing_debt:
-            lines.append(t("reseller_debt_line", debt=money(profile.billing_debt)))
-        if profile.suspended_at is not None:
-            lines.append(t("reseller_suspended_line"))
-        await message.answer("\n".join(lines))
+    from paurubot.bot.routers.reseller import show_hub
+
+    await state.clear()
+    if await show_hub(message, session, customer, t):  # an active reseller gets its own panel (TEN-13)
         return
     if not cfg["reseller_applications_enabled"]:
         await message.answer(t("reseller_closed"))

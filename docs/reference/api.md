@@ -8,6 +8,11 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 
 | Method | Path | Access | What it does |
 |---|---|---|---|
+| GET | `/api/admin/account-plans/roles/{panel_id}` | `resellers.manage` | Admin roles on a PasarGuard panel a plan can give. |
+| DELETE | `/api/admin/account-plans/{row_id}` | `resellers.manage` | Archived, never deleted: sold accounts keep pointing at their plan. |
+| PUT | `/api/admin/account-plans/{row_id}` | `resellers.manage` | Update account plan |
+| GET | `/api/admin/account-plans` | `resellers.manage` | Account plans |
+| POST | `/api/admin/account-plans` | `resellers.manage` | Create account plan |
 | GET | `/api/admin/audit` | `audit.read` | Audit log |
 | GET | `/api/admin/backups/{name}` | `backups.manage` | Download backup |
 | GET | `/api/admin/backups` | `backups.manage` | List backups |
@@ -36,6 +41,10 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | PATCH | `/api/admin/customers/{customer_id}` | `customers.write` | Update customer |
 | GET | `/api/admin/customers` | `customers.read` | List customers |
 | GET | `/api/admin/dashboard` | `dashboard.view` | Dashboard |
+| GET | `/api/admin/desk/expiring` | `services.create` | Expiring |
+| POST | `/api/admin/desk/renew` | `services.create` | Renew |
+| POST | `/api/admin/desk/sell` | `services.create` | Sell |
+| GET | `/api/admin/desk` | `services.create` | Desk |
 | PUT | `/api/admin/discounts/{code_id}` | `discounts.write` | Update code |
 | GET | `/api/admin/discounts` | `discounts.write` | List codes |
 | POST | `/api/admin/discounts` | `discounts.write` | Create code |
@@ -64,6 +73,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/my/billing` | `dashboard.view` | My billing |
 | POST | `/api/admin/orders/{order_id}/refund` | `payments.refund` | Return a completed or failed order's money to the wallet (NEW-04). The service is not touched. |
 | GET | `/api/admin/orders` | `orders.read` | List orders |
+| POST | `/api/admin/panel-accounts/{row_id}/{action}` | `resellers.manage` | Act on panel account |
+| GET | `/api/admin/panel-accounts` | `resellers.manage` | List panel accounts |
 | POST | `/api/admin/panels/certificate` | `panels.secrets` | Inspect certificate |
 | GET | `/api/admin/panels/{panel_id}/admins` | `panels.write` | The panel's admins and how many users each one owns. |
 | POST | `/api/admin/panels/{panel_id}/check` | `panels.read` | Run one monitoring probe right away and return the fresh figures (PNL-12, PNL-13). |
@@ -96,6 +107,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/reseller-applications/{application_id}` | `resellers.manage` | Decide |
 | PUT | `/api/admin/reseller-groups/{group_id}` | `resellers.manage` | Update group |
 | POST | `/api/admin/reseller-groups` | `resellers.manage` | Create group |
+| GET | `/api/admin/reseller-prices` | `resellers.manage` | List reseller prices |
+| PUT | `/api/admin/reseller-prices` | `resellers.manage` | Set or remove the fixed price of one plan for a reseller group or one reseller. |
 | GET | `/api/admin/resellers/{profile_id}/billing` | `resellers.manage` | Reseller billing |
 | POST | `/api/admin/resellers/{profile_id}/bot/allow` | `resellers.manage` | Allow reseller bot |
 | POST | `/api/admin/resellers/{profile_id}/bot/stop` | `resellers.manage` | Stop reseller bot |
@@ -184,6 +197,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/webapp/orders` | Mini App initData | Create order |
 | POST | `/api/webapp/payments/{payment_id}/receipt` | Mini App initData | Upload receipt |
 | GET | `/api/webapp/payments/{payment_id}` | Mini App initData | Payment status |
+| GET | `/api/webapp/reseller/desk` | Mini App initData | Reseller desk view |
+| POST | `/api/webapp/reseller/renew` | Mini App initData | Reseller renew |
 | GET | `/api/webapp/services/{service_id}/links` | Mini App initData | Service links |
 | POST | `/api/webapp/services/{service_id}/rename` | Mini App initData | Service rename |
 | POST | `/api/webapp/services/{service_id}/revoke` | Mini App initData | Service revoke |

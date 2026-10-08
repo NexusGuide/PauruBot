@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { BrowserRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { Buy, Custom } from "./screens/Buy";
 import { Checkout, Done } from "./screens/Checkout";
+import { Desk } from "./screens/Desk";
 import { Home } from "./screens/Home";
 import { Manage } from "./screens/Manage";
 import { More } from "./screens/More";
@@ -60,6 +61,7 @@ function Shell() {
         <Route path="/wallet" element={<Wallet />} />
         <Route path="/more" element={<More />} />
         <Route path="/manage" element={<Manage />} />
+        <Route path="/desk" element={<Desk />} />
         <Route path="*" element={<Home />} />
       </Routes>
       <TabBar />

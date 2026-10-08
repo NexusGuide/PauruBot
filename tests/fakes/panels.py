@@ -29,6 +29,12 @@ class FakeTokenPanel:
         self.admin: dict[str, Any] | None = None
         self.admins: set[str] = set()
         self.groups: list[dict[str, Any]] = [{"id": 1, "name": "default"}]
+        # PasarGuard role permissions for groups: "read" (full list), "read_simple" or none.
+        self.group_perms: set[str] = {"read", "read_simple"}
+        # PasarGuard admins the bot sold (TEN-14), and what was done to their users.
+        self.sold_admins: dict[str, dict[str, Any]] = {}
+        self.admin_user_actions: list[tuple[str, str]] = []
+        self.roles: list[dict[str, Any]] = [{"id": 2, "name": "reseller"}, {"id": 3, "name": "limited"}]
 
     def _user_out(self, user: dict[str, Any]) -> dict[str, Any]:
         out = dict(user)
@@ -36,6 +42,59 @@ class FakeTokenPanel:
         owner = user.get("admin") or "admin"
         out["admin"] = {"username": owner} if self.kind == "pasarguard" else owner
         return out
+
+    def _sold_admin(self, request: httpx.Request, path: str) -> httpx.Response | None:
+        """PasarGuard's admin API, as far as selling admin accounts uses it."""
+        if path == "/api/admin-roles/simple":
+            return httpx.Response(200, json={"roles": self.roles, "total": len(self.roles)})
+        if path == "/api/admins" and request.method == "GET" and request.url.params.get("usernames"):
+            wanted = set(request.url.params.get_list("usernames"))
+            rows = [a for n, a in self.sold_admins.items() if n in wanted]
+            return httpx.Response(200, json={"admins": rows, "total": len(rows)})
+        if path == "/api/admin" and request.method == "POST":
+            body = json.loads(request.content)
+            password = body.get("password", "")
+            strong = (
+                len(password) >= 12
+                and sum(c.isupper() for c in password) >= 2
+                and sum(c.islower() for c in password) >= 2
+                and sum(c.isdigit() for c in password) >= 2
+                and any(not c.isalnum() for c in password)
+                and '"' not in password
+            )
+            if not strong:
+                return httpx.Response(422, json={"detail": [{"msg": "Value error, weak password"}]})
+            if body["username"] in self.sold_admins:
+                return httpx.Response(409, json={"detail": "Admin already exists"})
+            if body.get("role_id") not in {r["id"] for r in self.roles}:
+                return httpx.Response(404, json={"detail": "Role not found"})
+            self.sold_admins[body["username"]] = {
+                **body,
+                "status": "active",
+                "used_traffic": 0,
+                "total_users": 0,
+            }
+            return httpx.Response(200, json=self.sold_admins[body["username"]])
+        match = re.fullmatch(r"/api/admin/([^/]+)(/.*)?", path)
+        if match is None or match.group(1) in {"token"}:
+            return None
+        name, action = match.group(1), match.group(2) or ""
+        admin = self.sold_admins.get(name)
+        if admin is None:
+            return httpx.Response(404, json={"detail": "Admin not found"})
+        if request.method == "PUT" and not action:
+            admin.update(json.loads(request.content))
+            return httpx.Response(200, json=admin)
+        if request.method == "DELETE" and not action:
+            del self.sold_admins[name]
+            return httpx.Response(200, json={})
+        if request.method == "POST" and action == "/reset":
+            admin["used_traffic"] = 0
+            return httpx.Response(200, json=admin)
+        if request.method == "POST" and action in {"/users/activate", "/users/disable"}:
+            self.admin_user_actions.append((name, action.rsplit("/", 1)[1]))
+            return httpx.Response(200, json={})
+        return None
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -82,6 +141,10 @@ class FakeTokenPanel:
             )
         if path == "/api/nodes" and self.nodes is not None:
             return httpx.Response(200, json=self.nodes)
+        if self.kind == "pasarguard":
+            answer = self._sold_admin(request, path)
+            if answer is not None:
+                return answer
         if path == "/api/admin" and self.admin is not None:
             return httpx.Response(200, json=self.admin)
         if path == "/api/admins" and request.method == "GET":
@@ -93,7 +156,14 @@ class FakeTokenPanel:
             rows = [self._user_out(u) for u in self.users.values()]
             return httpx.Response(200, json={"users": rows[offset : offset + limit], "total": len(rows)})
         if path == "/api/groups":
+            if "read" not in self.group_perms:
+                return httpx.Response(403, json={"detail": "Permission denied: groups.read"})
             return httpx.Response(200, json={"groups": self.groups, "total": len(self.groups)})
+        if path == "/api/groups/simple":
+            if "read_simple" not in self.group_perms:
+                return httpx.Response(403, json={"detail": "Permission denied: groups.read_simple"})
+            simple = [{"id": g["id"], "name": g["name"]} for g in self.groups]
+            return httpx.Response(200, json={"groups": simple, "total": len(simple)})
         if path == "/api/inbounds":
             return httpx.Response(200, json={"vless": [{"tag": "VLESS TCP"}]})
         if path == "/api/user" and request.method == "POST":

@@ -167,6 +167,28 @@ async def test_pasarguard_without_chosen_groups_uses_every_enabled_group() -> No
     assert fake.users["pg_default"]["request"]["group_ids"] == [1, 5]
 
 
+async def test_pasarguard_limited_admin_without_groups_read() -> None:
+    """A limited PasarGuard role often lacks groups.read: use the dropdown list, then the role's groups."""
+    driver, fake = make("pasarguard")
+    fake.group_perms = {"read_simple"}
+    assert [o.id for o in await driver.list_options()] == ["1"]
+    await driver.create_user(UserSpec(username="pg_simple"))
+    assert fake.users["pg_simple"]["request"]["group_ids"] == [1]
+
+    fake.group_perms = set()
+    fake.admin = {"username": "seller", "role": {"name": "seller", "access": {"allowed_group_ids": [4, 6]}}}
+    await driver.create_user(UserSpec(username="pg_role"))
+    assert fake.users["pg_role"]["request"]["group_ids"] == [4, 6]
+
+    fake.admin = {"username": "seller", "role": {"name": "seller", "access": {"allowed_group_ids": None}}}
+    with pytest.raises(PanelError, match="type the group IDs"):
+        await driver.create_user(UserSpec(username="pg_blind"))
+    driver2, fake2 = make("pasarguard", group_ids=[3])
+    fake2.group_perms = set()
+    await driver2.create_user(UserSpec(username="pg_typed"))  # IDs typed by hand need no listing
+    assert fake2.users["pg_typed"]["request"]["group_ids"] == [3]
+
+
 async def test_pasarguard_with_no_enabled_group_says_so() -> None:
     driver, fake = make("pasarguard")
     fake.groups = [{"id": 2, "name": "old", "is_disabled": True}]
