@@ -27,9 +27,12 @@ from paurubot.db.models import (
     ApplicationStatus,
     Customer,
     LedgerAccount,
+    Panel,
+    Plan,
     ResellerApplication,
     ResellerBillingSnapshot,
     ResellerGroup,
+    ResellerPrice,
     ResellerProfile,
     Service,
     Staff,
@@ -42,7 +45,15 @@ from paurubot.worker import queue
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 Manager = Annotated[StaffContext, Depends(require("resellers.manage"))]
 
-GROUP_FIELDS = ["id", "title", "discount_percent", "min_topup", "max_active_services", "is_active"]
+GROUP_FIELDS = [
+    "id",
+    "title",
+    "discount_percent",
+    "min_topup",
+    "max_active_services",
+    "is_active",
+    "hidden_panel_ids",
+]
 PROFILE_FIELDS = [
     "id",
     "customer_id",
@@ -86,6 +97,13 @@ class GroupBody(BaseModel):
     min_topup: int = Field(default=0, ge=0)
     max_active_services: int | None = Field(default=None, ge=1)
     is_active: bool = True
+    hidden_panel_ids: list[int] = Field(default_factory=list, max_length=200)
+
+
+async def _check_panels(db: DB, ctx: StaffContext, ids: list[int]) -> list[int]:
+    for panel_id in set(ids):
+        await owned(db, Panel, panel_id, ctx)
+    return sorted(set(ids))
 
 
 @router.get("/resellers")
@@ -149,6 +167,7 @@ async def _balances(db: DB, shop_id: int, customer_ids: list[int]) -> dict[int, 
 
 @router.post("/reseller-groups")
 async def create_group(body: GroupBody, ctx: Manager, db: DB) -> dict[str, Any]:
+    body.hidden_panel_ids = await _check_panels(db, ctx, body.hidden_panel_ids)
     row = ResellerGroup(shop_id=ctx.shop_id, **body.model_dump())
     db.add(row)
     await db.flush()
@@ -168,6 +187,7 @@ async def create_group(body: GroupBody, ctx: Manager, db: DB) -> dict[str, Any]:
 async def update_group(group_id: int, body: GroupBody, ctx: Manager, db: DB) -> dict[str, Any]:
     row = await owned(db, ResellerGroup, group_id, ctx)
     before = snapshot(row)
+    body.hidden_panel_ids = await _check_panels(db, ctx, body.hidden_panel_ids)
     for key, value in body.model_dump().items():
         setattr(row, key, value)
     await record(
@@ -181,6 +201,88 @@ async def update_group(group_id: int, body: GroupBody, ctx: Manager, db: DB) -> 
         after=snapshot(row),
     )
     return plain(row, GROUP_FIELDS)
+
+
+# --- fixed reseller prices per plan (TEN-12) ----------------------------------------------
+
+
+class PriceBody(BaseModel):
+    plan_id: int
+    group_id: int | None = None
+    profile_id: int | None = None
+    price: int | None = Field(default=None, ge=1, le=10**11)  # None removes the fixed price
+
+
+def _price_out(row: ResellerPrice) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "plan_id": row.plan_id,
+        "group_id": row.group_id,
+        "profile_id": row.profile_id,
+        "price": row.price,
+    }
+
+
+@router.get("/reseller-prices")
+async def list_reseller_prices(
+    ctx: Manager,
+    db: DB,
+    plan_id: int | None = None,
+    group_id: int | None = None,
+    profile_id: int | None = None,
+) -> dict[str, Any]:
+    stmt = select(ResellerPrice).where(ResellerPrice.shop_id == ctx.shop_id)
+    if plan_id is not None:
+        stmt = stmt.where(ResellerPrice.plan_id == plan_id)
+    if group_id is not None:
+        stmt = stmt.where(ResellerPrice.group_id == group_id)
+    if profile_id is not None:
+        stmt = stmt.where(ResellerPrice.profile_id == profile_id)
+    rows = await db.scalars(stmt.order_by(ResellerPrice.plan_id, ResellerPrice.id))
+    return {"items": [_price_out(r) for r in rows]}
+
+
+@router.put("/reseller-prices")
+async def set_reseller_price(body: PriceBody, ctx: Manager, db: DB) -> dict[str, Any]:
+    """Set or remove the fixed price of one plan for a reseller group or one reseller."""
+    if (body.group_id is None) == (body.profile_id is None):
+        raise HTTPException(status_code=422, detail="group_or_profile")
+    await owned(db, Plan, body.plan_id, ctx)
+    if body.group_id is not None:
+        await owned(db, ResellerGroup, body.group_id, ctx)
+        owner = ResellerPrice.group_id == body.group_id
+    else:
+        await owned(db, ResellerProfile, int(body.profile_id or 0), ctx)
+        owner = ResellerPrice.profile_id == body.profile_id
+    row = await db.scalar(select(ResellerPrice).where(ResellerPrice.plan_id == body.plan_id, owner))
+    before = _price_out(row) if row else None
+    if body.price is None:
+        if row is not None:
+            await db.delete(row)
+        row = None
+    elif row is None:
+        row = ResellerPrice(
+            shop_id=ctx.shop_id,
+            plan_id=body.plan_id,
+            group_id=body.group_id,
+            profile_id=body.profile_id,
+            price=body.price,
+        )
+        db.add(row)
+    else:
+        row.price = body.price
+    await db.flush()
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="reseller_price.set",
+        entity="plan",
+        entity_id=body.plan_id,
+        before=before,
+        after=_price_out(row) if row else None,
+    )
+    return {"item": _price_out(row) if row else None}
 
 
 class ProfileBody(BaseModel):

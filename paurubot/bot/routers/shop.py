@@ -32,7 +32,7 @@ async def priced(session: AsyncSession, plans: list[Plan], customer: Customer) -
     out = []
     for plan in plans:
         listed = await resale.list_price(session, plan, customer.shop_id)
-        out.append((plan, pricing.quote(listed, customer).amount))
+        out.append((plan, (await pricing.plan_quote(session, customer, plan.id, listed)).amount))
     return out
 
 

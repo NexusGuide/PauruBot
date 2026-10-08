@@ -29,6 +29,22 @@ In the last two modes the balance can go negative. When the debt passes the **De
 
 You can also suspend a reseller by hand with **Suspend reseller**. A manual suspension is not lifted by a top-up; tap **Lift suspension**.
 
+## Fixed prices and hidden panels
+
+When editing a group, set a price per plan under **Fixed reseller prices**; empty means the group's percentage discount applies. The same table is on each reseller, and a reseller's own price beats its group's. Fixed prices count for purchases and renewals, for the wholesale price in a reseller's own bot and for sub-reseller commission; a sub-reseller never pays less than the reseller above it.
+
+With **Hidden panels** on a group, the plans of those panels are neither shown to nor sold to that group's resellers (in their own bot too).
+
+## The reseller panel in the bot
+
+An active reseller who presses “Reseller” in the bot sees its own panel: balance, discount, active services, services ending soon and 30-day sales. From there:
+
+- “Quick sale”: buy with the customer's name as the label.
+- “Find a service”: by label or panel username.
+- “Ending soon”: services that end within 3, 7 or 30 days or have used 90% of their data, with “Renew all”, which renews each service with its own plan from the wallet and stops when the money runs out.
+- “Sales report”: today, 7 and 30 days, data sold, best-selling plans and sub-reseller commission.
+- “Sub-resellers”: add by Telegram ID, change the discount and pause (with the “manage sub-resellers” right).
+
 ## Bulk buying
 
 With **Bulk buying** on in the **Resellers** settings group, a **Buy several** button appears at checkout in the bot. The reseller sends how many (up to **Most services per bulk purchase**) and all the services are paid in one wallet payment: either all of them are paid or none is. When they're all ready, the reseller gets one file in the bot with every service's name and link. Turn off **Bulk buying for resellers only** to let regular customers use it too.

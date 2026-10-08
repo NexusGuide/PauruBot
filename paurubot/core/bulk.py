@@ -37,7 +37,7 @@ def allowed(cfg: dict[str, Any], customer: Customer) -> int:
 async def quote(session: AsyncSession, customer: Customer, plan: Plan, count: int) -> tuple[int, int]:
     """(price of one, total) after the customer's own discounts."""
     draft = await orders.draft(session, customer, OrderKind.PURCHASE, plan=plan)
-    one = pricing.quote(draft.base_price, customer, None).amount
+    one = (await pricing.plan_quote(session, customer, plan.id, draft.base_price)).amount
     if resellers.metered(customer):
         one = 0
     return one, one * count

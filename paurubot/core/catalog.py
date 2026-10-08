@@ -11,7 +11,12 @@ from paurubot.db.models import Category, Customer, Location, Panel, Plan, PlanAu
 
 def _audience_filter(stmt: Select, customer: Customer | None) -> Select:  # type: ignore[type-arg]
     if customer is not None and customer.is_reseller:
-        return stmt.where(Plan.audience.in_([PlanAudience.ALL, PlanAudience.RESELLERS]))
+        stmt = stmt.where(Plan.audience.in_([PlanAudience.ALL, PlanAudience.RESELLERS]))
+        group = customer.reseller_profile.group if customer.reseller_profile else None
+        hidden = [int(p) for p in (group.hidden_panel_ids or [])] if group is not None else []
+        if hidden:  # panels kept away from this reseller group (TEN-12)
+            stmt = stmt.where(or_(Plan.panel_id.is_(None), Plan.panel_id.not_in(hidden)))
+        return stmt
     return stmt.where(Plan.audience.in_([PlanAudience.ALL, PlanAudience.CUSTOMERS]))
 
 
@@ -99,14 +104,27 @@ async def plans(
     if panel_id:
         stmt = stmt.where(Plan.panel_id == panel_id)
     stmt = stmt.order_by(Plan.sort, Plan.price, Plan.id)
-    return list((await session.scalars(stmt)).all())
+    hidden = await resale_hidden_panels(session, shop_id)
+    return [p for p in (await session.scalars(stmt)).all() if p.panel_id is None or p.panel_id not in hidden]
+
+
+async def resale_hidden_panels(session: AsyncSession, shop_id: int) -> set[int]:
+    """In a reseller's own bot, the panels hidden from that reseller's group (TEN-04, TEN-12)."""
+    from paurubot.core import resale
+
+    found = await resale.for_shop(session, shop_id)
+    group = found.profile.group if found is not None else None
+    return {int(p) for p in (group.hidden_panel_ids or [])} if group is not None else set()
 
 
 async def get_plan(
     session: AsyncSession, shop_id: int, plan_id: int, customer: Customer | None
 ) -> Plan | None:
     stmt = visible_plans_stmt(shop_id, customer).where(Plan.id == plan_id)
-    return await session.scalar(stmt)
+    plan = await session.scalar(stmt)
+    if plan is not None and plan.panel_id in await resale_hidden_panels(session, shop_id):
+        return None
+    return plan
 
 
 async def panel_load(session: AsyncSession, panel_id: int) -> int:

@@ -52,6 +52,8 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | TEN-09 | Reseller application / approval workflow | v1.1 | done |
 | TEN-10 | Import existing panel users into a reseller | v1.1 | done |
 | TEN-11 | Move users between panel admins | v2 | done |
+| TEN-12 | Fixed reseller prices per plan (group or reseller) and panels hidden from a group | v1.1* | done |
+| TEN-13 | Reseller panel in the bot: figures, search, quick sale, expiring list with bulk renewal, sales report, sub-resellers | v1.1* | done |
 
 ## VPN Panel Integrations
 

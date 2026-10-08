@@ -115,7 +115,13 @@ async def pay_commission(session: AsyncSession, order: Order) -> int:
     if parent is None or not parent.is_current:
         return 0
     child_price = order.base_price - order.reseller_discount
-    parent_price = pricing.round_price(order.base_price * (100 - parent.discount_percent) / 100)
+    if order.plan_id is not None and order.kind in {OrderKind.PURCHASE, OrderKind.RENEW}:
+        # What the level-1 reseller itself would pay for this plan, fixed prices included (TEN-12).
+        parent_customer = await session.get(Customer, parent.customer_id)
+        quoted = await pricing.plan_quote(session, parent_customer, order.plan_id, order.base_price)
+        parent_price = quoted.amount
+    else:
+        parent_price = pricing.round_price(order.base_price * (100 - parent.discount_percent) / 100)
     commission = max(0, min(child_price - parent_price, order.amount))
     if commission <= 0:
         return 0

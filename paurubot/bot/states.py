@@ -30,6 +30,9 @@ class TicketStates(StatesGroup):
 
 class ResellerStates(StatesGroup):
     application = State()
+    search = State()
+    sub_telegram_id = State()
+    sub_discount = State()
 
 
 class AdminStates(StatesGroup):
