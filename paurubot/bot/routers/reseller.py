@@ -16,7 +16,7 @@ from paurubot.bot import keyboards
 from paurubot.bot.callbacks import Acc, Rs, Shop, Svc, Wallet
 from paurubot.bot.routers.start import menu
 from paurubot.bot.states import ResellerStates
-from paurubot.bot.utils import show
+from paurubot.bot.utils import error_text, show
 from paurubot.core import reseller_desk, resellers
 from paurubot.core.formatting import esc, jdate, money, parse_int
 from paurubot.db.models import Customer, ResellerProfile, Service
@@ -67,7 +67,9 @@ async def hub_text(session: AsyncSession, customer: Customer, profile: ResellerP
     return "\n".join(lines)
 
 
-def hub_kb(t: Texts, profile: ResellerProfile, *, accounts: bool = False) -> InlineKeyboardMarkup:
+def hub_kb(
+    t: Texts, profile: ResellerProfile, *, accounts: bool = False, renew_price: int = 0
+) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text=t("rs_btn_sell"), callback_data=Shop(step="start"))
     kb.button(text=t("rs_btn_search"), callback_data=Rs(action="search"))
@@ -80,6 +82,10 @@ def hub_kb(t: Texts, profile: ResellerProfile, *, accounts: bool = False) -> Inl
         kb.button(text=t("rs_btn_subs"), callback_data=Rs(action="subs"))
     if accounts:
         kb.button(text=t("rs_btn_accounts"), callback_data=Acc(action="home"))
+    if renew_price and profile.expires_at is not None:
+        kb.button(
+            text=t("rs_btn_membership_renew", price=money(renew_price)), callback_data=Rs(action="member")
+        )
     kb.adjust(2)
     return kb.as_markup()
 
@@ -97,8 +103,90 @@ async def show_hub(
     from paurubot.core import panel_accounts
 
     accounts = await panel_accounts.available(session, customer)
-    await show(event, await hub_text(session, customer, profile, t), hub_kb(t, profile, accounts=accounts))
+    offer = await resellers.membership_offer(session, customer.shop_id) if profile.parent_id is None else None
+    await show(
+        event,
+        await hub_text(session, customer, profile, t),
+        hub_kb(t, profile, accounts=accounts, renew_price=offer[0] if offer else 0),
+    )
     return True
+
+
+async def membership_offer_message(
+    message: Message, session: AsyncSession, customer: Customer, t: Texts, cfg: dict[str, Any]
+) -> bool:
+    """Shown instead of the application when the shop sells membership (TEN-16)."""
+    offer = await resellers.membership_offer(session, customer.shop_id)
+    if offer is None:
+        return False
+    price, days, group = offer
+    kb = InlineKeyboardBuilder()
+    kb.button(text=t("rs_btn_membership_buy", price=money(price)), callback_data=Rs(action="member"))
+    if cfg["reseller_applications_enabled"]:
+        kb.button(text=t("rs_btn_membership_apply"), callback_data=Rs(action="apply"))
+    kb.adjust(1)
+    await message.answer(
+        t(
+            "rs_membership_offer",
+            price=money(price),
+            group=esc(group.title),
+            percent=group.discount_percent,
+            days=days or t("unlimited"),
+        ),
+        reply_markup=kb.as_markup(),
+    )
+    return True
+
+
+@router.callback_query(Rs.filter(F.action == "member"))
+async def membership_confirm(
+    call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts
+) -> None:
+    offer = await resellers.membership_offer(session, customer.shop_id)
+    if offer is None:
+        await call.answer(t("membership_off"), show_alert=True)
+        return
+    await call.answer()
+    price = offer[0]
+    balance = await wallet_balance(session, customer.shop_id, customer.id)
+    kb = InlineKeyboardBuilder()
+    if balance >= price:
+        kb.button(text=t("btn_pay_wallet"), callback_data=Rs(action="member_go", value=price))
+    else:
+        kb.button(text=t("btn_topup"), callback_data=Wallet(action="topup"))
+    kb.adjust(1)
+    await show(call, t("rs_membership_confirm", price=money(price), balance=money(balance)), kb.as_markup())
+
+
+@router.callback_query(Rs.filter(F.action == "member_go"))
+async def membership_buy(
+    call: CallbackQuery, callback_data: Rs, session: AsyncSession, customer: Customer, t: Texts
+) -> None:
+    offer = await resellers.membership_offer(session, customer.shop_id)
+    if offer is None or offer[0] != callback_data.value:
+        await call.answer(t("button_expired"), show_alert=True)  # the price changed meanwhile
+        return
+    message_id = call.message.message_id if isinstance(call.message, Message) else 0
+    try:
+        profile = await resellers.buy_membership(session, customer, key=f"{customer.id}:{message_id}")
+    except resellers.ResellerError as exc:
+        await session.rollback()
+        await call.answer(error_text(t, exc.key, exc.params), show_alert=True)
+        return
+    await session.commit()
+    await call.answer(t("rs_membership_done_short"))
+    until = jdate(profile.expires_at) if profile.expires_at else t("unlimited")
+    await show(call, t("rs_membership_done", until=until))
+
+
+@router.callback_query(Rs.filter(F.action == "apply"))
+async def membership_apply_instead(call: CallbackQuery, t: Texts, state: FSMContext) -> None:
+    from paurubot.bot.states import ResellerStates as States
+
+    await call.answer()
+    await state.set_state(States.application)
+    if isinstance(call.message, Message):
+        await call.message.answer(t("reseller_ask"), reply_markup=keyboards.cancel(t))
 
 
 @router.callback_query(Rs.filter(F.action == "home"))

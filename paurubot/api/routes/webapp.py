@@ -180,7 +180,7 @@ async def me(ctx: WebApp) -> dict[str, Any]:
             "day_price": cfg["extra_day_price"],
             "upgrade": bool(cfg["upgrade_enabled"]),
         },
-        "payment_methods": await payments.available(ctx.session, ctx.shop.id),
+        "payment_methods": await payments.available(ctx.session, ctx.shop.id, customer),
         "topup_bounds": list(await payments.topup_bounds(ctx.session, customer)),
         "staff": await webapp_staff.describe(ctx),
     }

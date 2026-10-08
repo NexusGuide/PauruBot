@@ -41,6 +41,7 @@ PLAN_FIELDS = [
     "username_prefix",
     "addons",
     "delivery",
+    "renew_mode",
 ]
 
 
@@ -109,6 +110,7 @@ class PlanBody(BaseModel):
     addons: PlanAddons = Field(default_factory=PlanAddons)
     button_style: ButtonStyle = Field(default_factory=ButtonStyle)
     delivery: Literal["panel", "stock"] = "panel"
+    renew_mode: Literal["extend_reset", "extend_carry", "restart_reset", "restart_carry"] | None = None
 
     def values(self) -> dict[str, Any]:
         data = self.model_dump()

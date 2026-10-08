@@ -57,6 +57,7 @@ CUSTOMER_FIELDS = [
     "note",
     "color",
     "risk",
+    "card_trust",
     "created_at",
     "last_seen_at",
     "blocked_bot_at",
@@ -76,6 +77,7 @@ SERVICE_FIELDS = [
     "expire_at",
     "subscription_url",
     "disabled_reason",
+    "staff_note",
     "synced_at",
     "created_at",
 ]
@@ -197,6 +199,7 @@ class CustomerPatch(BaseModel):
     locale: str | None = Field(default=None, max_length=8)
     color: Literal["red", "orange", "yellow", "green", "blue", "purple"] | None = None
     risk: Literal["none", "low", "medium", "high"] | None = None
+    card_trust: Literal["normal", "trusted", "blocked"] | None = None
 
 
 @router.patch("/customers/{customer_id}")
@@ -209,12 +212,14 @@ async def update_customer(
     if ctx.scoped:
         raise HTTPException(status_code=404, detail="not_found")
     customer = await owned(db, Customer, customer_id, ctx)
-    before = snapshot(customer, ["note", "tags", "locale", "color", "risk"])
+    before = snapshot(customer, ["note", "tags", "locale", "color", "risk", "card_trust"])
     for key, value in body.model_dump(exclude_unset=True).items():
         if key == "tags" and value is not None:
             value = [str(tag)[:24] for tag in value]
         if key == "risk" and value is None:
             value = "none"
+        if key == "card_trust" and value is None:
+            value = "normal"
         setattr(customer, key, value)
     await record(
         db,
@@ -224,7 +229,7 @@ async def update_customer(
         entity="customer",
         entity_id=customer.id,
         before=before,
-        after=snapshot(customer, ["note", "tags", "locale", "color", "risk"]),
+        after=snapshot(customer, ["note", "tags", "locale", "color", "risk", "card_trust"]),
     )
     return {"customer": plain(customer, CUSTOMER_FIELDS)}
 
@@ -477,6 +482,34 @@ async def service_action(
     )
     if body.notify:
         await notify_staff_change(db, service, body.action, body.reason)
+    return {"service": service_out(service)}
+
+
+class NoteBody(BaseModel):
+    note: str | None = Field(default=None, max_length=255)
+
+
+@router.put("/services/{service_id}/note")
+async def service_note(
+    service_id: int,
+    body: NoteBody,
+    ctx: Annotated[StaffContext, Depends(require("services.write"))],
+    db: DB,
+) -> dict[str, Any]:
+    """A note on a service only staff see (SVC-16)."""
+    service = await scoped_service(db, service_id, ctx)
+    before = service.staff_note
+    service.staff_note = (body.note or "").strip() or None
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="service.note",
+        entity="service",
+        entity_id=service.id,
+        before={"staff_note": before},
+        after={"staff_note": service.staff_note},
+    )
     return {"service": service_out(service)}
 
 

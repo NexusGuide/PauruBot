@@ -15,6 +15,15 @@ The bot spots duplicate receipts by comparing images and flags them. With **Bloc
 
 With **Auto-approve receipts**, receipts below **Auto-approve up to** are approved without review, as long as the customer has at least **Approved receipts needed first** approved receipts and no rejected ones. Receipts from customers with medium or high risk always get a human review.
 
+### Safer card payments
+
+- "Which card customers see": all cards, one at random, or one after another (rotate). With one card shown, the receipt in Telegram says which card it should have landed on.
+- "Add a random tail to card amounts" adds up to 999 Toman so every receipt matches one payment; the extra goes to the customer's wallet.
+- "Customers register their card first": before paying card to card, the customer sends the card number and a photo of the card in the bot; staff approve or reject it there. A card already registered by someone else is flagged. "Card registration needed from" limits this to larger payments.
+- On a customer's page, "Card to card" can be Trusted (receipts are approved at once) or Blocked (card to card isn't offered). Staff can change it from the bot's customer card too.
+- "Approve unreviewed receipts after" approves receipts nobody looked at within that many minutes, up to the auto-approve amount. Duplicates and medium or high risk customers always wait for a person.
+- Card numbers, amounts and crypto addresses come with one-tap copy buttons in the bot.
+
 ## Gateways and other methods
 
 - **Zarinpal**: enter the merchant ID. Zarinpal sends the customer back to the bot's address, so the server's public address must be set correctly. Sandbox mode is for testing.

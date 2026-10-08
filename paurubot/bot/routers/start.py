@@ -11,14 +11,15 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
     ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.bot import keyboards
-from paurubot.bot.callbacks import Lang, Nav
+from paurubot.bot.callbacks import Lang, Menu, Nav
 from paurubot.bot.context import StaffIdentity, forget_join_check
-from paurubot.bot.menu import main_menu
+from paurubot.bot.menu import BUTTONS, available, inline_menu, main_menu, menu_mode, miniapp_button
 from paurubot.bot.utils import Btn, show
 from paurubot.core import customers
 from paurubot.core.formatting import esc, money
@@ -29,14 +30,71 @@ from paurubot.worker import queue
 router = Router(name="start")
 
 
-def menu(t: Texts, cfg: dict[str, Any], staff: StaffIdentity | None) -> ReplyKeyboardMarkup:
+def menu(
+    t: Texts, cfg: dict[str, Any], staff: StaffIdentity | None
+) -> ReplyKeyboardMarkup | ReplyKeyboardRemove:
+    """The reply keyboard; customers get none when the shop shows its menu inline (BOT-12).
+    Staff always keep it, for the admin button."""
+    if staff is None and menu_mode(cfg) != "reply":
+        return ReplyKeyboardRemove()
     return main_menu(t, cfg, is_staff=staff is not None)
 
 
 async def home(
     message: Message, t: Texts, cfg: dict[str, Any], staff: StaffIdentity | None, key: str = "welcome"
 ) -> None:
-    await message.answer(t(key), reply_markup=menu(t, cfg, staff))
+    mode = menu_mode(cfg) if staff is None else "reply"
+    if mode == "reply":
+        await message.answer(t(key), reply_markup=menu(t, cfg, staff))
+        return
+    # Take an old reply keyboard away, then show the menu under the message itself.
+    try:
+        gone = await message.answer("⌨️", reply_markup=ReplyKeyboardRemove())
+        await gone.delete()
+    except Exception:  # cosmetic only
+        pass
+    markup = inline_menu(t, cfg) if mode == "inline" else miniapp_button(t)
+    await message.answer(t(key), reply_markup=markup)
+
+
+async def send_start_media(message: Message, cfg: dict[str, Any]) -> None:
+    """A sticker, GIF or picture before the welcome text (BOT-11)."""
+    media = cfg.get("start_media") or {}
+    file_id = str(media.get("file_id") or "")
+    if not file_id:
+        return
+    try:
+        if media.get("type") == "sticker":
+            await message.answer_sticker(file_id)
+        elif media.get("type") == "animation":
+            await message.answer_animation(file_id)
+        elif media.get("type") == "photo":
+            await message.answer_photo(file_id)
+    except Exception:  # an expired file id must never block /start
+        pass
+
+
+@router.callback_query(Menu.filter())
+async def menu_press(
+    call: CallbackQuery, callback_data: Menu, t: Texts, cfg: dict[str, Any], dispatcher: Any, bot: Any
+) -> None:
+    """An inline menu button runs exactly what its reply-keyboard button runs."""
+    from datetime import UTC, datetime
+
+    from aiogram.types import Chat, Update
+
+    await call.answer()
+    label_key = BUTTONS.get(callback_data.item)
+    if label_key is None or callback_data.item not in available(cfg):
+        return
+    synthetic = Message(
+        message_id=call.message.message_id if call.message else 0,
+        date=datetime.now(UTC),
+        chat=Chat(id=call.from_user.id, type="private"),
+        from_user=call.from_user,
+        text=t(label_key),
+    )
+    await dispatcher.feed_update(bot, Update(update_id=0, message=synthetic))
 
 
 @router.message(CommandStart())
@@ -107,6 +165,7 @@ async def start(
     if arg.startswith("pay_failed_"):
         await home(message, t, cfg, staff, "payment_return_failed")
         return
+    await send_start_media(message, cfg)
     await home(message, t, cfg, staff)
     if welcome_gift:
         await message.answer(t("start_gift", amount=money(welcome_gift)))

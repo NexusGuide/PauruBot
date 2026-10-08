@@ -63,3 +63,4 @@ Staff with a Telegram ID get an admin button in the bot's menu. Each tool appear
 - Broadcast: after sending the message, choose who gets it, add one link button and pin it in their chats.
 - System status (for roles that may change settings): the same checks as `paurubot doctor` (database, Redis, worker, queues, panels, backups, disk).
 - Backups (for roles that manage backups): the latest archives with a button to receive each one here, and a backup on demand. Restoring stays on the server, on purpose.
+- Broadcast extras: the "Didn't use a service for 7 days" audience, pins that come off after 24 or 48 hours, forwarding (shows the sender), and "Unpin broadcasts" to take every pinned broadcast down.

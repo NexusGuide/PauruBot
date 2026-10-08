@@ -389,6 +389,20 @@ function PlanSheet({
               />
             )}
           </Field>
+          {form.delivery === "panel" && (
+            <Field label={t("plan_renew_mode")} hint={t("plan_renew_mode_hint")}>
+              {(id) => (
+                <Select id={id} value={form.renew_mode ?? ""} onChange={(e) => set("renew_mode", e.target.value || null)}>
+                  <option value="">{t("renew_mode_default")}</option>
+                  {["extend_reset", "extend_carry", "restart_reset", "restart_carry"].map((mode) => (
+                    <option key={mode} value={mode}>
+                      {t(`renew_mode_${mode}`)}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          )}
         </Group>
 
         {form.delivery === "panel" && (

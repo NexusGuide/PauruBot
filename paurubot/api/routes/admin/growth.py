@@ -71,11 +71,35 @@ class CodeBody(BaseModel):
     expires_at: datetime | None = None
     is_active: bool = True
     note: str | None = Field(default=None, max_length=255)
+    # A private code for one customer, by Telegram ID (GRW-10).
+    customer_telegram_id: int | None = Field(default=None, gt=0)
 
 
 def _validate(body: CodeBody) -> None:
     if body.kind == DiscountKind.PERCENT and body.value > 100:
         raise HTTPException(status_code=422, detail="percent_over_100")
+
+
+async def _code_values(db: DB, ctx: StaffContext, body: CodeBody) -> dict[str, Any]:
+    from paurubot.core import customers
+
+    values = body.model_dump(exclude={"customer_telegram_id"})
+    values["customer_id"] = None
+    if body.customer_telegram_id:
+        owner = await customers.by_telegram(db, ctx.shop_id, body.customer_telegram_id)
+        if owner is None:
+            raise HTTPException(status_code=422, detail="customer_not_found")
+        values["customer_id"] = owner.id
+    return values
+
+
+async def _code_out(db: DB, row: DiscountCode) -> dict[str, Any]:
+    from paurubot.db.models import Customer
+
+    out = plain(row, CODE_FIELDS)
+    owner = await db.get(Customer, row.customer_id) if row.customer_id else None
+    out["customer_telegram_id"] = owner.telegram_id if owner else None
+    return out
 
 
 @router.get("/discounts")
@@ -89,7 +113,7 @@ async def list_codes(
         select(DiscountCode).where(DiscountCode.shop_id == ctx.shop_id).order_by(DiscountCode.id.desc()),
         page,
     )
-    return {"items": [plain(c, CODE_FIELDS) for c in rows], "total": total}
+    return {"items": [await _code_out(db, c) for c in rows], "total": total}
 
 
 @router.post("/discounts")
@@ -104,7 +128,7 @@ async def create_code(
     )
     if exists:
         raise HTTPException(status_code=409, detail="code_exists")
-    row = DiscountCode(shop_id=ctx.shop_id, **body.model_dump())
+    row = DiscountCode(shop_id=ctx.shop_id, **await _code_values(db, ctx, body))
     db.add(row)
     await db.flush()
     await record(
@@ -116,7 +140,16 @@ async def create_code(
         entity_id=row.id,
         after=snapshot(row),
     )
-    return plain(row, CODE_FIELDS)
+    if row.customer_id and row.is_active:
+        await queue.enqueue(
+            db,
+            "notify",
+            "private_code",
+            {"customer_id": row.customer_id, "code": row.code},
+            shop_id=ctx.shop_id,
+            dedupe_key=f"discount:{row.id}:private",
+        )
+    return await _code_out(db, row)
 
 
 @router.put("/discounts/{code_id}")
@@ -126,7 +159,7 @@ async def update_code(
     _validate(body)
     row = await owned(db, DiscountCode, code_id, ctx)
     before = snapshot(row)
-    for key, value in body.model_dump().items():
+    for key, value in (await _code_values(db, ctx, body)).items():
         setattr(row, key, value)
     await record(
         db,
@@ -138,7 +171,7 @@ async def update_code(
         before=before,
         after=snapshot(row),
     )
-    return plain(row, CODE_FIELDS)
+    return await _code_out(db, row)
 
 
 class BroadcastBody(BaseModel):

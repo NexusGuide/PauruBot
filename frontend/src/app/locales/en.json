@@ -261,5 +261,8 @@
   "label_hint": "Name this service after your customer to find it later.",
   "label_current": "Customer: {label}",
   "label_set": "Name saved on the order.",
-  "tx_transfer": "Transfer"
+  "tx_transfer": "Transfer",
+  "err_card_blocked": "Card to card isn't available for your account.",
+  "err_card_verify_required": "Register your card in the bot (Wallet) before paying card to card.",
+  "tx_membership": "Membership"
 }

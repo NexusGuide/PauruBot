@@ -57,3 +57,9 @@ Customers' support messages collect in [Tickets](/tickets). Your reply goes to t
 ## Problem reports
 
 Each service in the bot has a "Report a problem" button. It opens a ticket with the service's current state (status, usage, end date, panel and whether the panel is up), so support doesn't have to ask. When the service's panel is already known to be down, the customer is told so straight away. A service can be reported once every 30 minutes.
+
+## Customers deleting their own service
+
+With "Customers can delete their own services", each service in the bot gets a "Delete service" button. The customer sees what comes back before confirming: "Refund of the unused value" percent of the last payment's unused part (time or data, whichever is less). Trials refund nothing.
+
+Customers can also turn their own reminders off from the services list; they're still told when a service ends. Staff can add a note to any service (here or from the bot); customers never see it.

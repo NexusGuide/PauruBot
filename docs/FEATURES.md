@@ -56,6 +56,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | TEN-13 | Reseller panel in the bot: figures, search, quick sale, expiring list with bulk renewal, sales report, sub-resellers | v1.1* | done |
 | TEN-14 | Selling PasarGuard admin accounts: plans with role, quota, user cap and period; renewal, extra traffic and user slots, password, pause, usage sync, alerts and expiry | v1.1* | done |
 | TEN-15 | Reseller web panel and Mini App: sign-in by Telegram code made on approval, selling desk with customer names, expiring list with bulk renewal | v1.1* | done |
+| TEN-16 | Paid reseller membership with renewal | v1.1* | done |
 
 ## VPN Panel Integrations
 
@@ -106,6 +107,10 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | SVC-10 | Delivery failure queue with retry | MVP | done |
 | SVC-11 | Usage chart per service | v1.1 | done |
 | SVC-12 | Service quota cache | MVP* | done |
+| SVC-13 | Renewal modes per plan or shop (extend or restart; reset or carry data) | v1.1* | done |
+| SVC-14 | Customers delete their own service with a refund of the unused value | v1.1* | done |
+| SVC-15 | Customers turn their own reminders off | v1.1* | done |
+| SVC-16 | Staff notes on services | v1.1* | done |
 
 ## Payments
 
@@ -127,6 +132,8 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | PAY-14 | Payment bonus / cashback per method | v1.1 | done |
 | PAY-15 | Direct pay (invoice without wallet top-up) | MVP | done |
 | PAY-16 | Payment expiry job | MVP | done |
+| PAY-17 | Card trust per customer (trusted, blocked), card shown by rotation or at random, random amount tail, late auto-approval | v1.1* | done |
+| PAY-18 | Customers register their bank card before paying card to card, approved by staff | v1.1* | done |
 
 ## Wallet, Billing & Finance
 
@@ -154,6 +161,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | GRW-07 | Forced channel join | MVP | done |
 | GRW-08 | Trust channel | v2 | done |
 | GRW-09 | Welcome gift and referral limits (minimum order, daily cap per referrer, banned referrers) | v1.1* | done |
+| GRW-10 | Private discount codes and My discounts; referral reward on every purchase with a monthly cap | v1.1* | done |
 
 ## Telegram Bot UX
 
@@ -168,6 +176,9 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | BOT-07 | Telegram Business account automation | v2 | done |
 | BOT-08 | User color/risk tags | v1.1 | done |
 | BOT-09 | Delete-with-reason and user notification | v1.1 | done |
+| BOT-10 | Premium emoji in every message, set from the bot | v1.1* | done |
+| BOT-11 | Start sticker, GIF or photo and a buy banner; one-tap copy buttons | v1.1* | done |
+| BOT-12 | Menu as a keyboard, glass buttons or Mini App only | v1.1* | done |
 
 ## Mini App & Web
 

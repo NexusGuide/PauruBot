@@ -202,6 +202,11 @@ def receipt_caption(t: Texts, payment: Payment, customer: Customer, duplicate_of
         order=payment.order_id or "-",
         note=esc(payment.receipt_text or "-"),
     )
+    card = (payment.meta or {}).get("card")
+    if card:
+        text += "\n" + t("adm_receipt_card", last4=esc(str(card)))
+    if customer.card_trust == "trusted":
+        text += "\n" + t("adm_receipt_trusted")
     if duplicate_of or payment.duplicate_of_id:
         text += "\n\n" + t("adm_receipt_duplicate", other=duplicate_of or payment.duplicate_of_id)
     return text
@@ -587,6 +592,11 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
     if staff.can("customers.write"):
         kb.button(text=t("adm_user_btn_message"), callback_data=Admin(section="umsg", id=customer.id))
     kb.button(text=t("adm_user_btn_referrals"), callback_data=Admin(section="uref", id=customer.id))
+    if staff.can("payments.review"):
+        kb.button(
+            text=t("adm_user_btn_trust", state=t(f"adm_trust_{customer.card_trust}")),
+            callback_data=Admin(section="utrust", id=customer.id),
+        )
     if customer.is_reseller and staff.can("resellers.manage"):
         kb.button(text=t("adm_user_btn_group"), callback_data=Admin(section="ugroup", id=customer.id))
     if staff.can("customers.ban"):

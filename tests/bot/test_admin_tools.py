@@ -266,7 +266,8 @@ async def test_broadcast_options_audience_button_and_pin(session, env) -> None: 
     await send(message_update(OWNER, "Buy now | https://t.me/PauruBot"))
     await session.refresh(row)
     assert (
-        row.audience == {"kind": "active", "pin": True} and row.buttons[0]["url"] == "https://t.me/PauruBot"
+        row.audience == {"kind": "active", "pin": True, "pin_hours": 0}
+        and row.buttons[0]["url"] == "https://t.me/PauruBot"
     )
     await send(callback_update(OWNER, Admin(section="bc", action="send", id=row.id).pack()))
     fake.reset()

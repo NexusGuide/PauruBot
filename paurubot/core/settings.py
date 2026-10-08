@@ -44,6 +44,9 @@ SPECS: dict[str, Spec] = {
     "referral_percent": Spec(int, 10, "growth"),
     "referral_min_order": Spec(int, 0, "growth"),
     "referral_daily_max": Spec(int, 0, "growth"),
+    "referral_monthly_max": Spec(int, 0, "growth"),
+    "referral_every_purchase": Spec(bool, False, "growth"),
+    "referral_repeat_percent": Spec(int, None, "growth"),  # None: the same as referral_percent
     "start_gift_amount": Spec(int, 0, "growth"),
     "start_gift_referred_only": Spec(bool, True, "growth"),
     "loyalty_enabled": Spec(bool, False, "growth"),
@@ -79,6 +82,11 @@ SPECS: dict[str, Spec] = {
     "card_auto_approve": Spec(bool, False, "payments"),
     "card_auto_max_amount": Spec(int, 300_000, "payments"),
     "card_auto_min_history": Spec(int, 3, "payments"),
+    "card_auto_approve_after_minutes": Spec(int, 0, "payments"),
+    "card_pick": Spec(str, "all", "payments"),
+    "card_random_tail": Spec(bool, False, "payments"),
+    "card_verify_enabled": Spec(bool, False, "payments"),
+    "card_verify_min_amount": Spec(int, 0, "payments"),
     "topup_bonus_rules": Spec(list, [], "payments"),
     "wallet_transfer_enabled": Spec(bool, False, "payments"),
     "wallet_transfer_min": Spec(int, 10_000, "payments"),
@@ -140,6 +148,7 @@ SPECS: dict[str, Spec] = {
     "fx_markup_percent": Spec(int, 0, "crypto"),
     # service lifecycle
     "renew_resets_usage": Spec(bool, True, "services"),
+    "renew_mode": Spec(str, "", "services"),  # "" follows renew_resets_usage (SVC-13)
     "warn_remaining_percent": Spec(int, 10, "services"),
     "warn_days": Spec(int, 2, "services"),
     "delete_expired_after_days": Spec(int, 7, "services"),
@@ -154,6 +163,8 @@ SPECS: dict[str, Spec] = {
     "app_links": Spec(list, [], "services"),
     "move_enabled": Spec(bool, True, "services"),
     "move_price": Spec(int, 0, "services"),
+    "self_delete_enabled": Spec(bool, False, "services"),
+    "self_delete_refund_percent": Spec(int, 80, "services"),
     "ip_notice_enabled": Spec(bool, True, "services"),
     "info_card_enabled": Spec(bool, True, "services"),
     "info_card_theme": Spec(str, "midnight", "services"),
@@ -172,6 +183,11 @@ SPECS: dict[str, Spec] = {
     # bot appearance (BOT-02, BOT-03, BOT-05)
     "menu_layout": Spec(list, [], "appearance"),
     "button_styles": Spec(dict, {}, "appearance"),
+    "premium_emoji_enabled": Spec(bool, False, "appearance"),
+    "premium_emojis": Spec(dict, {}, "appearance"),  # emoji -> custom emoji id (BOT-10)
+    "start_media": Spec(dict, {}, "appearance"),  # {"type": sticker|animation|photo, "file_id"} (BOT-11)
+    "buy_banner_file_id": Spec(str, "", "appearance"),
+    "menu_mode": Spec(str, "reply", "appearance"),  # reply | inline | miniapp (BOT-12)
     "help_items": Spec(list, [], "appearance"),
     "download_apps": Spec(list, [], "appearance"),
     "app_cache_chat_id": Spec(int, None, "appearance"),
@@ -183,6 +199,9 @@ SPECS: dict[str, Spec] = {
     "bulk_buy_max": Spec(int, 20, "resellers"),
     "bulk_buy_resellers_only": Spec(bool, True, "resellers"),
     "reseller_web_access": Spec(bool, True, "resellers"),
+    "reseller_membership_price": Spec(int, 0, "resellers"),
+    "reseller_membership_group_id": Spec(int, None, "resellers"),
+    "reseller_membership_days": Spec(int, 30, "resellers"),
     "panel_accounts_enabled": Spec(bool, False, "resellers"),
     "panel_accounts_resellers_only": Spec(bool, False, "resellers"),
     # reports

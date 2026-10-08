@@ -36,6 +36,9 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `referral_percent` | int | 10 | Reward percent. Of the referred person's first purchase |
 | `referral_min_order` | int | 0 | Smallest first order that earns a referral reward (Toman) |
 | `referral_daily_max` | int | 0 | Referral rewards per inviter per day. Stops reward farming with fake accounts; 0 means no limit |
+| `referral_monthly_max` | int | 0 | Referral rewards per inviter per 30 days. 0 means no limit |
+| `referral_every_purchase` | bool | false | Referral reward on every purchase. Off: only the invited customer's first purchase pays the inviter |
+| `referral_repeat_percent` | int | — | Referral percent on later purchases. Empty uses the same percent as the first purchase |
 | `start_gift_amount` | int | 0 | Welcome gift for new customers (Toman). Added to the wallet once, on first /start. 0 turns it off; keep it small |
 | `start_gift_referred_only` | bool | true | Welcome gift only for invited customers |
 | `loyalty_enabled` | bool | false | Loyalty levels. Customers who spend more get a standing discount. Resellers keep their own discount |
@@ -66,6 +69,11 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `card_auto_approve` | bool | false | Auto-approve receipts. Small receipts from customers with a clean history are approved without review; duplicates never are |
 | `card_auto_max_amount` | int | 300000 | Auto-approve up to |
 | `card_auto_min_history` | int | 3 | Approved receipts needed first |
+| `card_auto_approve_after_minutes` | int | 0 | Approve unreviewed receipts after (minutes). 0 turns it off. Only up to the auto-approve amount; duplicates and risky customers always wait for a person |
+| `card_pick` | str | "all" | Which card customers see. all, random (one at random) or rotate (one card after another) |
+| `card_random_tail` | bool | false | Add a random tail to card amounts. A few Toman (up to 999) so every receipt matches one payment; the extra goes to the customer's wallet |
+| `card_verify_enabled` | bool | false | Customers register their card first. Before paying card to card, the customer sends the card number and a photo of the card; staff approve it in the bot. Trusted customers skip this |
+| `card_verify_min_amount` | int | 0 | Card registration needed from (Toman). 0 means for every card payment |
 | `topup_bonus_rules` | list | [] | Top-up bonus. A share of each top-up added as a gift. The largest matching bonus applies |
 | `wallet_transfer_enabled` | bool | false | Customers can send balance to each other |
 | `wallet_transfer_min` | int | 10000 | Smallest transfer (Toman) |
@@ -101,6 +109,11 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `miniapp_enabled` | bool | true | — |
 | `menu_layout` | list | [] | — |
 | `button_styles` | dict | {} | — |
+| `premium_emoji_enabled` | bool | false | — |
+| `premium_emojis` | dict | {} | — |
+| `start_media` | dict | {} | — |
+| `buy_banner_file_id` | str | "" | — |
+| `menu_mode` | str | "reply" | — |
 | `help_items` | list | [] | — |
 | `download_apps` | list | [] | — |
 | `app_cache_chat_id` | int | — | — |
@@ -161,6 +174,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `renew_resets_usage` | bool | true | Renewal resets usage. When off, leftover data carries over |
+| `renew_mode` | str | "" | When renewing. extend_reset, extend_carry, restart_reset or restart_carry; empty follows "Renewal resets usage". A plan can choose its own |
 | `warn_remaining_percent` | int | 10 | Low data warning (% left) |
 | `warn_days` | int | 2 | Expiry warning (days left) |
 | `delete_expired_after_days` | int | 7 | Delete expired after (days). 0 means never |
@@ -175,6 +189,8 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `app_links` | list | [] | App buttons on the subscription page. {url} becomes the subscription link and {title} the shop name |
 | `move_enabled` | bool | true | Customers can change location. A button on each active service moves it to another location with its remaining data and end date |
 | `move_price` | int | 0 | Location change price. 0 means free |
+| `self_delete_enabled` | bool | false | Customers can delete their own services |
+| `self_delete_refund_percent` | int | 80 | Refund of the unused value (%). What share of the unused part (time or data, whichever is less) of the last payment goes back to the wallet. 0 means no refund |
 | `ip_notice_enabled` | bool | true | Tell customers when a device is cut off. For plans with a device limit on 3x-ui and Rebecca panels: when a new device pushes an older one off, the customer gets a short notice (at most once an hour) |
 | `info_card_enabled` | bool | true | Service info card. A Card button on each service sends a picture with usage, days left, end date and the QR. After a purchase the card is sent instead of the bare QR |
 | `info_card_theme` | str | "midnight" | Card colours. The colour set used for every service card |
@@ -206,6 +222,9 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `bulk_buy_max` | int | 20 | Most services per bulk purchase |
 | `bulk_buy_resellers_only` | bool | true | Bulk buying for resellers only |
 | `reseller_web_access` | bool | true | Web panel for approved resellers. On approval a reseller gets its own sign-in here (a Telegram code, no password) to sell, renew and see reports |
+| `reseller_membership_price` | int | 0 | Reseller membership price (Toman). 0 turns it off. Customers pay from the wallet and become resellers at once, without an application |
+| `reseller_membership_group_id` | int | — | Group for paid members (group ID) |
+| `reseller_membership_days` | int | 30 | Membership period (days). 0 means it never ends |
 | `panel_accounts_enabled` | bool | false | Sell PasarGuard admin accounts |
 | `panel_accounts_resellers_only` | bool | false | Admin accounts for resellers only |
 

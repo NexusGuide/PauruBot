@@ -82,6 +82,32 @@ async def wallet_home(
     )
 
 
+@router.callback_query(Wallet.filter(F.action == "codes"))
+async def my_codes(call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts) -> None:
+    """Private discount codes made for this customer (GRW-10)."""
+    from paurubot.core import pricing
+
+    await call.answer()
+    codes = await pricing.private_codes(session, customer)
+    if not codes:
+        await show(call, t("my_codes_empty"), keyboards.back(t, Wallet(action="home").pack()))
+        return
+    lines = [t("my_codes_title")]
+    for code in codes:
+        value = (
+            f"{code.value}%"
+            if code.kind.value == "percent"
+            else t("my_codes_toman", amount=money(code.value))
+        )
+        until = jdate(code.expires_at) if code.expires_at else t("unlimited")
+        lines.append(t("my_codes_line", code=esc(code.code), value=value, until=until))
+    await show(
+        call,
+        "\n".join(lines),
+        keyboards.copy_kb([(t("btn_copy_code", code=code.code), code.code) for code in codes[:5]]),
+    )
+
+
 # --- moving balance to another customer (FIN-08) ------------------------------------------
 
 
@@ -252,7 +278,7 @@ async def typed_amount(
         await message.answer(t("amount_out_of_range", low=money(low), high=money(high)))
         return
     await state.clear()
-    methods = await payments.available(session, customer.shop_id)
+    methods = await payments.available(session, customer.shop_id, customer)
     await message.answer(t("topup_amount_set", amount=money(amount)), reply_markup=menu(t, cfg, staff))
     await message.answer(
         t("topup_choose_method"), reply_markup=keyboards.topup_methods_kb(t, amount, methods)
@@ -264,7 +290,7 @@ async def preset_amount(
     call: CallbackQuery, callback_data: Wallet, session: AsyncSession, customer: Customer, t: Texts
 ) -> None:
     await call.answer()
-    methods = await payments.available(session, customer.shop_id)
+    methods = await payments.available(session, customer.shop_id, customer)
     if not methods:
         await show(call, t("no_payment_methods"))
         return
@@ -298,6 +324,13 @@ async def pay(
             started = await payments.start(session, customer, callback_data.method, callback_data.amount)
     except PaymentError as exc:
         await session.rollback()
+        if exc.key == "card_verify_required" and isinstance(call.message, Message):
+            await call.answer()
+            await call.message.answer(
+                t("card_verify_required"),
+                reply_markup=keyboards.single(t("btn_card_verify"), Wallet(action="cardv").pack()),
+            )
+            return
         await call.answer(error_text(t, exc.key, exc.params), show_alert=True)
         return
     await session.commit()
@@ -313,10 +346,16 @@ async def pay(
         )
         await state.set_state(WalletStates.receipt)
         await state.update_data(payment_id=payment.id)
+        copies = [
+            (t("btn_copy_card", last4=a["number"][-4:]), a["number"])
+            for a in checkout.instructions["accounts"][:3]
+        ]
+        copies.append((t("btn_copy_amount"), str(payment.amount)))
         await message.answer(
             t("card_instructions", amount=money(payment.amount), cards=accounts, payment_id=payment.id),
-            reply_markup=keyboards.cancel(t),
+            reply_markup=keyboards.copy_kb(copies),
         )
+        await message.answer(t("receipt_send_hint"), reply_markup=keyboards.cancel(t))
     elif payment.provider == "stars":
         await bot.send_invoice(
             chat_id=customer.telegram_id,
@@ -338,13 +377,86 @@ async def pay(
                 toman=money(payment.amount),
                 payment_id=payment.id,
                 minutes=int(cfg_minutes(payment)),
-            )
+            ),
+            reply_markup=keyboards.copy_kb(
+                [
+                    (t("btn_copy_address"), str(info["address"])),
+                    (t("btn_copy_amount"), str(info["amount"])),
+                    (t("btn_copy_memo"), str(info.get("memo") or "")),
+                ]
+            ),
         )
     elif checkout.redirect_url:
         await message.answer(
             t("gateway_instructions", amount=money(payments.amount_to_pay(payment)), payment_id=payment.id),
             reply_markup=keyboards.url_button(t("btn_open_gateway"), checkout.redirect_url),
         )
+
+
+# --- registering a card before paying card to card (PAY-18) ---------------------------------
+
+
+@router.callback_query(Wallet.filter(F.action == "cardv"))
+async def card_verify_start(
+    call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts, state: FSMContext
+) -> None:
+    from paurubot.core import cards
+
+    await call.answer()
+    if await cards.has_verified(session, customer):
+        await show(call, t("card_verified_already"))
+        return
+    await state.set_state(WalletStates.card_number)
+    if isinstance(call.message, Message):
+        await call.message.answer(t("card_verify_ask_number"), reply_markup=keyboards.cancel(t))
+
+
+@router.message(WalletStates.card_number, F.text)
+async def card_verify_number(message: Message, t: Texts, state: FSMContext) -> None:
+    from paurubot.core import cards
+
+    number = cards.digits(message.text or "")
+    if len(number) != 16 or not cards.luhn_ok(number):
+        await message.answer(t("card_number_invalid"))
+        return
+    await state.update_data(card_number=number)
+    await state.set_state(WalletStates.card_photo)
+    await message.answer(t("card_verify_ask_photo"))
+
+
+@router.message(WalletStates.card_photo, F.photo)
+async def card_verify_photo(
+    message: Message,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    staff: Any,
+    state: FSMContext,
+) -> None:
+    from paurubot.core import cards
+
+    data = await state.get_data()
+    assert message.photo
+    try:
+        card, other = await cards.register(
+            session, customer, str(data.get("card_number") or ""), message.photo[-1].file_id
+        )
+    except cards.CardError as exc:
+        await state.clear()
+        await message.answer(t(exc.key), reply_markup=menu(t, cfg, staff))
+        return
+    await queue.enqueue(
+        session,
+        "notify",
+        "card_verify",
+        {"card_id": card.id, "other_customer_id": other.id if other else None},
+        shop_id=customer.shop_id,
+        dedupe_key=f"card:{card.id}:review",
+    )
+    await session.commit()
+    await state.clear()
+    await message.answer(t("card_verify_sent", card=card.masked), reply_markup=menu(t, cfg, staff))
 
 
 def cfg_minutes(payment: Payment) -> float:
