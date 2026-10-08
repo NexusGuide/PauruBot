@@ -11,6 +11,8 @@ import { Panels } from "./screens/Panels";
 import { BotMenu } from "./screens/BotMenu";
 import { Migration } from "./screens/Migration";
 import { Updates } from "./screens/Updates";
+import { AdminAccounts } from "./screens/AdminAccounts";
+import { Desk } from "./screens/Desk";
 import { MyBilling, Resellers, Staff, SubResellers, TicketPage, Tickets } from "./screens/People";
 import { Services } from "./screens/Services";
 import { Account, Audit, Backups, Channels, Health, Jobs, Reports, Settings, Texts } from "./screens/System";
@@ -58,6 +60,8 @@ function Routed() {
         <Route path="/broadcasts" element={g("broadcast.send", <Broadcasts />)} />
         <Route path="/lotteries" element={g("broadcast.send", <Lotteries />)} />
         <Route path="/resellers" element={g("resellers.manage", <Resellers />)} />
+        <Route path="/admin-accounts" element={g("resellers.manage", <AdminAccounts />)} />
+        <Route path="/desk" element={g("services.create", <Desk />)} />
         <Route path="/sub-resellers" element={g("resellers.sub", <SubResellers />)} />
         <Route path="/billing" element={g("dashboard.view", <MyBilling />)} />
         <Route path="/bot-menu" element={g("settings.read", <BotMenu />)} />

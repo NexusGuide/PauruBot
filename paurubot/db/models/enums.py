@@ -64,6 +64,11 @@ class OrderKind(enum.StrEnum):
     UPGRADE = "upgrade"
     TRIAL = "trial"
     MOVE = "move"
+    # Panel admin accounts (TEN-14)
+    ACCOUNT_PURCHASE = "account_purchase"
+    ACCOUNT_RENEW = "account_renew"
+    ACCOUNT_GB = "account_gb"
+    ACCOUNT_USERS = "account_users"
 
 
 class OrderStatus(enum.StrEnum):

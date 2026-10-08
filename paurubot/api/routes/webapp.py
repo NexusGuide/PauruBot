@@ -6,13 +6,13 @@ import logging
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from paurubot.api.routes import webapp_staff
 from paurubot.api.webapp_auth import WebApp
-from paurubot.core import catalog, customers, orders, pricing, trials
+from paurubot.core import catalog, customers, orders, pricing, reseller_desk, trials
 from paurubot.db.models import (
     Category,
     DiscountCode,
@@ -95,7 +95,7 @@ async def _priced_view(ctx: Any, plan: Plan) -> dict[str, Any]:
     from paurubot.core import resale
 
     listed = await resale.list_price(ctx.session, plan, ctx.shop.id)
-    view = plan_view(plan, pricing.quote(listed, ctx.customer).amount)
+    view = plan_view(plan, (await pricing.plan_quote(ctx.session, ctx.customer, plan.id, listed)).amount)
     view["base_price"] = listed
     return view
 
@@ -535,3 +535,43 @@ async def trial(ctx: WebApp) -> dict[str, Any]:
     except trials.TrialError as exc:
         raise HTTPException(status_code=400, detail=exc.key) from exc
     return {"order": order_view(order)}
+
+
+# --- the reseller's desk in the Mini App (TEN-15) ----------------------------------------
+
+
+def _reseller(ctx: WebApp) -> None:
+    profile = ctx.customer.reseller_profile
+    if profile is None or not profile.is_current:
+        raise HTTPException(status_code=403, detail="not_reseller")
+
+
+@router.get("/reseller/desk")
+async def reseller_desk_view(ctx: WebApp, days: int = Query(3, ge=1, le=60)) -> dict[str, Any]:
+    _reseller(ctx)
+    figures = await reseller_desk.figures(ctx.session, ctx.customer, days)
+    return {
+        "figures": {
+            "active": figures.active,
+            "expiring": figures.expiring,
+            "month_orders": figures.month_orders,
+            "month_amount": figures.month_amount,
+        },
+        "expiring": await reseller_desk.expiring_rows(ctx.session, ctx.customer, days),
+    }
+
+
+class RenewManyBody(BaseModel):
+    service_ids: list[int] = Field(min_length=1, max_length=reseller_desk.RENEW_LIMIT)
+
+
+@router.post("/reseller/renew")
+async def reseller_renew(body: RenewManyBody, ctx: WebApp) -> dict[str, Any]:
+    _reseller(ctx)
+    services = await reseller_desk.owned_services(ctx.session, ctx.customer, body.service_ids)
+    result = await reseller_desk.renew_many(ctx.session, ctx.customer, services)
+    return {
+        "renewed": [s.id for s in result.renewed],
+        "failed": [{"id": s.id, "error": key} for s, key in result.failed],
+        "balance": await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id),
+    }

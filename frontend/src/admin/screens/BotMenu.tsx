@@ -18,8 +18,9 @@ const BUTTONS = [
   "language",
   "wheel",
   "lottery",
+  "accounts",
 ];
-const DEFAULT_LAYOUT = [["miniapp"], ["buy", "services"], ["wallet", "trial"], ["referral", "reseller"], ["tickets", "guide"], ["apps", "language"]];
+const DEFAULT_LAYOUT = [["miniapp"], ["buy", "services"], ["wallet", "trial"], ["referral", "reseller", "accounts"], ["tickets", "guide"], ["wheel", "lottery"], ["apps", "language"]];
 const LABEL_KEY: Record<string, string> = Object.fromEntries(BUTTONS.map((b) => [b, `menu_btn_${b}`]));
 const STYLES = ["", "primary", "success", "danger"];
 const PLATFORMS = ["android", "ios", "windows", "mac", "linux"];

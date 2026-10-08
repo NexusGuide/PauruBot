@@ -175,7 +175,11 @@ export const api = {
     code?: string;
     custom_gb?: number;
     custom_days?: number;
+    label?: string;
   }) => post<{ order: Order; balance: number; due: number }>("/orders", body),
+  resellerDesk: (days: number) => get<ResellerDesk>(`/reseller/desk?days=${days}`),
+  renewMany: (ids: number[]) =>
+    post<{ renewed: number[]; failed: { id: number; error: string }[]; balance: number }>("/reseller/renew", { service_ids: ids }),
   order: (id: number) => get<{ order: Order }>(`/orders/${id}`),
   payOrder: (id: number, method: string) =>
     post<{ order: Order; payment?: PaymentStart }>(`/orders/${id}/pay`, { method }),
@@ -209,3 +213,21 @@ export const api = {
     return URL.createObjectURL(await response.blob());
   },
 };
+
+export interface DeskService {
+  id: number;
+  label: string | null;
+  panel_username: string;
+  status: string;
+  expire_at: string | null;
+  used_bytes: number;
+  data_limit: number;
+  days_left: number | null;
+  gb_left: number | null;
+  renew_price: number | null;
+}
+
+export interface ResellerDesk {
+  figures: { active: number; expiring: number; month_orders: number; month_amount: number };
+  expiring: DeskService[];
+}

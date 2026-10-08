@@ -34,6 +34,10 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 |---|---|---|---|
 | `referral_enabled` | bool | true | Referrals on |
 | `referral_percent` | int | 10 | Reward percent. Of the referred person's first purchase |
+| `referral_min_order` | int | 0 | Smallest first order that earns a referral reward (Toman) |
+| `referral_daily_max` | int | 0 | Referral rewards per inviter per day. Stops reward farming with fake accounts; 0 means no limit |
+| `start_gift_amount` | int | 0 | Welcome gift for new customers (Toman). Added to the wallet once, on first /start. 0 turns it off; keep it small |
+| `start_gift_referred_only` | bool | true | Welcome gift only for invited customers |
 | `loyalty_enabled` | bool | false | Loyalty levels. Customers who spend more get a standing discount. Resellers keep their own discount |
 | `loyalty_tiers` | list | [] | Levels. Total spent on completed orders to reach each level, and its discount (up to 50%) |
 | `wheel_enabled` | bool | false | Lucky wheel. A Lucky wheel button in the bot gives a spin with a prize from the list below |
@@ -63,6 +67,9 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `card_auto_max_amount` | int | 300000 | Auto-approve up to |
 | `card_auto_min_history` | int | 3 | Approved receipts needed first |
 | `topup_bonus_rules` | list | [] | Top-up bonus. A share of each top-up added as a gift. The largest matching bonus applies |
+| `wallet_transfer_enabled` | bool | false | Customers can send balance to each other |
+| `wallet_transfer_min` | int | 10000 | Smallest transfer (Toman) |
+| `wallet_transfer_daily_max` | int | 5000000 | Most a customer can send a day (Toman). 0 means no daily limit |
 | `nowpayments_enabled` | bool | false | NowPayments |
 | `nowpayments_api_key` | str (secret) | — | NowPayments API key |
 | `nowpayments_ipn_secret` | str (secret) | — | NowPayments IPN secret |
@@ -198,6 +205,9 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `bulk_buy_enabled` | bool | true | Bulk buying. A Buy several button at checkout creates many services of one plan in one payment |
 | `bulk_buy_max` | int | 20 | Most services per bulk purchase |
 | `bulk_buy_resellers_only` | bool | true | Bulk buying for resellers only |
+| `reseller_web_access` | bool | true | Web panel for approved resellers. On approval a reseller gets its own sign-in here (a Telegram code, no password) to sell, renew and see reports |
+| `panel_accounts_enabled` | bool | false | Sell PasarGuard admin accounts |
+| `panel_accounts_resellers_only` | bool | false | Admin accounts for resellers only |
 
 ## Reports
 

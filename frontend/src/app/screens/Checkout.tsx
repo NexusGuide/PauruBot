@@ -24,11 +24,13 @@ export function Checkout() {
   const [due, setDue] = useState(0);
   const [balance, setBalance] = useState(0);
   const [code, setCode] = useState("");
+  const [appliedCode, setAppliedCode] = useState<string | undefined>(undefined);
+  const [label, setLabel] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
 
   const create = useCallback(
-    async (discount?: string) => {
+    async (discount?: string, name?: string) => {
       const body = {
         kind: params.get("kind") ?? "purchase",
         plan_id: Number(params.get("plan")) || undefined,
@@ -38,6 +40,7 @@ export function Checkout() {
         custom_gb: Number(params.get("cgb")) || undefined,
         custom_days: Number(params.get("cdays")) || undefined,
         code: discount || undefined,
+        label: name || undefined,
       };
       const result = await api.createOrder(body);
       setOrder(result.order);
@@ -65,9 +68,25 @@ export function Checkout() {
     setBusy("code");
     try {
       if (order) await api.cancelOrder(order.id);
-      await create(code.trim());
+      await create(code.trim(), order?.params.label);
+      setAppliedCode(code.trim());
       haptic("success");
       toast(t("code_applied"));
+    } catch (err) {
+      haptic("error");
+      toast(errorText(t, err), "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const applyLabel = async () => {
+    setBusy("label");
+    try {
+      if (order) await api.cancelOrder(order.id);
+      await create(appliedCode, label.trim());
+      haptic("success");
+      toast(t("label_set"));
     } catch (err) {
       haptic("error");
       toast(errorText(t, err), "error");
@@ -131,6 +150,26 @@ export function Checkout() {
         <Line label={t("total")} value={`${money(order.amount, locale)} ${t("currency")}`} strong />
         <Line label={t("balance")} value={money(balance, locale)} />
       </Panel>
+
+      {me.reseller.active && order.kind === "purchase" && (
+        <div className="mb-4">
+          <p className="mb-2 text-sm text-[var(--hint)]">
+            {order.params.label ? t("label_current", { label: order.params.label }) : t("label_hint")}
+          </p>
+          <div className="flex gap-2">
+            <input
+              value={label}
+              maxLength={48}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder={t("customer_label")}
+              className="min-h-12 flex-1 rounded-2xl bg-[var(--surface)] px-4 text-[var(--text)] outline-none ring-1 ring-[var(--line)] focus:ring-[var(--accent)]"
+            />
+            <Button tone="quiet" className="!w-auto px-5" busy={busy === "label"} disabled={!label.trim()} onClick={applyLabel}>
+              {t("apply")}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {order.code_discount === 0 && (
         <div className="mb-4 flex gap-2">

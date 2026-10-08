@@ -342,6 +342,15 @@ export interface ResellerGroup {
   min_topup: number;
   max_active_services: number | null;
   is_active: boolean;
+  hidden_panel_ids: number[];
+}
+
+export interface ResellerPrice {
+  id: number;
+  plan_id: number;
+  group_id: number | null;
+  profile_id: number | null;
+  price: number;
 }
 
 export interface ResellerProfile {
@@ -504,3 +513,40 @@ export interface SalesReport {
 }
 
 export { ApiError };
+
+export interface AccountPlan {
+  id: number;
+  panel_id: number;
+  title: string;
+  description: string | null;
+  role_id: number;
+  data_gb: number;
+  max_users: number | null;
+  days: number;
+  price: number;
+  gb_price: number;
+  user_price: number;
+  sort: number;
+  is_active: boolean;
+}
+
+export interface PanelAccountRow {
+  id: number;
+  customer_id: number;
+  customer: string | null;
+  telegram_id: number | null;
+  panel_id: number;
+  panel: string | null;
+  plan_id: number | null;
+  plan: string | null;
+  username: string;
+  data_limit: number;
+  max_users: number | null;
+  expire_at: string | null;
+  status: "active" | "paused" | "expired" | "deleted";
+  used_bytes: number;
+  users_count: number;
+  panel_status: string | null;
+  synced_at: string | null;
+  created_at: string;
+}

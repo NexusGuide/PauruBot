@@ -38,6 +38,9 @@ from paurubot.ledger.posting import InsufficientFunds
 from paurubot.worker import queue
 
 PROVISION_QUEUE = "provision"
+ACCOUNT_KINDS = frozenset(
+    {OrderKind.ACCOUNT_PURCHASE, OrderKind.ACCOUNT_RENEW, OrderKind.ACCOUNT_GB, OrderKind.ACCOUNT_USERS}
+)
 
 
 class OrderError(Exception):
@@ -187,7 +190,7 @@ async def draft(
         move_to=move_to,
     )
     if shop_resale is not None:
-        cost = resale.wholesale(shop_resale, d.base_price)
+        cost = await resale.wholesale(session, shop_resale, plan.id if plan else None, d.base_price)
         if cost <= 0:
             raise OrderError("plan_unavailable")  # nothing for the reseller to pay means nothing to resell
         d.params.update(wholesale=cost, resale_profile=shop_resale.profile.id)
@@ -317,14 +320,18 @@ async def create(
     code: DiscountCode | None = None,
     source: str = "bot",
 ) -> Order:
-    if resellers.metered(customer):
+    if resellers.metered(customer) and d.kind not in ACCOUNT_KINDS:
         code = None  # nothing to discount: the order itself is free
     if code is not None:
         await pricing.validate_code(
             session, code, customer, plan_id=d.plan.id if d.plan else None, amount=d.base_price
         )
-    q = pricing.quote(d.base_price, customer, code)
-    if code is None and resellers.metered(customer):
+    account = d.kind in ACCOUNT_KINDS  # panel admin accounts carry no reseller discount (TEN-14)
+    if d.plan is not None and d.kind in {OrderKind.PURCHASE, OrderKind.RENEW}:
+        q = await pricing.plan_quote(session, customer, d.plan.id, d.base_price, code)  # TEN-12
+    else:
+        q = pricing.quote(d.base_price, None if account else customer, code)
+    if code is None and resellers.metered(customer) and not account:
         # Metered resellers pay for usage or service-hours instead of per order (TEN-05).
         q = pricing.Quote(d.base_price, d.base_price, 0, 0)
         d.params = {**d.params, "metered": True}

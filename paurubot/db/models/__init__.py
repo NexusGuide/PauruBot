@@ -1,4 +1,5 @@
 from paurubot.db.models.catalog import (
+    AccountPlan,
     Category,
     DiscountCode,
     DiscountRedemption,
@@ -6,6 +7,7 @@ from paurubot.db.models.catalog import (
     GiftRedemption,
     Location,
     Panel,
+    PanelAccount,
     PanelCheck,
     Plan,
     StickyDiscount,
@@ -56,6 +58,7 @@ from paurubot.db.models.tenancy import (
     ResellerApplication,
     ResellerBillingSnapshot,
     ResellerGroup,
+    ResellerPrice,
     ResellerProfile,
     Shop,
     ShopSetting,
@@ -64,6 +67,8 @@ from paurubot.db.models.tenancy import (
 )
 
 __all__ = [
+    "AccountPlan",
+    "PanelAccount",
     "ApplicationStatus",
     "AuditLog",
     "BotText",
@@ -98,6 +103,7 @@ __all__ = [
     "PlanAudience",
     "ResellerApplication",
     "ResellerGroup",
+    "ResellerPrice",
     "ResellerProfile",
     "Service",
     "Settlement",

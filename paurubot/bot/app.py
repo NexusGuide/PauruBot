@@ -10,7 +10,20 @@ from aiogram.fsm.storage.redis import DefaultKeyBuilder, RedisStorage
 from aiogram.types import BotCommand, CallbackQuery, Message
 
 from paurubot.bot.context import ContextMiddleware, GateMiddleware, StaffIdentity
-from paurubot.bot.routers import account, admin, business, growth, services, shop, start, wallet
+from paurubot.bot.routers import (
+    account,
+    accounts,
+    admin,
+    admin_ops,
+    admin_tools,
+    business,
+    growth,
+    reseller,
+    services,
+    shop,
+    start,
+    wallet,
+)
 from paurubot.config import get_settings
 from paurubot.i18n import Texts
 
@@ -58,9 +71,13 @@ def build_dispatcher(storage: BaseStorage | None = None, shop_id: int | None = N
         business.router,
         start.router,
         admin.router,
+        admin_tools.router,
+        admin_ops.router,
         shop.router,
         services.router,
         wallet.router,
+        reseller.router,
+        accounts.router,
         account.router,
         growth.router,
         fallback,

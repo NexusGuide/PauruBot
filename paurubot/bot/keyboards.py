@@ -193,12 +193,14 @@ def topup_methods_kb(t: Texts, amount: int, methods: Sequence[str]) -> InlineKey
     return kb.as_markup()
 
 
-def wallet_kb(t: Texts) -> InlineKeyboardMarkup:
+def wallet_kb(t: Texts, *, transfer: bool = False) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text=t("btn_topup"), callback_data=Wallet(action="topup"))
     kb.button(text=t("btn_history"), callback_data=Wallet(action="history"))
     kb.button(text=t("btn_redeem_gift"), callback_data=Wallet(action="gift"))
-    kb.adjust(2, 1)
+    if transfer:
+        kb.button(text=t("btn_transfer"), callback_data=Wallet(action="transfer"))
+    kb.adjust(2, 2)
     return kb.as_markup()
 
 
@@ -290,6 +292,7 @@ def service_kb(
     if can_change(service, "revoke"):
         kb.button(text=t("btn_revoke"), callback_data=Svc(action="revoke", id=sid))
     kb.button(text=t("btn_rename"), callback_data=Svc(action="rename", id=sid))
+    kb.button(text=t("btn_report_problem"), callback_data=Svc(action="report", id=sid))
     kb.adjust(2)
     kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Svc(action="list").pack()))
     return kb.as_markup()

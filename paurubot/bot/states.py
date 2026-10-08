@@ -16,6 +16,8 @@ class WalletStates(StatesGroup):
     amount = State()
     receipt = State()
     gift = State()
+    transfer_to = State()
+    transfer_amount = State()
 
 
 class ServiceStates(StatesGroup):
@@ -30,6 +32,9 @@ class TicketStates(StatesGroup):
 
 class ResellerStates(StatesGroup):
     application = State()
+    search = State()
+    sub_telegram_id = State()
+    sub_discount = State()
 
 
 class AdminStates(StatesGroup):
@@ -38,3 +43,9 @@ class AdminStates(StatesGroup):
     broadcast = State()
     reject_reason = State()
     ticket_reply = State()
+    message = State()
+    plan_price = State()
+    bulk_price = State()
+    setting_value = State()
+    gift_amount = State()
+    broadcast_button = State()

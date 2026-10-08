@@ -1,0 +1,416 @@
+"""Selling panel admin accounts (TEN-14).
+
+A customer buys a PasarGuard admin with a role, a traffic quota, a user cap and a period, then
+creates and manages its own users in the panel. Buying, renewing and adding traffic or user slots
+are ordinary orders, so every payment method, the ledger and refunds work as for services; the
+provisioning worker applies them to the panel.
+"""
+
+from __future__ import annotations
+
+import secrets
+import string
+from datetime import datetime, timedelta
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from paurubot.core import settings as shop_settings
+from paurubot.core.orders import ACCOUNT_KINDS, Draft, OrderError
+from paurubot.db.base import utcnow
+from paurubot.db.models import (
+    AccountPlan,
+    Customer,
+    Order,
+    OrderKind,
+    Panel,
+    PanelAccount,
+    PanelKind,
+)
+from paurubot.panels import GB, PanelError, driver_for
+from paurubot.security import secretbox
+
+KINDS = ACCOUNT_KINDS
+LIVE = ("active", "paused", "expired")
+MAX_GB = 100_000
+MAX_USERS = 10_000
+SPECIAL = "!@#$%^&*-_=+"
+
+
+class AccountError(Exception):
+    def __init__(self, key: str) -> None:
+        super().__init__(key)
+        self.key = key
+
+
+def new_password() -> str:
+    """16 characters that pass PasarGuard's rules: two upper, two lower, two digits, a symbol."""
+    pool = string.ascii_letters + string.digits
+    while True:
+        body = [secrets.choice(pool) for _ in range(12)]
+        body += [secrets.choice(string.ascii_uppercase) for _ in range(2)]
+        body += [secrets.choice(string.digits) for _ in range(1)]
+        body += [secrets.choice(SPECIAL)]
+        secrets.SystemRandom().shuffle(body)
+        password = "".join(body)
+        if (
+            sum(c.isupper() for c in password) >= 2
+            and sum(c.islower() for c in password) >= 2
+            and sum(c.isdigit() for c in password) >= 2
+        ):
+            return password
+
+
+def login_url(account: PanelAccount) -> str:
+    """Where the buyer signs in: the panel's dashboard."""
+    panel = account.panel
+    base = str((panel.options or {}).get("dashboard_url") or "") if panel else ""
+    if not base and panel is not None:
+        base = panel.base_url.rstrip("/") + "/dashboard/"
+    return base
+
+
+def password_of(account: PanelAccount) -> str:
+    return secretbox.decrypt("panel", account.password_enc)
+
+
+async def available(session: AsyncSession, customer: Customer) -> bool:
+    """Whether this customer may buy admin accounts: switched on, not a reseller bot's shop,
+    and for resellers only when the shop says so."""
+    from paurubot.core import resale
+
+    cfg = await shop_settings.load(session, customer.shop_id)
+    if not cfg.get("panel_accounts_enabled") or await resale.for_shop(session, customer.shop_id):
+        return False
+    return customer.is_reseller or not cfg.get("panel_accounts_resellers_only")
+
+
+async def plans(session: AsyncSession, shop_id: int) -> list[AccountPlan]:
+    rows = await session.scalars(
+        select(AccountPlan)
+        .join(Panel, Panel.id == AccountPlan.panel_id)
+        .where(
+            AccountPlan.shop_id == shop_id,
+            AccountPlan.is_active.is_(True),
+            Panel.is_active.is_(True),
+            Panel.kind == PanelKind.PASARGUARD,
+        )
+        .order_by(AccountPlan.sort, AccountPlan.price, AccountPlan.id)
+    )
+    return list(rows)
+
+
+async def plan_for(session: AsyncSession, shop_id: int, plan_id: int) -> AccountPlan | None:
+    return next((p for p in await plans(session, shop_id) if p.id == plan_id), None)
+
+
+async def accounts_of(session: AsyncSession, customer: Customer) -> list[PanelAccount]:
+    rows = await session.scalars(
+        select(PanelAccount)
+        .where(PanelAccount.customer_id == customer.id, PanelAccount.status.in_(LIVE))
+        .order_by(PanelAccount.id.desc())
+    )
+    return list(rows)
+
+
+async def owned(session: AsyncSession, customer: Customer, account_id: int) -> PanelAccount | None:
+    account = await session.get(PanelAccount, account_id)
+    if account is None or account.customer_id != customer.id or account.status not in LIVE:
+        return None
+    return account
+
+
+async def draft(
+    session: AsyncSession,
+    customer: Customer,
+    kind: OrderKind,
+    *,
+    plan: AccountPlan | None = None,
+    account: PanelAccount | None = None,
+    amount: int = 0,
+) -> Draft:
+    """Price and validate an account order; `amount` is GB or user slots for the add-ons."""
+    if kind not in KINDS:
+        raise OrderError("plan_unavailable")
+    if not await available(session, customer):
+        raise OrderError("accounts_unavailable")
+    if kind == OrderKind.ACCOUNT_PURCHASE:
+        if plan is None or plan.shop_id != customer.shop_id or not plan.is_active:
+            raise OrderError("plan_unavailable")
+        return Draft(kind, None, None, {"account_plan_id": plan.id}, int(plan.price))
+    if account is None or account.customer_id != customer.id or account.status not in LIVE:
+        raise OrderError("account_not_found")
+    current = await session.get(AccountPlan, account.plan_id) if account.plan_id else None
+    if current is None or not current.is_active:
+        raise OrderError("plan_unavailable")
+    params: dict[str, Any] = {"account_id": account.id, "account_plan_id": current.id}
+    if kind == OrderKind.ACCOUNT_RENEW:
+        return Draft(kind, None, None, params, int(current.price))
+    if account.status not in {"active", "paused"}:
+        raise OrderError("account_not_active")  # an ended account is renewed first
+    if kind == OrderKind.ACCOUNT_GB:
+        if current.gb_price <= 0 or not account.data_limit or not 1 <= amount <= MAX_GB:
+            raise OrderError("extras_unavailable")
+        return Draft(kind, None, None, {**params, "gb": amount}, amount * int(current.gb_price))
+    if current.user_price <= 0 or not account.max_users or not 1 <= amount <= MAX_USERS:
+        raise OrderError("extras_unavailable")
+    return Draft(kind, None, None, {**params, "users": amount}, amount * int(current.user_price))
+
+
+# --- applying paid orders (the provisioning worker) --------------------------------------
+
+
+class ProvisionError(Exception):
+    """Permanent: retrying cannot help."""
+
+
+async def _driver(session: AsyncSession, panel_id: int) -> Any:
+    from paurubot.panels.drivers.pasarguard import PasarGuardDriver
+
+    panel = await session.get(Panel, panel_id)
+    if panel is None or not panel.is_active:
+        raise ProvisionError("panel_unavailable")
+    driver = await driver_for(panel)
+    if not isinstance(driver, PasarGuardDriver):
+        raise ProvisionError("panel_unavailable")
+    return driver
+
+
+async def _username(session: AsyncSession, customer: Customer, panel_id: int) -> str:
+    base = str(customer.telegram_id) if customer.telegram_id > 0 else secrets.token_hex(4)
+    while True:
+        name = f"r{base}_{secrets.token_hex(3)}"
+        taken = await session.scalar(
+            select(PanelAccount.id).where(PanelAccount.panel_id == panel_id, PanelAccount.username == name)
+        )
+        if taken is None:
+            return name
+
+
+async def apply(session: AsyncSession, order: Order) -> PanelAccount:
+    """Carry out one paid account order. Every step is recorded first, so a retry continues."""
+    params = dict(order.params or {})
+    plan = await session.get(AccountPlan, int(params.get("account_plan_id") or 0))
+    if plan is None:
+        raise ProvisionError("plan_unavailable")
+    if order.kind == OrderKind.ACCOUNT_PURCHASE:
+        return await _create(session, order, plan, params)
+    account = await session.get(PanelAccount, int(params.get("account_id") or 0))
+    if account is None or account.status not in LIVE:
+        raise ProvisionError("account_not_found")
+    driver = await _driver(session, account.panel_id)
+    if order.kind == OrderKind.ACCOUNT_RENEW:
+        if "target_expire" not in params:
+            now = utcnow()
+            start = account.expire_at if account.expire_at and account.expire_at > now else now
+            params["target_expire"] = (
+                (start + timedelta(days=plan.days)).isoformat() if plan.days > 0 else None
+            )
+            order.params = dict(params)  # a new object, so the JSON change is saved
+            await session.commit()
+        await _renew(driver, account, plan, params)
+    elif order.kind == OrderKind.ACCOUNT_GB:
+        if "target_limit" not in params:
+            params["target_limit"] = int(account.data_limit) + int(params["gb"]) * GB
+            order.params = dict(params)  # a new object, so the JSON change is saved
+            await session.commit()
+        account.data_limit = int(params["target_limit"])
+        fields: dict[str, Any] = {"data_limit": account.data_limit}
+        if account.status == "active":
+            fields["status"] = "active"  # a quota that ran out is lifted by the new traffic
+        await driver.modify_admin(account.username, **fields)
+    else:
+        if "target_users" not in params:
+            params["target_users"] = int(account.max_users or 0) + int(params["users"])
+            order.params = dict(params)  # a new object, so the JSON change is saved
+            await session.commit()
+        account.max_users = int(params["target_users"])
+        await driver.modify_admin(account.username, max_users=account.max_users)
+    account.alerts_sent = {}
+    await session.flush()
+    return account
+
+
+async def _create(
+    session: AsyncSession, order: Order, plan: AccountPlan, params: dict[str, Any]
+) -> PanelAccount:
+    existing = await session.scalar(select(PanelAccount).where(PanelAccount.id == params.get("account_id")))
+    if existing is not None:
+        return existing  # finished on an earlier attempt
+    customer = await session.get(Customer, order.customer_id)
+    assert customer is not None
+    driver = await _driver(session, plan.panel_id)
+    if not params.get("username"):
+        params["username"] = await _username(session, customer, plan.panel_id)
+        params["password_enc"] = secretbox.encrypt("panel", new_password())
+        order.params = dict(params)  # a new object, so the JSON change is saved
+        await session.commit()
+    username = str(params["username"])
+    password = secretbox.decrypt("panel", str(params["password_enc"]))
+    if await driver.get_admin(username) is None:
+        await driver.create_admin(
+            username,
+            password,
+            role_id=plan.role_id,
+            data_limit=plan.data_gb * GB if plan.data_gb > 0 else 0,
+            max_users=plan.max_users,
+            telegram_id=customer.telegram_id,
+            note=f"tg:{customer.telegram_id} shop:{order.shop_id}",
+        )
+    account = PanelAccount(
+        shop_id=order.shop_id,
+        customer_id=customer.id,
+        panel_id=plan.panel_id,
+        plan_id=plan.id,
+        username=username,
+        password_enc=str(params["password_enc"]),
+        data_limit=plan.data_gb * GB if plan.data_gb > 0 else 0,
+        max_users=plan.max_users,
+        expire_at=utcnow() + timedelta(days=plan.days) if plan.days > 0 else None,
+        status="active",
+    )
+    session.add(account)
+    await session.flush()
+    params["account_id"] = account.id
+    order.params = dict(params)  # a new object, so the JSON change is saved
+    return account
+
+
+async def _renew(driver: Any, account: PanelAccount, plan: AccountPlan, params: dict[str, Any]) -> None:
+    target = params["target_expire"]
+    account.expire_at = datetime.fromisoformat(target) if target else None
+    account.data_limit = plan.data_gb * GB if plan.data_gb > 0 else 0
+    account.max_users = max(int(account.max_users or 0), int(plan.max_users or 0)) or None
+    await driver.reset_admin_usage(account.username)
+    fields: dict[str, Any] = {"data_limit": account.data_limit, "status": "active"}
+    if account.max_users:
+        fields["max_users"] = account.max_users
+    await driver.modify_admin(account.username, **fields)
+    if account.status != "active":
+        await driver.set_admin_users(account.username, True)
+    account.status = "active"
+    account.used_bytes = 0
+
+
+# --- the owner's own actions --------------------------------------------------------------
+
+
+async def change_password(session: AsyncSession, account: PanelAccount) -> str:
+    driver = await _driver(session, account.panel_id)
+    password = new_password()
+    await driver.modify_admin(account.username, password=password)
+    account.password_enc = secretbox.encrypt("panel", password)
+    await session.flush()
+    return password
+
+
+async def set_paused(session: AsyncSession, account: PanelAccount, paused: bool) -> None:
+    """Pause: the admin can't sign in and its users stop; resume brings both back."""
+    if account.status not in {"active", "paused"}:
+        raise AccountError("account_not_active")
+    driver = await _driver(session, account.panel_id)
+    await driver.modify_admin(account.username, status="disabled" if paused else "active")
+    await driver.set_admin_users(account.username, not paused)
+    account.status = "paused" if paused else "active"
+    await session.flush()
+
+
+async def remove(session: AsyncSession, account: PanelAccount) -> None:
+    """Staff only: delete the admin from the panel. Its users stay in the panel, ownerless."""
+    driver = await _driver(session, account.panel_id)
+    await driver.delete_admin(account.username)
+    account.status = "deleted"
+    await session.flush()
+
+
+async def refresh(session: AsyncSession, account: PanelAccount) -> None:
+    """Read usage, user count and status back from the panel."""
+    driver = await _driver(session, account.panel_id)
+    info = await driver.get_admin(account.username)
+    if info is None:
+        # Never conclude it was deleted from one empty lookup (older panels ignore the filter).
+        account.panel_status = "missing"
+    else:
+        account.used_bytes = int(info.get("used_traffic") or 0)
+        account.users_count = int(info.get("total_users") or 0)
+        account.panel_status = str(info.get("status") or "")[:16] or None
+    account.synced_at = utcnow()
+    await session.flush()
+
+
+# --- periodic work -------------------------------------------------------------------------
+
+
+async def sync_all(session: AsyncSession) -> tuple[int, list[tuple[PanelAccount, str]]]:
+    """Refresh every live account; returns how many synced and the alerts to send."""
+    rows = list(
+        await session.scalars(select(PanelAccount).where(PanelAccount.status.in_(("active", "paused"))))
+    )
+    alerts: list[tuple[PanelAccount, str]] = []
+    synced = 0
+    for account in rows:
+        try:
+            await refresh(session, account)
+        except (PanelError, ProvisionError):
+            continue
+        synced += 1
+        sent = dict(account.alerts_sent or {})
+        if account.data_limit and account.used_bytes * 10 >= account.data_limit * 9 and not sent.get("quota"):
+            sent["quota"] = True
+            alerts.append((account, "account_alert_quota"))
+        account.alerts_sent = sent
+    await session.flush()
+    return synced, alerts
+
+
+async def expire_due(session: AsyncSession) -> list[tuple[PanelAccount, str]]:
+    """Warn three days ahead, and switch off accounts whose period ended."""
+    now = utcnow()
+    rows = list(
+        await session.scalars(
+            select(PanelAccount).where(
+                PanelAccount.status.in_(("active", "paused")),
+                PanelAccount.expire_at.is_not(None),
+                PanelAccount.expire_at <= now + timedelta(days=3),
+            )
+        )
+    )
+    alerts: list[tuple[PanelAccount, str]] = []
+    for account in rows:
+        sent = dict(account.alerts_sent or {})
+        assert account.expire_at is not None
+        if account.expire_at <= now:
+            try:
+                driver = await _driver(session, account.panel_id)
+                await driver.modify_admin(account.username, status="disabled")
+                await driver.set_admin_users(account.username, False)
+            except (PanelError, ProvisionError):
+                continue  # tried again on the next pass
+            account.status = "expired"
+            alerts.append((account, "account_alert_expired"))
+        elif not sent.get("expiring"):
+            sent["expiring"] = True
+            alerts.append((account, "account_alert_expiring"))
+        account.alerts_sent = sent
+    await session.flush()
+    return alerts
+
+
+async def run(session: AsyncSession) -> int:
+    """The periodic pass: usage, quota and expiry alerts, and switching off ended accounts."""
+    from paurubot.worker import queue
+
+    synced, alerts = await sync_all(session)
+    alerts += await expire_due(session)
+    for account, key in alerts:
+        await queue.enqueue(
+            session,
+            "notify",
+            "account_alert",
+            {"account_id": account.id, "alert": key},
+            shop_id=account.shop_id,
+            dedupe_key=f"account:{account.id}:{key}:{(account.expire_at or utcnow()).date()}",
+        )
+    await session.commit()
+    return synced

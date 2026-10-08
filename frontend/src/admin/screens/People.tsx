@@ -4,6 +4,9 @@ import { money } from "@shared/format";
 import {
   call,
   type BillingView,
+  type CatalogData,
+  type PanelRow,
+  type ResellerPrice,
   type ResellerData,
   type ResellerGroup,
   type ResellerProfile,
@@ -90,8 +93,83 @@ function GroupSheet({ draft, onClose, onSaved }: { draft: GroupDraft; onClose: (
           )}
         </Field>
         <Toggle checked={form.is_active} onChange={(v) => setForm({ ...form, is_active: v })} label={t("active")} />
+        <HiddenPanels value={form.hidden_panel_ids ?? []} onChange={(ids) => setForm({ ...form, hidden_panel_ids: ids })} />
+        {form.id ? <PlanPrices owner={{ group_id: form.id }} /> : <p className="text-[0.78rem] text-[var(--hint)]">{t("reseller_prices_after_save")}</p>}
       </div>
     </Sheet>
+  );
+}
+
+// Panels whose plans this group's resellers never see (TEN-12).
+function HiddenPanels({ value, onChange }: { value: number[]; onChange: (ids: number[]) => void }) {
+  const { t } = useSession();
+  const { data } = useLoad<{ items: PanelRow[] }>("/api/admin/panels");
+  if (!data?.items.length) return null;
+  const chosen = new Set(value);
+  return (
+    <fieldset className="flex flex-col gap-2 border-t border-[var(--line)] pt-4">
+      <legend className="mb-1 text-[0.88rem] font-bold">{t("hidden_panels")}</legend>
+      <p className="text-[0.78rem] text-[var(--hint)]">{t("hidden_panels_hint")}</p>
+      {data.items.map((panel) => (
+        <label key={panel.id} className="flex items-center gap-2 text-[0.88rem]">
+          <Checkbox
+            label={panel.name}
+            checked={chosen.has(panel.id)}
+            onChange={(on) => onChange(on ? [...value, panel.id] : value.filter((id) => id !== panel.id))}
+          />
+          <span dir="auto">{panel.name}</span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+// Fixed reseller prices per plan for one group or one reseller (TEN-12); empty means the discount applies.
+export function PlanPrices({ owner }: { owner: { group_id: number } | { profile_id: number } }) {
+  const { t, locale, toast, errorText } = useSession();
+  const key = "group_id" in owner ? `group_id=${owner.group_id}` : `profile_id=${owner.profile_id}`;
+  const catalog = useLoad<CatalogData>("/api/admin/catalog");
+  const prices = useLoad<{ items: ResellerPrice[] }>(`/api/admin/reseller-prices?${key}`);
+  const [draft, setDraft] = useState<Record<number, number | null>>({});
+  const [busy, run] = useAction();
+  const current = new Map((prices.data?.items ?? []).map((row) => [row.plan_id, row.price]));
+  const save = async () => {
+    try {
+      for (const [planId, price] of Object.entries(draft)) {
+        await run(() => call("/api/admin/reseller-prices", { method: "PUT", body: { plan_id: Number(planId), ...owner, price: price || null } }));
+      }
+      setDraft({});
+      await prices.reload();
+      toast(t("saved"));
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  const plans = catalog.data?.plans ?? [];
+  if (!plans.length) return null;
+  return (
+    <fieldset className="flex flex-col gap-2 border-t border-[var(--line)] pt-4">
+      <legend className="mb-1 text-[0.88rem] font-bold">{t("reseller_prices")}</legend>
+      <p className="text-[0.78rem] text-[var(--hint)]">{t("reseller_prices_hint")}</p>
+      {plans.map((plan) => (
+        <div key={plan.id} className="grid grid-cols-[1fr_9rem] items-center gap-3">
+          <span className="text-[0.88rem]" dir="auto">
+            {plan.title} <span className="text-[var(--hint)]">({money(plan.price, locale)})</span>
+          </span>
+          <NumberInput
+            value={plan.id in draft ? (draft[plan.id] ?? null) : (current.get(plan.id) ?? null)}
+            onChange={(v) => setDraft({ ...draft, [plan.id]: v || null })}
+            allowEmpty
+            aria-label={plan.title}
+          />
+        </div>
+      ))}
+      <div>
+        <Button small tone="primary" busy={busy} disabled={!Object.keys(draft).length} onClick={() => void save()}>
+          {t("save_prices")}
+        </Button>
+      </div>
+    </fieldset>
   );
 }
 
@@ -293,6 +371,7 @@ function ProfileSheet({
             </label>
           ))}
         </fieldset>
+        {profile.id && <PlanPrices owner={{ profile_id: profile.id }} />}
         {profile.billing_mode !== "prepaid" && <BillingHistory path={`/api/admin/resellers/${profile.id}/billing`} />}
         {profile.id && <ResellerBotInfo profileId={profile.id} />}
       </div>
@@ -353,7 +432,7 @@ export function Resellers() {
             <Button
               tone="primary"
               icon="plus"
-              onClick={() => setGroup({ title: "", discount_percent: 10, min_topup: 0, max_active_services: null, is_active: true })}
+              onClick={() => setGroup({ title: "", discount_percent: 10, min_topup: 0, max_active_services: null, is_active: true, hidden_panel_ids: [] })}
             >
               {t("new_group")}
             </Button>

@@ -50,3 +50,7 @@ Under **Top-up bonus**, use **Add rule** to set from which amount, and for which
 [Orders](/orders) lists every purchase, renewal and extra data or time purchase. **Refund to wallet** returns the order amount to the customer's wallet but does not change the service; if needed, disable or delete the service separately in [Services](/services).
 
 > **Minimum top-up**, **Maximum top-up** and the order payment window are in the same **Payments** group of the settings.
+
+## Sending balance between customers
+
+With "Customers can send balance to each other" on, the wallet in the bot gets a "Send balance" button: the customer enters the other person's Telegram ID or @username (they must have started the bot), the amount, and confirms. The money moves at once, both sides are told, and it shows as "Transfer" in both histories. "Smallest transfer" and "Most a customer can send a day" set the limits.

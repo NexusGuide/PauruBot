@@ -42,6 +42,8 @@ In [Bot texts](/texts) change any message the bot sends, separately for each lan
 
 > Enter a channel or group ID with its minus sign (for example -100...) and make the bot an admin there before saving.
 
+You can also set a report group from inside it: add the bot to the group, then a staff member who may change settings sends `/setlog orders` (or any other topic) there, or inside one of the group's topics to use that topic. `/unsetlog orders` stops it and `/logs` shows what the group receives.
+
 ## Answering your own Telegram account
 
 With Telegram Business (Telegram Premium), you can let this bot answer people who message your own account. Add the bot in Telegram under Settings → Telegram Business → Chatbots, allow it to reply, then turn on **Answer messages to my Telegram account** in the **Telegram Business** group of [Settings](/settings).
