@@ -59,4 +59,7 @@ Rules:
 8. `resellers.bot` lets a reseller run its own Telegram bot that sells the shop's plans at its own prices
    (TEN-04). It is never part of the default allow-list. The bot's customers, wallets and payments live
    in a separate shop whose staff are merchants; every service it sells is first paid for from the
-   reseller's own wallet at the reseller's price.
+   reseller's own wallet at the reseller's price. The shop setting `reseller_bot_open` adds the right
+   to every prepaid level-1 reseller (TEN-17). In Telegram, only the reseller (in the main bot) or the
+   bot's own merchant may manage a bot, and only while it holds the right; staff with
+   `resellers.manage` can build, stop or allow it from the reseller's card.

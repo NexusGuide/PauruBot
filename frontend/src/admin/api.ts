@@ -122,6 +122,7 @@ export interface Customer {
   color: string | null;
   risk: string;
   card_trust?: string;
+  hidden_panel_ids?: number[];
   created_at: string;
   last_seen_at: string | null;
   blocked_bot_at: string | null;

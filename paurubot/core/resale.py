@@ -373,6 +373,75 @@ async def point_webhook(shop_id: int) -> None:
     await set_commands(bot, Texts("fa"), Texts("en"))
 
 
+# --- rights and figures (TEN-17) ----------------------------------------------------------
+
+BOT_RIGHT = "resellers.bot"
+MAX_CARDS = 20
+
+
+def may_have_bot(profile: ResellerProfile, cfg: dict[str, Any]) -> bool:
+    """Granted one by one, or to every prepaid reseller with `reseller_bot_open`."""
+    if BOT_RIGHT in (profile.permissions or []):
+        return True
+    return profile.parent_id is None and bool(cfg.get("reseller_bot_open"))
+
+
+def set_bot_right(profile: ResellerProfile, on: bool) -> None:
+    rights = set(profile.permissions or [])
+    rights = rights | {BOT_RIGHT} if on else rights - {BOT_RIGHT}
+    profile.permissions = sorted(rights)
+
+
+def parse_card(text: str) -> dict[str, str]:
+    """A card number (or IBAN) and the holder's name, as one message, into a card account.
+    Spaces and dashes inside the number are fine: "6037-9912 3456 7893 Sara"."""
+    import re
+
+    from paurubot.core.cards import luhn_ok
+    from paurubot.core.formatting import to_latin_digits
+
+    found = re.match(r"^\s*((?:IR)?[\d\s-]+)(.*)$", to_latin_digits(text or ""), re.IGNORECASE | re.DOTALL)
+    if found is None:
+        raise ResaleError("card_number_invalid")
+    number = re.sub(r"[\s-]", "", found.group(1)).upper()
+    holder = " ".join(found.group(2).split())[:64]
+    if number.startswith("IR") and number[2:].isdigit() and len(number) == 26:
+        return {"number": number, "holder": holder}
+    if not number.isdigit() or len(number) != 16 or not luhn_ok(number):
+        raise ResaleError("card_number_invalid")
+    return {"number": number, "holder": holder}
+
+
+@dataclass(slots=True)
+class Figures:
+    customers: int
+    active: int
+    orders_month: int
+    revenue_month: int
+
+
+async def figures(session: AsyncSession, shop: Shop) -> Figures:
+    from datetime import timedelta
+
+    from paurubot.db.base import utcnow
+    from paurubot.db.models import OrderStatus, Service, ServiceStatus
+
+    month = utcnow() - timedelta(days=30)
+    sold = await session.execute(
+        select(func.count(Order.id), func.coalesce(func.sum(Order.amount), 0)).where(
+            Order.shop_id == shop.id, Order.status == OrderStatus.COMPLETED, Order.completed_at >= month
+        )
+    )
+    orders, revenue = sold.one()
+    customers = await session.scalar(select(func.count(Customer.id)).where(Customer.shop_id == shop.id))
+    active = await session.scalar(
+        select(func.count(Service.id)).where(
+            Service.shop_id == shop.id, Service.status == ServiceStatus.ACTIVE
+        )
+    )
+    return Figures(int(customers or 0), int(active or 0), int(orders or 0), int(revenue or 0))
+
+
 async def allow(session: AsyncSession, profile: ResellerProfile) -> Shop | None:
     """Lift a stop made by staff so the reseller may connect its bot again."""
     shop = await shop_of(session, profile)

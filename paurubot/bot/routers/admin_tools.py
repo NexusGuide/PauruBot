@@ -74,6 +74,7 @@ SETTINGS: dict[str, list[str]] = {
         "move_price",
         "renew_resets_usage",
         "custom_buy_enabled",
+        "custom_username_enabled",
     ],
     "growth": [
         "trial_enabled",
@@ -91,6 +92,7 @@ SETTINGS: dict[str, list[str]] = {
         "reseller_web_access",
         "bulk_buy_enabled",
         "panel_accounts_enabled",
+        "reseller_bot_open",
     ],
     "timing": [
         "order_expire_minutes",
@@ -891,6 +893,8 @@ def _group_kb(t: Texts, group: str, cfg: dict[str, Any]) -> InlineKeyboardMarkup
             text=f"{t(f'adm_set_{key}')}: {_value_text(t, value)}"[:64],
             callback_data=Admin(section="settings", action=action, id=SETTING_KEYS.index(key)),
         )
+    if group == "growth":
+        kb.button(text=t("adm_trial_reset_all"), callback_data=Admin(section="trialreset"))
     kb.button(text=t("btn_back"), callback_data=Admin(section="settings"))
     kb.adjust(1)
     return kb.as_markup()
@@ -950,6 +954,123 @@ async def setting_value(
     group = list(SETTINGS)[int(data.get("group") or 0)]
     await message.answer(t("adm_saved"), reply_markup=menu(t, cfg, staff))
     await message.answer(t(f"adm_set_group_{group}"), reply_markup=_group_kb(t, group, cfg))
+
+
+# --- one customer's hidden panels and trials (CAT-10, CAT-11) ---------------------------------
+
+
+@router.callback_query(Admin.filter(F.section == "uhide"), StaffOnly("customers.write"))
+async def hidden_panels(
+    call: CallbackQuery,
+    callback_data: Admin,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+) -> None:
+    customer = await _customer(session, shop, callback_data.id)
+    if customer is None:
+        await call.answer(t("adm_customer_not_found"), show_alert=True)
+        return
+    panels = list(await session.scalars(select(Panel).where(Panel.shop_id == shop.id).order_by(Panel.id)))
+    hidden = [int(p) for p in (customer.hidden_panel_ids or [])]
+    if callback_data.action == "toggle":
+        if callback_data.page not in {p.id for p in panels}:
+            await call.answer(t("button_expired"), show_alert=True)
+            return
+        before = list(hidden)
+        if callback_data.page in hidden:
+            hidden.remove(callback_data.page)
+        else:
+            hidden.append(callback_data.page)
+        customer.hidden_panel_ids = sorted(hidden)
+        await record(
+            session,
+            shop_id=shop.id,
+            actor=actor(staff),
+            action="customer.hidden_panels",
+            entity="customer",
+            entity_id=customer.id,
+            before={"hidden_panel_ids": before},
+            after={"hidden_panel_ids": customer.hidden_panel_ids},
+        )
+        await session.commit()
+    await call.answer()
+    kb = InlineKeyboardBuilder()
+    for panel in panels:
+        mark = "🙈" if panel.id in hidden else "👁"
+        kb.button(
+            text=f"{mark} {panel.name}"[:64],
+            callback_data=Admin(section="uhide", action="toggle", id=customer.id, page=panel.id),
+        )
+    kb.button(text=t("btn_back"), callback_data=Admin(section="user", id=customer.id))
+    kb.adjust(1)
+    text = t("adm_hide_title", name=esc(customer.display_name)) if panels else t("adm_hide_no_panels")
+    await show(call, text, kb.as_markup())
+
+
+@router.callback_query(Admin.filter(F.section == "utrial"), StaffOnly("customers.write"))
+async def trial_again(
+    call: CallbackQuery,
+    callback_data: Admin,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+) -> None:
+    from paurubot.core import trials
+
+    customer = await _customer(session, shop, callback_data.id)
+    if customer is None:
+        await call.answer(t("adm_customer_not_found"), show_alert=True)
+        return
+    if not await trials.allow_again(session, customer):
+        await call.answer(t("adm_trial_not_used"), show_alert=True)
+        return
+    await record(
+        session,
+        shop_id=shop.id,
+        actor=actor(staff),
+        action="customer.trial_again",
+        entity="customer",
+        entity_id=customer.id,
+    )
+    await session.commit()
+    await call.answer(t("adm_trial_again_done"), show_alert=True)
+
+
+@router.callback_query(Admin.filter(F.section == "trialreset"), StaffOnly("settings.write"))
+async def trial_reset_all(
+    call: CallbackQuery,
+    callback_data: Admin,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+) -> None:
+    from paurubot.core import trials
+
+    if callback_data.action != "go":
+        await call.answer()
+        kb = InlineKeyboardBuilder()
+        kb.button(text=t("adm_trial_reset_yes"), callback_data=Admin(section="trialreset", action="go"))
+        kb.button(text=t("btn_back"), callback_data=Admin(section="settings"))
+        kb.adjust(1)
+        await show(call, t("adm_trial_reset_confirm"), kb.as_markup())
+        return
+    generation = await trials.new_round(session, shop.id)
+    await record(
+        session,
+        shop_id=shop.id,
+        actor=actor(staff),
+        action="settings.update",
+        entity="shop",
+        entity_id=shop.id,
+        after={"trial_generation": generation},
+    )
+    await session.commit()
+    await call.answer(t("adm_trial_reset_done"), show_alert=True)
+    await show(call, t("adm_trial_reset_done"), keyboards.back(t, Admin(section="settings").pack()))
 
 
 # --- a wallet gift for many customers ------------------------------------------------------

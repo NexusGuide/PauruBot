@@ -89,3 +89,11 @@ Tick **Run their own bot** in a reseller's permissions and they get [My bot](/my
 - Each sale first takes the reseller's own price from their wallet in your shop. Without enough balance the sale is refunded to the buyer and the reseller is told to top up, so nothing is handed out unpaid.
 - Only purchases and renewals are sold there; trials, extras, moves and the Mini App stay in your own bot. The reseller needs prepaid billing.
 - In the reseller's details you see how their bot is doing and can stop it at any time; its customers and services stay.
+
+### Building the bot from Telegram
+
+The same can be done without the web panel, much like in other sales bots:
+
+- The reseller: «🤖 My sales bot» in the reseller panel of the bot explains how to make a bot with @BotFather; «🔌 Connect bot» takes the token and the bot starts selling at once. From that screen the reseller sets the markup, a fixed price per plan, the cards buyers pay to, the support username, turns the bot off and on, swaps the token or removes the bot. The token message is deleted from the chat once read. In the reseller's own bot, the admin menu has the same button.
+- You: on a reseller's card in the bot, «🤖 Sales bot» shows its state. «Build bot with a token» connects a token the reseller gave you and tells them the bot is live; you can also stop it, allow it again, and give or take away the right to build one.
+- "Sales bot for every reseller" in the resellers settings lets every prepaid reseller (not sub-resellers) build one without ticking each of them.

@@ -15,6 +15,7 @@ MAX_LEN = 32
 
 
 _RUNS = re.compile(r"_{2,}")
+_WANTED = re.compile(r"^[a-z][a-z0-9_]{2,15}$")
 
 
 def slug(text: str | None, limit: int = 16) -> str:
@@ -65,3 +66,37 @@ async def generate(
     if len(name) < 3:
         name = f"u_{name}"
     return name[:MAX_LEN]
+
+
+def wanted(text: str | None) -> str | None:
+    """A name the customer chose for its service (CAT-12): 3..16 of [a-z0-9_], starting with a
+    letter, or None when it doesn't fit."""
+    value = (text or "").strip().lower()
+    return value if _WANTED.match(value) and "__" not in value else None
+
+
+async def chosen(session: AsyncSession, panel: Panel, name: str, prefix: str | None = None) -> str:
+    """The customer's own name on this panel, with a random tail only when it is already taken
+    there: an account the bot did not create is never handed to someone else."""
+    from sqlalchemy import select
+
+    from paurubot.db.models import Service
+    from paurubot.panels import PanelError, PanelRef, driver_for
+
+    base = (slug(prefix if prefix else panel.username_prefix, 8) + (wanted(name) or "")).strip("_")
+    if len(base) < 3:
+        base = f"u_{base}"
+    base = base[:MAX_LEN]
+    for attempt in range(4):
+        candidate = base if attempt == 0 else f"{base[: MAX_LEN - 5]}_{secrets.token_hex(2)}"
+        taken = await session.scalar(
+            select(Service.id).where(Service.panel_id == panel.id, Service.panel_username == candidate)
+        )
+        if taken is not None:
+            continue
+        try:
+            if await (await driver_for(panel)).get_user(PanelRef(candidate, {})) is None:
+                return candidate
+        except PanelError:
+            break  # can't tell whether it is free: take a random tail
+    return f"{base[: MAX_LEN - 9]}_{secrets.token_hex(4)}"

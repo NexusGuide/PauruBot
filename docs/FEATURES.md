@@ -57,6 +57,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | TEN-14 | Selling PasarGuard admin accounts: plans with role, quota, user cap and period; renewal, extra traffic and user slots, password, pause, usage sync, alerts and expiry | v1.1* | done |
 | TEN-15 | Reseller web panel and Mini App: sign-in by Telegram code made on approval, selling desk with customer names, expiring list with bulk renewal | v1.1* | done |
 | TEN-16 | Paid reseller membership with renewal | v1.1* | done |
+| TEN-17 | Reseller sales bot built and run from Telegram: token, markup, plan prices, cards, support, on/off; staff build, stop or allow it from the reseller card | v1.1* | done |
 
 ## VPN Panel Integrations
 
@@ -90,6 +91,9 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | CAT-07 | Bulk purchase | v2 | done |
 | CAT-08 | Guest purchase (no prior registration) | v2 | done |
 | CAT-09 | Configurable username generation methods | MVP | done |
+| CAT-10 | Panels hidden from one customer (and from a reseller's own bot) | v1.1* | done |
+| CAT-11 | Another trial for one customer and a new trial round for everyone from the bot | v1.1* | done |
+| CAT-12 | Customers choose their service username at purchase | v1.1* | done |
 
 ## Service Lifecycle
 
@@ -111,6 +115,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | SVC-14 | Customers delete their own service with a refund of the unused value | v1.1* | done |
 | SVC-15 | Customers turn their own reminders off | v1.1* | done |
 | SVC-16 | Staff notes on services | v1.1* | done |
+| SVC-17 | Every link in one message and every config in one file | v1.1* | done |
 
 ## Payments
 

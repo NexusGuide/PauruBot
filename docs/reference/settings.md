@@ -197,6 +197,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `info_card_qr` | bool | true | QR on the card. Turn off if customers share cards publicly and the link should stay private |
 | `username_method` | str | "telegram_id" | Default username style |
 | `username_prefix` | str | "" | Default prefix |
+| `custom_username_enabled` | bool | false | Customers choose the username. When buying in the bot, the customer types the service name or skips. If the panel already has it, a few characters are added at the end |
 
 ## Custom purchase
 
@@ -225,6 +226,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `reseller_membership_price` | int | 0 | Reseller membership price (Toman). 0 turns it off. Customers pay from the wallet and become resellers at once, without an application |
 | `reseller_membership_group_id` | int | — | Group for paid members (group ID) |
 | `reseller_membership_days` | int | 30 | Membership period (days). 0 means it never ends |
+| `reseller_bot_open` | bool | false | Sales bot for every reseller. Every prepaid reseller (not sub-resellers) can build its own sales bot from the bot or the web panel, without a separate tick |
 | `panel_accounts_enabled` | bool | false | Sell PasarGuard admin accounts |
 | `panel_accounts_resellers_only` | bool | false | Admin accounts for resellers only |
 

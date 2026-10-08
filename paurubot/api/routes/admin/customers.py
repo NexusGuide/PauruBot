@@ -58,6 +58,7 @@ CUSTOMER_FIELDS = [
     "color",
     "risk",
     "card_trust",
+    "hidden_panel_ids",
     "created_at",
     "last_seen_at",
     "blocked_bot_at",
@@ -200,6 +201,10 @@ class CustomerPatch(BaseModel):
     color: Literal["red", "orange", "yellow", "green", "blue", "purple"] | None = None
     risk: Literal["none", "low", "medium", "high"] | None = None
     card_trust: Literal["normal", "trusted", "blocked"] | None = None
+    hidden_panel_ids: list[int] | None = Field(default=None, max_length=200)
+
+
+PATCHED = ["note", "tags", "locale", "color", "risk", "card_trust", "hidden_panel_ids"]
 
 
 @router.patch("/customers/{customer_id}")
@@ -212,8 +217,12 @@ async def update_customer(
     if ctx.scoped:
         raise HTTPException(status_code=404, detail="not_found")
     customer = await owned(db, Customer, customer_id, ctx)
-    before = snapshot(customer, ["note", "tags", "locale", "color", "risk", "card_trust"])
+    before = snapshot(customer, PATCHED)
     for key, value in body.model_dump(exclude_unset=True).items():
+        if key == "hidden_panel_ids":
+            for panel_id in set(value or []):
+                await owned(db, Panel, panel_id, ctx)  # only this shop's panels (CAT-10)
+            value = sorted(set(value or []))
         if key == "tags" and value is not None:
             value = [str(tag)[:24] for tag in value]
         if key == "risk" and value is None:
@@ -229,9 +238,32 @@ async def update_customer(
         entity="customer",
         entity_id=customer.id,
         before=before,
-        after=snapshot(customer, ["note", "tags", "locale", "color", "risk", "card_trust"]),
+        after=snapshot(customer, PATCHED),
     )
     return {"customer": plain(customer, CUSTOMER_FIELDS)}
+
+
+@router.post("/customers/{customer_id}/trial-again")
+async def trial_again(
+    customer_id: int, ctx: Annotated[StaffContext, Depends(require("customers.write"))], db: DB
+) -> dict[str, Any]:
+    """One more trial for this customer (CAT-11)."""
+    from paurubot.core import trials
+
+    if ctx.scoped:
+        raise HTTPException(status_code=404, detail="not_found")
+    customer = await owned(db, Customer, customer_id, ctx)
+    if not await trials.allow_again(db, customer):
+        raise HTTPException(status_code=409, detail="trial_not_used")
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="customer.trial_again",
+        entity="customer",
+        entity_id=customer.id,
+    )
+    return {"ok": True}
 
 
 class BanBody(BaseModel):

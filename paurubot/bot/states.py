@@ -10,6 +10,7 @@ class ShopStates(StatesGroup):
     custom_gb = State()
     custom_days = State()
     bulk_count = State()
+    username = State()
 
 
 class WalletStates(StatesGroup):
@@ -39,6 +40,14 @@ class ResellerStates(StatesGroup):
     sub_discount = State()
 
 
+class ResaleBotStates(StatesGroup):
+    token = State()
+    markup = State()
+    support = State()
+    card = State()
+    plan_price = State()
+
+
 class AdminStates(StatesGroup):
     lookup = State()
     adjust = State()
@@ -54,4 +63,5 @@ class AdminStates(StatesGroup):
     premium_emoji = State()
     start_media = State()
     buy_banner = State()
+    rbot_token = State()
     service_note = State()

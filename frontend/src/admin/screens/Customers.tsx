@@ -28,6 +28,7 @@ import {
   When,
   type Column,
 } from "../ui";
+import { HiddenPanels } from "./People";
 import { ServiceTable } from "./Services";
 
 const RISKS = ["none", "low", "medium", "high"];
@@ -376,7 +377,21 @@ export function CustomerPage() {
     }
   };
 
-  const saveMarkers = async (patch: { color?: string | null; risk?: string; card_trust?: string }) => {
+  const trialAgain = async () => {
+    try {
+      await run(() => call(`/api/admin/customers/${id}/trial-again`, { method: "POST" }));
+      toast(t("trial_again_done"));
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  const saveMarkers = async (patch: {
+    color?: string | null;
+    risk?: string;
+    card_trust?: string;
+    hidden_panel_ids?: number[];
+  }) => {
     try {
       const result = await run(() =>
         call<{ customer: Customer }>(`/api/admin/customers/${id}`, { method: "PATCH", body: patch }),
@@ -419,6 +434,11 @@ export function CustomerPage() {
                   <Button onClick={() => setGiving(true)}>{t("give_service")}</Button>
                 )}
                 {can("customers.write") && <Button onClick={() => setMessaging(true)}>{t("send_message")}</Button>}
+                {can("customers.write") && (
+                  <Button busy={busy} onClick={() => void trialAgain()}>
+                    {t("trial_again")}
+                  </Button>
+                )}
                 {can("customers.ban") &&
                   (c.is_banned ? (
                     <Button busy={busy} onClick={() => void ban(false)}>
@@ -485,6 +505,13 @@ export function CustomerPage() {
                       </Select>
                     )}
                   </Field>
+                  <div className="sm:col-span-2">
+                    <HiddenPanels
+                      value={c.hidden_panel_ids ?? []}
+                      hint="customer_hidden_panels_hint"
+                      onChange={(ids) => void saveMarkers({ hidden_panel_ids: ids })}
+                    />
+                  </div>
                 </div>
               )}
               <div className="mt-4 border-t border-[var(--line)] pt-4">

@@ -9,14 +9,20 @@ from paurubot.core.resale import catalog_owner
 from paurubot.db.models import Category, Customer, Location, Panel, Plan, PlanAudience, Service, ServiceStatus
 
 
+def _hide_panels(stmt: Select, hidden: list[int]) -> Select:  # type: ignore[type-arg]
+    if not hidden:
+        return stmt
+    return stmt.where(or_(Plan.panel_id.is_(None), Plan.panel_id.not_in(hidden)))
+
+
 def _audience_filter(stmt: Select, customer: Customer | None) -> Select:  # type: ignore[type-arg]
+    own = [int(p) for p in (customer.hidden_panel_ids or [])] if customer is not None else []
+    stmt = _hide_panels(stmt, own)  # panels kept away from this one customer (CAT-10)
     if customer is not None and customer.is_reseller:
         stmt = stmt.where(Plan.audience.in_([PlanAudience.ALL, PlanAudience.RESELLERS]))
         group = customer.reseller_profile.group if customer.reseller_profile else None
         hidden = [int(p) for p in (group.hidden_panel_ids or [])] if group is not None else []
-        if hidden:  # panels kept away from this reseller group (TEN-12)
-            stmt = stmt.where(or_(Plan.panel_id.is_(None), Plan.panel_id.not_in(hidden)))
-        return stmt
+        return _hide_panels(stmt, hidden)  # panels kept away from this reseller group (TEN-12)
     return stmt.where(Plan.audience.in_([PlanAudience.ALL, PlanAudience.CUSTOMERS]))
 
 
@@ -109,12 +115,16 @@ async def plans(
 
 
 async def resale_hidden_panels(session: AsyncSession, shop_id: int) -> set[int]:
-    """In a reseller's own bot, the panels hidden from that reseller's group (TEN-04, TEN-12)."""
+    """In a reseller's own bot, the panels hidden from that reseller's group or from the reseller
+    itself (TEN-04, TEN-12, CAT-10)."""
     from paurubot.core import resale
 
     found = await resale.for_shop(session, shop_id)
-    group = found.profile.group if found is not None else None
-    return {int(p) for p in (group.hidden_panel_ids or [])} if group is not None else set()
+    if found is None:
+        return set()
+    group = found.profile.group
+    hidden = {int(p) for p in (group.hidden_panel_ids or [])} if group is not None else set()
+    return hidden | {int(p) for p in (found.reseller.hidden_panel_ids or [])}
 
 
 async def get_plan(

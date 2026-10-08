@@ -241,8 +241,11 @@ def services_kb(
     *,
     stock: bool = False,
     muted: bool | None = None,
+    all_links: bool = False,
 ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    if all_links:
+        kb.row(InlineKeyboardButton(text=t("btn_all_links"), callback_data=Svc(action="all").pack()))
     for service in items:
         name = service.label or service.panel_username
         kb.row(

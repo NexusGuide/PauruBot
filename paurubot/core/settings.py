@@ -193,6 +193,7 @@ SPECS: dict[str, Spec] = {
     "app_cache_chat_id": Spec(int, None, "appearance"),
     "username_method": Spec(str, "telegram_id", "services"),
     "username_prefix": Spec(str, "", "services"),
+    "custom_username_enabled": Spec(bool, False, "services"),
     # resellers
     "reseller_applications_enabled": Spec(bool, True, "resellers"),
     "bulk_buy_enabled": Spec(bool, True, "resellers"),
@@ -202,6 +203,7 @@ SPECS: dict[str, Spec] = {
     "reseller_membership_price": Spec(int, 0, "resellers"),
     "reseller_membership_group_id": Spec(int, None, "resellers"),
     "reseller_membership_days": Spec(int, 30, "resellers"),
+    "reseller_bot_open": Spec(bool, False, "resellers"),
     "panel_accounts_enabled": Spec(bool, False, "resellers"),
     "panel_accounts_resellers_only": Spec(bool, False, "resellers"),
     # reports

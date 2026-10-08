@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.bot import keyboards
-from paurubot.bot.callbacks import Acc, Rs, Shop, Svc, Wallet
+from paurubot.bot.callbacks import Acc, Rb, Rs, Shop, Svc, Wallet
 from paurubot.bot.routers.start import menu
 from paurubot.bot.states import ResellerStates
 from paurubot.bot.utils import error_text, show
@@ -68,7 +68,12 @@ async def hub_text(session: AsyncSession, customer: Customer, profile: ResellerP
 
 
 def hub_kb(
-    t: Texts, profile: ResellerProfile, *, accounts: bool = False, renew_price: int = 0
+    t: Texts,
+    profile: ResellerProfile,
+    *,
+    accounts: bool = False,
+    renew_price: int = 0,
+    own_bot: bool = False,
 ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text=t("rs_btn_sell"), callback_data=Shop(step="start"))
@@ -82,6 +87,8 @@ def hub_kb(
         kb.button(text=t("rs_btn_subs"), callback_data=Rs(action="subs"))
     if accounts:
         kb.button(text=t("rs_btn_accounts"), callback_data=Acc(action="home"))
+    if own_bot:
+        kb.button(text=t("rb_btn_hub"), callback_data=Rb(action="home"))
     if renew_price and profile.expires_at is not None:
         kb.button(
             text=t("rs_btn_membership_renew", price=money(renew_price)), callback_data=Rs(action="member")
@@ -104,10 +111,14 @@ async def show_hub(
 
     accounts = await panel_accounts.available(session, customer)
     offer = await resellers.membership_offer(session, customer.shop_id) if profile.parent_id is None else None
+    from paurubot.core import resale
+    from paurubot.core import settings as shop_settings
+
+    own_bot = resale.may_have_bot(profile, await shop_settings.load(session, customer.shop_id))
     await show(
         event,
         await hub_text(session, customer, profile, t),
-        hub_kb(t, profile, accounts=accounts, renew_price=offer[0] if offer else 0),
+        hub_kb(t, profile, accounts=accounts, renew_price=offer[0] if offer else 0, own_bot=own_bot),
     )
     return True
 

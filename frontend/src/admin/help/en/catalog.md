@@ -63,3 +63,9 @@ A service that already ended always starts again with fresh data. "Shop default"
 ## Free trial
 
 Trial settings live in [Settings](/settings), **Free trial** group: days, data, panel and **Daily trial limit**. Each Telegram account gets one trial; raising **Trial round** lets everyone take a trial again. You can require a phone number for trials. Customers marked **High risk** don't get a trial.
+
+To let one customer try again, use "Another trial" on their page (or «🎁 Another trial» on their card in the bot); their earlier trial still counts in reports. «🔄 Another trial for everyone» in the bot's settings, under growth, starts a new trial round for everyone.
+
+## Customers naming their service
+
+With "Customers choose the username" (services settings) the bot asks for a service name before payment: 3 to 16 lowercase English letters, digits or _, starting with a letter. "-" skips it and the panel's usual naming is used. If the name already exists on the panel, a few random characters are added to the end, so nobody ever gets someone else's account.

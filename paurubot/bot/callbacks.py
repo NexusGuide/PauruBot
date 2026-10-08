@@ -78,6 +78,14 @@ class Acc(CallbackData, prefix="acc"):
     value: int = 0
 
 
+class Rb(CallbackData, prefix="rb"):
+    """A reseller's own sales bot, built and run from Telegram (TEN-17)."""
+
+    action: str
+    id: int = 0
+    page: int = 0
+
+
 class Menu(CallbackData, prefix="mn"):
     """A main-menu button shown inline (BOT-12)."""
 
