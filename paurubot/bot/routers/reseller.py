@@ -73,6 +73,7 @@ def hub_kb(t: Texts, profile: ResellerProfile, *, accounts: bool = False) -> Inl
     kb.button(text=t("rs_btn_search"), callback_data=Rs(action="search"))
     kb.button(text=t("rs_btn_expiring"), callback_data=Rs(action="expiring", value=3))
     kb.button(text=t("rs_btn_report"), callback_data=Rs(action="report"))
+    kb.button(text=t("rs_btn_web"), callback_data=Rs(action="web"))
     kb.button(text=t("rs_btn_wallet"), callback_data=Wallet(action="home"))
     kb.button(text=t("rs_btn_services"), callback_data=Svc(action="list"))
     if profile.parent_id is None and "resellers.sub" in (profile.permissions or []):
@@ -272,6 +273,23 @@ async def report(call: CallbackQuery, session: AsyncSession, customer: Customer,
         for title, count, amount in data.top_plans:
             lines.append(f"• {esc(title)}: {count} — {money(amount)}")
     await show(call, "\n".join(lines), back_kb(t))
+
+
+@router.callback_query(Rs.filter(F.action == "web"))
+async def web(call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts) -> None:
+    """Its sign-in to the web panel, made now if the approval predates it."""
+    profile = current(customer)
+    if profile is None:
+        await call.answer()
+        return
+    login = await resellers.web_login(session, profile)
+    await session.commit()
+    await call.answer()
+    if login is None or not login.username:
+        await show(call, t("rs_web_off"), back_kb(t))
+        return
+    url = resellers.web_panel_url()
+    await show(call, t("rs_web", url=esc(url), username=esc(login.username)), back_kb(t))
 
 
 # --- level-2 resellers (TEN-01) ----------------------------------------------------------

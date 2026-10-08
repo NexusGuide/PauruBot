@@ -460,19 +460,24 @@ async def applications(
                 select(ResellerProfile).where(ResellerProfile.customer_id == application.customer_id)
             )
             if existing is None:
-                session.add(
-                    ResellerProfile(
-                        shop_id=shop.id,
-                        customer_id=application.customer_id,
-                        group_id=callback_data.page,
-                        # The same rights an approval from the web panel gives.
-                        permissions=sorted(rbac.DEFAULT_FOR_RESELLER),
-                    )
+                existing = ResellerProfile(
+                    shop_id=shop.id,
+                    customer_id=application.customer_id,
+                    group_id=callback_data.page,
+                    # The same rights an approval from the web panel gives.
+                    permissions=sorted(rbac.DEFAULT_FOR_RESELLER),
                 )
+                session.add(existing)
+                await session.flush()
             else:
                 existing.group_id, existing.is_active = callback_data.page, True
+            from paurubot.core.resellers import web_login
+
+            login = await web_login(session, existing)
+            web_username = login.username if login is not None else None
             application.status = ApplicationStatus.APPROVED
         else:
+            web_username = None
             application.status = ApplicationStatus.REJECTED
         application.reviewed_by_staff_id = staff.id
         application.reviewed_at = datetime.now(UTC)
@@ -488,7 +493,11 @@ async def applications(
             session,
             "notify",
             "reseller_decision",
-            {"customer_id": application.customer_id, "approved": callback_data.action == "approve"},
+            {
+                "customer_id": application.customer_id,
+                "approved": callback_data.action == "approve",
+                "web_username": web_username,
+            },
             shop_id=shop.id,
         )
         await call.answer(t("adm_saved"))

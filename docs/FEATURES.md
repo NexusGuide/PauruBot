@@ -55,6 +55,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | TEN-12 | Fixed reseller prices per plan (group or reseller) and panels hidden from a group | v1.1* | done |
 | TEN-13 | Reseller panel in the bot: figures, search, quick sale, expiring list with bulk renewal, sales report, sub-resellers | v1.1* | done |
 | TEN-14 | Selling PasarGuard admin accounts: plans with role, quota, user cap and period; renewal, extra traffic and user slots, password, pause, usage sync, alerts and expiry | v1.1* | done |
+| TEN-15 | Reseller web panel and Mini App: sign-in by Telegram code made on approval, selling desk with customer names, expiring list with bulk renewal | v1.1* | done |
 
 ## VPN Panel Integrations
 

@@ -598,5 +598,9 @@
   "checkout_header_account_purchase": "🧾 <b>Admin account summary</b>",
   "checkout_header_account_renew": "🧾 <b>Admin account renewal</b>",
   "checkout_header_account_gb": "🧾 <b>Admin account traffic</b>",
-  "checkout_header_account_users": "🧾 <b>Admin account user slots</b>"
+  "checkout_header_account_users": "🧾 <b>Admin account user slots</b>",
+  "rs_btn_web": "🌐 Web panel",
+  "rs_web": "🌐 <b>Reseller web panel</b>\nAddress: {url}\nUsername: <code>{username}</code>\n\nOn the sign-in page choose \"Sign in with a Telegram code\" and enter the username; the code arrives here. The web panel has selling, renewals, search and reports.",
+  "rs_web_off": "The reseller web panel isn't available in this shop right now.",
+  "reseller_web_ready": "🌐 Your reseller web panel is ready too:\nAddress: {url}\nUsername: <code>{username}</code>\nLog in with a Telegram code."
 }

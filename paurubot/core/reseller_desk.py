@@ -224,3 +224,57 @@ def remaining_text(service: Service) -> tuple[int | None, float | None]:
     if service.data_limit:
         left = round(max(0, int(service.data_limit) - int(service.used_bytes)) / GB, 1)
     return days, left
+
+
+# --- shared by the web panel and the Mini App (TEN-15) ---------------------------------------
+
+
+def service_row(service: Service, price: int | None) -> dict[str, object]:
+    days, left = remaining_text(service)
+    return {
+        "id": service.id,
+        "label": service.label,
+        "panel_username": service.panel_username,
+        "status": service.status.value,
+        "expire_at": service.expire_at.isoformat() if service.expire_at else None,
+        "used_bytes": int(service.used_bytes),
+        "data_limit": int(service.data_limit),
+        "days_left": days,
+        "gb_left": left,
+        "renew_price": price,
+    }
+
+
+async def expiring_rows(session: AsyncSession, customer: Customer, days: int) -> list[dict[str, object]]:
+    """Services about to run out, each with what renewing it with its own plan costs (or None)."""
+    items = await expiring(session, customer, days)
+    planned = await renew_plan(session, customer, items)
+    prices = {service.id: price for service, _plan, price in planned.items}
+    return [service_row(s, prices.get(s.id)) for s in items]
+
+
+async def sell(
+    session: AsyncSession, customer: Customer, plan_id: int, label: str | None, *, source: str
+) -> Order:
+    """One purchase for an end customer, named by `label`, paid from the reseller's wallet."""
+    plan = await catalog.get_plan(session, customer.shop_id, plan_id, customer)
+    if plan is None:
+        raise orders.OrderError("plan_unavailable")
+    clean = (label or "").strip()[:48] or None
+    draft = await orders.draft(session, customer, OrderKind.PURCHASE, plan=plan, label=clean)
+    order = await orders.create(session, customer, draft, source=source)
+    await orders.settle_from_wallet(session, order.id)
+    return order
+
+
+async def owned_services(session: AsyncSession, customer: Customer, ids: list[int]) -> list[Service]:
+    if not ids:
+        return []
+    rows = await session.scalars(
+        select(Service).where(
+            Service.id.in_(ids[:RENEW_LIMIT]),
+            Service.customer_id == customer.id,
+            Service.status != ServiceStatus.DELETED,
+        )
+    )
+    return list(rows)
