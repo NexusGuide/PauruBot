@@ -139,6 +139,8 @@ async def validate_code(
     now = datetime.now(UTC)
     if not code.is_active or code.shop_id != customer.shop_id:
         raise DiscountError("discount_invalid")
+    if code.customer_id is not None and code.customer_id != customer.id:
+        raise DiscountError("discount_invalid")  # someone else's private code (GRW-10)
     if code.starts_at and code.starts_at > now:
         raise DiscountError("discount_not_started")
     if code.expires_at and code.expires_at <= now:
@@ -165,6 +167,31 @@ async def validate_code(
         )
         if completed:
             raise DiscountError("discount_first_purchase_only")
+
+
+async def private_codes(session: AsyncSession, customer: Customer) -> list[DiscountCode]:
+    """Codes made for this customer that it can still use (GRW-10)."""
+    now = datetime.now(UTC)
+    rows = await session.scalars(
+        select(DiscountCode)
+        .where(
+            DiscountCode.customer_id == customer.id,
+            DiscountCode.is_active.is_(True),
+            (DiscountCode.expires_at.is_(None)) | (DiscountCode.expires_at > now),
+            (DiscountCode.max_uses.is_(None)) | (DiscountCode.used_count < DiscountCode.max_uses),
+        )
+        .order_by(DiscountCode.id.desc())
+        .limit(20)
+    )
+    out = []
+    for code in rows:
+        try:
+            await validate_code(session, code, customer, plan_id=None, amount=10**12)
+        except DiscountError as exc:
+            if exc.key not in {"discount_wrong_plan", "discount_not_started"}:
+                continue
+        out.append(code)
+    return out
 
 
 async def sticky_code(session: AsyncSession, customer: Customer) -> DiscountCode | None:

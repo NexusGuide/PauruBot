@@ -39,6 +39,7 @@ const EMPTY_CODE: CodeDraft = {
   plan_ids: [],
   first_purchase_only: false,
   sticky: false,
+  customer_telegram_id: null,
   starts_at: null,
   expires_at: null,
   is_active: true,
@@ -153,6 +154,9 @@ function CodeSheet({ draft, onClose, onSaved }: { draft: CodeDraft; onClose: () 
             ))}
           </fieldset>
         )}
+        <Field label={t("code_customer")} hint={t("code_customer_hint")}>
+          {(id) => <NumberInput id={id} allowEmpty value={form.customer_telegram_id} onChange={(v) => set("customer_telegram_id", v)} />}
+        </Field>
         <Toggle checked={form.first_purchase_only} onChange={(v) => set("first_purchase_only", v)} label={t("first_purchase_only")} />
         <Toggle checked={form.sticky} onChange={(v) => set("sticky", v)} label={t("sticky_code")} hint={t("sticky_code_hint")} />
         <Toggle checked={form.is_active} onChange={(v) => set("is_active", v)} label={t("active")} />

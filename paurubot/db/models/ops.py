@@ -151,3 +151,17 @@ class InboxDismissal(Base, TimestampMixin):
     staff_id: Mapped[int] = mapped_column(ForeignKey("staff.id", ondelete="CASCADE"))
     item_type: Mapped[str] = mapped_column(String(24))
     item_id: Mapped[int] = mapped_column()
+
+
+class BroadcastPin(Base, TimestampMixin):
+    """A broadcast pinned in a customer's chat, kept so it can be unpinned later (GRW-06)."""
+
+    __tablename__ = "broadcast_pins"
+    __table_args__ = (Index("ix_broadcast_pins_unpin", "shop_id", "unpin_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"))
+    broadcast_id: Mapped[int | None] = mapped_column(ForeignKey("broadcasts.id", ondelete="SET NULL"))
+    chat_id: Mapped[int] = mapped_column()
+    message_id: Mapped[int] = mapped_column()
+    unpin_at: Mapped[datetime | None] = mapped_column()

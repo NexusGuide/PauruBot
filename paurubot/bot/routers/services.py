@@ -44,6 +44,8 @@ def _service_markup(t: Texts, service: Service, cfg: dict[str, Any]):  # type: i
         upgrade=bool(cfg["upgrade_enabled"]),
         move=bool(cfg["move_enabled"]) and service.status in MOVABLE,
         card=bool(cfg["info_card_enabled"]),
+        cancel=bool(cfg["self_delete_enabled"]),
+        link=customer_link(service, cfg),
     )
 
 
@@ -62,7 +64,9 @@ async def list_services(
     await show(
         event,
         t("services_header", count=total),
-        keyboards.services_kb(t, rows, page, (page + 1) * PAGE < total, stock=has_stock),
+        keyboards.services_kb(
+            t, rows, page, (page + 1) * PAGE < total, stock=has_stock, muted=customer.alerts_muted
+        ),
     )
 
 
@@ -123,6 +127,78 @@ async def view(
         await show(call, t("service_removed_from_panel"))
         return
     await show(call, service_card(t, service, customer_link(service, cfg)), _service_markup(t, service, cfg))
+
+
+@router.callback_query(Svc.filter(F.action == "mute"))
+async def toggle_alerts(call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts) -> None:
+    """The customer turns its own expiry and data reminders off or on (SVC-15)."""
+    customer.alerts_muted = not customer.alerts_muted
+    await session.commit()
+    await call.answer(t("alerts_muted") if customer.alerts_muted else t("alerts_unmuted"), show_alert=True)
+    await list_services(call, session, customer, t)
+
+
+@router.callback_query(Svc.filter(F.action == "cancel"))
+async def cancel_service(
+    call: CallbackQuery,
+    callback_data: Svc,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+) -> None:
+    """Deleting one's own service (SVC-14): what comes back, then a confirmation."""
+    from paurubot.bot.callbacks import Svc as SvcData
+    from paurubot.core import cancellation
+    from paurubot.core.formatting import money
+
+    service = await owned(session, customer, callback_data.id)
+    if service is None or not cfg["self_delete_enabled"]:
+        await call.answer(t("service_not_found"), show_alert=True)
+        return
+    await call.answer()
+    refund = await cancellation.quote(session, customer, service)
+    text = t(
+        "cancel_service_confirm_refund" if refund else "cancel_service_confirm",
+        name=esc(service.label or service.panel_username),
+        amount=money(refund),
+    )
+    await show(
+        call,
+        text,
+        keyboards.confirm(
+            t,
+            SvcData(action="cancel_go", id=service.id).pack(),
+            SvcData(action="view", id=service.id).pack(),
+        ),
+    )
+
+
+@router.callback_query(Svc.filter(F.action == "cancel_go"))
+async def cancel_service_go(
+    call: CallbackQuery, callback_data: Svc, session: AsyncSession, customer: Customer, t: Texts
+) -> None:
+    from paurubot.core import cancellation
+    from paurubot.core.formatting import money
+
+    service = await owned(session, customer, callback_data.id)
+    if service is None:
+        await call.answer(t("service_not_found"), show_alert=True)
+        return
+    try:
+        refund = await cancellation.cancel(session, customer, service)
+    except cancellation.CancelError as exc:
+        await call.answer(t(exc.key), show_alert=True)
+        return
+    except PanelError:
+        await session.rollback()
+        await call.answer(t("panel_busy"), show_alert=True)
+        return
+    await session.commit()
+    await call.answer()
+    await show(
+        call, t("cancel_service_done_refund", amount=money(refund)) if refund else t("cancel_service_done")
+    )
 
 
 @router.callback_query(Svc.filter(F.action == "report"))

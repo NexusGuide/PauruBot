@@ -16,7 +16,13 @@ class CardProvider(PaymentProvider):
         return bool(cfg.get("card_enabled") and active_accounts(cfg))
 
     async def create(self, payment: Payment, cfg: dict[str, Any]) -> Checkout:
-        return Checkout(instructions={"accounts": active_accounts(cfg), "amount": payment.amount})
+        from paurubot.core.cards import pick_accounts
+
+        accounts = pick_accounts(active_accounts(cfg), str(cfg.get("card_pick") or "all"), payment.id)
+        if len(accounts) == 1:
+            # Staff see which card this receipt should land on.
+            payment.meta = {**(payment.meta or {}), "card": accounts[0]["number"][-4:]}
+        return Checkout(instructions={"accounts": accounts, "amount": payment.amount})
 
 
 def active_accounts(cfg: dict[str, Any]) -> list[dict[str, Any]]:

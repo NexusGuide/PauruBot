@@ -107,6 +107,8 @@ class Plan(Base, UpdatedMixin):
 
     # "panel": services are created on a panel; "stock": a ready-made config from the stock (CAT-05).
     delivery: Mapped[str] = mapped_column(String(16), default="panel", server_default="panel")
+    # How a renewal treats what's left (SVC-13); None follows the shop's setting.
+    renew_mode: Mapped[str | None] = mapped_column(String(16))
 
     category: Mapped[Category | None] = relationship(lazy="selectin")
     location: Mapped[Location | None] = relationship(lazy="selectin")
@@ -209,6 +211,8 @@ class DiscountCode(Base, TimestampMixin):
     expires_at: Mapped[datetime | None] = mapped_column()
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     note: Mapped[str | None] = mapped_column(String(255))
+    # A private code only this customer can use (GRW-10).
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id", ondelete="CASCADE"))
 
 
 class DiscountRedemption(Base, TimestampMixin):
@@ -277,3 +281,21 @@ class GiftRedemption(Base, TimestampMixin):
     code_id: Mapped[int] = mapped_column(ForeignKey("gift_codes.id", ondelete="CASCADE"), index=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id", ondelete="CASCADE"), index=True)
     amount: Mapped[int] = mapped_column()
+
+
+class VerifiedCard(Base, TimestampMixin):
+    """A bank card a customer registered before paying card to card (PAY-18)."""
+
+    __tablename__ = "verified_cards"
+    __table_args__ = (Index("ix_verified_cards_customer", "customer_id", "status"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"))
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id", ondelete="CASCADE"))
+    last4: Mapped[str] = mapped_column(String(4))
+    masked: Mapped[str] = mapped_column(String(32))
+    digest: Mapped[str] = mapped_column(String(64), index=True)  # the full number, hashed
+    photo_file_id: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(12), default="pending")  # pending | approved | rejected
+    reviewed_by_staff_id: Mapped[int | None] = mapped_column(ForeignKey("staff.id", ondelete="SET NULL"))
+    reviewed_at: Mapped[datetime | None] = mapped_column()

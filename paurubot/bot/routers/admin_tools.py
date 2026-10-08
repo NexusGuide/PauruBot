@@ -114,7 +114,8 @@ BOUNDS: dict[str, tuple[int, int]] = {
     "trial_gb": (1, 10_000),
     "card_auto_min_history": (0, 1_000),
 }
-AUDIENCES = ("all", "buyers", "active", "never_bought", "resellers")
+AUDIENCES = ("all", "buyers", "active", "inactive", "never_bought", "resellers")
+PIN_CYCLE = (None, 0, 24, 48)  # off, until unpinned, 24 h, 48 h
 
 
 def tools_kb(t: Texts, staff: StaffIdentity) -> list[tuple[str, Admin]]:
@@ -128,8 +129,11 @@ def tools_kb(t: Texts, staff: StaffIdentity) -> list[tuple[str, Admin]]:
         out.append((t("adm_finance"), Admin(section="finance")))
     if staff.can("settings.write"):
         out.append((t("adm_settings"), Admin(section="settings")))
+        out.append((t("adm_look"), Admin(section="look")))
     if staff.can("wallet.adjust"):
         out.append((t("adm_gift_all"), Admin(section="gift_all")))
+    if staff.can("broadcast.send"):
+        out.append((t("adm_bc_unpin"), Admin(section="bc_unpin")))
     return out
 
 
@@ -206,6 +210,11 @@ async def _service(session: AsyncSession, shop: ShopRow, service_id: int) -> Ser
 
 
 def service_text(t: Texts, service: Service) -> str:
+    note = "\n" + t("adm_service_note", note=esc(service.staff_note)) if service.staff_note else ""
+    return _service_body(t, service) + note
+
+
+def _service_body(t: Texts, service: Service) -> str:
     return t(
         "adm_service",
         name=esc(service.label or service.panel_username),
@@ -235,8 +244,9 @@ def service_kb(t: Texts, service: Service, staff: StaffIdentity) -> InlineKeyboa
         kb.button(
             text=t("adm_svc_delete"), callback_data=Admin(section="svcact", action="del", id=service.id)
         )
+        kb.button(text=t("adm_svc_note"), callback_data=Admin(section="svcnote", id=service.id))
     kb.button(text=t("btn_back"), callback_data=Admin(section="usvc", id=service.customer_id))
-    kb.adjust(1, 2, 2, 1, 1)
+    kb.adjust(1, 2, 2, 2, 1)
     return kb.as_markup()
 
 
@@ -1042,16 +1052,25 @@ async def _audience_count(session: AsyncSession, shop_id: int, audience: str) ->
 
 def broadcast_kb(t: Texts, row: Broadcast) -> InlineKeyboardMarkup:
     audience = (row.audience or {}).get("kind", "all")
-    pin = bool((row.audience or {}).get("pin"))
+    pin = (row.audience or {}).get("pin_hours") if (row.audience or {}).get("pin") else None
+    forward = bool((row.audience or {}).get("forward"))
     kb = InlineKeyboardBuilder()
     kb.button(
         text=t("adm_bc_audience", audience=t(f"adm_aud_{audience}")),
         callback_data=Admin(section="bc", action="aud_menu", id=row.id),
     )
-    kb.button(
-        text=t("adm_bc_pin_on") if pin else t("adm_bc_pin_off"),
-        callback_data=Admin(section="bc", action="pin", id=row.id),
-    )
+    if pin is None:
+        pin_text = t("adm_bc_pin_off")
+    elif pin:
+        pin_text = t("adm_bc_pin_hours", hours=pin)
+    else:
+        pin_text = t("adm_bc_pin_on")
+    kb.button(text=pin_text, callback_data=Admin(section="bc", action="pin", id=row.id))
+    if row.source_message_id:
+        kb.button(
+            text=t("adm_bc_forward_on") if forward else t("adm_bc_forward_off"),
+            callback_data=Admin(section="bc", action="forward", id=row.id),
+        )
     kb.button(
         text=t("adm_bc_button_set", text=esc(row.buttons[0]["text"]))
         if row.buttons
@@ -1091,7 +1110,11 @@ async def broadcast_options(
     if action == "aud":
         row.audience = {**(row.audience or {}), "kind": AUDIENCES[callback_data.page % len(AUDIENCES)]}
     elif action == "pin":
-        row.audience = {**(row.audience or {}), "pin": not (row.audience or {}).get("pin")}
+        current = (row.audience or {}).get("pin_hours") if (row.audience or {}).get("pin") else None
+        following = PIN_CYCLE[(PIN_CYCLE.index(current) + 1) % len(PIN_CYCLE)] if current in PIN_CYCLE else 0
+        row.audience = {**(row.audience or {}), "pin": following is not None, "pin_hours": following or 0}
+    elif action == "forward":
+        row.audience = {**(row.audience or {}), "forward": not (row.audience or {}).get("forward")}
     elif action == "button":
         await call.answer()
         await state.set_state(AdminStates.broadcast_button)
@@ -1159,3 +1182,338 @@ async def broadcast_button(
     await session.commit()
     await message.answer(t("adm_saved"), reply_markup=menu(t, cfg, staff))
     await message.answer(await broadcast_options_text(session, t, row), reply_markup=broadcast_kb(t, row))
+
+
+# --- card-to-card trust and registered cards (PAY-17, PAY-18) --------------------------------
+
+
+@router.callback_query(Admin.filter(F.section == "cardv"), StaffOnly("payments.review"))
+async def card_review(
+    call: CallbackQuery,
+    callback_data: Admin,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+) -> None:
+    from paurubot.core import cards
+    from paurubot.db.models import VerifiedCard
+
+    card = await session.get(VerifiedCard, callback_data.id)
+    if card is None or card.shop_id != shop.id:
+        await call.answer(t("button_expired"), show_alert=True)
+        return
+    approve = callback_data.action == "ok"
+    if not await cards.review(session, card, approve, staff.id):
+        await call.answer(t("adm_application_done"), show_alert=True)
+        return
+    await record(
+        session,
+        shop_id=shop.id,
+        actor=actor(staff),
+        action="card.approve" if approve else "card.reject",
+        entity="customer",
+        entity_id=card.customer_id,
+        after={"card": card.masked},
+    )
+    await queue.enqueue(
+        session,
+        "notify",
+        "card_verify_result",
+        {"customer_id": card.customer_id, "approved": approve, "card": card.masked},
+        shop_id=shop.id,
+        dedupe_key=f"card:{card.id}:result",
+    )
+    await session.commit()
+    await call.answer(t("adm_saved"))
+    if isinstance(call.message, Message):
+        mark = t("btn_approve") if approve else t("btn_reject")
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+            await call.message.reply(f"{mark} — {esc(staff.staff.display_name if staff.staff else '')}")
+        except Exception:  # an old message: the decision is saved either way
+            pass
+
+
+@router.callback_query(Admin.filter(F.section == "utrust"), StaffOnly("payments.review"))
+async def card_trust(
+    call: CallbackQuery,
+    callback_data: Admin,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+) -> None:
+    """Normal → trusted (receipts approved at once) → blocked (no card to card) → normal."""
+    from paurubot.core.cards import TRUST_LEVELS
+
+    customer = await _customer(session, shop, callback_data.id)
+    if customer is None:
+        await call.answer(t("adm_customer_not_found"), show_alert=True)
+        return
+    before = customer.card_trust
+    index = TRUST_LEVELS.index(before) if before in TRUST_LEVELS else 0
+    customer.card_trust = TRUST_LEVELS[(index + 1) % len(TRUST_LEVELS)]
+    await record(
+        session,
+        shop_id=shop.id,
+        actor=actor(staff),
+        action="customer.card_trust",
+        entity="customer",
+        entity_id=customer.id,
+        before={"card_trust": before},
+        after={"card_trust": customer.card_trust},
+    )
+    await session.commit()
+    await call.answer(t(f"adm_trust_{customer.card_trust}"), show_alert=True)
+    text, kb = await customer_card(session, t, customer, staff)
+    await show(call, text, kb)
+
+
+@router.callback_query(Admin.filter(F.section == "bc_unpin"), StaffOnly("broadcast.send"))
+async def unpin_all(
+    call: CallbackQuery,
+    callback_data: Admin,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+) -> None:
+    """Take down every broadcast still pinned in customers' chats (GRW-06)."""
+    if callback_data.action != "go":
+        await call.answer()
+        await show(
+            call,
+            t("adm_bc_unpin_confirm"),
+            keyboards.confirm(t, Admin(section="bc_unpin", action="go").pack(), Admin(section="home").pack()),
+        )
+        return
+    await queue.enqueue(
+        session, "broadcast", "unpin", {"all": True}, shop_id=shop.id, dedupe_key=f"unpin:{shop.id}:{call.id}"
+    )
+    await record(
+        session,
+        shop_id=shop.id,
+        actor=actor(staff),
+        action="broadcast.unpin_all",
+        entity="shop",
+        entity_id=shop.id,
+    )
+    await session.commit()
+    await call.answer(t("adm_bc_unpin_queued"), show_alert=True)
+    await show(call, t("adm_bc_unpin_queued"), back_home(t))
+
+
+# --- appearance: premium emoji, start media, buy banner, menu mode (BOT-10..BOT-12) ----------
+
+MENU_MODES = ("reply", "inline", "miniapp")
+
+
+def _look_text(t: Texts, cfg: dict[str, Any]) -> str:
+    from paurubot.bot.premium_emoji import clean_map
+
+    media = cfg.get("start_media") or {}
+    return t(
+        "adm_look_title",
+        emoji_state=t("adm_on") if cfg.get("premium_emoji_enabled") else t("adm_off"),
+        emoji_count=len(clean_map(cfg.get("premium_emojis"))),
+        start_media=t(f"adm_media_{media['type']}") if media.get("type") else "—",
+        banner=t("adm_on") if cfg.get("buy_banner_file_id") else "—",
+        menu=t(f"adm_menu_{cfg.get('menu_mode') if cfg.get('menu_mode') in MENU_MODES else 'reply'}"),
+    )
+
+
+def _look_kb(t: Texts, cfg: dict[str, Any]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(
+        text=t("adm_look_emoji_off") if cfg.get("premium_emoji_enabled") else t("adm_look_emoji_on"),
+        callback_data=Admin(section="look", action="emoji_toggle"),
+    )
+    kb.button(text=t("adm_look_emoji_add"), callback_data=Admin(section="look", action="emoji_add"))
+    kb.button(text=t("adm_look_emoji_clear"), callback_data=Admin(section="look", action="emoji_clear"))
+    kb.button(text=t("adm_look_start_set"), callback_data=Admin(section="look", action="start_set"))
+    kb.button(text=t("adm_look_start_clear"), callback_data=Admin(section="look", action="start_clear"))
+    kb.button(text=t("adm_look_banner_set"), callback_data=Admin(section="look", action="banner_set"))
+    kb.button(text=t("adm_look_banner_clear"), callback_data=Admin(section="look", action="banner_clear"))
+    kb.button(text=t("adm_look_menu"), callback_data=Admin(section="look", action="menu"))
+    kb.button(text=t("btn_back"), callback_data=Admin(section="home"))
+    kb.adjust(1, 2, 2, 2, 1, 1)
+    return kb.as_markup()
+
+
+async def _save_look(
+    session: AsyncSession, shop: ShopRow, staff: StaffIdentity, values: dict[str, Any]
+) -> None:
+    from paurubot.bot import premium_emoji
+
+    await shop_settings.set_many(session, shop.id, values)
+    await record(
+        session,
+        shop_id=shop.id,
+        actor=actor(staff),
+        action="settings.appearance",
+        entity="shop",
+        entity_id=shop.id,
+        after={k: (len(v) if k == "premium_emojis" else v) for k, v in values.items()},
+    )
+    await session.commit()
+    premium_emoji.forget(shop.id)
+
+
+@router.callback_query(Admin.filter(F.section == "look"), StaffOnly("settings.write"))
+async def look(
+    call: CallbackQuery,
+    callback_data: Admin,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+    state: FSMContext,
+) -> None:
+    cfg = await shop_settings.load(session, shop.id, fresh=True)
+    action = callback_data.action
+    asks = {
+        "emoji_add": AdminStates.premium_emoji,
+        "start_set": AdminStates.start_media,
+        "banner_set": AdminStates.buy_banner,
+    }
+    if action in asks:
+        await call.answer()
+        await state.set_state(asks[action])
+        if isinstance(call.message, Message):
+            await call.message.answer(t(f"adm_look_ask_{action}"), reply_markup=keyboards.cancel(t))
+        return
+    changes: dict[str, Any] = {}
+    if action == "emoji_toggle":
+        changes["premium_emoji_enabled"] = not cfg.get("premium_emoji_enabled")
+    elif action == "emoji_clear":
+        changes["premium_emojis"] = {}
+    elif action == "start_clear":
+        changes["start_media"] = {}
+    elif action == "banner_clear":
+        changes["buy_banner_file_id"] = ""
+    elif action == "menu":
+        current = cfg.get("menu_mode") if cfg.get("menu_mode") in MENU_MODES else "reply"
+        changes["menu_mode"] = MENU_MODES[(MENU_MODES.index(current) + 1) % len(MENU_MODES)]
+    if changes:
+        await _save_look(session, shop, staff, changes)
+        cfg = await shop_settings.load(session, shop.id, fresh=True)
+    await call.answer()
+    await show(call, _look_text(t, cfg), _look_kb(t, cfg))
+
+
+@router.message(AdminStates.premium_emoji)
+async def premium_emoji_add(
+    message: Message,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    """Send a message with premium emoji: each one replaces its ordinary emoji from now on."""
+    from paurubot.bot.premium_emoji import clean_map
+
+    text = message.text or message.caption or ""
+    entities = message.entities or message.caption_entities or []
+    found = {
+        entity.extract_from(text): str(entity.custom_emoji_id)
+        for entity in entities
+        if entity.type == "custom_emoji" and entity.custom_emoji_id
+    }
+    if not found:
+        await message.answer(t("adm_look_emoji_none"))
+        return
+    await state.clear()
+    current = clean_map((await shop_settings.load(session, shop.id, fresh=True)).get("premium_emojis"))
+    merged = clean_map({**current, **found})
+    await _save_look(session, shop, staff, {"premium_emojis": merged, "premium_emoji_enabled": True})
+    await message.answer(
+        t("adm_look_emoji_saved", count=len(found), total=len(merged)), reply_markup=menu(t, cfg, staff)
+    )
+
+
+@router.message(AdminStates.start_media)
+async def start_media_set(
+    message: Message,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    media: dict[str, str] | None = None
+    if message.sticker:
+        media = {"type": "sticker", "file_id": message.sticker.file_id}
+    elif message.animation:
+        media = {"type": "animation", "file_id": message.animation.file_id}
+    elif message.photo:
+        media = {"type": "photo", "file_id": message.photo[-1].file_id}
+    if media is None:
+        await message.answer(t("adm_look_media_expected"))
+        return
+    await state.clear()
+    await _save_look(session, shop, staff, {"start_media": media})
+    await message.answer(t("adm_saved"), reply_markup=menu(t, cfg, staff))
+
+
+@router.message(AdminStates.buy_banner, F.photo)
+async def buy_banner_set(
+    message: Message,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    assert message.photo
+    await state.clear()
+    await _save_look(session, shop, staff, {"buy_banner_file_id": message.photo[-1].file_id})
+    await message.answer(t("adm_saved"), reply_markup=menu(t, cfg, staff))
+
+
+# --- staff note on a service (SVC-16) ---------------------------------------------------------
+
+
+@router.callback_query(Admin.filter(F.section == "svcnote"), StaffOnly("services.write"))
+async def service_note_ask(call: CallbackQuery, callback_data: Admin, t: Texts, state: FSMContext) -> None:
+    await call.answer()
+    await state.set_state(AdminStates.service_note)
+    await state.update_data(service_id=callback_data.id)
+    if isinstance(call.message, Message):
+        await call.message.answer(t("adm_service_note_ask"), reply_markup=keyboards.cancel(t))
+
+
+@router.message(AdminStates.service_note, F.text)
+async def service_note_save(
+    message: Message,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    data = await state.get_data()
+    await state.clear()
+    service = await _service(session, shop, int(data.get("service_id") or 0))
+    if service is None:
+        await message.answer(t("adm_service_not_found"), reply_markup=menu(t, cfg, staff))
+        return
+    text = (message.text or "").strip()
+    service.staff_note = None if text == "-" else text[:255]
+    await record(
+        session,
+        shop_id=shop.id,
+        actor=actor(staff),
+        action="service.note",
+        entity="service",
+        entity_id=service.id,
+        after={"staff_note": service.staff_note},
+    )
+    await session.commit()
+    await message.answer(t("adm_saved"), reply_markup=menu(t, cfg, staff))
+    await message.answer(service_text(t, service), reply_markup=service_kb(t, service, staff))

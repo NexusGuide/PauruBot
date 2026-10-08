@@ -73,6 +73,10 @@ async def reseller(
     await state.clear()
     if await show_hub(message, session, customer, t):  # an active reseller gets its own panel (TEN-13)
         return
+    from paurubot.bot.routers.reseller import membership_offer_message
+
+    if await membership_offer_message(message, session, customer, t, cfg):  # TEN-16
+        return
     if not cfg["reseller_applications_enabled"]:
         await message.answer(t("reseller_closed"))
         return

@@ -13,6 +13,7 @@ from paurubot.db.models.catalog import (
     StickyDiscount,
     StockItem,
     TrialGrant,
+    VerifiedCard,
 )
 from paurubot.db.models.commerce import (
     LedgerAccount,
@@ -45,6 +46,7 @@ from paurubot.db.models.ops import (
     AuditLog,
     BotText,
     Broadcast,
+    BroadcastPin,
     ForcedChannel,
     InboxDismissal,
     Job,
@@ -118,6 +120,8 @@ __all__ = [
     "StaffRole",
     "StickyDiscount",
     "StockItem",
+    "VerifiedCard",
+    "BroadcastPin",
     "Lottery",
     "LotteryEntry",
     "WheelSpin",

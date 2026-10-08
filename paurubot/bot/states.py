@@ -18,6 +18,8 @@ class WalletStates(StatesGroup):
     gift = State()
     transfer_to = State()
     transfer_amount = State()
+    card_number = State()
+    card_photo = State()
 
 
 class ServiceStates(StatesGroup):
@@ -49,3 +51,7 @@ class AdminStates(StatesGroup):
     setting_value = State()
     gift_amount = State()
     broadcast_button = State()
+    premium_emoji = State()
+    start_media = State()
+    buy_banner = State()
+    service_note = State()

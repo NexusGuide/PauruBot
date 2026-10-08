@@ -80,9 +80,20 @@ async def custom_available(session: AsyncSession, shop_id: int) -> bool:
 
 @router.message(Btn("btn_buy"))
 async def buy(
-    message: Message, session: AsyncSession, shop: ShopRow, customer: Customer, t: Texts, state: FSMContext
+    message: Message,
+    session: AsyncSession,
+    shop: ShopRow,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    state: FSMContext,
 ) -> None:
     await state.clear()
+    if cfg.get("buy_banner_file_id"):
+        try:
+            await message.answer_photo(str(cfg["buy_banner_file_id"]))  # BOT-11
+        except Exception:  # an expired file id must never block buying
+            pass
     await show_start(message, session, shop, customer, t)
 
 
@@ -312,7 +323,7 @@ async def checkout(
         return
     await state.update_data(order_id=order.id)
     balance = await wallet_balance(session, customer.shop_id, customer.id)
-    methods = await payments.available(session, customer.shop_id)
+    methods = await payments.available(session, customer.shop_id, customer)
     from paurubot.bot.views import checkout_text
 
     text = checkout_text(

@@ -128,6 +128,38 @@ def available(cfg: dict[str, Any]) -> set[str]:
     return set(BUTTONS) - hidden
 
 
+def menu_mode(cfg: dict[str, Any]) -> str:
+    """reply, inline or miniapp (BOT-12); the Mini App mode needs an https address."""
+    mode = str(cfg.get("menu_mode") or "reply")
+    if mode == "miniapp" and "miniapp" not in available(cfg):
+        return "inline"
+    return mode if mode in {"reply", "inline", "miniapp"} else "reply"
+
+
+def inline_menu(t: Texts, cfg: dict[str, Any]) -> InlineKeyboardMarkup:
+    """The main menu as glass buttons under a message; each one acts like its reply-keyboard twin."""
+    from paurubot.bot.callbacks import Menu
+
+    layout = cfg.get("menu_layout") or DEFAULT_LAYOUT
+    shown = available(cfg)
+    rows: list[list[InlineKeyboardButton]] = []
+    for row in layout:
+        buttons = []
+        for item in row:
+            if item not in shown:
+                continue
+            if item == "miniapp":
+                url = f"{get_settings().public_url}/app/"
+                buttons.append(InlineKeyboardButton(text=t(BUTTONS[item]), web_app=WebAppInfo(url=url)))
+            else:
+                buttons.append(
+                    InlineKeyboardButton(text=t(BUTTONS[item]), callback_data=Menu(item=item).pack())
+                )
+        if buttons:
+            rows.append(buttons)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def miniapp_button(t: Texts) -> InlineKeyboardMarkup:
     url = f"{get_settings().public_url}/app/"
     return InlineKeyboardMarkup(
