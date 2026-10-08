@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -124,3 +124,28 @@ async def request(session: AsyncSession, customer: Customer) -> Order:
 async def release(session: AsyncSession, grant_id: int) -> None:
     """Give the reservation back after a failed provisioning so the customer can retry."""
     await session.execute(delete(TrialGrant).where(TrialGrant.id == grant_id))
+
+
+async def allow_again(session: AsyncSession, customer: Customer) -> bool:
+    """One more trial for this customer (CAT-11). Its grant in the current round moves out of the
+    way (kept for reports) so a new one can be reserved. False when it had none to give back."""
+    cfg = await shop_settings.load(session, customer.shop_id, fresh=True)
+    generation = int(cfg["trial_generation"] or 1)
+    result = await session.execute(
+        update(TrialGrant)
+        .where(
+            TrialGrant.shop_id == customer.shop_id,
+            TrialGrant.customer_id == customer.id,
+            TrialGrant.generation == generation,
+        )
+        .values(generation=-TrialGrant.id)
+    )
+    return bool(getattr(result, "rowcount", 0))
+
+
+async def new_round(session: AsyncSession, shop_id: int) -> int:
+    """Everyone may take a trial again: the round number goes up by one (CAT-11)."""
+    cfg = await shop_settings.load(session, shop_id, fresh=True)
+    generation = int(cfg["trial_generation"] or 1) + 1
+    await shop_settings.set_many(session, shop_id, {"trial_generation": generation})
+    return generation

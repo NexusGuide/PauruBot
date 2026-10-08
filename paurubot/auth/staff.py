@@ -106,7 +106,13 @@ async def reseller_allow_list(session: AsyncSession, staff: Staff) -> list[str] 
     profile = await session.get(ResellerProfile, staff.reseller_profile_id)
     if profile is None or not profile.is_current:
         return []
-    return list(profile.permissions or [])
+    rights = list(profile.permissions or [])
+    if "resellers.bot" not in rights and profile.parent_id is None:
+        from paurubot.core import settings as shop_settings
+
+        if (await shop_settings.load(session, profile.shop_id)).get("reseller_bot_open"):
+            rights.append("resellers.bot")  # every reseller may run its own bot (TEN-17)
+    return rights
 
 
 async def by_telegram(session: AsyncSession, shop_id: int, telegram_id: int) -> Staff | None:

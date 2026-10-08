@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.bot import infocard, keyboards
 from paurubot.bot.callbacks import Svc
+from paurubot.bot.keyboards import STATUS_ICON
 from paurubot.bot.routers.start import menu
 from paurubot.bot.states import ServiceStates
 from paurubot.bot.utils import Btn, show
@@ -65,7 +66,13 @@ async def list_services(
         event,
         t("services_header", count=total),
         keyboards.services_kb(
-            t, rows, page, (page + 1) * PAGE < total, stock=has_stock, muted=customer.alerts_muted
+            t,
+            rows,
+            page,
+            (page + 1) * PAGE < total,
+            stock=has_stock,
+            muted=customer.alerts_muted,
+            all_links=total > 1,
         ),
     )
 
@@ -306,6 +313,84 @@ async def links(
         return
     body = "\n\n".join(f"<code>{esc(link)}</code>" for link in items[:12])
     await call.message.answer(t("links_header") + "\n\n" + body, disable_web_page_preview=True)
+
+
+ALL_LIMIT = 100
+ALL_FILE_LIMIT = 30
+MESSAGE_ROOM = 3800
+
+
+async def _all_services(session: AsyncSession, customer: Customer, limit: int) -> list[Service]:
+    rows = await session.scalars(
+        select(Service)
+        .where(Service.customer_id == customer.id, Service.status != ServiceStatus.DELETED)
+        .order_by(Service.id.desc())
+        .limit(limit)
+    )
+    return list(rows)
+
+
+@router.callback_query(Svc.filter(F.action == "all"))
+async def all_links(
+    call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts, cfg: dict[str, Any]
+) -> None:
+    """Every service's link in one message (SVC-17); a file when they don't fit in one."""
+    items = await _all_services(session, customer, ALL_LIMIT)
+    if not items:
+        await call.answer(t("no_services"), show_alert=True)
+        return
+    await call.answer()
+    if not isinstance(call.message, Message):
+        return
+    blocks: list[str] = []
+    plain: list[str] = []
+    for service in items:
+        name = service.label or service.panel_username
+        link = customer_link(service, cfg) or "-"
+        blocks.append(f"{STATUS_ICON.get(service.status, '')} <b>{esc(name)}</b>\n<code>{esc(link)}</code>")
+        plain.append(f"{name}\n{link}")
+    kb = keyboards.single(t("btn_all_configs_file"), Svc(action="all_file").pack())
+    text = t("all_links_header", count=len(items)) + "\n\n" + "\n\n".join(blocks)
+    if len(text) <= MESSAGE_ROOM:
+        await call.message.answer(text, reply_markup=kb, disable_web_page_preview=True)
+        return
+    await call.message.answer_document(
+        BufferedInputFile("\n\n".join(plain).encode(), "links.txt"),
+        caption=t("all_links_file", count=len(items)),
+        reply_markup=kb,
+    )
+
+
+@router.callback_query(Svc.filter(F.action == "all_file"))
+async def all_configs_file(call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts) -> None:
+    """Every config of every service, asked from the panels, in one file (SVC-17)."""
+    items = await _all_services(session, customer, ALL_FILE_LIMIT)
+    if not items:
+        await call.answer(t("no_services"), show_alert=True)
+        return
+    await call.answer(t("all_configs_wait"))
+    if not isinstance(call.message, Message):
+        return
+    parts: list[str] = []
+    for service in items:
+        if delivery_of(service.panel.kind if service.panel else None) != "subscription":
+            continue  # WireGuard files and panel logins are sent from the service itself
+        if not service.subscription_url:
+            continue
+        try:
+            links = await lifecycle.links(session, service)
+        except Exception:  # one unreachable panel must not cost the customer the rest
+            log.warning("links for service %s failed", service.id)
+            continue
+        if links:
+            parts.append(f"# {service.label or service.panel_username}\n" + "\n".join(links))
+    if not parts:
+        await call.message.answer(t("all_configs_empty"))
+        return
+    await call.message.answer_document(
+        BufferedInputFile("\n\n".join(parts).encode(), "configs.txt"),
+        caption=t("all_configs_caption", count=len(parts)),
+    )
 
 
 @router.callback_query(Svc.filter(F.action == "qr"))

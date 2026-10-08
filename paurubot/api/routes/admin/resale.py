@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.api.admin_common import owned, reseller_profile
@@ -15,8 +13,7 @@ from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record
 from paurubot.core import resale
 from paurubot.core import settings as shop_settings
-from paurubot.db.base import utcnow
-from paurubot.db.models import Customer, Order, OrderStatus, ResellerProfile, Service, ServiceStatus
+from paurubot.db.models import Customer, ResellerProfile
 from paurubot.ledger.accounts import wallet_balance
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -37,13 +34,7 @@ async def _view(db: AsyncSession, profile: ResellerProfile) -> dict[str, Any]:
     if shop is None:
         return data
     cfg = await shop_settings.load(db, shop.id, fresh=True)
-    month = utcnow() - timedelta(days=30)
-    sold = await db.execute(
-        select(func.count(Order.id), func.coalesce(func.sum(Order.amount), 0)).where(
-            Order.shop_id == shop.id, Order.status == OrderStatus.COMPLETED, Order.completed_at >= month
-        )
-    )
-    orders, revenue = sold.one()
+    numbers = await resale.figures(db, shop)
     data.update(
         connected=shop.bot_token_enc is not None,
         blocked=bool(cfg.get("resale_blocked")),
@@ -52,19 +43,10 @@ async def _view(db: AsyncSession, profile: ResellerProfile) -> dict[str, Any]:
         bot_username=shop.bot_username,
         status=shop.status.value,
         settings={key: shop_settings.public_view(cfg)[key] for key in sorted(resale.EDITABLE)},
-        customers=int(
-            await db.scalar(select(func.count(Customer.id)).where(Customer.shop_id == shop.id)) or 0
-        ),
-        active_services=int(
-            await db.scalar(
-                select(func.count(Service.id)).where(
-                    Service.shop_id == shop.id, Service.status == ServiceStatus.ACTIVE
-                )
-            )
-            or 0
-        ),
-        orders_month=int(orders or 0),
-        revenue_month=int(revenue or 0),
+        customers=numbers.customers,
+        active_services=numbers.active,
+        orders_month=numbers.orders_month,
+        revenue_month=numbers.revenue_month,
     )
     return data
 

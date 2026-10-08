@@ -174,7 +174,47 @@ async def pick_plan(
         if isinstance(call.message, Message):
             await call.message.answer(t("ask_label"), reply_markup=keyboards.cancel(t))
         return
+    if kind == OrderKind.PURCHASE and await ask_username(call, t, cfg, state):
+        return
     await checkout(call, session, customer, t, cfg, state)
+
+
+async def ask_username(
+    event: Message | CallbackQuery, t: Texts, cfg: dict[str, Any], state: FSMContext
+) -> bool:
+    """With `custom_username_enabled`, a new service's name comes from the customer (CAT-12)."""
+    if not cfg.get("custom_username_enabled"):
+        return False
+    await state.set_state(ShopStates.username)
+    message = event.message if isinstance(event, CallbackQuery) else event
+    if isinstance(message, Message):
+        await message.answer(t("ask_username"), reply_markup=keyboards.cancel(t))
+    return True
+
+
+@router.message(ShopStates.username, F.text)
+async def got_username(
+    message: Message,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    staff: Any,
+    state: FSMContext,
+) -> None:
+    from paurubot.core import usernames
+
+    text = (message.text or "").strip()
+    name = None if text in {"-", "0"} else usernames.wanted(text)
+    if text not in {"-", "0"} and name is None:
+        await message.answer(t("username_invalid"))
+        return
+    await state.update_data(wanted_username=name)
+    await state.set_state(None)
+    await message.answer(
+        t("username_saved", name=name) if name else t("username_skipped"), reply_markup=menu(t, cfg, staff)
+    )
+    await checkout(message, session, customer, t, cfg, state)
 
 
 @router.callback_query(Shop.filter(F.step == "custom"))
@@ -242,6 +282,8 @@ async def custom_days(
     await state.update_data(custom_days=value)
     await state.set_state(None)
     await message.answer(t("custom_ready"), reply_markup=menu(t, cfg, staff))
+    if await ask_username(message, t, cfg, state):
+        return
     await checkout(message, session, customer, t, cfg, state)
 
 
@@ -259,6 +301,8 @@ async def got_label(
     await state.update_data(label=None if text in {"-", "0"} else text[:48])
     await state.set_state(None)
     await message.answer(t("label_saved"), reply_markup=menu(t, cfg, staff))
+    if await ask_username(message, t, cfg, state):
+        return
     await checkout(message, session, customer, t, cfg, state)
 
 
@@ -300,6 +344,7 @@ async def checkout(
             extra_gb=int(data.get("extra_gb") or 0),
             extra_days=int(data.get("extra_days") or 0),
             label=data.get("label"),
+            wanted_username=data.get("wanted_username"),
             custom_gb=int(data.get("custom_gb") or 0),
             custom_days=int(data.get("custom_days") or 0),
             move_to=(

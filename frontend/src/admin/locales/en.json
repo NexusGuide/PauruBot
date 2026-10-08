@@ -1599,5 +1599,13 @@
   "menu_mode_inline": "Glass buttons under the welcome",
   "menu_mode_miniapp": "Mini App only",
   "err_menu_mode_invalid": "Pick one of the menu modes.",
-  "service_staff_note": "Staff note (customers never see it)"
+  "service_staff_note": "Staff note (customers never see it)",
+  "setting_reseller_bot_open": "Sales bot for every reseller",
+  "setting_reseller_bot_open_hint": "Every prepaid reseller (not sub-resellers) can build its own sales bot from the bot or the web panel, without a separate tick.",
+  "setting_custom_username_enabled": "Customers choose the username",
+  "setting_custom_username_enabled_hint": "When buying in the bot, the customer types the service name or skips. If the panel already has it, a few characters are added at the end.",
+  "trial_again": "Another trial",
+  "trial_again_done": "This user can take one more trial.",
+  "err_trial_not_used": "This user hasn't taken a trial yet and can take one now.",
+  "customer_hidden_panels_hint": "This user can't see or buy the plans of these panels (nor in their own sales bot, for a reseller)."
 }

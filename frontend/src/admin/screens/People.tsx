@@ -101,7 +101,15 @@ function GroupSheet({ draft, onClose, onSaved }: { draft: GroupDraft; onClose: (
 }
 
 // Panels whose plans this group's resellers never see (TEN-12).
-function HiddenPanels({ value, onChange }: { value: number[]; onChange: (ids: number[]) => void }) {
+export function HiddenPanels({
+  value,
+  onChange,
+  hint = "hidden_panels_hint",
+}: {
+  value: number[];
+  onChange: (ids: number[]) => void;
+  hint?: string;
+}) {
   const { t } = useSession();
   const { data } = useLoad<{ items: PanelRow[] }>("/api/admin/panels");
   if (!data?.items.length) return null;
@@ -109,7 +117,7 @@ function HiddenPanels({ value, onChange }: { value: number[]; onChange: (ids: nu
   return (
     <fieldset className="flex flex-col gap-2 border-t border-[var(--line)] pt-4">
       <legend className="mb-1 text-[0.88rem] font-bold">{t("hidden_panels")}</legend>
-      <p className="text-[0.78rem] text-[var(--hint)]">{t("hidden_panels_hint")}</p>
+      <p className="text-[0.78rem] text-[var(--hint)]">{t(hint)}</p>
       {data.items.map((panel) => (
         <label key={panel.id} className="flex items-center gap-2 text-[0.88rem]">
           <Checkbox

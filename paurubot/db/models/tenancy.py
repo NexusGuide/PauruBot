@@ -76,6 +76,8 @@ class Customer(Base, TimestampMixin):
     # Card to card (PAY-17): "normal", "trusted" (receipts approved at once) or "blocked".
     card_trust: Mapped[str] = mapped_column(String(12), default="normal", server_default="normal")
     alerts_muted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Panels this one customer never sees, on top of its reseller group's (CAT-10).
+    hidden_panel_ids: Mapped[list[int]] = mapped_column(JSON, default=list, server_default="[]")
     last_seen_at: Mapped[datetime | None] = mapped_column()
     blocked_bot_at: Mapped[datetime | None] = mapped_column()
     # Loyalty (GRW-02): lifetime spend on completed orders and the tier discount it earns.

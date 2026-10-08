@@ -84,7 +84,8 @@ async def test_concurrent_charges_never_overdraw(engine) -> None:  # type: ignor
     async with maker() as s:
         shop = await factories.shop(s, "Concurrency")
         cust = await factories.customer(s, shop)
-        await wallet.topup(s, shop.id, cust.id, 30_000, provider="card", payment_id=500)
+        # Committed for real, so its key must stay clear of ids other tests derive from row ids.
+        await wallet.topup(s, shop.id, cust.id, 30_000, provider="card", payment_id=950_000_500)
         await s.commit()
         shop_id, cust_id = shop.id, cust.id
 

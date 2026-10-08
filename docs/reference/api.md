@@ -37,6 +37,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/customers/{customer_id}/adjust` | `wallet.adjust` | Adjust |
 | POST | `/api/admin/customers/{customer_id}/ban` | `customers.ban` | Ban |
 | POST | `/api/admin/customers/{customer_id}/message` | `customers.write` | Message |
+| POST | `/api/admin/customers/{customer_id}/trial-again` | `customers.write` | One more trial for this customer (CAT-11). |
 | GET | `/api/admin/customers/{customer_id}` | `customers.read` | Customer detail |
 | PATCH | `/api/admin/customers/{customer_id}` | `customers.write` | Update customer |
 | GET | `/api/admin/customers` | `customers.read` | List customers |

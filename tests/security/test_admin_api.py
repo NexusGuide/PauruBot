@@ -428,3 +428,27 @@ async def test_account_plans_and_sold_accounts_stay_in_the_shop(session, env: En
     gone = await owner.call("POST", f"/api/admin/panel-accounts/{foreign_account.id}/pause")
     assert gone.status_code == 404
     assert (await owner.call("GET", f"/api/admin/account-plans/roles/{other_pg.id}")).status_code == 404
+
+
+async def test_customer_hidden_panels_and_another_trial(session, env: Env, http) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import Customer, TrialGrant
+
+    owner = await login(http, "u_owner")
+    path = f"/api/admin/customers/{env.customer_id}"
+    foreign = await owner.call("PATCH", path, {"hidden_panel_ids": [env.other_panel.id]})
+    assert foreign.status_code == 404
+    saved = await owner.call("PATCH", path, {"hidden_panel_ids": [env.panel.id, env.panel.id]})
+    assert saved.status_code == 200 and saved.json()["customer"]["hidden_panel_ids"] == [env.panel.id]
+    customer = await session.get(Customer, env.customer_id)
+    await session.refresh(customer)
+    assert customer is not None and customer.hidden_panel_ids == [env.panel.id]
+
+    again = f"/api/admin/customers/{env.customer_id}/trial-again"
+    assert (await owner.call("POST", again)).status_code == 409  # no trial taken yet
+    session.add(TrialGrant(shop_id=env.shop.id, customer_id=env.customer_id, generation=1, status="issued"))
+    await session.commit()
+    assert (await owner.call("POST", again)).status_code == 200
+    reseller = await login(http, "u_reseller")
+    assert (await reseller.call("POST", again)).status_code == 404  # resellers only reach their own
+    other = await login(http, "other_owner")
+    assert (await other.call("POST", again)).status_code == 404

@@ -63,3 +63,11 @@ Each service in the bot has a "Report a problem" button. It opens a ticket with 
 With "Customers can delete their own services", each service in the bot gets a "Delete service" button. The customer sees what comes back before confirming: "Refund of the unused value" percent of the last payment's unused part (time or data, whichever is less). Trials refund nothing.
 
 Customers can also turn their own reminders off from the services list; they're still told when a service ends. Staff can add a note to any service (here or from the bot); customers never see it.
+
+## Hiding a panel from one customer
+
+Under "Hidden panels" on a customer's page (or «🙈 Hidden panels» on their card in the bot), tick the panels whose plans this customer must not see or buy. For a reseller it also applies in their own sales bot, on top of what their reseller group hides.
+
+## All links in one message
+
+When a customer has more than one service, «📋 All links in one message» at the top of their services list sends every subscription link together. If they don't fit in one message they come as a file. «📄 All configs in one file» then asks the panels for every config and sends them as one text file.

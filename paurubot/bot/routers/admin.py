@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from paurubot.audit.log import Actor, record
 from paurubot.auth import rbac
 from paurubot.bot import keyboards
-from paurubot.bot.callbacks import Admin, Review
+from paurubot.bot.callbacks import Admin, Rb, Review
 from paurubot.bot.context import StaffIdentity
 from paurubot.bot.routers.start import menu
 from paurubot.bot.states import AdminStates
@@ -38,6 +38,7 @@ from paurubot.db.models import (
     ResellerProfile,
     Service,
     ServiceStatus,
+    StaffRole,
     Ticket,
     TicketStatus,
 )
@@ -73,6 +74,8 @@ def home_kb(t: Texts, staff: StaffIdentity, cfg: dict[str, Any]) -> InlineKeyboa
     if staff.can("settings.write"):
         key = "adm_maintenance_on" if cfg["bot_enabled"] else "adm_maintenance_off"
         kb.button(text=t(key), callback_data=Admin(section="maintenance"))
+    if staff.role == StaffRole.MERCHANT:  # the reseller in its own bot (TEN-17)
+        kb.button(text=t("rb_btn_hub"), callback_data=Rb(action="home"))
     from paurubot.bot.routers.admin_ops import ops_buttons
     from paurubot.bot.routers.admin_tools import tools_kb
 
@@ -599,6 +602,10 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
         )
     if customer.is_reseller and staff.can("resellers.manage"):
         kb.button(text=t("adm_user_btn_group"), callback_data=Admin(section="ugroup", id=customer.id))
+        kb.button(text=t("adm_user_btn_rbot"), callback_data=Admin(section="rbot", id=customer.id))
+    if staff.can("customers.write"):
+        kb.button(text=t("adm_user_btn_hide"), callback_data=Admin(section="uhide", id=customer.id))
+        kb.button(text=t("adm_user_btn_trial"), callback_data=Admin(section="utrial", id=customer.id))
     if staff.can("customers.ban"):
         kb.button(
             text=t("btn_unban") if customer.is_banned else t("btn_ban"),

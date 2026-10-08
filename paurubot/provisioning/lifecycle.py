@@ -169,9 +169,15 @@ async def _create_service(session: AsyncSession, order: Order) -> Service:
     # crash adopts the account it already created instead of creating a second one.
     if not params.get("panel_username") or params.get("panel_id") != panel.id:
         params["panel_id"] = panel.id
-        params["panel_username"] = await usernames.generate(
-            session, panel, customer, params.get("label"), plan.username_prefix if plan else None
-        )
+        prefix = plan.username_prefix if plan else None
+        if params.get("wanted_username") and customer.telegram_id > 0:
+            params["panel_username"] = await usernames.chosen(
+                session, panel, str(params["wanted_username"]), prefix
+            )
+        else:
+            params["panel_username"] = await usernames.generate(
+                session, panel, customer, params.get("label"), prefix
+            )
         order.params = params
         await session.commit()
     username = params["panel_username"]

@@ -151,8 +151,9 @@ async def draft(
     custom_gb: int = 0,
     custom_days: int = 0,
     move_to: Panel | None = None,
+    wanted_username: str | None = None,
 ) -> Draft:
-    from paurubot.core import resale
+    from paurubot.core import resale, usernames
 
     shop_resale = await resale.for_shop(session, customer.shop_id)
     if shop_resale is not None:
@@ -189,6 +190,9 @@ async def draft(
         custom_days=custom_days,
         move_to=move_to,
     )
+    name = usernames.wanted(wanted_username) if kind == OrderKind.PURCHASE else None
+    if name:
+        d.params["wanted_username"] = name  # the customer's own service name (CAT-12)
     if shop_resale is not None:
         cost = await resale.wholesale(session, shop_resale, plan.id if plan else None, d.base_price)
         if cost <= 0:
