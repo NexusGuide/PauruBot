@@ -48,6 +48,10 @@ export function More() {
         <Panel className="mb-4 bg-firouzeh-50 text-firouzeh-700">
           <p className="font-bold">{t("reseller_active")}</p>
           <p className="text-sm">{t("reseller_discount_note", { percent: money(me.reseller.discount_percent, locale) })}</p>
+          <button type="button" onClick={() => navigate("/desk")}
+            className="mt-3 w-full rounded-2xl bg-[var(--accent)] py-3 font-bold text-white">
+            {t("desk_open")}
+          </button>
         </Panel>
       )}
 

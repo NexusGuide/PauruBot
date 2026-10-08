@@ -141,6 +141,7 @@ def endpoints(env: Env) -> list[tuple[str, str, str, Any]]:
         ("resellers.manage", "GET", "/api/admin/resellers", None),
         ("resellers.manage", "GET", "/api/admin/reseller-prices", None),
         ("resellers.manage", "GET", "/api/admin/account-plans", None),
+        ("services.create", "GET", "/api/admin/desk", None),
         ("resellers.manage", "GET", "/api/admin/panel-accounts", None),
         ("backups.manage", "GET", "/api/admin/backups", None),
         ("resellers.sub", "GET", "/api/admin/sub-resellers", None),

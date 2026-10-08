@@ -23,6 +23,7 @@ OPTIONAL_ROUTERS: list[str] = [
     "admin.system",
     "admin.resale",
     "admin.accounts",
+    "admin.desk",
 ]
 
 

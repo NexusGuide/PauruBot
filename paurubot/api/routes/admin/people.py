@@ -23,6 +23,7 @@ from paurubot.audit.log import record, snapshot
 from paurubot.auth import rbac, sessions
 from paurubot.auth import staff as staff_service
 from paurubot.core import tickets
+from paurubot.core.resellers import web_login
 from paurubot.db.models import (
     ApplicationStatus,
     Customer,
@@ -558,6 +559,7 @@ async def decide(application_id: int, body: DecisionBody, ctx: Manager, db: DB) 
     application = await owned(db, ResellerApplication, application_id, ctx)
     if application.status != ApplicationStatus.PENDING:
         raise HTTPException(status_code=409, detail="already_decided")
+    login = None
     if body.approve:
         if body.group_id is None:
             raise HTTPException(status_code=422, detail="group_required")
@@ -566,16 +568,17 @@ async def decide(application_id: int, body: DecisionBody, ctx: Manager, db: DB) 
             select(ResellerProfile).where(ResellerProfile.customer_id == application.customer_id)
         )
         if profile is None:
-            db.add(
-                ResellerProfile(
-                    shop_id=ctx.shop_id,
-                    customer_id=application.customer_id,
-                    group_id=body.group_id,
-                    permissions=sorted(rbac.DEFAULT_FOR_RESELLER),
-                )
+            profile = ResellerProfile(
+                shop_id=ctx.shop_id,
+                customer_id=application.customer_id,
+                group_id=body.group_id,
+                permissions=sorted(rbac.DEFAULT_FOR_RESELLER),
             )
+            db.add(profile)
+            await db.flush()
         else:
             profile.group_id, profile.is_active = body.group_id, True
+        login = await web_login(db, profile)
     application.status = ApplicationStatus.APPROVED if body.approve else ApplicationStatus.REJECTED
     application.reviewed_by_staff_id = ctx.staff.id
     application.reviewed_at = datetime.now(UTC)
@@ -591,7 +594,11 @@ async def decide(application_id: int, body: DecisionBody, ctx: Manager, db: DB) 
         db,
         "notify",
         "reseller_decision",
-        {"customer_id": application.customer_id, "approved": body.approve},
+        {
+            "customer_id": application.customer_id,
+            "approved": body.approve,
+            "web_username": login.username if body.approve and login is not None else None,
+        },
         shop_id=ctx.shop_id,
     )
     return {"ok": True}

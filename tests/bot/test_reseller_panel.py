@@ -97,3 +97,13 @@ async def test_ordinary_customer_still_applies(session, env) -> None:  # type: i
     await send(message_update(UID + 5, "/start"))
     await send(message_update(UID + 5, FA("btn_reseller")))
     assert FA("rs_btn_search") not in [text for text, _ in fake.buttons(fake.last(SendMessage))]
+
+
+async def test_web_panel_button_gives_the_sign_in(session, env) -> None:  # type: ignore[no-untyped-def]
+    send, fake = env["send"], env["fake"]
+    await _make_reseller(session, env)
+    await send(message_update(UID, FA("btn_reseller")))
+    assert FA("rs_btn_web") in [text for text, _ in fake.buttons(fake.last(SendMessage))]
+    await send(callback_update(UID, Rs(action="web").pack()))
+    text = fake.last(EditMessageText).text
+    assert f"r{UID}" in text and "/admin/" in text

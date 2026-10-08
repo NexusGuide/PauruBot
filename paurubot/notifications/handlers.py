@@ -480,6 +480,12 @@ async def simple_customer(session: AsyncSession, job: queue.Claimed) -> None:
         text = t("wallet_credited" if delta > 0 else "wallet_debited", amount=money(abs(delta)))
     elif job.kind == "reseller_decision":
         text = t("reseller_approved" if job.payload.get("approved") else "reseller_rejected")
+        if job.payload.get("approved") and job.payload.get("web_username"):
+            from paurubot.core.resellers import web_panel_url
+
+            text += "\n\n" + t(
+                "reseller_web_ready", url=esc(web_panel_url()), username=esc(str(job.payload["web_username"]))
+            )
     else:
         raise Permanent(f"unknown customer notification {job.kind}")
     await _to_customer(session, customer, text)

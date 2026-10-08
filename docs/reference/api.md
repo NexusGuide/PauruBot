@@ -41,6 +41,10 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | PATCH | `/api/admin/customers/{customer_id}` | `customers.write` | Update customer |
 | GET | `/api/admin/customers` | `customers.read` | List customers |
 | GET | `/api/admin/dashboard` | `dashboard.view` | Dashboard |
+| GET | `/api/admin/desk/expiring` | `services.create` | Expiring |
+| POST | `/api/admin/desk/renew` | `services.create` | Renew |
+| POST | `/api/admin/desk/sell` | `services.create` | Sell |
+| GET | `/api/admin/desk` | `services.create` | Desk |
 | PUT | `/api/admin/discounts/{code_id}` | `discounts.write` | Update code |
 | GET | `/api/admin/discounts` | `discounts.write` | List codes |
 | POST | `/api/admin/discounts` | `discounts.write` | Create code |
@@ -193,6 +197,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/webapp/orders` | Mini App initData | Create order |
 | POST | `/api/webapp/payments/{payment_id}/receipt` | Mini App initData | Upload receipt |
 | GET | `/api/webapp/payments/{payment_id}` | Mini App initData | Payment status |
+| GET | `/api/webapp/reseller/desk` | Mini App initData | Reseller desk view |
+| POST | `/api/webapp/reseller/renew` | Mini App initData | Reseller renew |
 | GET | `/api/webapp/services/{service_id}/links` | Mini App initData | Service links |
 | POST | `/api/webapp/services/{service_id}/rename` | Mini App initData | Service rename |
 | POST | `/api/webapp/services/{service_id}/revoke` | Mini App initData | Service revoke |

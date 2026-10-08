@@ -59,6 +59,14 @@ Three days before the end the buyer is warned; at the end the admin and its user
 
 In [Admin accounts](/admin-accounts) you also see every account sold, with its usage, and can pause, resume or delete one.
 
+## Web panel and Mini App for resellers
+
+When you approve a reseller, it also gets its own sign-in to this panel: the username is "r" plus its Telegram ID, with no password; it signs in with "Log in with a Telegram code" and the bot sends the code. The approval message in the bot tells it the address and username, and the "Web panel" button in its bot panel shows them again. Turn this off with "Web panel for approved resellers" under the Resellers section of [Settings](/settings).
+
+In the web panel the reseller sees only its own customers and services. On the [Sell](/desk) page it sells a plan under a customer name, paid from its wallet at its own price, and sees services running out within 3, 7 or 30 days, searches them and renews the ones it ticks in one go.
+
+In the Mini App a reseller can name each purchase after its customer at checkout, and "Open the reseller desk" under More shows its figures and the services running out, with "Renew all".
+
 ## Bulk buying
 
 With **Bulk buying** on in the **Resellers** settings group, a **Buy several** button appears at checkout in the bot. The reseller sends how many (up to **Most services per bulk purchase**) and all the services are paid in one wallet payment: either all of them are paid or none is. When they're all ready, the reseller gets one file in the bot with every service's name and link. Turn off **Bulk buying for resellers only** to let regular customers use it too.

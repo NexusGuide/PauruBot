@@ -23,6 +23,7 @@ from paurubot.db.models import (
     ResellerProfile,
     Service,
     ServiceStatus,
+    Staff,
 )
 from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
@@ -397,3 +398,44 @@ async def run_billing(session: AsyncSession) -> int:
             await session.rollback()
             log.exception("billing failed for reseller profile %s", profile_id)
     return billed
+
+
+# --- web panel access ------------------------------------------------------------------
+
+
+async def web_login(session: AsyncSession, profile: ResellerProfile) -> Staff | None:
+    """The reseller's own sign-in to the web panel, made on approval: a reseller staff account
+    tied to its Telegram, which signs in with a one-time code the bot sends. None when the shop
+    turned this off or the reseller has no Telegram account to receive codes."""
+    from paurubot.auth.staff import create_staff
+    from paurubot.core import settings as shop_settings
+    from paurubot.db.models import StaffRole
+
+    existing = await session.scalar(select(Staff).where(Staff.reseller_profile_id == profile.id))
+    if existing is not None:
+        return existing if existing.is_active else None
+    if not await shop_settings.get(session, profile.shop_id, "reseller_web_access"):
+        return None
+    customer = await session.get(Customer, profile.customer_id)
+    if customer is None or customer.telegram_id <= 0:
+        return None
+    base = f"r{customer.telegram_id}"
+    name = base
+    while await session.scalar(select(Staff.id).where(func.lower(Staff.username) == name.lower())):
+        name = f"{base}_{secrets.token_hex(2)}"
+    return await create_staff(
+        session,
+        profile.shop_id,
+        role=StaffRole.RESELLER,
+        username=name,
+        password=None,
+        telegram_id=customer.telegram_id,
+        display_name=customer.display_name[:96],
+        reseller_profile_id=profile.id,
+    )
+
+
+def web_panel_url() -> str:
+    from paurubot.config import get_settings
+
+    return f"{get_settings().public_url.rstrip('/')}/admin/"
