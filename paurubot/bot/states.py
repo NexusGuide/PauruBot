@@ -71,3 +71,16 @@ class ManageStates(StatesGroup):
     rename = State()
     custom_date = State()
     extra_price = State()
+    # Faoxima mirror (MGMT-10..12): custom range, panel wizard, quick prices, leaf editors.
+    range_start = State()
+    range_end = State()
+    panel_add_name = State()
+    panel_add_url = State()
+    panel_add_user = State()
+    panel_add_secret = State()
+    quick_price = State()
+    panel_value = State()
+    panel_secret = State()
+    panel_hidden = State()
+    # Faoxima mirror wave 2 (MGMT-20..26): one generic value form for all desks.
+    w2_value = State()

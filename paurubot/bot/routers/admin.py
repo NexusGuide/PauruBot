@@ -62,7 +62,7 @@ def home_kb(t: Texts, staff: StaffIdentity, cfg: dict[str, Any]) -> InlineKeyboa
     kb = InlineKeyboardBuilder()
     kb.button(text=t("adm_stats"), callback_data=Admin(section="stats"))
     if staff.can("dashboard.view") or staff.can("reports.read"):
-        kb.button(text=t("mgmt_hub_btn"), callback_data=Admin(section="manage"))
+        kb.button(text=t("mgmt_hub_btn"), callback_data=Admin(section="manage", action="hub"))
     if staff.can("payments.review"):
         kb.button(text=t("adm_payments"), callback_data=Admin(section="payments"))
     if staff.can("tickets.reply"):

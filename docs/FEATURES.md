@@ -281,3 +281,13 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | MGMT-01 | Staff command deck hub in the bot (pulse entry + panel hall entry) | v1.1* | done |
 | MGMT-02 | Pulse slices: last hour / today / yesterday / this month / last month / custom day | v1.1* | done |
 | MGMT-03 | Panel hall in the bot: health, stats, distribution, money, rename/check/toggle/delete, extras, username rule, showcase flags | v1.1* | done |
+| MGMT-10 | Faoxima-style mirror hub in the bot (nine sections, stub cards for wave 2) | v1.1* | done |
+| MGMT-11 | Mirror panels menu: add wizard with probe, quick time/volume prices, extended leaves (FX/test desks, limits, hidden list, toggles) | v1.1* | done |
+| MGMT-12 | Mirror full-stats card (all-time slice, custom date range, averages, renewal share) | v1.1* | done |
+| MGMT-20 | Mirror finance hub: gateway table with toggles, per-gateway desks, card desk with accounts | v1.1* | done |
+| MGMT-21 | Mirror shop hub: categories, plans, gift and discount codes, bulk display | v1.1* | done |
+| MGMT-22 | Mirror users hub: team list, staff add/remove, lookup and receipts links | v1.1* | done |
+| MGMT-23 | Mirror support hub: support username, departments, contacts, open tickets | v1.1* | done |
+| MGMT-24 | Mirror help hub: bot text overrides list, edit and reset | v1.1* | done |
+| MGMT-25 | Mirror channels hub: forced channels CRUD, reports chat | v1.1* | done |
+| MGMT-26 | Mirror technical hub: real capability toggles plus redis/version info | v1.1* | done |

@@ -13,6 +13,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `require_phone` | bool | false | Ask for phone number. People share their number before using the bot |
 | `phone_country_codes` | list | [] | Allowed country codes. For example 98; empty allows all |
 | `support_username` | str | "" | Support username. Without @ |
+| `support_departments` | list | [] | Support departments. One per line in the bot editor; customers pick one when contacting support |
 | `terms_required` | bool | false | Require terms |
 | `terms_version` | int | 1 | Terms version. Raising it asks everyone to accept again |
 
@@ -82,6 +83,11 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `card_random_tail` | bool | false | Add a random tail to card amounts. A few Toman (up to 999) so every receipt matches one payment; the extra goes to the customer's wallet |
 | `card_verify_enabled` | bool | false | Customers register their card first. Before paying card to card, the customer sends the card number and a photo of the card; staff approve it in the bot. Trusted customers skip this |
 | `card_verify_min_amount` | int | 0 | Card registration needed from (Toman). 0 means for every card payment |
+| `card_title` | str | "" | Card gateway display name. Shown to customers instead of the default name. Empty uses the default |
+| `card_help` | str | "" | Card-to-card tutorial. How-to text shown before paying. Empty hides it |
+| `card_cashback_percent` | int | 0 | Card cashback (%). Share of each card payment returned to the wallet. 0 turns it off |
+| `card_min_amount` | int | 0 | Card payment floor (Toman). Smaller receipts are refused. 0 means no floor |
+| `card_max_amount` | int | 0 | Card payment ceiling (Toman). Larger receipts need another method. 0 means no ceiling |
 | `topup_bonus_rules` | list | [] | Top-up bonus. A share of each top-up added as a gift. The largest matching bonus applies |
 | `wallet_transfer_enabled` | bool | false | Customers can send balance to each other |
 | `wallet_transfer_min` | int | 10000 | Smallest transfer (Toman) |
@@ -202,6 +208,8 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `move_enabled` | bool | true | Customers can change location. A button on each active service moves it to another location with its remaining data and end date |
 | `move_price` | int | 0 | Location change price. 0 means free |
 | `move_free_limit` | int | 0 | Free location changes. How many free moves each customer gets. 0 means unlimited |
+| `quick_time_prices` | dict | {} | Quick time prices. Three bot-menu price tiers for extra time, in Toman |
+| `quick_volume_prices` | dict | {} | Quick volume prices. Three bot-menu price tiers for extra data, in Toman |
 | `self_delete_enabled` | bool | false | Customers can delete their own services |
 | `self_delete_refund_percent` | int | 80 | Refund of the unused value (%). What share of the unused part (time or data, whichever is less) of the last payment goes back to the wallet. 0 means no refund |
 | `ip_notice_enabled` | bool | true | Tell customers when a device is cut off. For plans with a device limit on 3x-ui and Rebecca panels: when a new device pushes an older one off, the customer gets a short notice (at most once an hour) |
