@@ -278,3 +278,6 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | NEW-17 | Service transfer core helper backing the bot transfer button | v1.1* | todo |
 | NEW-18 | Backend settings for subscription_link_button / forced_miniapp_mode / guide apps | v1.1* | todo |
 | NEW-19 | Referral banner photo variant sent from the bot | v1.1* | todo |
+| MGMT-01 | Staff command deck hub in the bot (pulse entry + panel hall entry) | v1.1* | done |
+| MGMT-02 | Pulse slices: last hour / today / yesterday / this month / last month / custom day | v1.1* | done |
+| MGMT-03 | Panel hall in the bot: health, stats, distribution, money, rename/check/toggle/delete, extras, username rule, showcase flags | v1.1* | done |

@@ -65,3 +65,9 @@ class AdminStates(StatesGroup):
     buy_banner = State()
     rbot_token = State()
     service_note = State()
+
+
+class ManageStates(StatesGroup):
+    rename = State()
+    custom_date = State()
+    extra_price = State()

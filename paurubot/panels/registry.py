@@ -84,6 +84,22 @@ def emergency_panels(panels: Iterable[Panel]) -> list[Panel]:
     return [panel for panel in panels if is_emergency(panel)]
 
 
+def visible_in_shop(panel: Panel) -> bool:
+    """Whether the panel is offered in the shop (MGMT-03).
+
+    Reads `panel.options["showcase"]["show_in_shop"` (default True when the
+    showcase block or the flag itself is missing).
+    Catalog filtering is intentionally NOT wired here: when the shop listing
+    needs to hide panels, call this helper from `paurubot.core.catalog`
+    instead of re-implementing the lookup.
+    """
+    options = panel.options or {}
+    showcase = options.get("showcase")
+    if not isinstance(showcase, dict):
+        return True
+    return bool(showcase.get("show_in_shop", True))
+
+
 _cache: dict[int, tuple[str, PanelDriver]] = {}
 # Tests install a mock transport per panel id.
 test_transports: dict[int, httpx.AsyncBaseTransport] = {}
