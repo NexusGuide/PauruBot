@@ -124,8 +124,23 @@ class RemnawaveDriver(PanelDriver):
         return str(uuid)
 
     def squads(self, overrides: dict[str, Any] | None = None) -> list[str]:
+        """Internal squads for new users: `squad_ids` list, or a single `squad` id (both optional)."""
         opts = {**self.options, **(overrides or {})}
-        return [str(s) for s in opts.get("squad_ids") or []]
+        raw = opts.get("squad_ids")
+        if raw:
+            return [str(s) for s in raw]
+        single = opts.get("squad")
+        return [str(single)] if single else []
+
+    def hwid_limit_for(self, overrides: dict[str, Any] | None = None) -> int | None:
+        """HWID device cap from `hwid_limit` (panel options or per-plan overrides); None when unset."""
+        opts = {**self.options, **(overrides or {})}
+        if opts.get("hwid_limit") in (None, ""):
+            return None
+        try:
+            return int(opts["hwid_limit"])
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def iso(value: datetime) -> str:
@@ -196,6 +211,10 @@ class RemnawaveDriver(PanelDriver):
         }
         if spec.ip_limit:
             payload["hwidDeviceLimit"] = int(spec.ip_limit)
+        else:
+            hwid = self.hwid_limit_for(spec.options)
+            if hwid:
+                payload["hwidDeviceLimit"] = hwid
         telegram_id = _tg(spec.note)
         if telegram_id:
             payload["telegramId"] = telegram_id
@@ -225,6 +244,12 @@ class RemnawaveDriver(PanelDriver):
             payload["expireAt"] = self.iso(expire_at or NEVER)
         if data_limit is not None:
             payload["trafficLimitBytes"] = int(data_limit)
+        squads = self.squads()
+        if squads:
+            payload["activeInternalSquads"] = squads
+        hwid = self.hwid_limit_for()
+        if hwid:
+            payload["hwidDeviceLimit"] = hwid
         data: Any = None
         if len(payload) > 1:
             data = await self.call("PATCH", "/api/users", json=payload)
@@ -236,6 +261,13 @@ class RemnawaveDriver(PanelDriver):
 
     async def reset_usage(self, ref: PanelRef) -> None:
         await self.call("POST", f"/api/users/{await self._uuid(ref)}/actions/reset-traffic")
+
+    async def flush_hwid(self, ref: PanelRef) -> None:
+        """Drop a user's registered HWID devices so its devices can re-register (best effort)."""
+        try:
+            await self.call("POST", f"/api/users/{await self._uuid(ref)}/actions/reset-hwid")
+        except PanelNotFound:
+            return  # user gone, or an older panel without the endpoint
 
     async def delete_user(self, ref: PanelRef) -> None:
         try:

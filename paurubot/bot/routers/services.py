@@ -489,6 +489,8 @@ async def revoke(
     t: Texts,
     cfg: dict[str, Any],
 ) -> None:
+    if cfg.get("callback_lock_enabled") and not await keyboards.try_callback_lock(call, t):
+        return  # opt-in double-tap guard; off unless the shop turns it on
     service = await owned(session, customer, callback_data.id)
     if service is None:
         await call.answer(t("service_not_found"), show_alert=True)
@@ -547,3 +549,80 @@ async def rename(
         reply_markup=_service_markup(t, service, cfg),
         disable_web_page_preview=True,
     )
+
+
+@router.callback_query(Svc.filter(F.action == "transfer"))
+async def transfer_ask(
+    call: CallbackQuery, callback_data: Svc, session: AsyncSession, customer: Customer, t: Texts
+) -> None:
+    """Hand a service to another customer (mirzabot transfer).
+
+    TODO: wire to a core transfer helper (e.g. orders.transfer_service) once one exists;
+    until then the button only explains the next step (graceful fallback).
+    """
+    service = await owned(session, customer, callback_data.id)
+    if service is None:
+        await call.answer(t("service_not_found"), show_alert=True)
+        return
+    await call.answer()
+    await show(call, t("transfer_ask_username"), keyboards.back_to_services(t))
+
+
+@router.callback_query(Svc.filter(F.action == "disorder"))
+async def disorder(
+    call: CallbackQuery, callback_data: Svc, session: AsyncSession, customer: Customer, t: Texts
+) -> None:
+    """A broken-connection ticket through the same pipeline as "report a problem" (SUP-05)."""
+    await report_problem(call, callback_data, session, customer, t)
+
+
+@router.callback_query(Svc.filter(F.action == "changelink"))
+async def changelink_ask(
+    call: CallbackQuery, callback_data: Svc, session: AsyncSession, customer: Customer, t: Texts
+) -> None:
+    """Rotate the subscription link (mirzabot changelink), asking first like a revoke."""
+    service = await owned(session, customer, callback_data.id)
+    if service is None or not can_change_link(service):
+        await call.answer(t("service_not_found"), show_alert=True)
+        return
+    await call.answer()
+    await show(
+        call,
+        t("revoke_confirm"),
+        keyboards.confirm(
+            t, Svc(action="changelink_go", id=service.id).pack(), Svc(action="view", id=service.id).pack()
+        ),
+    )
+
+
+def can_change_link(service: Service) -> bool:
+    from paurubot.core.orders import can_change
+
+    return can_change(service, "revoke")
+
+
+@router.callback_query(Svc.filter(F.action == "changelink_go"))
+async def changelink_go(
+    call: CallbackQuery,
+    callback_data: Svc,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+) -> None:
+    """Rotate the subscription on the panel (lifecycle.revoke); local token is the fallback."""
+    if cfg.get("callback_lock_enabled") and not await keyboards.try_callback_lock(call, t):
+        return  # opt-in double-tap guard; off unless the shop turns it on
+    service = await owned(session, customer, callback_data.id)
+    if service is None or not can_change_link(service):
+        await call.answer(t("service_not_found"), show_alert=True)
+        return
+    try:
+        await lifecycle.revoke(session, service)
+    except PanelError as exc:
+        log.warning("changelink failed for service %s: %s", service.id, exc)
+        await call.answer(t("panel_error"), show_alert=True)
+        return
+    await session.commit()
+    await call.answer(t("revoked"))
+    await show(call, service_card(t, service, customer_link(service, cfg)), _service_markup(t, service, cfg))

@@ -4,10 +4,12 @@ from collections.abc import Sequence
 from typing import Any
 
 from aiogram.types import (
+    CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
     ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -42,7 +44,43 @@ MENU_KEYS = (
 )
 
 
-def cancel(t: Texts) -> ReplyKeyboardMarkup:
+CALLBACK_LOCK_TTL = 3  # seconds a double-tap guard holds one user+message
+
+
+def callback_lock_key(user_id: int, chat_id: int | None, message_id: int | None) -> str:
+    """Redis once-key for one user's taps on one message (double-tap guard)."""
+    return f"tap:{int(user_id)}:{int(chat_id or 0)}:{int(message_id or 0)}"
+
+
+async def try_callback_lock(call: CallbackQuery, t: Texts, ttl: int = CALLBACK_LOCK_TTL) -> bool:
+    """True when this tap may be handled; False (with a busy reply) on a double-tap.
+
+    Opt-in per handler and never blocks when Redis is unreachable.
+    """
+    from paurubot import kv
+
+    message = call.message
+    chat = getattr(message, "chat", None)
+    key = callback_lock_key(
+        call.from_user.id, getattr(chat, "id", None), getattr(message, "message_id", None)
+    )
+    try:
+        first = await kv.set_once(key, ttl)
+    except Exception:
+        return True
+    if first:
+        return True
+    try:
+        await call.answer(t("callback_busy"))
+    except Exception:
+        pass
+    return False
+
+
+def cancel(t: Texts, *, auto_remove: bool = False) -> ReplyKeyboardMarkup | ReplyKeyboardRemove:
+    """Cancel reply keyboard; with `auto_remove` the client's keyboard is taken away instead."""
+    if auto_remove:
+        return ReplyKeyboardRemove()
     return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=t("btn_cancel"))]], resize_keyboard=True)
 
 
@@ -316,6 +354,9 @@ def service_kb(
         kb.button(text=t("btn_move"), callback_data=Svc(action="move", id=sid))
     if can_change(service, "revoke"):
         kb.button(text=t("btn_revoke"), callback_data=Svc(action="revoke", id=sid))
+        kb.button(text=t("btn_changelink"), callback_data=Svc(action="changelink", id=sid))
+    kb.button(text=t("btn_transfer"), callback_data=Svc(action="transfer", id=sid))
+    kb.button(text=t("btn_disorder"), callback_data=Svc(action="disorder", id=sid))
     kb.button(text=t("btn_rename"), callback_data=Svc(action="rename", id=sid))
     kb.button(text=t("btn_report_problem"), callback_data=Svc(action="report", id=sid))
     if cancel and not service.is_trial:

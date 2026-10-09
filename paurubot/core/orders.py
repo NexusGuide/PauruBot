@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core import catalog, pricing, resellers
@@ -41,6 +41,9 @@ PROVISION_QUEUE = "provision"
 ACCOUNT_KINDS = frozenset(
     {OrderKind.ACCOUNT_PURCHASE, OrderKind.ACCOUNT_RENEW, OrderKind.ACCOUNT_GB, OrderKind.ACCOUNT_USERS}
 )
+NOTE_MAX = 150
+# An owned one-buy plan blocks a new purchase once it reached one of these states.
+OWNED_STATUSES = (OrderStatus.PAID, OrderStatus.PROVISIONING, OrderStatus.COMPLETED)
 
 
 class OrderError(Exception):
@@ -57,6 +60,31 @@ class Draft:
     service: Service | None
     params: dict[str, Any]
     base_price: int
+
+
+def truncate_note(note: str | None) -> str | None:
+    """Purchase-time note kept on the order, at most 150 characters."""
+    if note is None:
+        return None
+    text = str(note).strip()
+    return text[:NOTE_MAX] if text else None
+
+
+async def _ensure_one_buy(session: AsyncSession, customer: Customer, plan: Plan) -> None:
+    """Refuse a second purchase of a one-buy-only plan (productsoldout-style guard)."""
+    if not getattr(plan, "one_buy", False):
+        return
+    owned = await session.scalar(
+        select(Order.id)
+        .where(
+            Order.customer_id == customer.id,
+            Order.plan_id == plan.id,
+            Order.status.in_(OWNED_STATUSES),
+        )
+        .limit(1)
+    )
+    if owned is not None:
+        raise OrderError("one_buy_already_owned", plan_id=plan.id)
 
 
 def _remaining_value(service: Service, plan: Plan | None) -> int:
@@ -152,6 +180,7 @@ async def draft(
     custom_days: int = 0,
     move_to: Panel | None = None,
     wanted_username: str | None = None,
+    note: str | None = None,
 ) -> Draft:
     from paurubot.core import resale, usernames
 
@@ -189,6 +218,7 @@ async def draft(
         custom_gb=custom_gb,
         custom_days=custom_days,
         move_to=move_to,
+        note=note,
     )
     name = usernames.wanted(wanted_username) if kind == OrderKind.PURCHASE else None
     if name:
@@ -215,11 +245,15 @@ async def _draft(
     custom_gb: int = 0,
     custom_days: int = 0,
     move_to: Panel | None = None,
+    note: str | None = None,
 ) -> Draft:
     cfg = await shop_settings.load(session, customer.shop_id)
     params: dict[str, Any] = {}
     if label:
         params["label"] = label[:48]
+    trimmed = truncate_note(note)
+    if trimmed:
+        params["customer_note"] = trimmed
     add_gb = extra_gb if kind == OrderKind.EXTRA_VOLUME else (custom_gb if plan is None else plan.data_gb)
     try:
         await resellers.check_purchase(session, customer, kind=kind, add_gb=add_gb)
@@ -244,6 +278,7 @@ async def _draft(
             return Draft(kind, None, None, params, custom_price(cfg, custom_gb, custom_days))
         if plan is None:
             raise OrderError("plan_unavailable")
+        await _ensure_one_buy(session, customer, plan)
         if plan.delivery == "stock":
             from paurubot.core import stock
 
@@ -323,7 +358,13 @@ async def create(
     *,
     code: DiscountCode | None = None,
     source: str = "bot",
+    note: str | None = None,
 ) -> Order:
+    trimmed = truncate_note(note)
+    if trimmed:
+        d.params = {**d.params, "customer_note": trimmed}
+    if d.kind == OrderKind.PURCHASE and d.plan is not None:
+        await _ensure_one_buy(session, customer, d.plan)
     if resellers.metered(customer) and d.kind not in ACCOUNT_KINDS:
         code = None  # nothing to discount: the order itself is free
     if code is not None:
@@ -528,3 +569,93 @@ async def refund_failed(session: AsyncSession, order: Order, reason: str, actor:
             .where(DiscountCode.id == order.discount_code_id, DiscountCode.used_count > 0)
             .values(used_count=DiscountCode.used_count - 1)
         )
+
+
+async def transfer_service(
+    session: AsyncSession, service_id: int, from_customer_id: int, to_customer_id: int
+) -> Service:
+    """Move a service from one customer to another, keeping its panel username.
+
+    Refuses when the target already owns the service's one-buy plan.
+    Router wiring lives elsewhere; this is the reusable helper.
+    """
+    service = await session.get(Service, service_id)
+    if service is None or service.customer_id != from_customer_id:
+        raise OrderError("service_not_found")
+    if from_customer_id == to_customer_id:
+        return service
+    target = await session.get(Customer, to_customer_id)
+    if target is None or target.shop_id != service.shop_id:
+        raise OrderError("service_not_found")
+    if service.plan_id is not None:
+        plan = await session.get(Plan, service.plan_id)
+        if plan is not None:
+            await _ensure_one_buy(session, target, plan)
+    history = list((service.panel_data or {}).get("transfers") or [])
+    history.append({"from": from_customer_id, "to": to_customer_id, "at": utcnow().isoformat()})
+    service.panel_data = {**(service.panel_data or {}), "transfers": history[-20:]}
+    service.customer_id = to_customer_id
+    await session.flush()
+    return service
+
+
+async def report_issue(session: AsyncSession, service_id: int, customer_id: int, text: str):  # type: ignore[no-untyped-def]
+    """File a disorder/outage report for a service as a support ticket (category 'disorder')."""
+    from paurubot.core import tickets as ticket_api
+
+    service = await session.get(Service, service_id)
+    customer = await session.get(Customer, customer_id)
+    if service is None or customer is None:
+        raise OrderError("service_not_found")
+    if service.customer_id != customer.id or service.shop_id != customer.shop_id:
+        raise OrderError("service_not_found")
+    body = (text or "").strip()[:1000] or "-"
+    ticket = await ticket_api.open_ticket(
+        session, customer, f"disorder: service {service.panel_username}", source="bot"
+    )
+    await ticket_api.add_message(
+        session,
+        ticket,
+        author_type="customer",
+        author_id=customer.id,
+        text=f"[disorder] service {service.id} ({service.panel_username}): {body}",
+    )
+    return ticket
+
+
+async def rotate_subscription(session: AsyncSession, service_id: int) -> str:
+    """Rotate a service's branded subscription link (change-link).
+
+    Rotates the local `sub_token` so the old link stops working; the panel-side
+    revoke via `provisioning.lifecycle.revoke` stays available to callers with
+    panel access (it needs network), while this helper never requires it.
+    """
+    from paurubot.provisioning.lifecycle import new_sub_token
+
+    service = await session.get(Service, service_id)
+    if service is None:
+        raise OrderError("service_not_found")
+    service.sub_token = new_sub_token()
+    await session.flush()
+    return service.sub_token or ""
+
+
+async def can_move(session: AsyncSession, customer: Customer, service: Service) -> bool:
+    """Whether `customer` may move `service` under the per-user move cap.
+
+    `move_free_limit == 0` means unlimited (default, no behavior change).
+    """
+    cfg = await shop_settings.load(session, customer.shop_id)
+    limit = int(cfg.get("move_free_limit") or 0)
+    if limit <= 0:
+        return True
+    if service.customer_id != customer.id:
+        return False
+    used = await session.scalar(
+        select(func.count(Order.id)).where(
+            Order.customer_id == customer.id,
+            Order.kind == OrderKind.MOVE,
+            Order.status.in_((OrderStatus.PAID, OrderStatus.PROVISIONING, OrderStatus.COMPLETED)),
+        )
+    )
+    return int(used or 0) < limit

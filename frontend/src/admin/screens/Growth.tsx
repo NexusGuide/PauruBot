@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { money } from "@shared/format";
 import { call, type Broadcast, type CatalogData, type Discount } from "../api";
 import { PAGE_SIZE, useAction, useList, useLoad } from "../hooks";
@@ -190,7 +191,7 @@ function randomCode(): string {
 }
 
 function GiftSheet({ draft, onClose, onSaved }: { draft: GiftDraft; onClose: () => void; onSaved: () => void }) {
-  const { t, toast, errorText } = useSession();
+  const { t, can, toast, errorText } = useSession();
   const [form, setForm] = useState<GiftDraft>(draft);
   const [busy, run] = useAction();
   const redemptions = useLoad<{ items: { id: number; customer_id: number; customer: string; amount: number; at: string }[] }>(
@@ -250,7 +251,11 @@ function GiftSheet({ draft, onClose, onSaved }: { draft: GiftDraft; onClose: () 
             <ul className="divide-y divide-[var(--line)] text-[0.85rem]">
               {redemptions.data.items.map((r) => (
                 <li key={r.id} className="flex justify-between py-2">
-                  <span>{r.customer}</span>
+                  {can("customers.read") ? (
+                    <Link className="font-semibold text-firouzeh-700" to={`/customers/${r.customer_id}`}>{r.customer}</Link>
+                  ) : (
+                    <span>{r.customer}</span>
+                  )}
                   <When iso={r.at} time />
                 </li>
               ))}

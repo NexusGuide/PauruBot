@@ -4,6 +4,7 @@ no redirects, a small circuit breaker and redacted errors (SEC-10, NEW-02)."""
 from __future__ import annotations
 
 import logging
+import os
 import ssl
 import time
 from typing import Any
@@ -20,6 +21,33 @@ log = logging.getLogger(__name__)
 
 FAILURE_THRESHOLD = 5
 OPEN_SECONDS = 30.0
+
+
+def proxy_for(base_url: str) -> str | None:
+    """Upstream proxy for panel traffic, else None.
+
+    Reads ``HTTPS_PROXY``/``https_proxy`` (for https panels) and ``HTTP_PROXY``/``http_proxy``
+    (for http panels); hosts in ``NO_PROXY``/``no_proxy`` (comma-separated, ``*`` matches all,
+    leading-dot entries match subdomains) bypass the proxy. No variables means no proxy.
+    """
+    scheme = (urlsplit(base_url).scheme or "").lower()
+    host = (urlsplit(base_url).hostname or "").lower()
+    raw = ""
+    if scheme == "https":
+        raw = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or ""
+    elif scheme == "http":
+        raw = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy") or ""
+    proxy = raw.strip()
+    if not proxy:
+        return None
+    bypass = os.environ.get("NO_PROXY") or os.environ.get("no_proxy") or ""
+    for entry in (part.strip().lower() for part in bypass.split(",") if part.strip()):
+        if entry == "*":
+            return None
+        suffix = entry if entry.startswith(".") else f".{entry}"
+        if host == entry.lstrip(".") or host.endswith(suffix):
+            return None
+    return proxy
 
 
 def ssl_context(pinned_pem: str | None) -> ssl.SSLContext:
@@ -45,6 +73,7 @@ class SafeHttpClient:
         allow_private: bool = False,
         timeout: float | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        proxy: str | None = None,
     ) -> None:
         settings = get_settings()
         ssrf.check_url_shape(base_url)
@@ -52,14 +81,18 @@ class SafeHttpClient:
         self._host = urlsplit(self.base_url).hostname
         self.allow_private = allow_private or settings.allow_private_panel_hosts
         total = timeout or settings.http_total_timeout
-        self._client = httpx.AsyncClient(
-            base_url=self.base_url,
-            timeout=httpx.Timeout(total, connect=settings.http_connect_timeout),
-            verify=ssl_context(pinned_pem),
-            follow_redirects=False,
-            transport=transport,
-            headers={"User-Agent": "PauruBot"},
-        )
+        self.proxy = proxy or proxy_for(self.base_url)
+        client_kwargs: dict[str, Any] = {
+            "base_url": self.base_url,
+            "timeout": httpx.Timeout(total, connect=settings.http_connect_timeout),
+            "verify": ssl_context(pinned_pem),
+            "follow_redirects": False,
+            "transport": transport,
+            "headers": {"User-Agent": "PauruBot"},
+        }
+        if self.proxy is not None:
+            client_kwargs["proxy"] = self.proxy
+        self._client = httpx.AsyncClient(**client_kwargs)
         self._checked_until = 0.0
         self._failures = 0
         self._open_until = 0.0

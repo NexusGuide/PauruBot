@@ -40,6 +40,16 @@ class XuiDriver(PanelDriver):
     def inbound_id(self) -> int:
         return self.inbound_for({})
 
+    @property
+    def api_mode(self) -> str:
+        """Login flavour: 'auto' (default), 'token' (API token only) or 'legacy' (session login)."""
+        mode = str(self.options.get("api_mode") or "auto").lower()
+        return mode if mode in {"auto", "token", "legacy"} else "auto"
+
+    def _session_login(self) -> bool:
+        """Whether panel calls authenticate with a session cookie (vs a fixed API token)."""
+        return self.api_mode == "legacy" or not self.options.get("api_token")
+
     def inbound_for(self, overrides: dict[str, Any]) -> int:
         value = overrides.get("inbound_id") or self.options.get("inbound_id")
         if not value:
@@ -54,9 +64,11 @@ class XuiDriver(PanelDriver):
         return headers
 
     async def _login(self) -> None:
-        if self.options.get("api_token"):
+        if not self._session_login():
             self._logged_in = True
             return
+        if self.api_mode == "token":
+            raise PanelError("api_token is not configured for this panel")
         resp = await self.http.request(
             "POST", "/login", data={"username": self.username, "password": self.password}
         )
@@ -77,7 +89,7 @@ class XuiDriver(PanelDriver):
             # An expired session shows up as a redirect to the login page, 401/404, or an HTML 200.
             not_json = "application/json" not in resp.headers.get("content-type", "")
             expired = resp.status_code in {301, 302, 401, 404} or (resp.status_code == 200 and not_json)
-            if expired and attempt == 0 and not self.options.get("api_token"):
+            if expired and attempt == 0 and self._session_login():
                 self._logged_in = False
                 await self._login()
                 continue
@@ -212,6 +224,20 @@ class XuiDriver(PanelDriver):
             "xray_state": xray.get("state"),
             "nodes": [],
         }
+
+    async def server_status(self) -> dict[str, Any] | None:
+        """Online clients and fail2ban state when the panel reports them, else None (best effort)."""
+        try:
+            status = await self.call("POST", "/server/status")
+        except PanelError:
+            return None
+        if not isinstance(status, dict):
+            return None
+        online = number(status, "onlineUsers", "online_users", "onlines", "totalOnline")
+        fail2ban = status.get("fail2ban", status.get("fail2banStatus", status.get("banStatus")))
+        if online is None and fail2ban is None:
+            return None
+        return {"online_clients": whole(online), "fail2ban": fail2ban}
 
     async def list_options(self) -> list[PanelOption]:
         inbounds = await self.call("GET", "/panel/api/inbounds/list")

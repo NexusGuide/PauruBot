@@ -7,11 +7,13 @@ import {
   Async,
   Badge,
   Button,
+  ConfirmButton,
   Facts,
   Field,
   Money,
   Page,
   Pager,
+  SearchBox,
   Section,
   Select,
   Sheet,
@@ -20,7 +22,6 @@ import {
   Textarea,
   Toolbar,
   When,
-  useConfirm,
   type Column,
 } from "../ui";
 
@@ -30,19 +31,11 @@ const PROVIDERS = ["card", "zarinpal", "stars", "usdt_trc20", "trx", "ton", "now
 
 export function Orders() {
   const { t, can, toast, errorText } = useSession();
-  const confirm = useConfirm();
   const list = useList<Order>("/api/admin/orders", ["status", "customer_id", "id"]);
   const [open, setOpen] = useState<Order | null>(null);
   const [busy, run] = useAction();
 
   const refund = async (order: Order) => {
-    const ok = await confirm({
-      title: t("refund_title"),
-      body: t("refund_body", { id: order.id }),
-      confirm: t("refund"),
-      danger: true,
-    });
-    if (!ok) return;
     try {
       const result = await run(() => call<{ order: Order }>(`/api/admin/orders/${order.id}/refund`, { method: "POST" }));
       if (result) {
@@ -142,9 +135,9 @@ export function Orders() {
                 </Link>
               )}
               {can("payments.refund") && ["completed", "failed"].includes(open.status) && open.amount > 0 && (
-                <Button tone="danger" busy={busy} onClick={() => void refund(open)}>
+                <ConfirmButton confirm={t("confirm")} onConfirm={() => void refund(open)} loading={busy}>
                   {t("refund_to_wallet")}
-                </Button>
+                </ConfirmButton>
               )}
             </div>
           </div>
@@ -284,6 +277,27 @@ export function Payments() {
   const { t } = useSession();
   const list = useList<Payment>("/api/admin/payments", ["status", "provider", "customer_id", "id"]);
   const [open, setOpen] = useState<Payment | null>(null);
+  const [q, setQ] = useState("");
+  const today = new Date().toISOString().slice(0, 10);
+  const items = list.data?.items ?? [];
+  const needle = q.trim().toLowerCase();
+  // Client-side extension of the server filter: id, customer, tracking code, card last-4.
+  const shown = needle
+    ? items.filter(
+        (p) =>
+          String(p.id).includes(needle) ||
+          p.customer.toLowerCase().includes(needle) ||
+          (p.provider_tx_id ?? "").toLowerCase().includes(needle) ||
+          (p.receipt_text ?? "").toLowerCase().includes(needle),
+      )
+    : items;
+  const isToday = (iso: string | null) => iso !== null && iso.slice(0, 10) === today;
+  const pending = items.filter((p) => ["created", "pending", "verifying"].includes(p.status)).length;
+  const paidToday = items.filter((p) => p.status === "paid" && isToday(p.paid_at));
+  const rejectedToday = items.filter(
+    (p) => ["failed", "expired", "refunded", "disputed"].includes(p.status) && isToday(p.reviewed_at ?? p.created_at),
+  ).length;
+  const amountToday = paidToday.reduce((sum, p) => sum + p.amount, 0);
 
   const columns: Column<Payment>[] = [
     {
@@ -310,6 +324,7 @@ export function Payments() {
     <Page title={t("nav_payments")} wide>
       <Section flush>
         <Toolbar>
+          <SearchBox value={q} onChange={setQ} placeholder="ID, customer, tracking code or card last-4" />
           <Select
             className="w-auto"
             aria-label={t("filter_status")}
@@ -342,10 +357,28 @@ export function Payments() {
             </Button>
           )}
         </Toolbar>
+        <div className="flex flex-wrap gap-x-5 gap-y-1 border-b border-[var(--line)] px-4 py-2.5 text-[0.82rem]">
+          <span>
+            <span className="text-[var(--hint)]">{t("status_pending")}: </span>
+            <strong className="num">{pending}</strong>
+          </span>
+          <span>
+            <span className="text-[var(--hint)]">{t("status_paid")}: </span>
+            <strong className="num">{paidToday.length}</strong>
+          </span>
+          <span>
+            <span className="text-[var(--hint)]">{t("status_failed")}: </span>
+            <strong className="num">{rejectedToday}</strong>
+          </span>
+          <span>
+            <span className="text-[var(--hint)]">{t("col_amount")}: </span>
+            <Money amount={amountToday} />
+          </span>
+        </div>
         <Async data={list.data} error={list.error} reload={list.reload}>
           {(data) => (
             <>
-              <Table columns={columns} rows={data.items} sort={list.sort} onSort={list.toggleSort} onRow={setOpen} />
+              <Table columns={columns} rows={shown} sort={list.sort} onSort={list.toggleSort} onRow={setOpen} />
               <Pager page={list.page} total={data.total} size={PAGE_SIZE} onPage={list.setPage} />
             </>
           )}

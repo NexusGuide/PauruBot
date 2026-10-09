@@ -27,6 +27,33 @@ def client_ip(peer: str | None, forwarded_for: str | None, trusted_hops: int | N
         return peer or "unknown"
 
 
+def is_admin_ip_allowed(ip: str, allowlist: list[str] | tuple[str, ...] | None) -> bool:
+    """Whether `ip` may reach the admin login: True when the allowlist is empty (no restriction).
+
+    Entries are single addresses or CIDR ranges (matched with `ipaddress`); anything else is
+    compared as a literal name. An unparseable `ip` is never allowed.
+    """
+    if not allowlist:
+        return True
+    try:
+        addr = ipaddress.ip_address(ip.strip())
+    except ValueError:
+        return False
+    for entry in allowlist:
+        item = str(entry).strip()
+        if not item:
+            continue
+        try:
+            if addr in ipaddress.ip_network(item, strict=False):
+                return True
+        except ValueError:
+            if item.lower() == ip.strip().lower():
+                return True
+        except TypeError:
+            continue  # IPv4 address against an IPv6 range (or the reverse)
+    return False
+
+
 class LoginLocked(Exception):
     def __init__(self, retry_after: int) -> None:
         super().__init__(f"locked for {retry_after}s")
@@ -37,7 +64,11 @@ def _keys(username: str, ip: str) -> tuple[str, str]:
     return f"login:user:{username.lower()}", f"login:ip:{ip}"
 
 
-async def check(username: str, ip: str) -> None:
+async def check(username: str, ip: str, *, allowlist: list[str] | None = None) -> None:
+    """Refuse locked-out logins; an IP outside a non-empty admin `allowlist` is locked out too."""
+    if allowlist:
+        if not is_admin_ip_allowed(ip, allowlist):
+            raise LoginLocked(get_settings().login_lock_seconds)
     redis = kv.get_redis()
     for key in _keys(username, ip):
         ttl = await redis.ttl(f"loginlock:{key}")

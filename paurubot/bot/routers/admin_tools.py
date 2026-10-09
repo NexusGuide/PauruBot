@@ -5,9 +5,11 @@ a wallet gift for many customers; and broadcast options (audience, a link button
 from __future__ import annotations
 
 import secrets
+from datetime import datetime, timedelta
 from typing import Any
 
 from aiogram import F, Router
+from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -25,6 +27,7 @@ from paurubot.bot.utils import StaffOnly, show
 from paurubot.core import catalog, customers, finance, pricing
 from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import esc, jdate, money, parse_int
+from paurubot.db.base import utcnow
 from paurubot.db.models import (
     Broadcast,
     Customer,
@@ -33,6 +36,9 @@ from paurubot.db.models import (
     OrderKind,
     OrderStatus,
     Panel,
+    Payment,
+    PaymentPurpose,
+    PaymentStatus,
     Plan,
     ResellerGroup,
     ResellerProfile,
@@ -1638,3 +1644,179 @@ async def service_note_save(
     await session.commit()
     await message.answer(t("adm_saved"), reply_markup=menu(t, cfg, staff))
     await message.answer(service_text(t, service), reply_markup=service_kb(t, service, staff))
+
+
+# --- quick admin commands: /config, /extend, /lookup, /stats -------------------------------
+
+
+def parse_service_command(text: str | None) -> tuple[str, int | None]:
+    """Split `/config 123` into ("config", 123); the id is None when missing or invalid."""
+    parts = (text or "").strip().split()
+    cmd = parts[0].lstrip("/").split("@")[0].lower() if parts else ""
+    arg = parse_int(parts[1]) if len(parts) > 1 else None
+    return cmd, arg
+
+
+@router.message(Command("config"), StaffOnly("services.read"))
+async def quick_config(
+    message: Message,
+    command: CommandObject,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+) -> None:
+    """Show one service's infocard by id (mirzabot admin.php:112 style)."""
+    _, service_id = parse_service_command(f"/config {command.args or ''}")
+    if service_id is None:
+        await message.answer(t("adm_config_usage"))
+        return
+    service = await _service(session, shop, service_id)
+    if service is None:
+        await message.answer(t("adm_service_not_found"))
+        return
+    await message.answer(service_text(t, service), reply_markup=service_kb(t, service, staff))
+
+
+@router.message(Command("extend"), StaffOnly("services.write"))
+async def quick_extend(
+    message: Message,
+    command: CommandObject,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+) -> None:
+    """Start the extend flow for one service by id: its card with the extend buttons."""
+    _, service_id = parse_service_command(f"/extend {command.args or ''}")
+    if service_id is None:
+        await message.answer(t("adm_extend_usage"))
+        return
+    service = await _service(session, shop, service_id)
+    if service is None:
+        await message.answer(t("adm_service_not_found"))
+        return
+    text = t("adm_extend_pick") + "\n\n" + service_text(t, service)
+    await message.answer(text, reply_markup=service_kb(t, service, staff))
+
+
+@router.message(Command("lookup"), StaffOnly("customers.read"))
+async def quick_lookup(
+    message: Message,
+    command: CommandObject,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+    cfg: dict[str, Any],
+) -> None:
+    """Find a customer or a service by panel username: `lookup <username>`."""
+    query = (command.args or "").strip().lstrip("@")[:64]
+    if not query:
+        await message.answer(t("adm_lookup_usage"))
+        return
+    rows, _ = await customers.search(session, shop.id, query, limit=1)
+    if rows:
+        text, kb = await customer_card(session, t, rows[0], staff)
+        await message.answer(t("adm_found"), reply_markup=menu(t, cfg, staff))
+        await message.answer(text, reply_markup=kb)
+        return
+    service = await session.scalar(
+        select(Service)
+        .where(
+            Service.shop_id == shop.id,
+            Service.status != ServiceStatus.DELETED,
+            (Service.panel_username == query) | (Service.label == query),
+        )
+        .order_by(Service.id.desc())
+        .limit(1)
+    )
+    if service is not None and staff.can("services.read"):
+        await message.answer(t("adm_found"), reply_markup=menu(t, cfg, staff))
+        await message.answer(service_text(t, service), reply_markup=service_kb(t, service, staff))
+        return
+    # TODO: query live panels for foreign usernames via provisioning/importer untracked().
+    await message.answer(t("adm_customer_not_found"), reply_markup=menu(t, cfg, staff))
+
+
+STAT_ALIASES = {
+    "1h": "1h",
+    "hour": "1h",
+    "today": "today",
+    "yesterday": "yesterday",
+    "month": "month",
+    "this-month": "month",
+}
+
+
+def parse_stats_arg(arg: str | None) -> str | None:
+    """Normalize `/stats` range words to 1h/today/yesterday/month; None when unknown."""
+    tokens = (arg or "").strip().split()
+    if not tokens:
+        return "today"
+    return STAT_ALIASES.get(tokens[0].lower().lstrip("/"))
+
+
+def stats_window(arg: str, now: datetime) -> tuple[datetime, datetime | None]:
+    """(since, until) for a normalized stats range; `until` is None for open ranges."""
+    if arg == "1h":
+        return now - timedelta(hours=1), None
+    if arg == "yesterday":
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+        return start, start + timedelta(days=1)
+    if arg == "month":
+        return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0), None
+    return now.replace(hour=0, minute=0, second=0, microsecond=0), None
+
+
+async def _slice_figures(
+    session: AsyncSession, shop_id: int, since: datetime, until: datetime | None
+) -> tuple[int, int, int, int, int]:
+    """Paid orders, top-ups and new customers in one window (mirrors finance.summary)."""
+    order_q = select(func.count(Order.id), func.coalesce(func.sum(Order.amount), 0)).where(
+        Order.shop_id == shop_id,
+        Order.status == OrderStatus.COMPLETED,
+        Order.amount > 0,
+        Order.completed_at >= since,
+    )
+    topup_q = select(func.count(Payment.id), func.coalesce(func.sum(Payment.amount), 0)).where(
+        Payment.shop_id == shop_id,
+        Payment.purpose == PaymentPurpose.TOPUP,
+        Payment.status == PaymentStatus.PAID,
+        Payment.paid_at >= since,
+    )
+    joined_q = select(func.count(Customer.id)).where(
+        Customer.shop_id == shop_id, Customer.created_at >= since
+    )
+    if until is not None:
+        order_q = order_q.where(Order.completed_at < until)
+        topup_q = topup_q.where(Payment.paid_at < until)
+        joined_q = joined_q.where(Customer.created_at < until)
+    sales = (await session.execute(order_q)).one()
+    topups = (await session.execute(topup_q)).one()
+    joined = await session.scalar(joined_q)
+    return int(sales[0]), int(sales[1]), int(topups[0]), int(topups[1]), int(joined or 0)
+
+
+@router.message(Command("stats"), StaffOnly("reports.read"))
+async def stats_slice(
+    message: Message, command: CommandObject, session: AsyncSession, shop: ShopRow, t: Texts
+) -> None:
+    """Hour-slice figures: `/stats [1h|today|yesterday|month]` (default: today)."""
+    key = parse_stats_arg(command.args)
+    if key is None:
+        await message.answer(t("adm_stats_usage"))
+        return
+    since, until = stats_window(key, utcnow())
+    sales, sales_amount, topups, topup_amount, joined = await _slice_figures(session, shop.id, since, until)
+    await message.answer(
+        t(
+            "adm_stats_slice",
+            period=t(f"adm_stats_{key}"),
+            sales=sales,
+            sales_amount=money(sales_amount),
+            topups=topups,
+            topup_amount=money(topup_amount),
+            joined=joined,
+        )
+    )

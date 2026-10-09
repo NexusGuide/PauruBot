@@ -13,6 +13,8 @@ interface Session {
   me: Me | null;
   checking: boolean;
   setupRequired: boolean;
+  /** True when the session ended server-side (a 401 after a working session). */
+  sessionExpired: boolean;
   locale: string;
   t: Translate;
   can: (permission: string) => boolean;
@@ -43,6 +45,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [checking, setChecking] = useState(true);
   const [setupRequired, setSetupRequired] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const hadSession = useRef(false);
   const [locale, setLocaleState] = useState(storedLocale);
   const [toasts, setToasts] = useState<{ id: number; text: string; tone: Tone }[]>([]);
   const nextToast = useRef(1);
@@ -66,6 +70,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const data = await call<Me>("/api/auth/me");
       setCsrf(data.csrf_token);
       setMe(data);
+      hadSession.current = true;
+      setSessionExpired(false);
     } catch {
       setMe(null);
     } finally {
@@ -75,19 +81,26 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refresh();
-    return onUnauthorized(() => setMe(null));
+    return onUnauthorized(() => {
+      if (hadSession.current) setSessionExpired(true);
+      setMe(null);
+    });
   }, [refresh]);
 
   const login = useCallback(async (username: string, password: string) => {
     const data = await call<Me>("/api/auth/login", { method: "POST", body: { username, password } });
     setCsrf(data.csrf_token);
     setMe(data);
+    hadSession.current = true;
+    setSessionExpired(false);
   }, []);
 
   const loginWithCode = useCallback(async (username: string, code: string) => {
     const data = await call<Me>("/api/auth/code/verify", { method: "POST", body: { username, code } });
     setCsrf(data.csrf_token);
     setMe(data);
+    hadSession.current = true;
+    setSessionExpired(false);
   }, []);
 
   const logout = useCallback(async () => {
@@ -96,6 +109,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } finally {
       setCsrf("");
       setMe(null);
+      hadSession.current = false;
+      setSessionExpired(false);
     }
   }, []);
 
@@ -135,6 +150,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       me,
       checking,
       setupRequired,
+      sessionExpired,
       locale,
       t,
       can,
@@ -147,7 +163,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       toasts,
       errorText,
     }),
-    [me, checking, setupRequired, locale, t, can, login, loginWithCode, logout, refresh, setLocale, toast, toasts, errorText],
+    [me, checking, setupRequired, sessionExpired, locale, t, can, login, loginWithCode, logout, refresh, setLocale, toast, toasts, errorText],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -53,6 +53,7 @@ const ICONS: Record<string, string> = {
   copy: "M8 8h11v11H8zM5 16V5h11",
   external: "M14 4h6v6M20 4l-9 9M18 14v6H4V6h6",
   help: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01",
+  warn: "M12 3 2 21h20zM12 9.5V14M12 17.5h.01",
 };
 
 export function Icon({ name, size: px = 20, className = "" }: { name: string; size?: number; className?: string }) {
@@ -128,7 +129,12 @@ export function Page({
             </Link>
           )}
         </div>
-        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+        {(actions || (typeof document !== "undefined" && document.fullscreenEnabled)) && (
+          <div className="flex flex-wrap items-center gap-2">
+            <FullscreenButton />
+            {actions}
+          </div>
+        )}
       </header>
       <div className="flex flex-col gap-6">{children}</div>
     </div>
@@ -140,14 +146,17 @@ export function Section({
   actions,
   children,
   flush,
+  id,
 }: {
   title?: string;
   actions?: ReactNode;
   children: ReactNode;
   flush?: boolean;
+  /** Anchor id so callers can deep-link (e.g. settings `?section=`). */
+  id?: string;
 }) {
   return (
-    <section className="rounded-2xl bg-[var(--surface)] ring-1 ring-[var(--line)]">
+    <section id={id} className={`rounded-2xl bg-[var(--surface)] ring-1 ring-[var(--line)] ${id ? "scroll-mt-16" : ""}`}>
       {(title || actions) && (
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-3">
           {title && <h2 className="text-[0.95rem] font-bold">{title}</h2>}
@@ -868,6 +877,16 @@ export function Pager({
   );
 }
 
+/** Holds back updates until the value stops changing for `delay` ms. */
+export function useDebouncedValue<T>(value: T, delay = 400): T {
+  const [held, setHeld] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setHeld(value), delay);
+    return () => window.clearTimeout(timer);
+  }, [value, delay]);
+  return held;
+}
+
 /** A search box that reports after the person pauses typing. */
 export function SearchBox({
   value,
@@ -880,11 +899,10 @@ export function SearchBox({
 }) {
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
+  const debounced = useDebouncedValue(text, 400);
   useEffect(() => {
-    if (text === value) return;
-    const timer = window.setTimeout(() => onChange(text), 350);
-    return () => window.clearTimeout(timer);
-  }, [text, value, onChange]);
+    if (debounced !== value) onChange(debounced);
+  }, [debounced, value, onChange]);
   return (
     <div className="relative min-w-48 flex-1">
       <Icon name="search" size={18} className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-[var(--hint)]" />
@@ -894,8 +912,19 @@ export function SearchBox({
         placeholder={placeholder}
         aria-label={placeholder}
         onChange={(event) => setText(event.target.value)}
-        className="w-full ps-9"
+        className="w-full ps-9 pe-9"
       />
+      {text !== "" && (
+        <button
+          type="button"
+          aria-label="Clear"
+          title="Clear"
+          onClick={() => setText("")}
+          className="absolute end-2 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-full text-[var(--hint)] hover:bg-[var(--line)] hover:text-[var(--text)]"
+        >
+          <Icon name="close" size={14} />
+        </button>
+      )}
     </div>
   );
 }
@@ -930,5 +959,163 @@ export function Facts({ items }: { items: [string, ReactNode][] }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+/** Two-click destructive button: the first click arms it (showing `confirm`), the second runs. */
+export function ConfirmButton({
+  confirm,
+  onConfirm,
+  variant = "quiet",
+  loading,
+  small,
+  icon,
+  className = "",
+  children,
+}: {
+  confirm: string;
+  onConfirm: () => void | Promise<unknown>;
+  variant?: ButtonTone;
+  loading?: boolean;
+  small?: boolean;
+  icon?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const timer = window.setTimeout(() => setArmed(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [armed]);
+  const click = () => {
+    if (!armed) {
+      setArmed(true);
+      return;
+    }
+    setArmed(false);
+    const result = onConfirm();
+    if (result instanceof Promise) {
+      setBusy(true);
+      void result.finally(() => setBusy(false));
+    }
+  };
+  return (
+    <Button
+      tone={armed ? "danger" : variant}
+      busy={busy || loading}
+      small={small}
+      icon={armed ? undefined : icon}
+      className={className}
+      onClick={click}
+      onBlur={() => setArmed(false)}
+    >
+      {armed ? confirm : children}
+    </Button>
+  );
+}
+
+function gaugeTone(percent: number | null): string {
+  if (percent === null) return "bg-[var(--line)]";
+  if (percent >= 90) return "bg-anar-500";
+  if (percent >= 70) return "bg-saffron-500";
+  return "bg-firouzeh-500";
+}
+
+/** Horizontal resource bar; `percent` null renders a graceful 'n/a'. */
+export function ResourceGauge({ label, percent, detail }: { label: string; percent: number | null; detail?: ReactNode }) {
+  const shown = percent === null ? null : Math.max(0, Math.min(100, percent));
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-2 text-[0.82rem]">
+        <span className="font-semibold">{label}</span>
+        <span className="num font-bold">{shown === null ? "n/a" : `${Math.round(shown)}%`}</span>
+      </div>
+      <div
+        className="h-2 overflow-hidden rounded-full bg-[var(--line)]"
+        role="meter"
+        aria-label={label}
+        aria-valuenow={shown === null ? undefined : Math.round(shown)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+      >
+        {shown !== null && <div className={`h-full rounded-full ${gaugeTone(shown)}`} style={{ width: `${shown}%` }} />}
+      </div>
+      {detail !== undefined && <div className="text-[0.78rem] text-[var(--hint)]">{detail}</div>}
+    </div>
+  );
+}
+
+/** Circular progress; `value` null renders a graceful 'n/a'. */
+export function ProgressRing({ value, size = 56, label }: { value: number | null; size?: number; label?: string }) {
+  const radius = (size - 8) / 2;
+  const circ = 2 * Math.PI * radius;
+  const shown = value === null ? null : Math.max(0, Math.min(100, value));
+  return (
+    <span className="inline-flex flex-col items-center gap-1" role={shown === null ? undefined : "meter"} aria-label={label} aria-valuenow={shown ?? undefined} aria-valuemin={0} aria-valuemax={100}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--line)" strokeWidth="6" />
+        {shown !== null && (
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            strokeWidth="6"
+            strokeLinecap="round"
+            strokeDasharray={`${(shown / 100) * circ} ${circ}`}
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+            className={shown >= 90 ? "stroke-anar-500" : shown >= 70 ? "stroke-saffron-500" : "stroke-firouzeh-500"}
+          />
+        )}
+      </svg>
+      <span className="num text-[0.75rem] font-bold">{shown === null ? "n/a" : `${Math.round(shown)}%`}</span>
+    </span>
+  );
+}
+
+/** Small auto-refresh interval picker; `null` means off. */
+export function AutoRefreshMenu({ value, onChange }: { value: number | null; onChange: (seconds: number | null) => void }) {
+  return (
+    <Select
+      className="w-auto"
+      aria-label="Auto-refresh"
+      title="Auto-refresh"
+      value={value === null ? "" : String(value)}
+      onChange={(event) => onChange(event.target.value ? Number(event.target.value) : null)}
+    >
+      <option value="">Auto-refresh off</option>
+      <option value="15">Every 15s</option>
+      <option value="30">Every 30s</option>
+      <option value="60">Every 60s</option>
+    </Select>
+  );
+}
+
+/** Header fullscreen toggle; renders nothing where the API is unavailable. */
+export function FullscreenButton({ className = "" }: { className?: string }) {
+  const [active, setActive] = useState(false);
+  useEffect(() => {
+    const sync = () => setActive(document.fullscreenElement !== null);
+    document.addEventListener("fullscreenchange", sync);
+    sync();
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+  if (typeof document === "undefined" || !document.fullscreenEnabled) return null;
+  return (
+    <Button
+      small
+      tone="ghost"
+      icon={active ? "close" : "external"}
+      title="Fullscreen"
+      aria-label="Fullscreen"
+      aria-pressed={active}
+      className={className}
+      onClick={() => {
+        if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+        else void document.documentElement.requestFullscreen().catch(() => undefined);
+      }}
+    />
   );
 }

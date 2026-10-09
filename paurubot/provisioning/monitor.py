@@ -53,6 +53,16 @@ def _node_states(stats: dict[str, Any]) -> dict[str, tuple[str, bool]]:
     }
 
 
+def classify_panel_error(error: str | None) -> str:
+    """Distinct failure reason for down alerts: token_invalid vs xray_stopped vs unreachable."""
+    text = (error or "").lower()
+    if any(key in text for key in ("token", "unauthorized", "401", "api key", "login failed", "rejected")):
+        return "token_invalid"
+    if "xray" in text or "stopped" in text:
+        return "xray_stopped"
+    return "unreachable"
+
+
 async def _alert(session: AsyncSession, panel: Panel, event: str, **extra: Any) -> None:
     await queue.enqueue(
         session,
@@ -126,7 +136,10 @@ async def check_panel(session: AsyncSession, panel: Panel, now: datetime | None 
         if failures >= FAILS_BEFORE_ALERT and panel.down_since is None:
             panel.down_since = now
             panel.is_healthy = False
-            await _alert(session, panel, "down", error=error)
+            reason = classify_panel_error(error)
+            await _alert(
+                session, panel, "down", error=f"{reason}: {error}" if error else reason, reason=reason
+            )
             events.append("down")
     return CheckResult(ok, latency if ok else None, error, events)
 

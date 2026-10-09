@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { money } from "@shared/format";
-import { api, type Catalog, type Plan } from "../api";
+import { api, appFlags, type Catalog, type Plan } from "../api";
 import { useApp } from "../state";
-import { haptic } from "../telegram";
+import { haptic, tg } from "../telegram";
 import { Button, Empty, Loading, Screen } from "../ui";
 
 function Chips<T extends number | null>({
@@ -37,7 +37,7 @@ function Chips<T extends number | null>({
 }
 
 export function Buy() {
-  const { t, locale } = useApp();
+  const { t, locale, me } = useApp();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const serviceId = Number(params.get("service")) || undefined;
@@ -46,6 +46,7 @@ export function Buy() {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [location, setLocation] = useState<number | null>(null);
   const [category, setCategory] = useState<number | null>(null);
+  const forcedMiniapp = appFlags(me ?? undefined).forcedMiniapp;
 
   useEffect(() => {
     api.catalog().then((c) => {
@@ -77,6 +78,29 @@ export function Buy() {
 
   return (
     <Screen title={title}>
+      {forcedMiniapp && me?.shop.bot_username && (
+        <div className="mb-4 rounded-3xl bg-[var(--surface)] p-4 text-sm">
+          <p className="font-bold">
+            {locale === "fa" ? "خرید از داخل مینی‌اپ" : "Buying inside the Mini App"}
+          </p>
+          <p className="mt-1 text-[var(--hint)]">
+            {locale === "fa"
+              ? "فروشگاه فقط از طریق مینی‌اپ می‌فروشد؛ برای ادامه همان‌جا بازش کن."
+              : "This shop sells through the Mini App only; open it there to continue."}
+          </p>
+          <button
+            type="button"
+            onClick={() =>
+              tg
+                ? tg.openTelegramLink(`https://t.me/${me.shop.bot_username}`)
+                : window.open(`https://t.me/${me.shop.bot_username}`, "_blank", "noopener")
+            }
+            className="mt-3 w-full rounded-2xl bg-[var(--accent)] py-3 font-bold text-white"
+          >
+            {locale === "fa" ? "باز کردن مینی‌اپ" : "Open the Mini App"}
+          </button>
+        </div>
+      )}
       {!serviceId && catalog.locations.length > 1 && (
         <Chips
           items={catalog.locations.map((l) => ({ id: l.id as number | null, label: `${l.flag ?? ""} ${l.title}`.trim() }))}

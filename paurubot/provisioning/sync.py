@@ -26,6 +26,29 @@ LIVE_STATUSES = [
     ServiceStatus.DISABLED,
 ]
 
+#: Per-invoice re-check guard: alerts of the same kind are not re-queued within this window.
+RECHECK_GUARD_SECONDS = 1600
+
+
+def invoice_recheck_due(
+    last_at: datetime | str | None,
+    now: datetime | None = None,
+    guard_seconds: int = RECHECK_GUARD_SECONDS,
+) -> bool:
+    """True when never alerted, or the last alert of this kind is older than `guard_seconds`."""
+    if last_at is None:
+        return True
+    now = now or datetime.now(UTC)
+    last = last_at
+    if isinstance(last, str):
+        try:
+            last = datetime.fromisoformat(last)
+        except ValueError:
+            return True
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=UTC)
+    return (now - last).total_seconds() >= guard_seconds
+
 
 async def evaluate_alerts(
     session: AsyncSession, service: Service, previous: ServiceStatus | None
@@ -48,7 +71,10 @@ async def evaluate_alerts(
     def once(kind: str, marker: str, payload: dict[str, object]) -> None:
         if sent.get(kind) == marker:
             return
+        if sent.get(kind) is not None and not invoice_recheck_due(sent.get(f"{kind}_at")):
+            return  # re-armed within the guard window: skip the duplicate alert
         sent[kind] = marker
+        sent[f"{kind}_at"] = datetime.now(UTC).isoformat()
         queued.append(kind)
         payload.update({"service_id": service.id, "alert": kind})
         jobs.append(payload)
@@ -129,39 +155,52 @@ async def apply_webhook_user(session: AsyncSession, panel: Panel, info: PanelUse
     return service
 
 
-async def cleanup_expired(session: AsyncSession, shop_id: int) -> int:
-    """Delete services that stayed expired or exhausted longer than the shop allows."""
+async def cleanup_expired(session: AsyncSession, shop_id: int, *, batch_size: int = 200) -> int:
+    """Delete services that stayed expired or exhausted longer than the shop allows.
+
+    Keyset-batched by id; `batch_size` (default 200) keeps the previous single-pass outcome
+    for small sets while large backlogs no longer load in one query.
+    """
     days = int(await shop_settings.get(session, shop_id, "delete_expired_after_days") or 0)
     if days <= 0:
         return 0
     cutoff = utcnow() - timedelta(days=days)
-    stale = list(
-        await session.scalars(
-            select(Service)
-            .where(
-                Service.shop_id == shop_id,
-                Service.status.in_([ServiceStatus.EXPIRED, ServiceStatus.LIMITED]),
-                or_(
-                    Service.expire_at < cutoff, (Service.expire_at.is_(None)) & (Service.updated_at < cutoff)
-                ),
-            )
-            .limit(200)
-        )
-    )
+    size = max(1, batch_size)
     removed = 0
-    for service in stale:
-        try:
-            await delete_service(session, service, "expired")
-            removed += 1
-        except PanelError:
-            continue
-        await queue.enqueue(
-            session,
-            "notify",
-            "service_alert",
-            {"service_id": service.id, "alert": "deleted"},
-            shop_id=shop_id,
-            dedupe_key=f"alert:{service.id}:deleted",
+    last_id = 0
+    while True:
+        stale = list(
+            await session.scalars(
+                select(Service)
+                .where(
+                    Service.shop_id == shop_id,
+                    Service.status.in_([ServiceStatus.EXPIRED, ServiceStatus.LIMITED]),
+                    or_(
+                        Service.expire_at < cutoff,
+                        (Service.expire_at.is_(None)) & (Service.updated_at < cutoff),
+                    ),
+                    Service.id > last_id,
+                )
+                .order_by(Service.id)
+                .limit(size)
+            )
         )
-    await session.commit()
+        if not stale:
+            break
+        for service in stale:
+            last_id = service.id
+            try:
+                await delete_service(session, service, "expired")
+                removed += 1
+            except PanelError:
+                continue
+            await queue.enqueue(
+                session,
+                "notify",
+                "service_alert",
+                {"service_id": service.id, "alert": "deleted"},
+                shop_id=shop_id,
+                dedupe_key=f"alert:{service.id}:deleted",
+            )
+        await session.commit()
     return removed

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type DragEvent } from "react";
 import { call, type SettingItem } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
-import { Async, Button, Empty, Field, Input, Page, Section, Select, Textarea } from "../ui";
+import { Async, Button, Empty, Field, Icon, Input, Page, Section, Select, Textarea } from "../ui";
 
 const BUTTONS = [
   "miniapp",
@@ -129,6 +129,7 @@ function LayoutEditor({
                 }}
                 onClick={() => setSelected(selected === id ? null : id)}
                 aria-pressed={selected === id}
+                title={(id === "buy" || id === "services") ? t("menu_editor_hint") : undefined}
                 className={`min-w-0 flex-1 truncate rounded-xl px-2 py-2.5 text-[0.82rem] font-semibold ${STYLE_CLASS[styles[id]?.style ?? ""]} ${
                   selected === id ? "outline outline-2 outline-offset-2 outline-saffron-500" : ""
                 }`}
@@ -158,8 +159,13 @@ function LayoutEditor({
             <Button small onClick={() => nudge(1, 0)}>{t("move_down")}</Button>
             <Button small onClick={() => nudge(0, -1)}>{t("move_start")}</Button>
             <Button small onClick={() => nudge(0, 1)}>{t("move_end")}</Button>
-            {selected !== "buy" && selected !== "services" && (
+            {selected !== "buy" && selected !== "services" ? (
               <Button small tone="danger" onClick={hide}>{t("hide_button")}</Button>
+            ) : (
+              <span title={t("menu_editor_hint")} className="inline-flex items-center gap-1.5 text-saffron-700">
+                <Icon name="warn" size={16} />
+                <Button small tone="danger" disabled aria-disabled="true">{t("hide_button")}</Button>
+              </span>
             )}
           </div>
           <div className="grid gap-3 sm:grid-cols-2">

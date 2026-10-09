@@ -631,6 +631,64 @@ class AtlasPayProvider(Gateway):
         return Verification(True, provider_tx_id=f"atlas:{payment.provider_ref}", amount=payment.amount)
 
 
+# --- TonPay ------------------------------------------------------------------------------
+
+
+class TonPayProvider(Gateway):
+    """TON payments via a hosted invoice; settled only by the HMAC-signed callback."""
+
+    name = "tonpay"
+    asks_gateway = False
+    required = ("tonpay_api_key",)
+    host = "https://api.tonpay.example.com"
+
+    def _headers(self, cfg: dict[str, Any]) -> dict[str, str]:
+        return {"X-API-Key": str(cfg["tonpay_api_key"]), "Accept": "application/json"}
+
+    async def create(self, payment: Payment, cfg: dict[str, Any]) -> Checkout:
+        _, data = await self.call(
+            "POST",
+            f"{self.host}/v1/invoices",
+            headers=self._headers(cfg),
+            json={
+                "order_id": str(payment.id),
+                "amount": payment.amount,
+                "currency": "IRT",
+                "callback_url": self.callback_url(payment),
+            },
+        )
+        invoice, link = str(data.get("invoice_id") or ""), str(data.get("pay_url") or "")
+        if not invoice or not link.startswith("https://"):
+            raise self._rejected(self.name)
+        return Checkout(
+            redirect_url=link, provider_ref=invoice, provider_amount=payment.amount, provider_currency="IRT"
+        )
+
+    @staticmethod
+    def locate(params: dict[str, Any]) -> tuple[str, str] | None:
+        invoice = field(params, "invoice_id")
+        return ("ref", invoice) if invoice else None
+
+    async def verify(self, payment: Payment, cfg: dict[str, Any], params: dict[str, Any]) -> Verification:
+        raw: bytes = params.get("raw") or b""
+        given = str((params.get("headers") or {}).get("x-tonpay-signature") or "")
+        if not given:
+            return Verification(False, detail="waiting: no signed callback")
+        if not signed(str(cfg.get("tonpay_webhook_secret") or ""), raw, given):
+            return Verification(False, detail="bad signature")
+        data = params.get("json") or {}
+        if str(data.get("invoice_id") or "") != str(payment.provider_ref or ""):
+            return Verification(False, detail="reference mismatch")
+        state = str(data.get("status") or "").lower()
+        if state in {"expired", "canceled", "cancelled", "failed"}:
+            return Verification(False, detail=f"canceled: {state}")
+        if state != "paid":
+            return Verification(False, detail=f"waiting: {state}")
+        return settle(
+            payment, f"tonpay:{payment.provider_ref}", _int(data.get("amount")), payment.provider_amount
+        )
+
+
 GATEWAYS: dict[str, Gateway] = {
     gateway.name: gateway
     for gateway in (
@@ -642,6 +700,7 @@ GATEWAYS: dict[str, Gateway] = {
         TronadoProvider(),
         CubePayProvider(),
         AtlasPayProvider(),
+        TonPayProvider(),
     )
 }
 

@@ -264,3 +264,17 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | NEW-03 | Periodic usage sync for panels without webhooks | MVP | done |
 | NEW-04 | Refund and service cancellation policy | MVP | done |
 | NEW-05 | Error monitoring hook (Sentry DSN, optional) | MVP | done |
+| NEW-06 | Admin quick commands /config + /extend in the bot (service infocard, extend flow) | v1.1* | done |
+| NEW-07 | Admin /lookup by panel username (local search; live-panel query is NEW-16) | v1.1* | done |
+| NEW-08 | Service-card transfer prompt, disorder ticket and changelink rotation in bot + Mini App | v1.1* | done |
+| NEW-09 | Callback double-tap lock (opt-in, off by default) + reply-keyboard auto-remove option | v1.1* | done |
+| NEW-10 | Jalali month/weekday names + jstrftime_fa in bot and Mini App | v1.1* | done |
+| NEW-11 | Admin /stats hour slices (1h, today, yesterday, month) | v1.1* | done |
+| NEW-12 | One-tap renew on every alert + Mini App renew CTA on expiring/low-volume rows | v1.1* | done |
+| NEW-13 | Subscription link-button toggle + forced-miniapp mode in the Mini App | v1.1* | done |
+| NEW-14 | Per-guide app buttons in Mini App help (payload when present, static fallback) | v1.1* | done |
+| NEW-15 | Referral banner + start-gift texts (Mini App banner wired; bot photo variant is NEW-19) | v1.1* | done |
+| NEW-16 | Live-panel foreign-username query via provisioning/importer | v1.1* | todo |
+| NEW-17 | Service transfer core helper backing the bot transfer button | v1.1* | todo |
+| NEW-18 | Backend settings for subscription_link_button / forced_miniapp_mode / guide apps | v1.1* | todo |
+| NEW-19 | Referral banner photo variant sent from the bot | v1.1* | todo |

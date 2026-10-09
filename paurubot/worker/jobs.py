@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core import orders
-from paurubot.db.base import utcnow
-from paurubot.db.models import Job, JobStatus, Panel, Shop
+from paurubot.db.base import affected, utcnow
+from paurubot.db.models import DiscountCode, Job, JobStatus, Panel, Shop
 from paurubot.db.session import session_scope
 from paurubot.panels import PanelError, PanelUnavailable
 from paurubot.payments import engine as payments
@@ -171,6 +171,30 @@ async def expire_open_items() -> None:
         expired_orders = await orders.expire_stale(session)
     if expired_payments or expired_orders:
         log.info("expired payments=%s orders=%s", expired_payments, expired_orders)
+
+
+async def expire_discount_codes_in(session: AsyncSession) -> int:
+    """Deactivate discount codes past their expiry; returns how many were flipped."""
+    result = await session.execute(
+        update(DiscountCode)
+        .where(
+            DiscountCode.is_active.is_(True),
+            DiscountCode.expires_at.is_not(None),
+            DiscountCode.expires_at <= utcnow(),
+        )
+        .values(is_active=False)
+    )
+    await session.commit()
+    return affected(result)
+
+
+@every(3600, "discounts.expire")
+async def expire_discount_codes() -> None:
+    """Discount codes whose expiry passed stop applying (GRW-05)."""
+    async with session_scope() as session:
+        flipped = await expire_discount_codes_in(session)
+    if flipped:
+        log.info("deactivated %s expired discount codes", flipped)
 
 
 @every(300, "usage.sync")

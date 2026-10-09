@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core import settings as shop_settings
@@ -60,6 +60,39 @@ def random_tail(amount: int, high: int) -> int:
     """A few Toman added so each receipt matches one payment; skipped when it would pass the cap."""
     tail = 1 + secrets.randbelow(TAIL_MAX)
     return amount + tail if amount + tail <= high else amount
+
+
+def filter_card_options(
+    accounts: list[dict[str, Any]], cfg: dict[str, Any], paid_count: int
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Pure card-visibility rules: first-pay gate hides cards until one paid invoice exists.
+
+    Always exposes the PV redirect target so callers can send the customer to a
+    person instead (`card_pv_mode` + `card_pv_username`).
+    """
+    info = {
+        "pv_mode": bool(cfg.get("card_pv_mode")),
+        "pv_username": str(cfg.get("card_pv_username") or ""),
+        "gated": False,
+    }
+    if cfg.get("card_first_pay_only") and paid_count < 1:
+        return [], {**info, "gated": True}
+    return list(accounts), info
+
+
+async def visible_card_options(session: AsyncSession, shop_id: int, customer_id: int) -> dict[str, Any]:
+    """Cards a customer may currently use, plus the PV redirect target and auto minutes."""
+    cfg = await shop_settings.load(session, shop_id)
+    accounts = list(cfg.get("card_accounts") or [])
+    paid = await session.scalar(
+        select(func.count(Payment.id)).where(
+            Payment.shop_id == shop_id,
+            Payment.customer_id == customer_id,
+            Payment.status == PaymentStatus.PAID,
+        )
+    )
+    cards, info = filter_card_options(accounts, cfg, int(paid or 0))
+    return {"cards": cards, **info, "auto_minutes": int(cfg.get("card_auto_minutes") or 60)}
 
 
 # --- registered cards -----------------------------------------------------------------------

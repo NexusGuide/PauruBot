@@ -307,6 +307,51 @@ async def due_lotteries(session: AsyncSession) -> list[int]:
     )
 
 
+def score_top3_winners(scores: dict[int, float], count: int = 3) -> list[int]:
+    """Top `count` customers by score; ties break by the lower customer id (stable)."""
+    ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+    return [customer_id for customer_id, _ in ranked[: max(0, count)]]
+
+
+def filter_lottery_pool(pool: dict[int, int], agent_ids: set[int], include_agents: bool) -> dict[int, int]:
+    """Drop reseller/agent entries from a lottery pool unless the shop includes them."""
+    if include_agents:
+        return dict(pool)
+    return {customer_id: tickets for customer_id, tickets in pool.items() if customer_id not in agent_ids}
+
+
+async def draw_score_top3(session: AsyncSession, lottery: Lottery, scores: dict[int, float]) -> list[int]:
+    """Draw a score-based lottery: the top-3 scores win and are paid once."""
+    if lottery.status == "drawn":
+        return [int(x) for x in (lottery.result or {}).get("winners", [])]
+    winners = score_top3_winners(scores, max(1, lottery.winners))
+    for customer_id in winners:
+        if lottery.prize_amount > 0:
+            await wallet.reward(
+                session,
+                lottery.shop_id,
+                customer_id,
+                lottery.prize_amount,
+                key=f"lottery:{lottery.id}:{customer_id}",
+                memo=f"lottery {lottery.title}"[:120],
+            )
+    lottery.status = "drawn"
+    lottery.result = {
+        "winners": winners,
+        "entrants": len(scores),
+        "mode": "score_top3",
+        "at": utcnow().isoformat(),
+    }
+    await session.flush()
+    return winners
+
+
+def check_referral_banner(cfg: dict[str, Any], photo_file_id: str | None) -> None:
+    """Reject a referral banner without a photo when the shop requires one."""
+    if cfg.get("referral_banner_required") and not (photo_file_id or "").strip():
+        raise GrowthError("referral_banner_required")
+
+
 # --- trust channel (GRW-08) -------------------------------------------------------------
 
 

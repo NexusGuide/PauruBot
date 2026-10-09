@@ -44,7 +44,14 @@ class GuardDriver(PanelDriver):
 
     @property
     def v2(self) -> bool:
-        return str(self.options.get("guard_version") or "v1").lower() == "v2"
+        """Bulk-call API flavour: `guard_version` wins, `api_version` is an accepted alias (default v1)."""
+        raw = self.options.get("guard_version", self.options.get("api_version", "v1"))
+        return str(raw or "v1").lower() == "v2"
+
+    @property
+    def api_version(self) -> str:
+        """Resolved API version ("v1" default; "v2")."""
+        return "v2" if self.v2 else "v1"
 
     def _key(self) -> str:
         return str(self.options.get("api_token") or self.password or "")
@@ -117,8 +124,13 @@ class GuardDriver(PanelDriver):
         return int(datetime.now(UTC).timestamp()) + TEN_YEARS
 
     def services(self, overrides: dict[str, Any] | None = None) -> list[int]:
+        """Service allow-list for new users: `service_ids`, or a single `service_id` (both optional)."""
         opts = {**self.options, **(overrides or {})}
-        return [int(s) for s in opts.get("service_ids") or []]
+        raw = opts.get("service_ids")
+        if raw:
+            return [int(s) for s in raw]
+        single = opts.get("service_id")
+        return [int(single)] if single is not None and str(single) != "" else []
 
     # --- protocol -----------------------------------------------------------
 
@@ -138,7 +150,7 @@ class GuardDriver(PanelDriver):
         except PanelError:
             stats = {}
         return {
-            "version": self.options.get("guard_version") or "v1",
+            "version": self.api_version,
             "users_total": whole(number(stats, "total", "total_subscriptions")),
             "users_active": whole(number(stats, "active", "enabled")),
             "users_online": whole(number(stats, "online")),
@@ -147,11 +159,13 @@ class GuardDriver(PanelDriver):
     async def list_options(self) -> list[PanelOption]:
         data = await self.call("GET", "/api/services")
         rows = data.get("services") or data.get("items") or [] if isinstance(data, dict) else data or []
-        return [
+        options = [
             PanelOption(id=str(s["id"]), title=str(s.get("remark") or s.get("name") or s["id"]))
             for s in rows
             if isinstance(s, dict) and s.get("id") is not None
         ]
+        wanted = {str(s) for s in self.services()}
+        return [o for o in options if o.id in wanted] if wanted else options
 
     async def create_user(self, spec: UserSpec) -> PanelUser:
         services = self.services(spec.options)

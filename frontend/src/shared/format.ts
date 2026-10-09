@@ -49,3 +49,69 @@ export function digits(value: number | string, locale: string): string {
     Number(value),
   );
 }
+
+// Mirror of paurubot/core/formatting.py Jalali names (transliterated).
+export const JALALI_MONTHS = [
+  "Farvardin", "Ordibehesht", "Khordad", "Tir", "Mordad", "Shahrivar",
+  "Mehr", "Aban", "Azar", "Dey", "Bahman", "Esfand",
+];
+
+// Monday-first, matching (getDay() + 6) % 7.
+const JALALI_WEEKDAYS = [
+  "Doshanbeh", "Seshanbeh", "Chaharshanbeh", "Panjshanbeh", "Jomeh", "Shanbeh", "Yekshanbeh",
+];
+
+export function gregorianToJalali(gy: number, gm: number, gd: number): [number, number, number] {
+  const gDays = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+  const gy2 = gm > 2 ? gy + 1 : gy;
+  const gDay = gDays[gm - 1] ?? 0;
+  let days =
+    355666 + 365 * gy + Math.floor((gy2 + 3) / 4) - Math.floor((gy2 + 99) / 100) +
+    Math.floor((gy2 + 399) / 400) + gd + gDay;
+  let jy = -1595 + 33 * Math.floor(days / 12053);
+  days %= 12053;
+  jy += 4 * Math.floor(days / 1461);
+  days %= 1461;
+  if (days > 365) {
+    jy += Math.floor((days - 1) / 365);
+    days = (days - 1) % 365;
+  }
+  let jm: number;
+  let jd: number;
+  if (days < 186) {
+    jm = 1 + Math.floor(days / 31);
+    jd = 1 + (days % 31);
+  } else {
+    jm = 7 + Math.floor((days - 186) / 30);
+    jd = 1 + ((days - 186) % 30);
+  }
+  return [jy, jm, jd];
+}
+
+export function jalaliMonthName(month: number): string {
+  if (!Number.isInteger(month) || month < 1 || month > 12) {
+    throw new RangeError(`invalid Jalali month: ${month}`);
+  }
+  return JALALI_MONTHS[month - 1] ?? "";
+}
+
+export function jalaliWeekdayName(day: Date): string {
+  return JALALI_WEEKDAYS[(day.getDay() + 6) % 7] ?? "";
+}
+
+const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
+
+export function persianDigits(value: string | number): string {
+  return String(value).replace(/[0-9]/g, (d) => FA_DIGITS.charAt(Number(d)));
+}
+
+export function jstrftimeFa(iso: string | null, withTime = false): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  const [jy, jm, jd] = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  let text = `${jalaliWeekdayName(d)} ${jd} ${jalaliMonthName(jm)} ${jy}`;
+  if (withTime) {
+    text += ` ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+  return persianDigits(text);
+}

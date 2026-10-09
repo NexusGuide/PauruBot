@@ -40,6 +40,31 @@ async def heartbeat() -> None:
     await kv.get_redis().set(HEARTBEAT_KEY, str(time.time()), ex=3600)
 
 
+def periodic_info() -> str:
+    """One line per registered worker periodic task with its last and next run (additive detail)."""
+    from paurubot.worker.runner import PERIODIC
+
+    if not PERIODIC:
+        try:
+            import paurubot.worker.jobs  # noqa: F401 (registers the periodic tasks)
+        except Exception:
+            return "periodic registry unavailable"
+    if not PERIODIC:
+        return "no periodic tasks registered"
+    now = time.monotonic()
+    parts = []
+    for task in PERIODIC:
+        if task.next_run:
+            last_ago = max(0, int(now - (task.next_run - task.every)))
+            parts.append(
+                f"{task.name}: every {int(task.every)}s, next in {max(0, int(task.next_run - now))}s,"
+                f" last ~{last_ago}s ago"
+            )
+        else:
+            parts.append(f"{task.name}: every {int(task.every)}s, not run yet")
+    return "; ".join(parts)
+
+
 async def run(*, with_telegram: bool = True) -> list[Check]:
     from alembic.script import ScriptDirectory
 
@@ -91,6 +116,8 @@ async def run(*, with_telegram: bool = True) -> list[Check]:
             add("worker", "ok" if age < 120 else "fail", f"last heartbeat {int(age)}s ago")
     except Exception as exc:
         add("redis", "fail", exc.__class__.__name__)
+
+    add("periodic", "ok", periodic_info())
 
     if db_ok:
         async with get_sessionmaker()() as session:

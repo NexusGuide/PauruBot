@@ -2,7 +2,7 @@ import QRCode from "qrcode";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { date, daysLeft, money, size } from "@shared/format";
-import { api, type Service } from "../api";
+import { api, appFlags, type Service } from "../api";
 import { errorText, useApp } from "../state";
 import { haptic, tg } from "../telegram";
 import { Button, Empty, Loading, Panel, Ring, Row, Screen, StatusDot } from "../ui";
@@ -30,6 +30,15 @@ export function Services() {
       <ul className="overflow-hidden rounded-3xl bg-[var(--surface)]">
         {items.map((service, index) => {
           const left = daysLeft(service.expire_at);
+          const remaining = service.data_limit ? service.data_limit - service.used_bytes : null;
+          const lowVolume =
+            remaining !== null && service.data_limit > 0 && remaining < service.data_limit * 0.2;
+          const expiring = left !== null && left <= 7;
+          const renewable =
+            !service.is_trial && (!service.changes || service.changes.includes("renew"));
+          const needsRenew = renewable && (expiring || lowVolume);
+          const renewBtn =
+            "shrink-0 rounded-full bg-[var(--accent)] px-3 py-2 text-xs font-bold text-white";
           return (
             <li key={service.id} className={index ? "border-t border-[var(--line)]" : ""}>
               <Row onClick={() => navigate(`/services/${service.id}`)}>
@@ -47,6 +56,19 @@ export function Services() {
                     {left === null ? t("never_expires") : t("days_left", { days: money(left, locale) })}
                   </p>
                 </div>
+                {needsRenew && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      haptic("select");
+                      navigate(`/buy?kind=renew&service=${service.id}&panel=${service.panel_id}`);
+                    }}
+                    className={renewBtn}
+                  >
+                    {t("renew")}
+                  </button>
+                )}
               </Row>
             </li>
           );
@@ -89,6 +111,7 @@ export function ServiceDetail() {
   const units = t("units").split(",");
   const left = daysLeft(service.expire_at);
   const remaining = service.data_limit ? service.data_limit - service.used_bytes : null;
+  const flags = appFlags(me);
 
   const copy = async (text: string) => {
     try {
@@ -167,7 +190,7 @@ export function ServiceDetail() {
         )}
       </Panel>
 
-      {service.subscription_url && (
+      {flags.subscriptionLinkButton && service.subscription_url && (
         <Panel className="mb-4">
           <p className="mb-2 text-sm font-bold">{t("subscription_link")}</p>
           {qr && <img src={qr} alt={t("qr_alt")} className="mx-auto mb-3 w-48 rounded-2xl bg-white p-2" />}

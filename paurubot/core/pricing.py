@@ -216,3 +216,34 @@ async def attach_sticky(session: AsyncSession, customer: Customer, code: Discoun
         existing.code_id = code.id
         existing.expires_at = code.expires_at
     await session.flush()
+
+
+def role_extra_prices(
+    gb_price: int,
+    day_price: int,
+    role: str | None,
+    cfg: dict,  # type: ignore[type-arg]
+) -> tuple[int, int]:
+    """Apply a per-role extras multiplier (`extra_price_roles`); empty map = no change."""
+    roles = cfg.get("extra_price_roles") or {}
+    if not isinstance(roles, dict) or not role or role not in roles:
+        return gb_price, day_price
+    try:
+        mult = float(roles[role])
+    except (TypeError, ValueError):
+        return gb_price, day_price
+    if mult <= 0:
+        return gb_price, day_price
+    return round_price(gb_price * mult), round_price(day_price * mult)
+
+
+def renew_cashback(amount: int, cfg: dict, is_agent: bool = False) -> int:  # type: ignore[type-arg]
+    """Wallet cashback on a renewal for agents; 0 unless enabled and `is_agent`.
+
+    TODO: wire into the bonus engine's renewal payout once the agent-renewal
+    hook lands; callers should use this helper so the rate stays in one place.
+    """
+    if not is_agent or amount <= 0:
+        return 0
+    percent = max(0, min(100, int(cfg.get("renew_cashback_percent") or 0)))
+    return amount * percent // 100 if percent else 0

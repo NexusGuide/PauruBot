@@ -1,9 +1,16 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { money } from "@shared/format";
+import { appFlags } from "../api";
 import { errorText, useApp } from "../state";
 import { haptic, tg } from "../telegram";
 import { Panel, Row, Screen } from "../ui";
+
+const STATIC_GUIDE_APPS = [
+  { title: "V2RayNG", url: "https://github.com/2dust/v2rayNG" },
+  { title: "Streisand", url: "https://github.com/matsuridayo/streisand" },
+  { title: "V2RayN", url: "https://github.com/2dust/v2rayN" },
+];
 
 export function More() {
   const { me, t, locale, setLocale, toast } = useApp();
@@ -30,6 +37,13 @@ export function More() {
     if (tg) tg.openTelegramLink(url);
     else window.open(url, "_blank", "noopener");
   };
+
+  const openUrl = (url: string) => {
+    if (tg) tg.openLink(url);
+    else window.open(url, "_blank", "noopener");
+  };
+
+  const guideApps = appFlags(me).guideApps.length ? appFlags(me).guideApps : STATIC_GUIDE_APPS;
 
   return (
     <Screen title={t("more")}>
@@ -62,12 +76,40 @@ export function More() {
             {t("invite_hint", { percent: money(me.referral.percent, locale) })}
           </p>
           <p className="num mt-3 text-sm">{t("invited_count", { count: money(me.referral.count, locale) })}</p>
+          <p className="mt-2 rounded-2xl bg-[var(--bg)] p-3 text-sm">
+            {locale === "fa"
+              ? "🎁 لینک دعوتت را همراه این پیام برای دوستانت بفرست تا از اولین خریدشان پاداش بگیری."
+              : "🎁 Forward your invite link with this note to earn a reward from each first purchase."}
+          </p>
           <button type="button" onClick={share}
             className="mt-3 w-full rounded-2xl bg-[var(--accent)] py-3 font-bold text-white">
             {t("share_invite")}
           </button>
         </Panel>
       )}
+
+      <Panel className="mb-4">
+        <p className="font-bold">
+          {locale === "fa" ? "📲 برنامه‌های پیشنهادی" : "📲 Recommended apps"}
+        </p>
+        <p className="mt-1 text-sm text-[var(--hint)]">
+          {locale === "fa"
+            ? "برنامه دستگاهت را انتخاب کن و لینک اشتراک را در آن وارد کن."
+            : "Pick the app for your device and import your subscription link into it."}
+        </p>
+        <div className="mt-3 flex flex-col gap-2">
+          {guideApps.map((app) => (
+            <button
+              key={app.url}
+              type="button"
+              onClick={() => openUrl(app.url)}
+              className="w-full rounded-2xl bg-[var(--bg)] py-3 text-sm font-bold"
+            >
+              {app.title}
+            </button>
+          ))}
+        </div>
+      </Panel>
 
       <section className="mb-4 overflow-hidden rounded-3xl bg-[var(--surface)]">
         <p className="px-4 pt-4 text-sm font-bold">{t("language")}</p>

@@ -1,5 +1,5 @@
-import { lazy, Suspense, type ReactNode } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { lazy, Suspense, useEffect, type ReactNode } from "react";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { Shell } from "./layout";
 import { Login, Setup } from "./screens/Auth";
 import { Catalog } from "./screens/Catalog";
@@ -37,11 +37,55 @@ function Guard({ permission, children }: { permission: string; children: ReactNo
   return <>{children}</>;
 }
 
+function SessionExpiry() {
+  const { me, sessionExpired, t } = useSession();
+  if (!sessionExpired || me) return null;
+  return (
+    <p role="alert" className="mx-auto mt-4 w-full max-w-sm rounded-xl bg-saffron-100 px-4 py-2.5 text-[0.85rem] font-semibold text-saffron-700">
+      {t("err_session_revoked")}
+    </p>
+  );
+}
+
+const ATTEMPT_KEY = "pauru.admin.attempt";
+
+/** In-app path (without the /admin basename) for the redirect memory. */
+function inAppPath(pathname: string, search: string): string {
+  const stripped = pathname.startsWith("/admin") ? pathname.slice("/admin".length) || "/" : pathname;
+  return `${stripped}${search}`;
+}
+
 function Routed() {
   const { me, checking, setupRequired } = useSession();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const current = inAppPath(location.pathname, location.search);
+
+  // Remember where the admin wanted to go; after a fresh login go back there once.
+  useEffect(() => {
+    if (checking || setupRequired) return;
+    try {
+      if (!me) {
+        sessionStorage.setItem(ATTEMPT_KEY, current);
+      } else {
+        const back = sessionStorage.getItem(ATTEMPT_KEY);
+        sessionStorage.removeItem(ATTEMPT_KEY);
+        if (back && back.startsWith("/") && back !== current) navigate(back, { replace: true });
+      }
+    } catch {
+      // storage blocked
+    }
+  }, [me, checking, setupRequired, current, navigate]);
+
   if (checking) return <Loading />;
   if (setupRequired) return <Setup />;
-  if (!me) return <Login />;
+  if (!me)
+    return (
+      <>
+        <SessionExpiry />
+        <Login />
+      </>
+    );
   const g = (permission: string, element: ReactNode) => <Guard permission={permission}>{element}</Guard>;
   return (
     <Shell>

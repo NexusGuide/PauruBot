@@ -109,6 +109,8 @@ class Plan(Base, UpdatedMixin):
     delivery: Mapped[str] = mapped_column(String(16), default="panel", server_default="panel")
     # How a renewal treats what's left (SVC-13); None follows the shop's setting.
     renew_mode: Mapped[str | None] = mapped_column(String(16))
+    # Only one purchase per customer; further orders are refused (CAT-02).
+    one_buy: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     category: Mapped[Category | None] = relationship(lazy="selectin")
     location: Mapped[Location | None] = relationship(lazy="selectin")

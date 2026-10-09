@@ -1,16 +1,18 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { money } from "@shared/format";
-import { call, qs, type AuditRow, type Channels as ChannelData, type JobRow, type SalesReport, type SettingItem, type TextItem } from "../api";
+import { call, qs, type AuditRow, type Channels as ChannelData, type JobRow, type PanelRow, type SalesReport, type SettingItem, type TextItem } from "../api";
 import { Columns } from "../chart";
 import { PAGE_SIZE, useAction, useList, useLoad } from "../hooks";
 import { useSession } from "../session";
 import {
   Async,
+  AutoRefreshMenu,
   Badge,
   Bytes,
   Button,
   Checkbox,
+  ConfirmButton,
   Empty,
   Facts,
   Field,
@@ -19,6 +21,7 @@ import {
   NumberInput,
   Page,
   Pager,
+  ResourceGauge,
   SearchBox,
   Section,
   Select,
@@ -31,7 +34,6 @@ import {
   When,
   type Column,
   CopyText,
-  useConfirm,
 } from "../ui";
 import { compact } from "./Home";
 
@@ -480,6 +482,8 @@ export function Settings() {
   const { data, error, reload } = useLoad<{ groups: Record<string, SettingItem[]> }>("/api/admin/settings");
   const [changes, setChanges] = useState<Record<string, unknown>>({});
   const [busy, run] = useAction();
+  const [params] = useSearchParams();
+  const section = params.get("section");
   const writable = can("settings.write");
   const dirty = Object.keys(changes).length > 0;
 
@@ -493,6 +497,12 @@ export function Settings() {
       toast(errorText(err), "error");
     }
   };
+
+  // Deep-link: /settings?section=payments scrolls to that group once it loads.
+  useEffect(() => {
+    if (!section || !data) return;
+    document.getElementById(`settings-${section}`)?.scrollIntoView({ block: "start" });
+  }, [section, data]);
 
   return (
     <Page
@@ -512,7 +522,7 @@ export function Settings() {
         {(value) => (
           <>
             {Object.entries(value.groups).filter(([group]) => group !== "appearance" && group !== "resale").map(([group, items]) => (
-              <Section key={group} title={t(`settings_group_${group}`)}>
+              <Section key={group} id={`settings-${group}`} title={t(`settings_group_${group}`)}>
                 <div className="grid gap-5 md:grid-cols-2">
                   {items.map((item) => (
                     <div key={item.key} className={["card_accounts", "topup_bonus_rules", "app_links", "loyalty_tiers", "wheel_prizes", "business_rules", "business_reply", "guest_plan_ids"].includes(item.key) || item.type === "bool" ? "md:col-span-2" : ""}>
@@ -947,10 +957,64 @@ export function Audit() {
 
 // ---------------------------------------------------------------- jobs
 
+interface ScheduleRow {
+  name: string;
+  last: string | null;
+  next: string | null;
+}
+
+/** Last/next run per queue+kind, derived client-side from the jobs payload (no new API). */
+function SchedulerCard({ items }: { items: JobRow[] }) {
+  const rows = useMemo<ScheduleRow[]>(() => {
+    const byName = new Map<string, { last: string | null; next: string | null }>();
+    for (const job of items) {
+      const name = `${job.queue}/${job.kind}`;
+      const seen = byName.get(name) ?? { last: null, next: null };
+      const finished = job.finished_at ?? job.created_at;
+      if (finished && (seen.last === null || finished > seen.last)) seen.last = finished;
+      if ((job.status === "queued" || job.status === "running") && (seen.next === null || job.run_at < seen.next)) {
+        seen.next = job.run_at;
+      }
+      byName.set(name, seen);
+    }
+    return [...byName.entries()]
+      .map(([name, times]) => ({ name, ...times }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [items]);
+  if (rows.length === 0) return null;
+  return (
+    <Section title="Scheduler" flush>
+      <ul className="divide-y divide-[var(--line)]">
+        {rows.map((row) => (
+          <li key={row.name} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-[0.86rem]">
+            <code dir="ltr" className="font-semibold">{row.name}</code>
+            <span className="flex flex-wrap gap-x-4 gap-y-1 text-[0.8rem]">
+              <span>
+                <span className="text-[var(--hint)]">last: </span>
+                {row.last ? <When iso={row.last} time /> : <span className="text-[var(--hint)]">n/a</span>}
+              </span>
+              <span>
+                <span className="text-[var(--hint)]">next: </span>
+                {row.next ? <When iso={row.next} time /> : <span className="text-[var(--hint)]">n/a</span>}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
 export function Jobs() {
   const { t, locale, toast, errorText } = useSession();
   const list = useList<JobRow>("/api/admin/jobs", ["status"]);
   const [busy, run] = useAction();
+  const [refreshEvery, setRefreshEvery] = useState<number | null>(null);
+  useEffect(() => {
+    if (refreshEvery === null) return;
+    const timer = window.setInterval(() => void list.reload(), refreshEvery * 1000);
+    return () => window.clearInterval(timer);
+  }, [refreshEvery, list.reload]);
   const retryAll = async () => {
     try {
       const result = await run(() => call<{ retried: number }>("/api/admin/jobs/retry-dead", { method: "POST", body: {} }));
@@ -1013,6 +1077,7 @@ export function Jobs() {
             ))}
         </div>
       )}
+      <SchedulerCard items={list.data?.items ?? []} />
       <Section flush>
         <Toolbar>
           <Select className="w-auto" aria-label={t("filter_status")} value={list.get("status")} onChange={(e) => list.set({ status: e.target.value })}>
@@ -1023,6 +1088,7 @@ export function Jobs() {
               </option>
             ))}
           </Select>
+          <AutoRefreshMenu value={refreshEvery} onChange={setRefreshEvery} />
         </Toolbar>
         <Async data={list.data} error={list.error} reload={list.reload}>
           {(value) => (
@@ -1406,7 +1472,6 @@ interface ApiKeyRow {
 
 function ApiKeys() {
   const { t, toast, errorText } = useSession();
-  const confirm = useConfirm();
   const { data, error, reload } = useLoad<{ items: ApiKeyRow[] }>("/api/auth/api-keys");
   const [name, setName] = useState("");
   const [readOnly, setReadOnly] = useState(true);
@@ -1423,10 +1488,9 @@ function ApiKeys() {
     }
   };
   const revoke = async (row: ApiKeyRow) => {
-    const ok = await confirm({ title: t("revoke_key"), body: t("revoke_key_body", { name: row.name }), confirm: t("revoke_key"), danger: true });
-    if (!ok) return;
     try {
       await run(() => call(`/api/auth/api-keys/${row.id}`, { method: "DELETE" }));
+      toast(t("removed"));
       void reload();
     } catch (err) {
       toast(errorText(err), "error");
@@ -1468,9 +1532,9 @@ function ApiKeys() {
                   k.revoked_at ? (
                     <Badge tone="loss">{t("revoked")}</Badge>
                   ) : (
-                    <Button small tone="danger" busy={busy} onClick={() => void revoke(k)}>
+                    <ConfirmButton small confirm={t("confirm")} loading={busy} onConfirm={() => void revoke(k)}>
                       {t("revoke_key")}
-                    </Button>
+                    </ConfirmButton>
                   ),
               },
             ]}
@@ -1484,8 +1548,9 @@ function ApiKeys() {
 const LEVEL_TONE: Record<string, "health" | "wait" | "loss"> = { ok: "health", warn: "wait", fail: "loss" };
 
 export function Health() {
-  const { t } = useSession();
+  const { t, can } = useSession();
   const { data, error, reload } = useLoad<{ checks: { key: string; level: string; detail: string }[]; checked_at: string }>("/api/admin/doctor");
+  const panels = useLoad<{ items: PanelRow[] }>(can("panels.read") ? "/api/admin/panels" : null);
   return (
     <Page
       title={t("nav_health")}
@@ -1496,21 +1561,42 @@ export function Health() {
       }
     >
       <Async data={data} error={error} reload={reload}>
-        {(value) => (
-          <Section flush>
-            <ul className="divide-y divide-[var(--line)]">
-              {value.checks.map((check) => (
-                <li key={check.key} className="flex items-start justify-between gap-3 px-4 py-3">
-                  <div className="min-w-0">
-                    <p className="font-semibold">{t(`doctor_${check.key}`)}</p>
-                    <p className="break-words text-[0.82rem] text-[var(--hint)]" dir="auto">{check.detail}</p>
-                  </div>
-                  <Badge tone={LEVEL_TONE[check.level] ?? "neutral"}>{t(`doctor_level_${check.level}`)}</Badge>
-                </li>
-              ))}
-            </ul>
-          </Section>
-        )}
+        {(value) => {
+          const stats = (panels.data?.items ?? []).map((p) => p.stats ?? {});
+          const cpus = stats.map((s) => s.cpu_percent).filter((v): v is number => typeof v === "number");
+          const cpu = cpus.length ? cpus.reduce((a, b) => a + b, 0) / cpus.length : null;
+          const memUsed = stats.reduce((sum, s) => sum + (s.mem_used ?? 0), 0);
+          const memTotal = stats.reduce((sum, s) => sum + (s.mem_total ?? 0), 0);
+          const disk = value.checks.find((c) => c.key === "disk");
+          return (
+            <>
+              <Section title={t("doctor_disk")}>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <ResourceGauge label={t("gauge_cpu")} percent={cpu} detail={cpus.length ? `${cpus.length} panels` : undefined} />
+                  <ResourceGauge
+                    label={t("gauge_ram")}
+                    percent={memTotal > 0 ? (memUsed / memTotal) * 100 : null}
+                    detail={memTotal > 0 ? <span><Bytes value={memUsed} /> / <Bytes value={memTotal} /></span> : undefined}
+                  />
+                  <ResourceGauge label={t("doctor_disk")} percent={null} detail={disk?.detail ?? "n/a"} />
+                </div>
+              </Section>
+              <Section flush>
+                <ul className="divide-y divide-[var(--line)]">
+                  {value.checks.map((check) => (
+                    <li key={check.key} className="flex items-start justify-between gap-3 px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold">{t(`doctor_${check.key}`)}</p>
+                        <p className="break-words text-[0.82rem] text-[var(--hint)]" dir="auto">{check.detail}</p>
+                      </div>
+                      <Badge tone={LEVEL_TONE[check.level] ?? "neutral"}>{t(`doctor_level_${check.level}`)}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              </Section>
+            </>
+          );
+        }}
       </Async>
     </Page>
   );

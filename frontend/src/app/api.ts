@@ -17,6 +17,29 @@ export interface Me {
   payment_methods: string[];
   topup_bounds: [number, number];
   staff: StaffAccess | null;
+  flags?: {
+    subscription_link_button?: boolean;
+    forced_miniapp_mode?: boolean;
+    guide_apps?: { title: string; url: string }[];
+  };
+}
+
+export interface AppFlags {
+  subscriptionLinkButton: boolean;
+  forcedMiniapp: boolean;
+  guideApps: { title: string; url: string }[];
+}
+
+export function appFlags(me: Me | null | undefined): AppFlags {
+  const raw = me?.flags ?? {};
+  const apps = Array.isArray(raw.guide_apps)
+    ? raw.guide_apps.filter((a) => a && typeof a.title === "string" && typeof a.url === "string")
+    : [];
+  return {
+    subscriptionLinkButton: raw.subscription_link_button ?? true,
+    forcedMiniapp: raw.forced_miniapp_mode ?? false,
+    guideApps: apps,
+  };
 }
 
 export interface StaffAccess {

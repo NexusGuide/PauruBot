@@ -91,8 +91,27 @@ function Overview({ data }: { data: Dashboard }) {
     detail: t("dash_orders_n", { n: money(point.orders, locale) }),
   }));
   return (
-    <Section>
-      <div className="grid grid-cols-2 gap-y-2 sm:grid-cols-3 lg:grid-cols-5 lg:divide-x lg:divide-[var(--line)] lg:rtl:divide-x-reverse">
+    <div className="flex flex-col gap-4">
+      <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-firouzeh-600 to-firouzeh-800 p-5 text-white">
+        <p className="text-[0.8rem] font-semibold opacity-80">{t("dash_revenue_today")}</p>
+        <p className="num mt-1 text-3xl font-extrabold leading-tight" dir="auto">
+          {money(data.revenue_today ?? 0, locale)} <span className="text-[0.9rem] font-semibold opacity-80">{t("currency")}</span>
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {(data.pending_receipts ?? 0) > 0 && can("payments.read") && (
+            <Link to="/payments?status=pending" className="rounded-full bg-white/15 px-3 py-1.5 text-[0.82rem] font-semibold hover:bg-white/25">
+              {t("inbox_payment")} · {n(data.pending_receipts)}
+            </Link>
+          )}
+          {(data.open_tickets ?? 0) > 0 && can("tickets.read") && (
+            <Link to="/tickets" className="rounded-full bg-white/15 px-3 py-1.5 text-[0.82rem] font-semibold hover:bg-white/25">
+              {t("inbox_ticket")} · {n(data.open_tickets)}
+            </Link>
+          )}
+        </div>
+      </div>
+      <Section>
+        <div className="grid grid-cols-2 gap-y-2 sm:grid-cols-3 lg:grid-cols-5 lg:divide-x lg:divide-[var(--line)] lg:rtl:divide-x-reverse">
         <Figure label={t("dash_revenue_today")} value={<Money amount={data.revenue_today ?? 0} />} />
         <Figure
           label={t("dash_revenue_month")}
@@ -117,7 +136,8 @@ function Overview({ data }: { data: Dashboard }) {
           />
         </div>
       )}
-    </Section>
+      </Section>
+    </div>
   );
 }
 

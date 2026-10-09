@@ -7,7 +7,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core import catalog, usernames
@@ -54,6 +54,50 @@ class ProvisionError(Exception):
 
 def ref(service: Service) -> PanelRef:
     return PanelRef(service.panel_username, dict(service.panel_data or {}))
+
+
+def capacity_limit_of(panel_options: dict[str, Any] | None) -> int | None:
+    """Per-panel service cap from the `capacity_limit` panel option; None means unlimited."""
+    try:
+        limit = int((panel_options or {}).get("capacity_limit") or 0)
+    except (TypeError, ValueError):
+        return None
+    return limit if limit > 0 else None
+
+
+def capacity_reached(active_count: int, panel_options: dict[str, Any] | None) -> bool:
+    """Pure check: does `active_count` live services fill the panel's `capacity_limit`?"""
+    limit = capacity_limit_of(panel_options)
+    return limit is not None and active_count >= limit
+
+
+async def panel_capacity_reached(session: AsyncSession, panel: Panel) -> bool:
+    """True when the panel's `capacity_limit` option is set and filled. No query when unset."""
+    if capacity_limit_of(panel.options) is None:
+        return False
+    total = await session.scalar(
+        select(func.count(Service.id)).where(
+            Service.panel_id == panel.id, Service.status != ServiceStatus.DELETED
+        )
+    )
+    return capacity_reached(int(total or 0), panel.options)
+
+
+async def ensure_unique_username(session: AsyncSession, panel_id: int, username: str) -> str:
+    """Free username on this panel for `subvip_unique` panels: suffixed until unused (DB only)."""
+    base = username[:55]
+    for attempt in range(20):
+        candidate = base if attempt == 0 else f"{base}_{attempt + 1}"
+        taken = await session.scalar(
+            select(Service.id).where(
+                Service.panel_id == panel_id,
+                Service.panel_username == candidate,
+                Service.status != ServiceStatus.DELETED,
+            )
+        )
+        if taken is None:
+            return candidate
+    return f"{base}_{secrets.token_hex(2)}"
 
 
 def apply_panel_user(service: Service, info: PanelUser) -> None:
@@ -163,6 +207,8 @@ async def _create_service(session: AsyncSession, order: Order) -> Service:
     customer = await session.get(Customer, order.customer_id)
     assert customer is not None
     panel = await _panel_for_new(session, order)
+    if await panel_capacity_reached(session, panel):
+        raise ProvisionError("panel_full")
     plan = await session.get(Plan, order.plan_id) if order.plan_id else None
     params = dict(order.params or {})
     # Remember the chosen panel and username before calling the panel, so a retry after a
@@ -181,6 +227,13 @@ async def _create_service(session: AsyncSession, order: Order) -> Service:
         order.params = params
         await session.commit()
     username = params["panel_username"]
+    if bool((panel.options or {}).get("subvip_unique")):
+        unique = await ensure_unique_username(session, panel.id, username)
+        if unique != username:
+            username = unique
+            params["panel_username"] = username
+            order.params = params
+            await session.commit()
     on_hold = False
     options: dict[str, Any] = {}
     if order.kind == OrderKind.TRIAL:

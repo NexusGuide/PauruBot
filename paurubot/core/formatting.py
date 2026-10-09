@@ -75,6 +75,63 @@ def gregorian_to_jalali(gy: int, gm: int, gd: int) -> tuple[int, int, int]:
     return jy, jm, jd
 
 
+# Jalali month and weekday names, transliterated so bot code stays ASCII-only
+# (test_no_persian_in_python_code); user-facing text still uses Persian digits.
+JALALI_MONTHS = (
+    "Farvardin",
+    "Ordibehesht",
+    "Khordad",
+    "Tir",
+    "Mordad",
+    "Shahrivar",
+    "Mehr",
+    "Aban",
+    "Azar",
+    "Dey",
+    "Bahman",
+    "Esfand",
+)
+# Monday-first, matching datetime.weekday().
+JALALI_WEEKDAYS = (
+    "Doshanbeh",
+    "Seshanbeh",
+    "Chaharshanbeh",
+    "Panjshanbeh",
+    "Jomeh",
+    "Shanbeh",
+    "Yekshanbeh",
+)
+
+
+def jalali_month_name(month: int) -> str:
+    """Transliterated Jalali month name, e.g. 1 -> "Farvardin"."""
+    if not isinstance(month, int) or not 1 <= month <= 12:
+        raise ValueError(f"invalid Jalali month: {month!r}")
+    return JALALI_MONTHS[month - 1]
+
+
+def jalali_weekday(dt: datetime | None) -> str:
+    """Transliterated Jalali weekday name for a date, e.g. Saturdays -> "Shanbeh"."""
+    if dt is None:
+        return "-"
+    return JALALI_WEEKDAYS[local(dt).weekday()]
+
+
+def jstrftime_fa(dt: datetime | None, with_time: bool = False) -> str:
+    """A Jalali date with weekday and month words and Persian digits.
+
+    Example: "Shanbeh 1 Farvardin 1405" (digits rendered Persian).
+    """
+    if dt is None:
+        return "-"
+    loc = local(dt)
+    jy, jm, jd = gregorian_to_jalali(loc.year, loc.month, loc.day)
+    text = f"{JALALI_WEEKDAYS[loc.weekday()]} {jd} {JALALI_MONTHS[jm - 1]} {jy}"
+    if with_time:
+        text += f" {loc.hour:02d}:{loc.minute:02d}"
+    return text.translate(PERSIAN_DIGITS)
+
+
 def local(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
