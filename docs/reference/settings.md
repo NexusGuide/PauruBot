@@ -39,6 +39,8 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `referral_monthly_max` | int | 0 | Referral rewards per inviter per 30 days. 0 means no limit |
 | `referral_every_purchase` | bool | false | Referral reward on every purchase. Off: only the invited customer's first purchase pays the inviter |
 | `referral_repeat_percent` | int | — | Referral percent on later purchases. Empty uses the same percent as the first purchase |
+| `referral_banner_required` | bool | false | Referral banner must include a photo. Inviters without a photo banner earn no referral reward |
+| `renew_cashback_percent` | int | 0 | Cashback on renewals (%). Paid to the wallet after a renewal is provisioned. 0 turns it off |
 | `start_gift_amount` | int | 0 | Welcome gift for new customers (Toman). Added to the wallet once, on first /start. 0 turns it off; keep it small |
 | `start_gift_referred_only` | bool | true | Welcome gift only for invited customers |
 | `loyalty_enabled` | bool | false | Loyalty levels. Customers who spend more get a standing discount. Resellers keep their own discount |
@@ -48,6 +50,8 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `wheel_buyers_only` | bool | true | Wheel only for buyers |
 | `wheel_prizes` | list | [{"label": "5,000", "kind": "wallet", "value": 5000, "weight": 30}, {"label": "10%", "kind": "discount", "value": 10, "weight": 20}, {"label": "20,000", "kind": "wallet", "value": 20000, "weight": 5}, {"label": "-", "kind": "nothing", "value": 0, "weight": 45}] | Wheel prizes. The chance of each slice is its weight against the total. Discount prizes become a one-time code valid for 7 days |
 | `lottery_enabled` | bool | false | Lottery button. Shows the Lottery button in the bot. Lotteries themselves are set up on the Lotteries page |
+| `lottery_include_agents` | bool | true | Resellers join the lottery. Off: only ordinary customers can win |
+| `dice_enabled` | bool | false | Dice game. Customers roll the dice in the bot for a wallet prize |
 | `trust_channel_id` | int | — | Trust channel. ID of a public channel where the bot is an admin. Each purchase is announced there with only a masked first name |
 
 ## Payments
@@ -70,6 +74,10 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `card_auto_max_amount` | int | 300000 | Auto-approve up to |
 | `card_auto_min_history` | int | 3 | Approved receipts needed first |
 | `card_auto_approve_after_minutes` | int | 0 | Approve unreviewed receipts after (minutes). 0 turns it off. Only up to the auto-approve amount; duplicates and risky customers always wait for a person |
+| `card_pv_mode` | bool | false | Card payments in support chat. On: customers pay through the support account's private chat instead of sending a receipt in the bot |
+| `card_pv_username` | str | "" | Support username for card payments. The @username customers are sent to when the mode above is on |
+| `card_first_pay_only` | bool | false | Show the card after the first payment. New customers only see card to card after one approved payment |
+| `card_auto_minutes` | int | 60 | Late auto-approval window (minutes). Unreviewed receipts older than this are approved automatically, up to the auto-approve amount |
 | `card_pick` | str | "all" | Which card customers see. all, random (one at random) or rotate (one card after another) |
 | `card_random_tail` | bool | false | Add a random tail to card amounts. A few Toman (up to 999) so every receipt matches one payment; the extra goes to the customer's wallet |
 | `card_verify_enabled` | bool | false | Customers register their card first. Before paying card to card, the customer sends the card number and a photo of the card; staff approve it in the bot. Trusted customers skip this |
@@ -152,6 +160,9 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `cubepay_fee_percent` | int | 0 | CubePay fee added to the price (%). Added on top of what the customer pays at CubePay; the wallet gets the original amount |
 | `atlaspay_enabled` | bool | false | AtlasPay. AtlasPay has no callback; open orders are checked every minute. AtlasPay's own markup is shown to the customer before paying |
 | `atlaspay_api_key` | str (secret) | — | AtlasPay API key |
+| `tonpay_enabled` | bool | false | TonPay. TON invoices through TonPay. Open orders are checked every minute |
+| `tonpay_api_key` | str (secret) | — | TonPay API key |
+| `tonpay_webhook_secret` | str (secret) | — | TonPay webhook secret |
 
 ## Crypto
 
@@ -182,6 +193,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `extras_enabled` | bool | true | Sell extra data and days |
 | `extra_gb_price` | int | 3000 | Price per extra GB |
 | `extra_day_price` | int | 2000 | Price per extra day |
+| `extra_price_roles` | dict | {} | Extra prices per role. Optional GB/day price overrides per reseller level. Empty uses the same prices for everyone |
 | `upgrade_enabled` | bool | true | Plan upgrades |
 | `renew_queue_when_active` | bool | false | Reserve renewals for active services. Renewing a service that still has time and data applies when the current period ends |
 | `ban_disables_services` | bool | true | Banning disables services. Banning a customer turns their services off; unbanning turns them back on |
@@ -189,6 +201,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `app_links` | list | [] | App buttons on the subscription page. {url} becomes the subscription link and {title} the shop name |
 | `move_enabled` | bool | true | Customers can change location. A button on each active service moves it to another location with its remaining data and end date |
 | `move_price` | int | 0 | Location change price. 0 means free |
+| `move_free_limit` | int | 0 | Free location changes. How many free moves each customer gets. 0 means unlimited |
 | `self_delete_enabled` | bool | false | Customers can delete their own services |
 | `self_delete_refund_percent` | int | 80 | Refund of the unused value (%). What share of the unused part (time or data, whichever is less) of the last payment goes back to the wallet. 0 means no refund |
 | `ip_notice_enabled` | bool | true | Tell customers when a device is cut off. For plans with a device limit on 3x-ui and Rebecca panels: when a new device pushes an older one off, the customer gets a short notice (at most once an hour) |
