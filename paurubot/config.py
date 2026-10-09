@@ -108,8 +108,9 @@ class Settings(BaseSettings):
             problems.append("BOT_TOKEN is empty")
         if self.is_production and not self.backup_passphrase.get_secret_value():
             problems.append("BACKUP_PASSPHRASE is empty; backups cannot be restored without it")
-        if not self.metrics_token.get_secret_value():
-            problems.append("METRICS_TOKEN is empty; /metrics falls back to private-network check only")
+        # NOTE: an empty METRICS_TOKEN is intentionally NOT fatal here: installs created
+        # before the token existed (install.sh never sets it) would otherwise crash-loop
+        # on update. /metrics still falls back to the private-network check in that case.
         return problems
 
 
