@@ -225,9 +225,7 @@ def pulse_kb(t: Texts, current: str) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def pulse_window(
-    key: str, now: datetime, custom: datetime | None = None
-) -> tuple[datetime, datetime | None]:
+def pulse_window(key: str, now: datetime, custom: datetime | None = None) -> tuple[datetime, datetime | None]:
     """(since, until) for a deck slice; `until` is None for open ranges."""
     if key == "lastmonth":
         start, end = slice_last_month(now)
@@ -273,9 +271,7 @@ async def collect_pulse(
     db_ms: int | None,
 ) -> Pulse:
     """Every figure on the pulse card for one window."""
-    sales, sales_amount, topups, topup_amount, joined = await _slice_figures(
-        session, shop_id, since, until
-    )
+    sales, sales_amount, topups, topup_amount, joined = await _slice_figures(session, shop_id, since, until)
     buyers_q = select(func.count(func.distinct(Order.customer_id))).where(
         Order.shop_id == shop_id,
         Order.status == OrderStatus.COMPLETED,
@@ -309,9 +305,7 @@ async def collect_pulse(
         joined=joined,
         customers=await _count(
             session,
-            select(func.count(Customer.id)).where(
-                Customer.shop_id == shop_id, Customer.telegram_id > 0
-            ),
+            select(func.count(Customer.id)).where(Customer.shop_id == shop_id, Customer.telegram_id > 0),
         ),
         buyers=buyers,
         conversion=f"{100.0 * buyers / joined:.1f}%" if joined else "0.0%",
@@ -540,9 +534,7 @@ async def _service_counts(session: AsyncSession, shop_id: int) -> dict[int, int]
 
 
 async def _panels(call: CallbackQuery, session: AsyncSession, shop: ShopRow, t: Texts) -> None:
-    panels = list(
-        await session.scalars(select(Panel).where(Panel.shop_id == shop.id).order_by(Panel.id))
-    )
+    panels = list(await session.scalars(select(Panel).where(Panel.shop_id == shop.id).order_by(Panel.id)))
     counts = await _service_counts(session, shop.id)
     healthy = sum(1 for p in panels if p.is_active and p.is_healthy is True)
     lines = [t("mgmt_panels_title", count=len(panels), healthy=healthy)]
