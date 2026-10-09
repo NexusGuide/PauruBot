@@ -325,6 +325,7 @@ async def backup_verify(args: argparse.Namespace) -> int:
 def _restore_args(parser: argparse.ArgumentParser) -> None:
     _backup_args(parser)
     parser.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+    parser.add_argument("--print-master-key", action="store_true", help="print MASTER_KEY from the backup")
     parser.add_argument(
         "--write-env", metavar="PATH", help="put the backup's MASTER_KEY into this .env file when it differs"
     )

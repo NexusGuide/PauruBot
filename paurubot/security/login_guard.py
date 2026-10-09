@@ -57,5 +57,6 @@ async def failed(username: str, ip: str) -> None:
 
 
 async def succeeded(username: str, ip: str) -> None:
-    user_key, _ = _keys(username, ip)
+    user_key, ip_key = _keys(username, ip)
     await kv.reset(user_key)
+    await kv.reset(ip_key)

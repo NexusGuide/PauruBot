@@ -40,8 +40,10 @@ class Quote:
 
 
 def round_price(value: float) -> int:
-    """Round to whole hundreds so prices stay readable in Toman."""
-    return int(round(value / 100.0)) * 100
+    """Round to whole hundreds so prices stay readable in Toman (half away from banker's rounding)."""
+    from decimal import Decimal, ROUND_HALF_UP
+
+    return int((Decimal(str(value)) / Decimal(100)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)) * 100
 
 
 def reseller_percent(customer: Customer | None) -> int:

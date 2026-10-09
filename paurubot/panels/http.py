@@ -26,11 +26,13 @@ def ssl_context(pinned_pem: str | None) -> ssl.SSLContext:
     """Public CA verification, or trust in exactly one certificate the owner approved."""
     if not pinned_pem:
         return ssl.create_default_context()
-    ctx = ssl.create_default_context(cadata=pinned_pem)
-    # A pinned self-signed certificate is matched by its exact bytes, not by host name
-    # (panels are often reached by IP); trust in it is narrower than any public CA.
+    # Trust ONLY the pinned certificate, not the system CA store.
+    # create_default_context(cadata=...) would add the pin to the system CAs,
+    # so with check_hostname=False any public cert would be accepted (MITM).
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_REQUIRED
+    ctx.load_verify_locations(cadata=pinned_pem)
     return ctx
 
 
@@ -70,14 +72,13 @@ class SafeHttpClient:
     async def _guard(self) -> None:
         if self.skip_ssrf_check:
             return
-        now = time.monotonic()
-        if now < self._checked_until:
-            return
+        # No caching: DNS can rebind between checks (TOCTOU). Validate on every
+        # request so a host flipping from public IP to metadata/link-local is refused.
         try:
             await ssrf.assert_safe_url(self.base_url, allow_private=self.allow_private)
         except ssrf.UnsafeUrl as exc:
             raise PanelError(f"blocked panel address: {exc}") from exc
-        self._checked_until = now + 60
+        self._checked_until = time.monotonic()
 
     async def request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         if time.monotonic() < self._open_until:

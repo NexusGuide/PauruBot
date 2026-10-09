@@ -19,6 +19,18 @@ from paurubot.payments.base import PaymentError
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/pay", tags=["payments"])
 
+PROBE_LIMIT_PER_MINUTE = 60
+
+
+async def _probe_allowed(request: Request) -> bool:
+    """Throttle unauthenticated payment-id probes (enumeration/oracle mitigation)."""
+    from paurubot.security.login_guard import client_ip
+
+    peer = request.client.host if request.client else None
+    ip = client_ip(peer, request.headers.get("x-forwarded-for"))
+    allowed, _ = await kv.hit(f"gw:probe:{ip}", PROBE_LIMIT_PER_MINUTE, 60)
+    return allowed
+
 
 @router.get("/zarinpal/callback")
 async def zarinpal_callback(
@@ -61,6 +73,8 @@ MAX_CALLBACK = 64 * 1024
 
 @router.post("/nowpayments/ipn")
 async def nowpayments_ipn(request: Request, db: DB) -> Response:
+    if not await _probe_allowed(request):
+        return Response("too many requests", status_code=429, media_type="text/plain")
     raw = await request.body()
     if len(raw) > MAX_CALLBACK:
         return Response("too large", status_code=413, media_type="text/plain")
@@ -75,6 +89,8 @@ async def nowpayments_ipn(request: Request, db: DB) -> Response:
 
 @router.post("/plisio/callback")
 async def plisio_callback(request: Request, db: DB) -> Response:
+    if not await _probe_allowed(request):
+        return Response("too many requests", status_code=429, media_type="text/plain")
     raw = await request.body()
     if len(raw) > MAX_CALLBACK:
         return Response("too large", status_code=413, media_type="text/plain")
@@ -117,6 +133,8 @@ async def gateway_callback(name: str, request: Request, db: DB) -> Response:
     gateway = GATEWAYS.get(name)
     if gateway is None or engine.PROVIDERS.get(name) is not gateway:
         return Response("unknown gateway", status_code=404, media_type="text/plain")
+    if not await _probe_allowed(request):
+        return Response("too many requests", status_code=429, media_type="text/plain")
     declared = request.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > MAX_CALLBACK:
         return Response("too large", status_code=413, media_type="text/plain")

@@ -191,6 +191,8 @@ fetch_image() {
         --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null ||
         die "the image signature does not verify; refusing to run it"
       ok "image signature verified"
+    else
+      warn "cosign not found or no digest; image signature NOT verified ($image)"
     fi
     PINNED_IMAGE=${digest:-$image}
   else
@@ -375,6 +377,7 @@ cmd_backup() {
 
 cmd_restore() {
   need_root
+  umask 077
   local file=${1:-}
   [[ -n $file && -f $file ]] || die "usage: pauru restore /path/to/paurubot-....pbak"
   confirm "This replaces the current database with $(basename "$file"). Continue?" || exit 1
@@ -387,14 +390,21 @@ cmd_restore() {
   name=$(basename "$file")
   compose stop api bot worker
   # `-e NAME` without a value passes it from this shell, so the passphrase never shows in `ps`.
+  # .restore.log may contain MASTER_KEY: keep it 600 and always remove it.
+  touch "$DIR/.restore.log"
+  chmod 600 "$DIR/.restore.log"
+  trap 'rm -f "$DIR/.restore.log"' EXIT
   RESTORE_PASSPHRASE=$passphrase compose run --rm --no-deps -T -v "$(realpath "$file"):/restore/$name:ro" -e RESTORE_PASSPHRASE \
     api restore "/restore/$name" --yes --passphrase-env RESTORE_PASSPHRASE --print-master-key \
     | tee /dev/stderr >"$DIR/.restore.log" || {
     compose up -d
+    rm -f "$DIR/.restore.log"
+    trap - EXIT
     die "restore failed; the services were started again on the old data"
   }
   output=$(cat "$DIR/.restore.log")
   rm -f "$DIR/.restore.log"
+  trap - EXIT
   key=$(printf '%s\n' "$output" | sed -n 's/^MASTER_KEY=//p' | tail -n1)
   if [[ -n $key && $key != "$(env_get MASTER_KEY)" ]]; then
     env_set MASTER_KEY "$key"
@@ -476,7 +486,7 @@ cmd_agent() {
       action=$(json_field action "$request")
       channel=$(json_field channel "$request")
       version=$(json_field version "$request")
-      [[ $channel =~ ^(stable|beta)?$ && $version =~ ^(v?[0-9][0-9A-Za-z.-]*)?$ ]] || action="invalid"
+      [[ $channel =~ ^(stable|beta)?$ && $version =~ ^(v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?)?$ ]] || action="invalid"
       rset updater:state running 7200
       rset updater:last_action "$action ${version:-$channel}" 2592000
       local args=()

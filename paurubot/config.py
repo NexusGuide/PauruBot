@@ -25,7 +25,10 @@ class Settings(BaseSettings):
     public_url: str = ""
     api_host: str = "0.0.0.0"
     api_port: int = 8080
-    trust_proxy_hops: int = 0
+    # Bundled Caddy overwrites X-Forwarded-For with a single IP, so 1 is correct
+    # behind the default stack. 0 would make every client look like the proxy IP
+    # (shared rate-limit buckets, metrics bypass confusion).
+    trust_proxy_hops: int = 1
     allowed_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     master_key: SecretStr = SecretStr("")
@@ -39,7 +42,8 @@ class Settings(BaseSettings):
     http_connect_timeout: float = 5.0
     http_total_timeout: float = 15.0
 
-    webapp_auth_max_age: int = 86400
+    # Short window so a stolen x-telegram-init-data bearer is not usable for a day.
+    webapp_auth_max_age: int = 600
     session_ttl_seconds: int = 60 * 60 * 12
     login_max_attempts: int = 5
     login_lock_seconds: int = 900
@@ -98,6 +102,14 @@ class Settings(BaseSettings):
             problems.append("MASTER_KEY must be at least 32 characters")
         if self.is_production and self.public_url and not self.public_url.startswith("https://"):
             problems.append("PUBLIC_URL must use https in production")
+        if "paurubot:paurubot@" in self.database_url or "change-me" in self.database_url:
+            problems.append("POSTGRES_PASSWORD still uses a default value; set a unique password")
+        if self.is_production and not self.bot_token.get_secret_value():
+            problems.append("BOT_TOKEN is empty")
+        if self.is_production and not self.backup_passphrase.get_secret_value():
+            problems.append("BACKUP_PASSPHRASE is empty; backups cannot be restored without it")
+        if not self.metrics_token.get_secret_value():
+            problems.append("METRICS_TOKEN is empty; /metrics falls back to private-network check only")
         return problems
 
 

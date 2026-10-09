@@ -70,6 +70,10 @@ def decrypt_stream(source: BinaryIO, target: BinaryIO, passphrase: str) -> None:
         raise CryptoError("not a PauruBot backup")
     if version != VERSION or not 10 <= n_log2 <= 20:
         raise CryptoError(f"unsupported backup format version {version}")
+    if (r, p) != (8, 1):
+        # Encrypt always uses r=8,p=1. Untrusted headers must not control Scrypt
+        # memory/CPU (e.g. r=255,p=255 with N=1M would OOM the worker on restore).
+        raise CryptoError("unsupported backup parameters")
     aead = AESGCM(_key(passphrase, salt, n_log2, r, p))
     index, finished = 0, False
     while True:

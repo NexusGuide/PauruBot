@@ -518,8 +518,11 @@ async def refund_failed(session: AsyncSession, order: Order, reason: str, actor:
     )
     order.status = OrderStatus.REFUNDED
     order.error = reason[:500]
-    await session.execute(delete(DiscountRedemption).where(DiscountRedemption.order_id == order.id))
-    if order.discount_code_id:
+    deleted = await session.execute(delete(DiscountRedemption).where(DiscountRedemption.order_id == order.id))
+    if order.discount_code_id and affected(deleted):
+        # Only decrement when we actually removed a redemption: concurrent
+        # refund_failed retries share the idempotent wallet refund but must not
+        # double-decrement the coupon counter.
         await session.execute(
             update(DiscountCode)
             .where(DiscountCode.id == order.discount_code_id, DiscountCode.used_count > 0)
