@@ -410,11 +410,13 @@ async def settle_from_wallet(session: AsyncSession, order_id: int) -> Order:
     if order is None:
         raise OrderError("order_expired")
     try:
-        await wallet.charge(session, order.shop_id, order.customer_id, order.amount, order_id=order.id)
+        # One savepoint: a discount code that just ran out must not leave the wallet charged.
+        async with session.begin_nested():
+            await wallet.charge(session, order.shop_id, order.customer_id, order.amount, order_id=order.id)
+            await _redeem(session, order)
     except InsufficientFunds as exc:
         balance = await wallet_balance(session, order.shop_id, order.customer_id)
         raise OrderError("insufficient_balance", balance=balance, required=order.amount) from exc
-    await _redeem(session, order)
     order.status = OrderStatus.PAID
     order.paid_at = utcnow()
     await enqueue_provision(session, order)
@@ -511,7 +513,13 @@ async def expire_stale(session: AsyncSession) -> int:
 
 async def refund_failed(session: AsyncSession, order: Order, reason: str, actor: str = "system") -> None:
     """Return the money of an order that could not be fulfilled."""
-    if order.status in {OrderStatus.REFUNDED, OrderStatus.COMPLETED}:
+    # Pending and canceled orders were never charged, so there is nothing to give back.
+    if order.status in {
+        OrderStatus.REFUNDED,
+        OrderStatus.COMPLETED,
+        OrderStatus.PENDING,
+        OrderStatus.CANCELED,
+    }:
         return
     await wallet.refund(
         session, order.shop_id, order.customer_id, order.amount, order_id=order.id, actor=actor
