@@ -109,7 +109,7 @@ FEATURES: dict[str, list[str]] = {
 }
 FEATURE_KEYS: list[str] = [key for keys in FEATURES.values() for key in keys]
 
-# A gateway cannot be switched on from the bot before its credentials are set (web panel).
+# A gateway cannot be switched on before its credentials are set (Shop setup screen or web panel).
 REQUIRES: dict[str, tuple[str, ...]] = {
     "zarinpal_enabled": ("zarinpal_merchant",),
     "nowpayments_enabled": ("nowpayments_api_key",),
@@ -137,6 +137,10 @@ def hub_buttons(t: Texts, staff: StaffIdentity) -> list[tuple[str, Admin]]:
         out.append((t("adm_hub_users"), Admin(section="ulist")))
     if staff.can("reports.read"):
         out.append((t("adm_hub_stats"), Admin(section="pstats")))
+    # Imported here: admin_config imports can_enable from this module.
+    from paurubot.bot.routers.admin_config import config_buttons
+
+    out += config_buttons(t, staff)
     return out
 
 
