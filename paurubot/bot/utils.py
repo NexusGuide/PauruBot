@@ -4,6 +4,7 @@ from typing import Any
 
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import BaseFilter
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from paurubot.bot.context import StaffIdentity
@@ -59,3 +60,11 @@ def error_text(t: Texts, key: str, params: dict[str, Any]) -> str:
         for k, v in params.items()
     }
     return t(key, **clean)
+
+
+async def clear_customer_input(state: FSMContext) -> None:
+    """Clear input/confirmation data without forgetting the customer list navigation."""
+    origin = (await state.get_data()).get("user_list_origin")
+    await state.clear()
+    if isinstance(origin, dict):
+        await state.update_data(user_list_origin=origin)

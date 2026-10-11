@@ -42,7 +42,8 @@ def test_owner_layout_matches_reference() -> None:
     expected = [[FA(f"adm_nav_{g}") for g in row] for row in nav.HOME_ROWS]
     expected.append([FA("adm_nav_back")])
     assert [[b.text for b in row] for row in markup.keyboard] == expected
-    assert markup.resize_keyboard and markup.is_persistent
+    # The phone's back button must be able to hide the admin keyboard.
+    assert markup.resize_keyboard and not markup.is_persistent
     assert [len(row) for row in markup.keyboard] == [1, 1, 2, 1, 2, 1, 2, 2, 2, 1]
 
 
@@ -67,8 +68,17 @@ def test_all_previous_home_tools_are_still_reachable() -> None:
     staff = identity(StaffRole.OWNER)
     sections = {item.section for group in nav.GROUPS for item in nav.entries(group, staff)}
     previous = [*tools_kb(FA, staff), *ops_buttons(FA, staff)]
-    assert {target.section for _, target in previous} <= sections
-    assert {"stats", "payments", "tickets", "applications", "lookup", "broadcast", "maintenance"} <= sections
+    # Replaced on purpose: card accounts by the finance card manager, maintenance by the
+    # confirmed bot-status switch of the general settings hub.
+    superseded = {"cards": "fcard", "maintenance": "gset"}
+    assert {target.section for _, target in previous} - set(superseded) <= sections
+    assert {"stats", "payments", "tickets", "applications", "lookup", "broadcast"} <= sections
+    assert "fcard" in sections
+    hub = nav.group_kb(FA, staff, "settings", {"bot_enabled": True})
+    hub_sections = {
+        Admin.unpack(b.callback_data).section for row in hub.inline_keyboard for b in row if b.callback_data
+    }
+    assert "gset" in hub_sections
 
 
 def test_locale_keys_and_placeholders_match() -> None:

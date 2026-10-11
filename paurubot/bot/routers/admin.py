@@ -19,7 +19,7 @@ from paurubot.bot.callbacks import Admin, Review
 from paurubot.bot.context import StaffIdentity
 from paurubot.bot.routers.admin_navigation import menu
 from paurubot.bot.states import AdminStates
-from paurubot.bot.utils import Btn, StaffOnly, show
+from paurubot.bot.utils import Btn, StaffOnly, clear_customer_input, show
 from paurubot.core import customers, tickets
 from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import esc, money, parse_int
@@ -546,7 +546,9 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
     services = int(
         await session.scalar(
             select(func.count(Service.id)).where(
-                Service.customer_id == customer.id, Service.status != ServiceStatus.DELETED
+                Service.shop_id == customer.shop_id,
+                Service.customer_id == customer.id,
+                Service.status != ServiceStatus.DELETED,
             )
         )
         or 0
@@ -562,32 +564,42 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
         reseller=t("yes") if customer.is_reseller else t("no"),
     )
     kb = InlineKeyboardBuilder()
-    if staff.can("services.read"):
-        kb.button(text=t("adm_user_btn_services"), callback_data=Admin(section="usvc", id=customer.id))
-    if staff.can("services.create"):
-        kb.button(text=t("adm_user_btn_give"), callback_data=Admin(section="ugive", id=customer.id))
-    if staff.can("wallet.adjust"):
-        kb.button(text=t("btn_adjust_balance"), callback_data=Admin(section="adjust", id=customer.id))
-    if staff.can("customers.write"):
-        kb.button(text=t("adm_user_btn_message"), callback_data=Admin(section="umsg", id=customer.id))
-    kb.button(text=t("adm_user_btn_referrals"), callback_data=Admin(section="uref", id=customer.id))
+
+    def button(key: str, section: str, **params: Any) -> InlineKeyboardButton:
+        return InlineKeyboardButton(
+            text=t(key, **params), callback_data=Admin(section=section, id=customer.id).pack()
+        )
+
+    def pair(*buttons: InlineKeyboardButton | None) -> None:
+        available = [b for b in buttons if b is not None]
+        if available:
+            kb.row(*available)
+
+    pair(button("adm_user_btn_referrals", "uref"))
+    pair(
+        button("adm_user_btn_services", "usvc") if staff.can("services.read") else None,
+        button("adm_user_btn_give", "ugive") if staff.can("services.create") else None,
+    )
+    pair(
+        button("btn_adjust_balance", "adjust") if staff.can("wallet.adjust") else None,
+        button("adm_ud_payments", "upay") if staff.can("payments.read") else None,
+    )
     if staff.can("payments.review"):
-        kb.button(
-            text=t("adm_user_btn_trust", state=t(f"adm_trust_{customer.card_trust}")),
-            callback_data=Admin(section="utrust", id=customer.id),
-        )
+        pair(button("adm_user_btn_trust", "utrust", state=t(f"adm_trust_{customer.card_trust}")))
+    pair(
+        button("adm_user_btn_message", "umsg") if staff.can("customers.write") else None,
+        button("btn_unban" if customer.is_banned else "btn_ban", "ban")
+        if staff.can("customers.ban")
+        else None,
+    )
+    pair(
+        button("adm_user_btn_hide", "uhide") if staff.can("customers.write") else None,
+        button("adm_user_btn_trial", "utrial") if staff.can("customers.write") else None,
+    )
     if customer.is_reseller and staff.can("resellers.manage"):
-        kb.button(text=t("adm_user_btn_group"), callback_data=Admin(section="ugroup", id=customer.id))
-        kb.button(text=t("adm_user_btn_rbot"), callback_data=Admin(section="rbot", id=customer.id))
-    if staff.can("customers.write"):
-        kb.button(text=t("adm_user_btn_hide"), callback_data=Admin(section="uhide", id=customer.id))
-        kb.button(text=t("adm_user_btn_trial"), callback_data=Admin(section="utrial", id=customer.id))
-    if staff.can("customers.ban"):
-        kb.button(
-            text=t("btn_unban") if customer.is_banned else t("btn_ban"),
-            callback_data=Admin(section="ban", id=customer.id),
-        )
-    kb.adjust(2)
+        pair(button("adm_user_btn_group", "ugroup"), button("adm_user_btn_rbot", "rbot"))
+    pair(button("adm_ud_back_list", "uprofile"), button("adm_ud_admin", "home"))
+    pair(button("adm_ud_close", "uprofile_close"))
     return text, kb.as_markup()
 
 
@@ -677,7 +689,7 @@ async def adjust(
     if delta is None or delta == 0 or customer is None:
         await message.answer(t("number_expected"))
         return
-    await state.clear()
+    await clear_customer_input(state)
     try:
         await wallet.adjust(
             session,

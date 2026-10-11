@@ -60,6 +60,8 @@ SAFE_OPTION_KEYS = {
     "template_id",
     "service_ids",
     "squad_ids",
+    "allow_trials",
+    "allow_renewals",
     "sell_extra_volume",
     "sell_extra_days",
     "renew_resets_usage",
@@ -126,7 +128,13 @@ def _clean_options(options: dict[str, Any]) -> dict[str, Any]:
     unknown = set(options) - SAFE_OPTION_KEYS
     if unknown:
         raise HTTPException(status_code=422, detail=f"unknown_options:{','.join(sorted(unknown))}")
-    for key in ("sell_extra_volume", "sell_extra_days", "renew_resets_usage"):
+    for key in (
+        "allow_trials",
+        "allow_renewals",
+        "sell_extra_volume",
+        "sell_extra_days",
+        "renew_resets_usage",
+    ):
         if key in options and options[key] is not None and not isinstance(options[key], bool):
             raise HTTPException(status_code=422, detail=f"{key}_invalid")
     if options.get("guard_version") not in (None, "v1", "v2"):
