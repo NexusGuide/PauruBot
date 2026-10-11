@@ -195,6 +195,7 @@ async def cancel_service_go(
     try:
         refund = await cancellation.cancel(session, customer, service)
     except cancellation.CancelError as exc:
+        await session.rollback()
         await call.answer(t(exc.key), show_alert=True)
         return
     except PanelError:
@@ -496,6 +497,8 @@ async def revoke(
     try:
         await lifecycle.revoke(session, service)
     except PanelError as exc:
+        # The update middleware commits after the handler: drop whatever was half changed.
+        await session.rollback()
         log.warning("revoke failed for service %s: %s", service.id, exc)
         await call.answer(t("panel_error"), show_alert=True)
         return
