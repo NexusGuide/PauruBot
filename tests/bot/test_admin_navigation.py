@@ -67,8 +67,17 @@ def test_all_previous_home_tools_are_still_reachable() -> None:
     staff = identity(StaffRole.OWNER)
     sections = {item.section for group in nav.GROUPS for item in nav.entries(group, staff)}
     previous = [*tools_kb(FA, staff), *ops_buttons(FA, staff)]
-    assert {target.section for _, target in previous} <= sections
-    assert {"stats", "payments", "tickets", "applications", "lookup", "broadcast", "maintenance"} <= sections
+    # Replaced on purpose: card accounts by the finance card manager, maintenance by the
+    # confirmed bot-status switch of the general settings hub.
+    superseded = {"cards": "fcard", "maintenance": "gset"}
+    assert {target.section for _, target in previous} - set(superseded) <= sections
+    assert {"stats", "payments", "tickets", "applications", "lookup", "broadcast"} <= sections
+    assert "fcard" in sections
+    hub = nav.group_kb(FA, staff, "settings", {"bot_enabled": True})
+    hub_sections = {
+        Admin.unpack(b.callback_data).section for row in hub.inline_keyboard for b in row if b.callback_data
+    }
+    assert "gset" in hub_sections
 
 
 def test_locale_keys_and_placeholders_match() -> None:
