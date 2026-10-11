@@ -65,3 +65,7 @@ class AdminStates(StatesGroup):
     buy_banner = State()
     rbot_token = State()
     service_note = State()
+    config_value = State()
+    card_account = State()
+    code_new = State()
+    panel_value = State()
