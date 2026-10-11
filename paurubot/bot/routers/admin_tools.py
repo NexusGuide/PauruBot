@@ -57,6 +57,7 @@ router.message.filter(StaffOnly())
 router.callback_query.filter(StaffOnly())
 
 PAGE = 8
+REFERRAL_PAGE = 10
 STATUS_ICON = keyboards.STATUS_ICON
 EXTEND = {"d7": (7, 0), "d30": (30, 0), "g10": (0, 10), "g50": (0, 50)}
 # Settings staff can change from the bot, by group. Secrets and structured values stay on the web.
@@ -510,11 +511,15 @@ async def referrals(
         return
     conds = [Customer.shop_id == shop.id, Customer.referrer_id == customer.id]
     total = int(await session.scalar(select(func.count(Customer.id)).where(*conds)) or 0)
-    pages = max(1, (total + PAGE - 1) // PAGE)
+    pages = max(1, (total + REFERRAL_PAGE - 1) // REFERRAL_PAGE)
     page = min(max(0, callback_data.page), pages - 1)
     rows = list(
         await session.scalars(
-            select(Customer).where(*conds).order_by(Customer.id.desc()).offset(page * PAGE).limit(PAGE)
+            select(Customer)
+            .where(*conds)
+            .order_by(Customer.id.desc())
+            .offset(page * REFERRAL_PAGE)
+            .limit(REFERRAL_PAGE)
         )
     )
     await call.answer()
