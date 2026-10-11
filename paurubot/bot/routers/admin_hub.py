@@ -14,7 +14,7 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from paurubot.bot.callbacks import Admin
+from paurubot.bot.callbacks import Admin, Nav
 from paurubot.bot.context import StaffIdentity
 from paurubot.bot.utils import StaffOnly, show
 from paurubot.core import settings as shop_settings
@@ -330,25 +330,30 @@ async def user_lists(
             select(Customer).where(*conds).order_by(Customer.id.desc()).offset(page * PAGE).limit(PAGE)
         )
     )
-    balances: dict[int, int] = {}
-    if rows:
-        result = await session.execute(
-            select(LedgerAccount.customer_id, LedgerAccount.balance).where(
-                LedgerAccount.shop_id == shop.id,
-                LedgerAccount.kind == LedgerAccountKind.WALLET,
-                LedgerAccount.customer_id.in_([r.id for r in rows]),
-            )
-        )
-        balances = {int(cid): int(bal or 0) for cid, bal in result.all() if cid is not None}
     kb = InlineKeyboardBuilder()
+    if rows:
+        kb.row(
+            *[
+                InlineKeyboardButton(text=t(key), callback_data=Nav(to="noop").pack())
+                for key in ("adm_ud_operations", "adm_ud_username", "adm_ud_id")
+            ]
+        )
     for row in rows:
-        label = f"{row.display_name} \u00b7 {row.telegram_id} \u00b7 {money(balances.get(row.id, 0))}"
-        kb.row(InlineKeyboardButton(text=label[:64], callback_data=Admin(section="user", id=row.id).pack()))
+        origin = ("uf" if callback_data.action == "uf" else "lf") + str(callback_data.id)
+        username = ("@" + row.username) if row.username else t("adm_ud_no_username")
+        kb.row(
+            InlineKeyboardButton(
+                text=t("adm_ud_manage"),
+                callback_data=Admin(section="user", action=origin, id=row.id, page=page).pack(),
+            ),
+            InlineKeyboardButton(text=username[:20], callback_data=Nav(to="noop").pack()),
+            InlineKeyboardButton(text=str(row.telegram_id), callback_data=Nav(to="noop").pack()),
+        )
     nav: list[InlineKeyboardButton] = []
     if page > 0:
         nav.append(
             InlineKeyboardButton(
-                text="\u2039",
+                text=t("adm_ud_previous"),
                 callback_data=Admin(
                     section="ulist", action=callback_data.action, id=callback_data.id, page=page - 1
                 ).pack(),
@@ -357,7 +362,7 @@ async def user_lists(
     if page + 1 < pages:
         nav.append(
             InlineKeyboardButton(
-                text="\u203a",
+                text=t("adm_ud_next"),
                 callback_data=Admin(
                     section="ulist", action=callback_data.action, id=callback_data.id, page=page + 1
                 ).pack(),
@@ -366,6 +371,11 @@ async def user_lists(
     if nav:
         kb.row(*nav)
     kb.row(*_back(t, Admin(section="users" if callback_data.action == "uf" else "ulist")))
+    kb.row(
+        InlineKeyboardButton(
+            text=t("adm_ud_close"), callback_data=Admin(section="uprofile", action="close").pack()
+        )
+    )
     text = t("adm_ulist_head", title=esc(t(f"adm_ulist_{name}")), total=total, page=page + 1, pages=pages)
     if not rows:
         text += "\n" + t("adm_ulist_empty")

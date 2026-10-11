@@ -10,7 +10,13 @@ from typing import Any
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +28,7 @@ from paurubot.bot.context import StaffIdentity
 from paurubot.bot.routers.admin import actor, back_home, customer_card
 from paurubot.bot.routers.admin_navigation import menu
 from paurubot.bot.states import AdminStates
-from paurubot.bot.utils import StaffOnly, show
+from paurubot.bot.utils import StaffOnly, clear_customer_input, show
 from paurubot.core import catalog, customers, finance, pricing
 from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import esc, jdate, money, parse_int
@@ -196,11 +202,29 @@ async def customer_again(
     shop: ShopRow,
     t: Texts,
     staff: StaffIdentity,
+    state: FSMContext,
 ) -> None:
     customer = await _customer(session, shop, callback_data.id)
     if customer is None:
         await call.answer(t("adm_customer_not_found"), show_alert=True)
         return
+    if callback_data.action.startswith(("uf", "lf")):
+        from paurubot.bot.routers.admin_hub import USER_FILTERS
+
+        suffix = callback_data.action[2:]
+        if not suffix.isdecimal() or not 0 <= int(suffix) < len(USER_FILTERS):
+            await call.answer(t("button_expired"), show_alert=True)
+            return
+        await state.clear()
+        await state.update_data(
+            user_list_origin={
+                "shop_id": shop.id,
+                "customer_id": customer.id,
+                "filter": int(suffix),
+                "page": max(0, callback_data.page),
+                "action": "uf" if callback_data.action.startswith("uf") else "f",
+            }
+        )
     await call.answer()
     text, kb = await customer_card(session, t, customer, staff)
     await show(call, text, kb)
@@ -367,7 +391,7 @@ async def message_send(
     from paurubot.notifications import telegram
 
     data = await state.get_data()
-    await state.clear()
+    await clear_customer_input(state)
     customer = await _customer(session, shop, int(data.get("customer_id") or 0))
     if customer is None:
         await message.answer(t("adm_customer_not_found"), reply_markup=menu(t, cfg, staff))
@@ -484,16 +508,40 @@ async def referrals(
     if customer is None:
         await call.answer(t("adm_customer_not_found"), show_alert=True)
         return
+    conds = [Customer.shop_id == shop.id, Customer.referrer_id == customer.id]
+    total = int(await session.scalar(select(func.count(Customer.id)).where(*conds)) or 0)
+    pages = max(1, (total + PAGE - 1) // PAGE)
+    page = min(max(0, callback_data.page), pages - 1)
     rows = list(
         await session.scalars(
-            select(Customer).where(Customer.referrer_id == customer.id).order_by(Customer.id.desc()).limit(15)
+            select(Customer).where(*conds).order_by(Customer.id.desc()).offset(page * PAGE).limit(PAGE)
         )
     )
-    total = await customers.referral_count(session, customer.id)
     await call.answer()
     lines = [t("adm_referrals", name=esc(customer.display_name), count=total)]
     lines += [f"• {esc(r.display_name)} — <code>{r.telegram_id}</code>" for r in rows]
-    await show(call, "\n".join(lines), keyboards.back(t, Admin(section="user", id=customer.id).pack()))
+    kb = InlineKeyboardBuilder()
+    nav = []
+    if page > 0:
+        nav.append(
+            InlineKeyboardButton(
+                text=t("adm_ud_previous"),
+                callback_data=Admin(section="uref", id=customer.id, page=page - 1).pack(),
+            )
+        )
+    if page + 1 < pages:
+        nav.append(
+            InlineKeyboardButton(
+                text=t("adm_ud_next"),
+                callback_data=Admin(section="uref", id=customer.id, page=page + 1).pack(),
+            )
+        )
+    if nav:
+        kb.row(*nav)
+    kb.row(
+        InlineKeyboardButton(text=t("btn_back"), callback_data=Admin(section="user", id=customer.id).pack())
+    )
+    await show(call, "\n".join(lines), kb.as_markup())
 
 
 @router.callback_query(Admin.filter(F.section == "ugroup"), StaffOnly("resellers.manage"))
