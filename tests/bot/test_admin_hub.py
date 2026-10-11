@@ -83,12 +83,12 @@ def labels(fake, kind=EditMessageText):  # type: ignore[no-untyped-def]
     return [text for text, _ in fake.buttons(fake.last(kind))]
 
 
-async def test_home_has_hub_buttons(session, env) -> None:  # type: ignore[no-untyped-def]
+async def test_home_has_categories(session, env) -> None:  # type: ignore[no-untyped-def]
     send, fake = env["send"], env["fake"]
     await send(message_update(OWNER, "/start"))
     await send(message_update(OWNER, FA("btn_admin")))
-    owner = labels(fake, SendMessage)
-    for key in ("adm_hub_features", "adm_hub_users", "adm_hub_stats"):
+    owner = [b.text for row in fake.last(SendMessage).reply_markup.keyboard for b in row]
+    for key in ("adm_nav_features", "adm_nav_users", "adm_nav_stats"):
         assert FA(key) in owner, key
 
 

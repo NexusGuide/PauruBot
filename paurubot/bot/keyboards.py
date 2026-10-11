@@ -303,7 +303,11 @@ def service_kb(
     kb.button(text=t("btn_qr"), callback_data=Svc(action="qr", id=sid))
     if card:
         kb.button(text=t("btn_infocard"), callback_data=Svc(action="card", id=sid))
-    if not service.is_trial and can_change(service, "renew"):
+    if (
+        not service.is_trial
+        and can_change(service, "renew")
+        and (service.panel is None or (service.panel.options or {}).get("allow_renewals") is not False)
+    ):
         kb.button(text=t("btn_renew"), callback_data=Svc(action="renew", id=sid))
     if not service.is_trial:
         if extras[0] is not None:

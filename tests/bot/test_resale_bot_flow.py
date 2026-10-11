@@ -210,6 +210,9 @@ async def test_merchant_manages_from_its_own_bot(session, env) -> None:  # type:
     dp = build_dispatcher(MemoryStorage(), shop_id=child.id)
     await dp.feed_update(bot, message_update(RESELLER, "/start"))
     await dp.feed_update(bot, message_update(RESELLER, FA("btn_admin")))
+    keyboard = fake.last(SendMessage).reply_markup
+    assert FA("adm_nav_resellers") in [b.text for row in keyboard.keyboard for b in row]
+    await dp.feed_update(bot, message_update(RESELLER, FA("adm_nav_resellers")))
     assert FA("rb_btn_hub") in labels(fake, SendMessage)
     await dp.feed_update(bot, callback_update(RESELLER, Rb(action="home").pack()))
     assert "sara_887_bot" in fake.last(EditMessageText).text

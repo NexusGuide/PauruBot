@@ -15,12 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from paurubot.audit.log import Actor, record
 from paurubot.auth import rbac
 from paurubot.bot import keyboards
-from paurubot.bot.callbacks import Admin, Rb, Review
+from paurubot.bot.callbacks import Admin, Review
 from paurubot.bot.context import StaffIdentity
-from paurubot.bot.routers.start import menu
+from paurubot.bot.routers.admin_navigation import menu
 from paurubot.bot.states import AdminStates
-from paurubot.bot.utils import Btn, StaffOnly, show
-from paurubot.config import get_settings
+from paurubot.bot.utils import Btn, StaffOnly, clear_customer_input, show
 from paurubot.core import customers, tickets
 from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import esc, money, parse_int
@@ -38,7 +37,6 @@ from paurubot.db.models import (
     ResellerProfile,
     Service,
     ServiceStatus,
-    StaffRole,
     Ticket,
     TicketStatus,
 )
@@ -59,33 +57,9 @@ def actor(staff: StaffIdentity) -> Actor:
 
 
 def home_kb(t: Texts, staff: StaffIdentity, cfg: dict[str, Any]) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.button(text=t("adm_stats"), callback_data=Admin(section="stats"))
-    if staff.can("payments.review"):
-        kb.button(text=t("adm_payments"), callback_data=Admin(section="payments"))
-    if staff.can("tickets.reply"):
-        kb.button(text=t("adm_tickets"), callback_data=Admin(section="tickets"))
-    if staff.can("resellers.manage"):
-        kb.button(text=t("adm_applications"), callback_data=Admin(section="applications"))
-    if staff.can("customers.read"):
-        kb.button(text=t("adm_lookup"), callback_data=Admin(section="lookup"))
-    if staff.can("broadcast.send"):
-        kb.button(text=t("adm_broadcast"), callback_data=Admin(section="broadcast"))
-    if staff.can("settings.write"):
-        key = "adm_maintenance_on" if cfg["bot_enabled"] else "adm_maintenance_off"
-        kb.button(text=t(key), callback_data=Admin(section="maintenance"))
-    if staff.role == StaffRole.MERCHANT:  # the reseller in its own bot (TEN-17)
-        kb.button(text=t("rb_btn_hub"), callback_data=Rb(action="home"))
-    from paurubot.bot.routers.admin_ops import ops_buttons
-    from paurubot.bot.routers.admin_tools import tools_kb
+    from paurubot.bot.routers.admin_navigation import home_kb as navigation_kb
 
-    for text, data in [*tools_kb(t, staff), *ops_buttons(t, staff)]:
-        kb.button(text=text, callback_data=data)
-    kb.adjust(2)
-    url = get_settings().public_url
-    if url:
-        kb.row(InlineKeyboardButton(text=t("adm_web_panel"), url=f"{url}/admin/"))
-    return kb.as_markup()
+    return navigation_kb(t, staff, cfg)
 
 
 @router.message(Btn("btn_admin"))
@@ -93,7 +67,7 @@ async def admin_home(
     message: Message, t: Texts, staff: StaffIdentity, cfg: dict[str, Any], state: FSMContext
 ) -> None:
     await state.clear()
-    await message.answer(t("adm_home"), reply_markup=home_kb(t, staff, cfg))
+    await message.answer(t("adm_nav_home_text"), reply_markup=menu(t, cfg, staff))
 
 
 @router.callback_query(Admin.filter(F.section == "home"))
@@ -102,7 +76,9 @@ async def admin_home_cb(
 ) -> None:
     await state.clear()
     await call.answer()
-    await show(call, t("adm_home"), home_kb(t, staff, cfg))
+    await show(call, t("adm_home"))
+    if isinstance(call.message, Message):
+        await call.message.answer(t("adm_nav_home_text"), reply_markup=menu(t, cfg, staff))
 
 
 def back_home(t: Texts) -> InlineKeyboardMarkup:
@@ -570,7 +546,9 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
     services = int(
         await session.scalar(
             select(func.count(Service.id)).where(
-                Service.customer_id == customer.id, Service.status != ServiceStatus.DELETED
+                Service.shop_id == customer.shop_id,
+                Service.customer_id == customer.id,
+                Service.status != ServiceStatus.DELETED,
             )
         )
         or 0
@@ -586,32 +564,42 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
         reseller=t("yes") if customer.is_reseller else t("no"),
     )
     kb = InlineKeyboardBuilder()
-    if staff.can("services.read"):
-        kb.button(text=t("adm_user_btn_services"), callback_data=Admin(section="usvc", id=customer.id))
-    if staff.can("services.create"):
-        kb.button(text=t("adm_user_btn_give"), callback_data=Admin(section="ugive", id=customer.id))
-    if staff.can("wallet.adjust"):
-        kb.button(text=t("btn_adjust_balance"), callback_data=Admin(section="adjust", id=customer.id))
-    if staff.can("customers.write"):
-        kb.button(text=t("adm_user_btn_message"), callback_data=Admin(section="umsg", id=customer.id))
-    kb.button(text=t("adm_user_btn_referrals"), callback_data=Admin(section="uref", id=customer.id))
+
+    def button(key: str, section: str, **params: Any) -> InlineKeyboardButton:
+        return InlineKeyboardButton(
+            text=t(key, **params), callback_data=Admin(section=section, id=customer.id).pack()
+        )
+
+    def pair(*buttons: InlineKeyboardButton | None) -> None:
+        available = [b for b in buttons if b is not None]
+        if available:
+            kb.row(*available)
+
+    pair(button("adm_user_btn_referrals", "uref"))
+    pair(
+        button("adm_user_btn_services", "usvc") if staff.can("services.read") else None,
+        button("adm_user_btn_give", "ugive") if staff.can("services.create") else None,
+    )
+    pair(
+        button("btn_adjust_balance", "adjust") if staff.can("wallet.adjust") else None,
+        button("adm_ud_payments", "upay") if staff.can("payments.read") else None,
+    )
     if staff.can("payments.review"):
-        kb.button(
-            text=t("adm_user_btn_trust", state=t(f"adm_trust_{customer.card_trust}")),
-            callback_data=Admin(section="utrust", id=customer.id),
-        )
+        pair(button("adm_user_btn_trust", "utrust", state=t(f"adm_trust_{customer.card_trust}")))
+    pair(
+        button("adm_user_btn_message", "umsg") if staff.can("customers.write") else None,
+        button("btn_unban" if customer.is_banned else "btn_ban", "ban")
+        if staff.can("customers.ban")
+        else None,
+    )
+    pair(
+        button("adm_user_btn_hide", "uhide") if staff.can("customers.write") else None,
+        button("adm_user_btn_trial", "utrial") if staff.can("customers.write") else None,
+    )
     if customer.is_reseller and staff.can("resellers.manage"):
-        kb.button(text=t("adm_user_btn_group"), callback_data=Admin(section="ugroup", id=customer.id))
-        kb.button(text=t("adm_user_btn_rbot"), callback_data=Admin(section="rbot", id=customer.id))
-    if staff.can("customers.write"):
-        kb.button(text=t("adm_user_btn_hide"), callback_data=Admin(section="uhide", id=customer.id))
-        kb.button(text=t("adm_user_btn_trial"), callback_data=Admin(section="utrial", id=customer.id))
-    if staff.can("customers.ban"):
-        kb.button(
-            text=t("btn_unban") if customer.is_banned else t("btn_ban"),
-            callback_data=Admin(section="ban", id=customer.id),
-        )
-    kb.adjust(2)
+        pair(button("adm_user_btn_group", "ugroup"), button("adm_user_btn_rbot", "rbot"))
+    pair(button("adm_ud_back_list", "uprofile"), button("adm_ud_admin", "home"))
+    pair(button("adm_ud_close", "uprofile_close"))
     return text, kb.as_markup()
 
 
@@ -701,7 +689,7 @@ async def adjust(
     if delta is None or delta == 0 or customer is None:
         await message.answer(t("number_expected"))
         return
-    await state.clear()
+    await clear_customer_input(state)
     try:
         await wallet.adjust(
             session,

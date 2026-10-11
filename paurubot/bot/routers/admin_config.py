@@ -23,7 +23,7 @@ from paurubot.bot.callbacks import Admin
 from paurubot.bot.context import StaffIdentity
 from paurubot.bot.routers.admin import actor
 from paurubot.bot.routers.admin_hub import can_enable
-from paurubot.bot.routers.start import menu
+from paurubot.bot.routers.admin_navigation import menu
 from paurubot.bot.states import AdminStates
 from paurubot.bot.utils import StaffOnly, show
 from paurubot.core import settings as shop_settings
@@ -768,6 +768,7 @@ def panel_kb(t: Texts, panel: Panel) -> InlineKeyboardMarkup:
         _btn(t("adm_pcfg_capacity"), Admin(section="pcfg", action="cap", id=panel.id)),
         _btn(t("adm_pcfg_prefix"), Admin(section="pcfg", action="prefix", id=panel.id)),
     )
+    kb.row(_btn(t("adm_pm_manage"), Admin(section="pmgr", id=panel.id)))
     kb.row(_back(t, Admin(section="pcfg")))
     return kb.as_markup()
 

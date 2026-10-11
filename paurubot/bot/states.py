@@ -50,6 +50,8 @@ class ResaleBotStates(StatesGroup):
 
 class AdminStates(StatesGroup):
     lookup = State()
+    order_lookup = State()
+    bulk_service_value = State()
     adjust = State()
     broadcast = State()
     reject_reason = State()
