@@ -18,6 +18,7 @@ from paurubot.bot.callbacks import Admin
 from paurubot.bot.context import StaffIdentity
 from paurubot.bot.routers.admin import actor
 from paurubot.bot.routers.admin_config import _ask, _back, _btn, save, shown
+from paurubot.bot.routers.admin_extra import extra_buttons
 from paurubot.bot.routers.start import menu
 from paurubot.bot.states import AdminStates
 from paurubot.bot.utils import StaffOnly, show
@@ -45,7 +46,10 @@ CHAT_ID_RE = re.compile(r"-?\d{5,20}")
 
 
 def growth_buttons(t: Texts, staff: StaffIdentity) -> list[tuple[str, Admin]]:
-    return [(t("adm_grw_btn"), Admin(section=SECTION))] if staff.can(PERMISSION) else []
+    """Hub entries for this section and the extra settings (admin_extra)."""
+    if not staff.can(PERMISSION):
+        return []
+    return [(t("adm_grw_btn"), Admin(section=SECTION)), *extra_buttons(t, staff)]
 
 
 # --- parsing ---------------------------------------------------------------------------------
