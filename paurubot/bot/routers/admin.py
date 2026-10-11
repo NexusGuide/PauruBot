@@ -76,7 +76,7 @@ async def admin_home_cb(
 ) -> None:
     await state.clear()
     await call.answer()
-    await show(call, t("adm_home"), home_kb(t, staff, cfg))
+    await show(call, t("adm_home"))
     if isinstance(call.message, Message):
         await call.message.answer(t("adm_nav_home_text"), reply_markup=menu(t, cfg, staff))
 
