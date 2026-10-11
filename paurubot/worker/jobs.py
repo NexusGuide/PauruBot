@@ -73,19 +73,35 @@ async def bulk_service(session: AsyncSession, job: queue.Claimed) -> None:
     from paurubot.db.models import Service, ServiceStatus
 
     data = job.payload
-    service = await session.get(Service, int(data["service_id"]))
+    if data.get("gift_target"):
+        service = await session.scalar(
+            select(Service).where(Service.id == int(data["service_id"])).with_for_update()
+        )
+    else:
+        service = await session.get(Service, int(data["service_id"]))
     if service is None or service.status == ServiceStatus.DELETED:
+        if data.get("gift_target"):
+            await queue.update_payload(session, job, {**data, "outcome": "skipped_ineligible"})
         return
+    if job.shop_id is not None and service.shop_id != job.shop_id:
+        raise Permanent("service does not belong to this shop")
     action = str(data["action"])
+    outcome = None
     try:
         if action in {"enable", "disable"}:
             if action == "enable" and data.get("reason") and service.disabled_reason != data["reason"]:
                 return  # someone else disabled it since, for another reason
             await lifecycle.set_enabled(session, service, action == "enable", data.get("reason") or "staff")
         elif action == "extend":
-            await lifecycle.extend(
-                session, service, days=int(data.get("days") or 0), gb=int(data.get("gb") or 0)
-            )
+            if data.get("gift_target"):
+                from paurubot.core.service_gifts import apply_fixed
+
+                outcome = await apply_fixed(session, service, data["gift_target"])
+                await queue.update_payload(session, job, {**data, "outcome": outcome})
+            else:
+                await lifecycle.extend(
+                    session, service, days=int(data.get("days") or 0), gb=int(data.get("gb") or 0)
+                )
         elif action == "delete":
             await lifecycle.delete_service(session, service, data.get("reason") or "bulk delete")
         else:
@@ -100,6 +116,8 @@ async def bulk_service(session: AsyncSession, job: queue.Claimed) -> None:
         entity="service",
         entity_id=service.id,
         after={
+            "outcome": outcome,
+            "gift_target": data.get("gift_target"),
             "batch": data.get("batch"),
             "days": data.get("days"),
             "gb": data.get("gb"),

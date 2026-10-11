@@ -10,7 +10,13 @@ from typing import Any
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +28,7 @@ from paurubot.bot.context import StaffIdentity
 from paurubot.bot.routers.admin import actor, back_home, customer_card
 from paurubot.bot.routers.admin_navigation import menu
 from paurubot.bot.states import AdminStates
-from paurubot.bot.utils import StaffOnly, show
+from paurubot.bot.utils import StaffOnly, clear_customer_input, show
 from paurubot.core import catalog, customers, finance, pricing
 from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import esc, jdate, money, parse_int
@@ -51,6 +57,7 @@ router.message.filter(StaffOnly())
 router.callback_query.filter(StaffOnly())
 
 PAGE = 8
+REFERRAL_PAGE = 10
 STATUS_ICON = keyboards.STATUS_ICON
 EXTEND = {"d7": (7, 0), "d30": (30, 0), "g10": (0, 10), "g50": (0, 50)}
 # Settings staff can change from the bot, by group. Secrets and structured values stay on the web.
@@ -196,11 +203,29 @@ async def customer_again(
     shop: ShopRow,
     t: Texts,
     staff: StaffIdentity,
+    state: FSMContext,
 ) -> None:
     customer = await _customer(session, shop, callback_data.id)
     if customer is None:
         await call.answer(t("adm_customer_not_found"), show_alert=True)
         return
+    if callback_data.action.startswith(("uf", "lf")):
+        from paurubot.bot.routers.admin_hub import USER_FILTERS
+
+        suffix = callback_data.action[2:]
+        if not suffix.isdecimal() or not 0 <= int(suffix) < len(USER_FILTERS):
+            await call.answer(t("button_expired"), show_alert=True)
+            return
+        await state.clear()
+        await state.update_data(
+            user_list_origin={
+                "shop_id": shop.id,
+                "customer_id": customer.id,
+                "filter": int(suffix),
+                "page": max(0, callback_data.page),
+                "action": "uf" if callback_data.action.startswith("uf") else "f",
+            }
+        )
     await call.answer()
     text, kb = await customer_card(session, t, customer, staff)
     await show(call, text, kb)
@@ -367,7 +392,7 @@ async def message_send(
     from paurubot.notifications import telegram
 
     data = await state.get_data()
-    await state.clear()
+    await clear_customer_input(state)
     customer = await _customer(session, shop, int(data.get("customer_id") or 0))
     if customer is None:
         await message.answer(t("adm_customer_not_found"), reply_markup=menu(t, cfg, staff))
@@ -484,16 +509,44 @@ async def referrals(
     if customer is None:
         await call.answer(t("adm_customer_not_found"), show_alert=True)
         return
+    conds = [Customer.shop_id == shop.id, Customer.referrer_id == customer.id]
+    total = int(await session.scalar(select(func.count(Customer.id)).where(*conds)) or 0)
+    pages = max(1, (total + REFERRAL_PAGE - 1) // REFERRAL_PAGE)
+    page = min(max(0, callback_data.page), pages - 1)
     rows = list(
         await session.scalars(
-            select(Customer).where(Customer.referrer_id == customer.id).order_by(Customer.id.desc()).limit(15)
+            select(Customer)
+            .where(*conds)
+            .order_by(Customer.id.desc())
+            .offset(page * REFERRAL_PAGE)
+            .limit(REFERRAL_PAGE)
         )
     )
-    total = await customers.referral_count(session, customer.id)
     await call.answer()
     lines = [t("adm_referrals", name=esc(customer.display_name), count=total)]
     lines += [f"• {esc(r.display_name)} — <code>{r.telegram_id}</code>" for r in rows]
-    await show(call, "\n".join(lines), keyboards.back(t, Admin(section="user", id=customer.id).pack()))
+    kb = InlineKeyboardBuilder()
+    nav = []
+    if page > 0:
+        nav.append(
+            InlineKeyboardButton(
+                text=t("adm_ud_previous"),
+                callback_data=Admin(section="uref", id=customer.id, page=page - 1).pack(),
+            )
+        )
+    if page + 1 < pages:
+        nav.append(
+            InlineKeyboardButton(
+                text=t("adm_ud_next"),
+                callback_data=Admin(section="uref", id=customer.id, page=page + 1).pack(),
+            )
+        )
+    if nav:
+        kb.row(*nav)
+    kb.row(
+        InlineKeyboardButton(text=t("btn_back"), callback_data=Admin(section="user", id=customer.id).pack())
+    )
+    await show(call, "\n".join(lines), kb.as_markup())
 
 
 @router.callback_query(Admin.filter(F.section == "ugroup"), StaffOnly("resellers.manage"))
@@ -562,31 +615,35 @@ async def reseller_group(
 async def plans_list(
     call: CallbackQuery, callback_data: Admin, session: AsyncSession, shop: ShopRow, t: Texts
 ) -> None:
+    total = int(await session.scalar(select(func.count(Plan.id)).where(Plan.shop_id == shop.id)) or 0)
+    page_size = 10
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = min(max(0, callback_data.page), pages - 1)
     rows = list(
         await session.scalars(
             select(Plan)
             .where(Plan.shop_id == shop.id)
             .order_by(Plan.is_active.desc(), Plan.sort, Plan.id)
-            .offset(callback_data.page * PAGE)
-            .limit(PAGE + 1)
+            .offset(page * page_size)
+            .limit(page_size)
         )
     )
     await call.answer()
     kb = InlineKeyboardBuilder()
-    for plan in rows[:PAGE]:
+    for plan in rows:
         mark = "🟢" if plan.is_active else "⚪️"
         kb.button(
             text=f"{mark} {plan.title} — {money(plan.price)}"[:64],
-            callback_data=Admin(section="plan", id=plan.id),
+            callback_data=Admin(section="pedit", id=plan.id, action="show"),
         )
-    if callback_data.page:
-        kb.button(text="‹", callback_data=Admin(section="plans", page=callback_data.page - 1))
-    if len(rows) > PAGE:
-        kb.button(text="›", callback_data=Admin(section="plans", page=callback_data.page + 1))
+    if page:
+        kb.button(text="‹", callback_data=Admin(section="plans", page=page - 1))
+    if page + 1 < pages:
+        kb.button(text="›", callback_data=Admin(section="plans", page=page + 1))
     kb.button(text=t("adm_bulk_price"), callback_data=Admin(section="pbulk"))
-    kb.button(text=t("btn_back"), callback_data=Admin(section="home"))
+    kb.button(text=t("btn_back"), callback_data=Admin(section="nav", action="shop"))
     kb.adjust(1)
-    await show(call, t("adm_plans_title"), kb.as_markup())
+    await show(call, t("adm_s_products_head", total=total, page=page + 1, pages=pages), kb.as_markup())
 
 
 def plan_kb(t: Texts, plan: Plan) -> InlineKeyboardMarkup:
@@ -625,6 +682,13 @@ async def plan_card(
     plan = await session.get(Plan, callback_data.id)
     if plan is None or plan.shop_id != shop.id:
         await call.answer(t("plan_unavailable"), show_alert=True)
+        return
+    if callback_data.action in {"", "show"}:
+        from paurubot.bot.routers.admin_shop import show_product
+
+        await state.clear()
+        await call.answer()
+        await show_product(call, session, t, plan)
         return
     if callback_data.action == "toggle":
         plan.is_active = not plan.is_active
@@ -762,7 +826,14 @@ async def panels_list(
             after={"is_active": panel.is_active},
         )
         await session.commit()
-    rows = list(await session.scalars(select(Panel).where(Panel.shop_id == shop.id).order_by(Panel.id)))
+    total = int(await session.scalar(select(func.count(Panel.id)).where(Panel.shop_id == shop.id)) or 0)
+    pages = max(1, (total + 9) // 10)
+    page = min(max(0, callback_data.page), pages - 1)
+    rows = list(
+        await session.scalars(
+            select(Panel).where(Panel.shop_id == shop.id).order_by(Panel.id).offset(page * 10).limit(10)
+        )
+    )
     counts = dict(
         (
             await session.execute(
@@ -773,7 +844,7 @@ async def panels_list(
         ).all()
     )
     await call.answer()
-    lines = [t("adm_panels_title")]
+    lines = [t("adm_pm_list_head", total=total, page=page + 1, pages=pages)]
     kb = InlineKeyboardBuilder()
     for panel in rows:
         health = (
@@ -790,13 +861,28 @@ async def panels_list(
                 active=counts.get(panel.id, 0),
             )
         )
-        if staff.can("panels.write"):
-            kb.button(
-                text=(t("adm_panel_off") if panel.is_active else t("adm_panel_on")) + f" {panel.name}"[:48],
-                callback_data=Admin(section="panels", action="toggle", id=panel.id),
+        kb.row(
+            InlineKeyboardButton(
+                text=t("adm_pm_manage_name", name=panel.name[:40]),
+                callback_data=Admin(section="pmgr", id=panel.id).pack(),
             )
-    kb.button(text=t("btn_back"), callback_data=Admin(section="home"))
-    kb.adjust(1)
+        )
+    nav = []
+    if page > 0:
+        nav.append(
+            InlineKeyboardButton(
+                text=t("adm_ud_previous"), callback_data=Admin(section="panels", page=page - 1).pack()
+            )
+        )
+    if page + 1 < pages:
+        nav.append(
+            InlineKeyboardButton(
+                text=t("adm_ud_next"), callback_data=Admin(section="panels", page=page + 1).pack()
+            )
+        )
+    if nav:
+        kb.row(*nav)
+    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Admin(section="home").pack()))
     await show(call, "\n".join(lines), kb.as_markup())
 
 
@@ -837,7 +923,7 @@ async def finance_view(
             text=t("adm_export_days", days=days),
             callback_data=Admin(section="finance", action="xlsx", page=days),
         )
-    kb.button(text=t("btn_back"), callback_data=Admin(section="home"))
+    kb.button(text=t("btn_back"), callback_data=Admin(section="fhome"))
     kb.adjust(3, 1)
     await show(call, "\n\n".join(lines), kb.as_markup())
 
@@ -872,7 +958,7 @@ async def settings_view(
                 text=t(f"adm_set_group_{group}"),
                 callback_data=Admin(section="settings", action="group", page=index),
             )
-        kb.button(text=t("btn_back"), callback_data=Admin(section="home"))
+        kb.button(text=t("btn_back"), callback_data=Admin(section="gset", action="show"))
         kb.adjust(2)
         await show(call, t("adm_settings_title"), kb.as_markup())
         return
@@ -915,7 +1001,7 @@ def _group_kb(t: Texts, group: str, cfg: dict[str, Any]) -> InlineKeyboardMarkup
         )
     if group == "growth":
         kb.button(text=t("adm_trial_reset_all"), callback_data=Admin(section="trialreset"))
-    kb.button(text=t("btn_back"), callback_data=Admin(section="settings"))
+    kb.button(text=t("btn_back"), callback_data=Admin(section="settings", action="show"))
     kb.adjust(1)
     return kb.as_markup()
 
@@ -1118,20 +1204,28 @@ async def gift_all(
         await call.answer()
         audience = AUDIENCES[callback_data.page % len(AUDIENCES)]
         count = await _audience_count(session, shop.id, audience)
-        await state.update_data(gift_audience=audience)
+        batch = secrets.token_hex(6)
+        await state.update_data(gift_audience=audience, gift_batch=batch)
         await show(
             call,
             t("adm_gift_confirm", amount=money(amount), count=count, audience=t(f"adm_aud_{audience}")),
-            keyboards.confirm(t, Admin(section="gift_all", action="go").pack(), Admin(section="home").pack()),
+            keyboards.confirm(
+                t,
+                Admin(section="gift_all", action="go", id=int(batch, 16)).pack(),
+                Admin(section="home").pack(),
+            ),
         )
         return
     if callback_data.action == "go":
+        batch = str(data.get("gift_batch") or "")
+        if not batch or callback_data.id != int(batch, 16):
+            await call.answer(t("button_expired"), show_alert=True)
+            return
         audience = str(data.get("gift_audience") or "")
         if audience not in AUDIENCES:
             await call.answer()
             return
         await state.clear()
-        batch = secrets.token_hex(6)
         await queue.enqueue(
             session,
             "broadcast",
@@ -1154,14 +1248,14 @@ async def gift_all(
         await show(call, t("adm_gift_queued"), back_home(t))
 
 
-@router.message(AdminStates.gift_amount, F.text)
+@router.message(AdminStates.gift_amount, F.text, StaffOnly("wallet.adjust"))
 async def gift_amount(message: Message, t: Texts, state: FSMContext) -> None:
     amount = parse_int(message.text)
     if amount is None or not 1_000 <= amount <= 10_000_000:
         await message.answer(t("adm_gift_amount_invalid"))
         return
     await state.set_state(None)
-    await state.update_data(gift_amount=amount)
+    await state.update_data(gift_amount=amount, gift_batch=secrets.token_hex(6))
     await message.answer(
         t("adm_gift_audience", amount=money(amount)), reply_markup=audience_kb(t, "gift_all")
     )

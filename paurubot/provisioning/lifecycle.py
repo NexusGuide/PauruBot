@@ -156,6 +156,8 @@ async def _panel_for_new(session: AsyncSession, order: Order) -> Panel:
             panel = await catalog.pick_panel(session, plan)
     if panel is None or not panel.is_active:
         raise ProvisionError("panel_unavailable")
+    if order.kind == OrderKind.TRIAL and (panel.options or {}).get("allow_trials") is False:
+        raise ProvisionError("panel_unavailable")
     return panel
 
 
