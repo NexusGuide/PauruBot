@@ -69,3 +69,6 @@ class AdminStates(StatesGroup):
     card_account = State()
     code_new = State()
     panel_value = State()
+    growth_value = State()
+    prize_new = State()
+    lottery_new = State()
