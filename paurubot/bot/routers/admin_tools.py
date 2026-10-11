@@ -912,7 +912,7 @@ async def finance_view(
             text=t("adm_export_days", days=days),
             callback_data=Admin(section="finance", action="xlsx", page=days),
         )
-    kb.button(text=t("btn_back"), callback_data=Admin(section="home"))
+    kb.button(text=t("btn_back"), callback_data=Admin(section="fhome"))
     kb.adjust(3, 1)
     await show(call, "\n\n".join(lines), kb.as_markup())
 

@@ -96,11 +96,12 @@ GROUPS: dict[str, tuple[Entry, ...]] = {
         Entry("adm_gift_all", "gift_all", "wallet.adjust"),
     ),
     "finance": (
-        Entry("adm_finance", "finance", "reports.read"),
-        Entry("adm_payments", "payments", "payments.review"),
-        Entry("adm_cards_btn", "cards", "settings.write"),
-        Entry("adm_cfg_btn", "cfg", "settings.write"),
-        Entry("adm_gc_btn", "gc", "wallet.adjust"),
+        Entry("adm_finance", "finance", "reports.read", action="show"),
+        Entry("adm_payments", "payments", "payments.review", action="show"),
+        Entry("adm_f_gateways", "fgw", "settings.write", action="show"),
+        Entry("adm_f_card", "fcard", "settings.write", action="show"),
+        Entry("adm_f_bonus", "fbonus", "settings.write", action="show"),
+        Entry("adm_gc_btn", "gc", "wallet.adjust", action="show"),
     ),
     "support": (
         Entry("adm_tickets", "tickets", "tickets.reply"),
@@ -118,6 +119,7 @@ GROUPS: dict[str, tuple[Entry, ...]] = {
     "settings": (
         Entry("adm_settings", "settings", "settings.write"),
         Entry("adm_cfg_btn", "cfg", "settings.write"),
+        Entry("adm_cards_btn", "cards", "settings.write"),
         Entry("adm_look", "look", "settings.write"),
         Entry("adm_x_btn", "xcfg", "settings.write"),
         Entry("adm_status", "status", "settings.write"),
@@ -184,6 +186,10 @@ def home_kb(t: Texts, staff: StaffIdentity, cfg: dict[str, Any]) -> InlineKeyboa
 
 
 def group_kb(t: Texts, staff: StaffIdentity, group: str, cfg: dict[str, Any]) -> InlineKeyboardMarkup:
+    if group == "finance":
+        from paurubot.bot.routers.admin_finance import home_kb as finance_kb
+
+        return finance_kb(t, staff)
     if group == "users":
         from paurubot.bot.routers.admin_users import home_kb as user_kb
 
@@ -206,6 +212,8 @@ def group_kb(t: Texts, staff: StaffIdentity, group: str, cfg: dict[str, Any]) ->
 
 
 def group_text(t: Texts, group: str) -> str:
+    if group == "finance":
+        return t("adm_f_home")
     if group == "users":
         return t("adm_users_home")
     if group in {"guide", "addpanel", "updates"}:
