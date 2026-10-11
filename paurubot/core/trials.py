@@ -59,11 +59,23 @@ async def eligibility(session: AsyncSession, customer: Customer) -> str | None:
 async def _trial_panel(session: AsyncSession, shop_id: int, panel_id: int | None) -> Panel | None:
     if panel_id:
         panel = await session.get(Panel, int(panel_id))
-        if panel is not None and panel.shop_id == shop_id and panel.is_active:
+        if (
+            panel is not None
+            and panel.shop_id == shop_id
+            and panel.is_active
+            and (panel.options or {}).get("allow_trials") is not False
+        ):
             return panel
         return None
     return await session.scalar(
-        select(Panel).where(Panel.shop_id == shop_id, Panel.is_active.is_(True)).order_by(Panel.id).limit(1)
+        select(Panel)
+        .where(
+            Panel.shop_id == shop_id,
+            Panel.is_active.is_(True),
+            Panel.options["allow_trials"].as_boolean().is_not(False),
+        )
+        .order_by(Panel.id)
+        .limit(1)
     )
 
 

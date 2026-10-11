@@ -252,6 +252,8 @@ async def _draft(
         return Draft(kind, plan, None, params, plan.price)
     if kind == OrderKind.RENEW:
         assert service is not None
+        if service.panel is not None and (service.panel.options or {}).get("allow_renewals") is False:
+            raise OrderError("plan_unavailable")
         if plan is None or not plan.renewable or plan.delivery == "stock":
             raise OrderError("plan_unavailable")
         if plan.panel_id and plan.panel_id != service.panel_id:
