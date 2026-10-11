@@ -615,31 +615,35 @@ async def reseller_group(
 async def plans_list(
     call: CallbackQuery, callback_data: Admin, session: AsyncSession, shop: ShopRow, t: Texts
 ) -> None:
+    total = int(await session.scalar(select(func.count(Plan.id)).where(Plan.shop_id == shop.id)) or 0)
+    page_size = 10
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = min(max(0, callback_data.page), pages - 1)
     rows = list(
         await session.scalars(
             select(Plan)
             .where(Plan.shop_id == shop.id)
             .order_by(Plan.is_active.desc(), Plan.sort, Plan.id)
-            .offset(callback_data.page * PAGE)
-            .limit(PAGE + 1)
+            .offset(page * page_size)
+            .limit(page_size)
         )
     )
     await call.answer()
     kb = InlineKeyboardBuilder()
-    for plan in rows[:PAGE]:
+    for plan in rows:
         mark = "🟢" if plan.is_active else "⚪️"
         kb.button(
             text=f"{mark} {plan.title} — {money(plan.price)}"[:64],
-            callback_data=Admin(section="plan", id=plan.id),
+            callback_data=Admin(section="pedit", id=plan.id, action="show"),
         )
-    if callback_data.page:
-        kb.button(text="‹", callback_data=Admin(section="plans", page=callback_data.page - 1))
-    if len(rows) > PAGE:
-        kb.button(text="›", callback_data=Admin(section="plans", page=callback_data.page + 1))
+    if page:
+        kb.button(text="‹", callback_data=Admin(section="plans", page=page - 1))
+    if page + 1 < pages:
+        kb.button(text="›", callback_data=Admin(section="plans", page=page + 1))
     kb.button(text=t("adm_bulk_price"), callback_data=Admin(section="pbulk"))
-    kb.button(text=t("btn_back"), callback_data=Admin(section="home"))
+    kb.button(text=t("btn_back"), callback_data=Admin(section="nav", action="shop"))
     kb.adjust(1)
-    await show(call, t("adm_plans_title"), kb.as_markup())
+    await show(call, t("adm_s_products_head", total=total, page=page + 1, pages=pages), kb.as_markup())
 
 
 def plan_kb(t: Texts, plan: Plan) -> InlineKeyboardMarkup:
@@ -678,6 +682,13 @@ async def plan_card(
     plan = await session.get(Plan, callback_data.id)
     if plan is None or plan.shop_id != shop.id:
         await call.answer(t("plan_unavailable"), show_alert=True)
+        return
+    if callback_data.action in {"", "show"}:
+        from paurubot.bot.routers.admin_shop import show_product
+
+        await state.clear()
+        await call.answer()
+        await show_product(call, session, t, plan)
         return
     if callback_data.action == "toggle":
         plan.is_active = not plan.is_active

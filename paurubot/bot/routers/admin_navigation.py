@@ -89,11 +89,11 @@ GROUPS: dict[str, tuple[Entry, ...]] = {
         Entry("adm_users_bulk", "ubulk", "services.write", action="show"),
     ),
     "shop": (
-        Entry("adm_plans", "plans", "catalog.write"),
-        Entry("adm_dc_btn", "dc", "catalog.write"),
-        Entry("adm_gc_btn", "gc", "wallet.adjust"),
-        Entry("adm_grw_btn", "grw", "settings.write"),
-        Entry("adm_gift_all", "gift_all", "wallet.adjust"),
+        Entry("adm_plans", "plans", "catalog.write", action="show"),
+        Entry("adm_s_categories", "scats", "catalog.write", action="show"),
+        Entry("adm_s_discount_manage", "dc", "catalog.write", action="show"),
+        Entry("adm_s_gift_manage", "gc", "wallet.adjust", action="show"),
+        Entry("adm_s_bulk", "sconf", "settings.write", action="show"),
     ),
     "finance": (
         Entry("adm_finance", "finance", "reports.read", action="show"),
@@ -186,6 +186,10 @@ def home_kb(t: Texts, staff: StaffIdentity, cfg: dict[str, Any]) -> InlineKeyboa
 
 
 def group_kb(t: Texts, staff: StaffIdentity, group: str, cfg: dict[str, Any]) -> InlineKeyboardMarkup:
+    if group == "shop":
+        from paurubot.bot.routers.admin_shop import home_kb as shop_kb
+
+        return shop_kb(t, staff)
     if group == "finance":
         from paurubot.bot.routers.admin_finance import home_kb as finance_kb
 
@@ -212,6 +216,8 @@ def group_kb(t: Texts, staff: StaffIdentity, group: str, cfg: dict[str, Any]) ->
 
 
 def group_text(t: Texts, group: str) -> str:
+    if group == "shop":
+        return t("adm_s_home")
     if group == "finance":
         return t("adm_f_home")
     if group == "users":
