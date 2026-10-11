@@ -32,6 +32,7 @@ from paurubot.db.models import (
     ResellerProfile,
     Service,
     ServiceStatus,
+    VerifiedCard,
 )
 from paurubot.db.models import Shop as ShopRow
 from paurubot.i18n import Texts
@@ -125,7 +126,7 @@ REQUIRES: dict[str, tuple[str, ...]] = {
 }
 ANY_OF: dict[str, tuple[str, ...]] = {"crypto_enabled": ("tron_address", "ton_address")}
 
-USER_FILTERS = ("all", "balance", "negative", "referrals", "active", "resellers", "banned")
+USER_FILTERS = ("all", "balance", "negative", "referrals", "active", "resellers", "banned", "cards")
 PERIODS = ("today", "hour", "yesterday", "week", "month", "all")
 
 
@@ -191,12 +192,16 @@ def user_conditions(shop_id: int, name: str) -> list[Any]:
         conds.append(exists(wallet.where(LedgerAccount.balance < 0)))
     elif name == "referrals":
         referee = aliased(Customer)
-        conds.append(exists(select(referee.id).where(referee.referrer_id == Customer.id)))
+        conds.append(
+            exists(select(referee.id).where(referee.shop_id == shop_id, referee.referrer_id == Customer.id))
+        )
     elif name == "active":
         conds.append(
             exists(
                 select(Service.id).where(
-                    Service.customer_id == Customer.id, Service.status == ServiceStatus.ACTIVE
+                    Service.shop_id == shop_id,
+                    Service.customer_id == Customer.id,
+                    Service.status == ServiceStatus.ACTIVE,
                 )
             )
         )
@@ -204,7 +209,19 @@ def user_conditions(shop_id: int, name: str) -> list[Any]:
         conds.append(
             exists(
                 select(ResellerProfile.id).where(
-                    ResellerProfile.customer_id == Customer.id, ResellerProfile.is_active.is_(True)
+                    ResellerProfile.shop_id == shop_id,
+                    ResellerProfile.customer_id == Customer.id,
+                    ResellerProfile.is_active.is_(True),
+                )
+            )
+        )
+    elif name == "cards":
+        conds.append(
+            exists(
+                select(VerifiedCard.id).where(
+                    VerifiedCard.shop_id == shop_id,
+                    VerifiedCard.customer_id == Customer.id,
+                    VerifiedCard.status == "approved",
                 )
             )
         )
@@ -290,7 +307,7 @@ async def features(
 async def user_lists(
     call: CallbackQuery, callback_data: Admin, session: AsyncSession, shop: ShopRow, t: Texts
 ) -> None:
-    if callback_data.action != "f":
+    if callback_data.action not in {"f", "uf"}:
         await call.answer()
         kb = InlineKeyboardBuilder()
         for index, name in enumerate(USER_FILTERS):
@@ -332,19 +349,23 @@ async def user_lists(
         nav.append(
             InlineKeyboardButton(
                 text="\u2039",
-                callback_data=Admin(section="ulist", action="f", id=callback_data.id, page=page - 1).pack(),
+                callback_data=Admin(
+                    section="ulist", action=callback_data.action, id=callback_data.id, page=page - 1
+                ).pack(),
             )
         )
     if page + 1 < pages:
         nav.append(
             InlineKeyboardButton(
                 text="\u203a",
-                callback_data=Admin(section="ulist", action="f", id=callback_data.id, page=page + 1).pack(),
+                callback_data=Admin(
+                    section="ulist", action=callback_data.action, id=callback_data.id, page=page + 1
+                ).pack(),
             )
         )
     if nav:
         kb.row(*nav)
-    kb.row(*_back(t, Admin(section="ulist")))
+    kb.row(*_back(t, Admin(section="users" if callback_data.action == "uf" else "ulist")))
     text = t("adm_ulist_head", title=esc(t(f"adm_ulist_{name}")), total=total, page=page + 1, pages=pages)
     if not rows:
         text += "\n" + t("adm_ulist_empty")

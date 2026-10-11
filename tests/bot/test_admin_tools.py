@@ -218,7 +218,9 @@ async def test_gift_to_resellers_pays_once(session, env) -> None:  # type: ignor
     await send(message_update(OWNER, "50000"))
     index = admin_tools.AUDIENCES.index("resellers")
     await send(callback_update(OWNER, Admin(section="gift_all", action="aud", page=index).pack()))
-    await send(callback_update(OWNER, Admin(section="gift_all", action="go").pack()))
+    confirmation = env["fake"].buttons(env["fake"].last(EditMessageText))[0][1]
+    assert confirmation is not None
+    await send(callback_update(OWNER, confirmation))
     await drain(session, "broadcast")
     assert await wallet_balance(session, shop.id, reseller.id) == 50_000
     assert await wallet_balance(session, shop.id, other.id) == 0

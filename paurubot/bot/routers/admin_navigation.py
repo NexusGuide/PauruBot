@@ -75,8 +75,18 @@ GROUPS: dict[str, tuple[Entry, ...]] = {
     "addpanel": (),  # Secure web form, never ask for panel credentials in this menu.
     "custom": (Entry("adm_x_group_custom", "xcfg", "settings.write", action="grp", page=2),),
     "users": (
-        Entry("adm_lookup", "lookup", "customers.read"),
-        Entry("adm_hub_users", "ulist", "customers.read"),
+        Entry("adm_users_balance", "ulist", "customers.read", action="uf", id=1),
+        Entry("adm_users_referrals", "ulist", "customers.read", action="uf", id=3),
+        Entry("adm_users_cards", "ulist", "customers.read", action="uf", id=7),
+        Entry("adm_users_negative", "ulist", "customers.read", action="uf", id=2),
+        Entry("adm_users_active", "ulist", "customers.read", action="uf", id=4),
+        Entry("adm_users_resellers", "ulist", "customers.read", action="uf", id=5),
+        Entry("adm_users_all", "ulist", "customers.read", action="uf", id=0),
+        Entry("adm_users_order", "uorders", "orders.read", action="show"),
+        Entry("adm_users_charge", "gift_all", "wallet.adjust"),
+        Entry("adm_users_lookup", "lookup", "customers.read"),
+        Entry("adm_users_message", "broadcast", "broadcast.send"),
+        Entry("adm_users_bulk", "ubulk", "services.write", action="show"),
     ),
     "shop": (
         Entry("adm_plans", "plans", "catalog.write"),
@@ -119,7 +129,14 @@ LABEL_KEYS = tuple(f"adm_nav_{group}" for group in GROUPS) + ("adm_nav_back",)
 
 
 def entries(group: str, staff: StaffIdentity) -> list[Entry]:
-    return [item for item in GROUPS.get(group, ()) if item.permission is None or staff.can(item.permission)]
+    items = [item for item in GROUPS.get(group, ()) if item.permission is None or staff.can(item.permission)]
+    if group == "users":
+        items = [
+            item
+            for item in items
+            if staff.can("customers.read") and (item.section != "ubulk" or staff.can("wallet.adjust"))
+        ]
+    return items
 
 
 def allowed(group: str, staff: StaffIdentity) -> bool:
@@ -167,6 +184,10 @@ def home_kb(t: Texts, staff: StaffIdentity, cfg: dict[str, Any]) -> InlineKeyboa
 
 
 def group_kb(t: Texts, staff: StaffIdentity, group: str, cfg: dict[str, Any]) -> InlineKeyboardMarkup:
+    if group == "users":
+        from paurubot.bot.routers.admin_users import home_kb as user_kb
+
+        return user_kb(t, staff)
     kb = InlineKeyboardBuilder()
     for item in entries(group, staff):
         label = t(item.key)
@@ -185,6 +206,8 @@ def group_kb(t: Texts, staff: StaffIdentity, group: str, cfg: dict[str, Any]) ->
 
 
 def group_text(t: Texts, group: str) -> str:
+    if group == "users":
+        return t("adm_users_home")
     if group in {"guide", "addpanel", "updates"}:
         suffix = "text" if get_settings().public_url else "no_web"
         return t(f"adm_nav_{group}_{suffix}")

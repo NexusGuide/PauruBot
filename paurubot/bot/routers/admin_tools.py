@@ -1118,20 +1118,28 @@ async def gift_all(
         await call.answer()
         audience = AUDIENCES[callback_data.page % len(AUDIENCES)]
         count = await _audience_count(session, shop.id, audience)
-        await state.update_data(gift_audience=audience)
+        batch = secrets.token_hex(6)
+        await state.update_data(gift_audience=audience, gift_batch=batch)
         await show(
             call,
             t("adm_gift_confirm", amount=money(amount), count=count, audience=t(f"adm_aud_{audience}")),
-            keyboards.confirm(t, Admin(section="gift_all", action="go").pack(), Admin(section="home").pack()),
+            keyboards.confirm(
+                t,
+                Admin(section="gift_all", action="go", id=int(batch, 16)).pack(),
+                Admin(section="home").pack(),
+            ),
         )
         return
     if callback_data.action == "go":
+        batch = str(data.get("gift_batch") or "")
+        if not batch or callback_data.id != int(batch, 16):
+            await call.answer(t("button_expired"), show_alert=True)
+            return
         audience = str(data.get("gift_audience") or "")
         if audience not in AUDIENCES:
             await call.answer()
             return
         await state.clear()
-        batch = secrets.token_hex(6)
         await queue.enqueue(
             session,
             "broadcast",
@@ -1154,14 +1162,14 @@ async def gift_all(
         await show(call, t("adm_gift_queued"), back_home(t))
 
 
-@router.message(AdminStates.gift_amount, F.text)
+@router.message(AdminStates.gift_amount, F.text, StaffOnly("wallet.adjust"))
 async def gift_amount(message: Message, t: Texts, state: FSMContext) -> None:
     amount = parse_int(message.text)
     if amount is None or not 1_000 <= amount <= 10_000_000:
         await message.answer(t("adm_gift_amount_invalid"))
         return
     await state.set_state(None)
-    await state.update_data(gift_amount=amount)
+    await state.update_data(gift_amount=amount, gift_batch=secrets.token_hex(6))
     await message.answer(
         t("adm_gift_audience", amount=money(amount)), reply_markup=audience_kb(t, "gift_all")
     )
