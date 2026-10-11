@@ -31,11 +31,14 @@ GROUPS = {"group", "supergroup"}
 
 
 def ops_buttons(t: Texts, staff: StaffIdentity) -> list[tuple[str, Admin]]:
+    from paurubot.bot.routers.admin_hub import hub_buttons
+
     out: list[tuple[str, Admin]] = []
     if staff.can("settings.write"):
         out.append((t("adm_status"), Admin(section="status")))
     if staff.can("backups.manage"):
         out.append((t("adm_backups"), Admin(section="backups")))
+    out.extend(hub_buttons(t, staff))
     return out
 
 

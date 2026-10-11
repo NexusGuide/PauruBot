@@ -1,6 +1,7 @@
 """Locale catalogs, per-shop text overrides and safe message variables (BOT-01, BOT-04).
 
-Every customer-visible string lives in `fa.json` / `en.json`. Shops can override any key per
+Every customer-visible string lives in `fa.json` / `en.json` (plus add-on catalogs named
+`fa.<part>.json` / `en.<part>.json`). Shops can override any key per
 locale from the admin panel; overrides go through the same restricted formatter, so a text edit
 can use `{name}` style variables but can never reach object attributes or indexes.
 """
@@ -28,11 +29,17 @@ _overrides: dict[int, tuple[float, dict[str, dict[str, str]]]] = {}
 
 @lru_cache
 def catalog(locale: str) -> dict[str, str]:
+    """`{locale}.json` plus any `{locale}.<part>.json` add-on catalogs (e.g. `fa.hub.json`)."""
     path = LOCALE_DIR / f"{locale}.json"
     if not path.exists():
         return {}
     with path.open(encoding="utf-8") as fh:
-        return json.load(fh)
+        data: dict[str, str] = json.load(fh)
+    for extra in sorted(LOCALE_DIR.glob(f"{locale}.*.json")):
+        with extra.open(encoding="utf-8") as fh:
+            for key, value in json.load(fh).items():
+                data.setdefault(key, value)
+    return data
 
 
 def keys() -> list[str]:
