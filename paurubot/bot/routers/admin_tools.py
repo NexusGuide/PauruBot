@@ -20,7 +20,7 @@ from paurubot.bot import keyboards
 from paurubot.bot.callbacks import Admin
 from paurubot.bot.context import StaffIdentity
 from paurubot.bot.routers.admin import actor, back_home, customer_card
-from paurubot.bot.routers.start import menu
+from paurubot.bot.routers.admin_navigation import menu
 from paurubot.bot.states import AdminStates
 from paurubot.bot.utils import StaffOnly, show
 from paurubot.core import catalog, customers, finance, pricing

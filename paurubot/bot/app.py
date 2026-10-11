@@ -18,6 +18,7 @@ from paurubot.bot.routers import (
     admin_extra,
     admin_growth,
     admin_hub,
+    admin_navigation,
     admin_ops,
     admin_tools,
     business,
@@ -75,6 +76,7 @@ def build_dispatcher(storage: BaseStorage | None = None, shop_id: int | None = N
     dp.include_routers(
         business.router,
         start.router,
+        admin_navigation.router,
         admin.router,
         admin_tools.router,
         admin_ops.router,

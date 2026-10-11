@@ -1,0 +1,237 @@
+"""Permission-aware admin reply keyboard and categorized shortcuts.
+
+Only navigation lives here: existing callback handlers still enforce permissions,
+tenant isolation and confirmation for their own actions. No synthetic updates.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from aiogram import F, Router
+from aiogram.fsm.context import FSMContext
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    Message,
+    ReplyKeyboardMarkup,
+)
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from paurubot.bot.callbacks import Admin, Rb
+from paurubot.bot.context import StaffIdentity
+from paurubot.bot.utils import Btn, StaffOnly, show
+from paurubot.config import get_settings
+from paurubot.db.models import StaffRole
+from paurubot.i18n import Texts
+
+router = Router(name="admin_navigation")
+router.message.filter(StaffOnly())
+router.callback_query.filter(StaffOnly())
+
+
+@dataclass(frozen=True)
+class Entry:
+    key: str
+    section: str
+    permission: str | None = None
+    action: str = ""
+    page: int = 0
+    id: int = 0
+
+    def target(self) -> Admin:
+        return Admin(section=self.section, action=self.action, page=self.page, id=self.id)
+
+
+# Telegram places the first item on the left; pairs match the Persian reference.
+HOME_ROWS = (
+    ("stats",),
+    ("resellers",),
+    ("panels", "addpanel"),
+    ("custom",),
+    ("users", "shop"),
+    ("finance",),
+    ("support", "guide"),
+    ("updates", "features"),
+    ("settings", "receipts"),
+)
+GROUPS: dict[str, tuple[Entry, ...]] = {
+    "stats": (
+        Entry("adm_stats", "stats"),
+        Entry("adm_hub_stats", "pstats", "reports.read"),
+        Entry("adm_finance", "finance", "reports.read"),
+    ),
+    "resellers": (
+        Entry("adm_applications", "applications", "resellers.manage"),
+        Entry("adm_ulist_resellers", "ulist", "customers.read", action="f", id=5),
+    ),
+    "panels": (
+        Entry("adm_panels", "panels", "panels.read"),
+        Entry("adm_pcfg_btn", "pcfg", "panels.write"),
+    ),
+    "addpanel": (),  # Secure web form, never ask for panel credentials in this menu.
+    "custom": (Entry("adm_x_group_custom", "xcfg", "settings.write", action="grp", page=2),),
+    "users": (
+        Entry("adm_lookup", "lookup", "customers.read"),
+        Entry("adm_hub_users", "ulist", "customers.read"),
+    ),
+    "shop": (
+        Entry("adm_plans", "plans", "catalog.write"),
+        Entry("adm_dc_btn", "dc", "catalog.write"),
+        Entry("adm_gc_btn", "gc", "wallet.adjust"),
+        Entry("adm_grw_btn", "grw", "settings.write"),
+        Entry("adm_gift_all", "gift_all", "wallet.adjust"),
+    ),
+    "finance": (
+        Entry("adm_finance", "finance", "reports.read"),
+        Entry("adm_payments", "payments", "payments.review"),
+        Entry("adm_cards_btn", "cards", "settings.write"),
+        Entry("adm_cfg_btn", "cfg", "settings.write"),
+        Entry("adm_gc_btn", "gc", "wallet.adjust"),
+    ),
+    "support": (
+        Entry("adm_tickets", "tickets", "tickets.reply"),
+        Entry("adm_broadcast", "broadcast", "broadcast.send"),
+        Entry("adm_bc_unpin", "bc_unpin", "broadcast.send"),
+    ),
+    "guide": (),
+    "updates": (Entry("adm_backups", "backups", "backups.manage"),),
+    "features": (
+        Entry("adm_hub_features", "feat", "settings.write"),
+        Entry("adm_x_btn", "xcfg", "settings.write"),
+        Entry("adm_grw_btn", "grw", "settings.write"),
+    ),
+    "receipts": (Entry("adm_payments", "payments", "payments.review"),),
+    "settings": (
+        Entry("adm_settings", "settings", "settings.write"),
+        Entry("adm_cfg_btn", "cfg", "settings.write"),
+        Entry("adm_look", "look", "settings.write"),
+        Entry("adm_x_btn", "xcfg", "settings.write"),
+        Entry("adm_status", "status", "settings.write"),
+        Entry("adm_backups", "backups", "backups.manage"),
+        Entry("adm_nav_maintenance", "maintenance", "settings.write"),
+    ),
+}
+LABEL_KEYS = tuple(f"adm_nav_{group}" for group in GROUPS) + ("adm_nav_back",)
+
+
+def entries(group: str, staff: StaffIdentity) -> list[Entry]:
+    return [item for item in GROUPS.get(group, ()) if item.permission is None or staff.can(item.permission)]
+
+
+def allowed(group: str, staff: StaffIdentity) -> bool:
+    if group == "guide":
+        return True
+    if group == "addpanel":
+        return staff.can("panels.write") and staff.can("panels.read")
+    if group == "updates":
+        return staff.can("backups.manage")
+    if group == "resellers" and staff.role == StaffRole.MERCHANT:
+        return True
+    return bool(entries(group, staff))
+
+
+def menu(t: Texts, cfg: dict[str, Any], staff: StaffIdentity) -> ReplyKeyboardMarkup:
+    """Same calling convention as start.menu, for admin-only completion messages."""
+    rows: list[list[KeyboardButton]] = []
+    for group_row in HOME_ROWS:
+        row = [KeyboardButton(text=t(f"adm_nav_{g}")) for g in group_row if allowed(g, staff)]
+        if row:
+            rows.append(row)
+    rows.append([KeyboardButton(text=t("adm_nav_back"))])
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, is_persistent=True)
+
+
+def home_kb(t: Texts, staff: StaffIdentity, cfg: dict[str, Any]) -> InlineKeyboardMarkup:
+    """Compact category links for old inline home/maintenance messages."""
+    rows = [
+        [
+            InlineKeyboardButton(text=t(f"adm_nav_{g}"), callback_data=Admin(section="nav", action=g).pack())
+            for g in row
+            if allowed(g, staff)
+        ]
+        for row in HOME_ROWS
+    ]
+    rows = [row for row in rows if row]
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=t("adm_nav_back"), callback_data=Admin(section="nav", action="exit").pack()
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def group_kb(t: Texts, staff: StaffIdentity, group: str, cfg: dict[str, Any]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for item in entries(group, staff):
+        label = t(item.key)
+        if item.section == "maintenance":
+            label = t("adm_maintenance_on" if cfg.get("bot_enabled", True) else "adm_maintenance_off")
+        kb.button(text=label, callback_data=item.target())
+    if group == "resellers" and staff.role == StaffRole.MERCHANT:
+        kb.button(text=t("rb_btn_hub"), callback_data=Rb(action="home"))
+    kb.adjust(2)
+    url = get_settings().public_url.rstrip("/")
+    web_pages = {"addpanel": "panels", "updates": "updates", "guide": "help", "settings": ""}
+    if url and group in web_pages:
+        kb.row(InlineKeyboardButton(text=t("adm_nav_open_web"), url=f"{url}/admin/{web_pages[group]}"))
+    kb.row(InlineKeyboardButton(text=t("adm_nav_home"), callback_data=Admin(section="home").pack()))
+    return kb.as_markup()
+
+
+def group_text(t: Texts, group: str) -> str:
+    if group in {"guide", "addpanel", "updates"}:
+        suffix = "text" if get_settings().public_url else "no_web"
+        return t(f"adm_nav_{group}_{suffix}")
+    return t("adm_nav_group_text", title=t(f"adm_nav_{group}"))
+
+
+@router.message(Btn(*LABEL_KEYS))
+async def navigate(
+    message: Message, t: Texts, staff: StaffIdentity, cfg: dict[str, Any], state: FSMContext
+) -> None:
+    if t.matches(message.text, "adm_nav_back"):
+        await state.clear()
+        from paurubot.bot.routers.start import home
+
+        await home(message, t, cfg, staff)
+        return
+    group = next((g for g in GROUPS if t.matches(message.text, f"adm_nav_{g}")), "")
+    if not allowed(group, staff):
+        await message.answer(t("adm_forbidden"))
+        return
+    await state.clear()
+    # Restore the persistent admin keyboard if a canceled input had replaced it.
+    await message.answer(t("adm_nav_open", title=t(f"adm_nav_{group}")), reply_markup=menu(t, cfg, staff))
+    await message.answer(group_text(t, group), reply_markup=group_kb(t, staff, group, cfg))
+
+
+@router.callback_query(Admin.filter(F.section == "nav"))
+async def navigate_cb(
+    call: CallbackQuery,
+    callback_data: Admin,
+    t: Texts,
+    staff: StaffIdentity,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    group = callback_data.action
+    if group == "exit":
+        await state.clear()
+        await call.answer()
+        if isinstance(call.message, Message):
+            from paurubot.bot.routers.start import home
+
+            await home(call.message, t, cfg, staff)
+        return
+    if not allowed(group, staff):
+        await call.answer(t("adm_forbidden"), show_alert=True)
+        return
+    await state.clear()
+    await call.answer()
+    await show(call, group_text(t, group), group_kb(t, staff, group, cfg))

@@ -19,7 +19,7 @@ from paurubot.bot.context import StaffIdentity
 from paurubot.bot.routers.admin import actor
 from paurubot.bot.routers.admin_config import _ask, _back, _btn, save, shown
 from paurubot.bot.routers.admin_extra import extra_buttons
-from paurubot.bot.routers.start import menu
+from paurubot.bot.routers.admin_navigation import menu
 from paurubot.bot.states import AdminStates
 from paurubot.bot.utils import StaffOnly, show
 from paurubot.core import growth

@@ -23,7 +23,7 @@ from paurubot.bot.callbacks import Admin
 from paurubot.bot.context import StaffIdentity
 from paurubot.bot.routers.admin import actor
 from paurubot.bot.routers.admin_hub import can_enable
-from paurubot.bot.routers.start import menu
+from paurubot.bot.routers.admin_navigation import menu
 from paurubot.bot.states import AdminStates
 from paurubot.bot.utils import StaffOnly, show
 from paurubot.core import settings as shop_settings

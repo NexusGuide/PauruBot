@@ -93,13 +93,13 @@ async def test_home_shows_tools_by_permission(session, env) -> None:  # type: ig
     send, fake = env["send"], env["fake"]
     await send(message_update(OWNER, "/start"))
     await send(message_update(OWNER, FA("btn_admin")))
-    owner = labels(fake, SendMessage)
-    for key in ("adm_plans", "adm_panels", "adm_finance", "adm_settings", "adm_gift_all"):
+    owner = [b.text for row in fake.last(SendMessage).reply_markup.keyboard for b in row]
+    for key in ("adm_nav_shop", "adm_nav_panels", "adm_nav_finance", "adm_nav_settings"):
         assert FA(key) in owner, key
     await send(message_update(SUPPORT, "/start"))
     await send(message_update(SUPPORT, FA("btn_admin")))
-    support = labels(fake, SendMessage)
-    assert FA("adm_plans") not in support and FA("adm_settings") not in support
+    support = [b.text for row in fake.last(SendMessage).reply_markup.keyboard for b in row]
+    assert FA("adm_nav_shop") not in support and FA("adm_nav_settings") not in support
     # A forged button from the support role is refused like any other staff-only action.
     fake.reset()
     await send(callback_update(SUPPORT, Admin(section="settings").pack()))
