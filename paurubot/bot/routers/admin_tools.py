@@ -815,7 +815,14 @@ async def panels_list(
             after={"is_active": panel.is_active},
         )
         await session.commit()
-    rows = list(await session.scalars(select(Panel).where(Panel.shop_id == shop.id).order_by(Panel.id)))
+    total = int(await session.scalar(select(func.count(Panel.id)).where(Panel.shop_id == shop.id)) or 0)
+    pages = max(1, (total + 9) // 10)
+    page = min(max(0, callback_data.page), pages - 1)
+    rows = list(
+        await session.scalars(
+            select(Panel).where(Panel.shop_id == shop.id).order_by(Panel.id).offset(page * 10).limit(10)
+        )
+    )
     counts = dict(
         (
             await session.execute(
@@ -826,7 +833,7 @@ async def panels_list(
         ).all()
     )
     await call.answer()
-    lines = [t("adm_panels_title")]
+    lines = [t("adm_pm_list_head", total=total, page=page + 1, pages=pages)]
     kb = InlineKeyboardBuilder()
     for panel in rows:
         health = (
@@ -843,13 +850,28 @@ async def panels_list(
                 active=counts.get(panel.id, 0),
             )
         )
-        if staff.can("panels.write"):
-            kb.button(
-                text=(t("adm_panel_off") if panel.is_active else t("adm_panel_on")) + f" {panel.name}"[:48],
-                callback_data=Admin(section="panels", action="toggle", id=panel.id),
+        kb.row(
+            InlineKeyboardButton(
+                text=t("adm_pm_manage_name", name=panel.name[:40]),
+                callback_data=Admin(section="pmgr", id=panel.id).pack(),
             )
-    kb.button(text=t("btn_back"), callback_data=Admin(section="home"))
-    kb.adjust(1)
+        )
+    nav = []
+    if page > 0:
+        nav.append(
+            InlineKeyboardButton(
+                text=t("adm_ud_previous"), callback_data=Admin(section="panels", page=page - 1).pack()
+            )
+        )
+    if page + 1 < pages:
+        nav.append(
+            InlineKeyboardButton(
+                text=t("adm_ud_next"), callback_data=Admin(section="panels", page=page + 1).pack()
+            )
+        )
+    if nav:
+        kb.row(*nav)
+    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Admin(section="home").pack()))
     await show(call, "\n".join(lines), kb.as_markup())
 
 

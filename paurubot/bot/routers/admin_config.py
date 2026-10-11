@@ -768,6 +768,7 @@ def panel_kb(t: Texts, panel: Panel) -> InlineKeyboardMarkup:
         _btn(t("adm_pcfg_capacity"), Admin(section="pcfg", action="cap", id=panel.id)),
         _btn(t("adm_pcfg_prefix"), Admin(section="pcfg", action="prefix", id=panel.id)),
     )
+    kb.row(_btn(t("adm_pm_manage"), Admin(section="pmgr", id=panel.id)))
     kb.row(_back(t, Admin(section="pcfg")))
     return kb.as_markup()
 
