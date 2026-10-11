@@ -237,7 +237,8 @@ def group_kb(t: Texts, group: str, cfg: dict[str, Any]) -> InlineKeyboardMarkup:
             action = "tog"
         else:
             action = "pick" if key in CHOICES else "ask"
-        label = f"{t('adm_cfg_' + key)}: {shown(key, cfg.get(key))}"
+        name = t(f"adm_cfg_{key}")
+        label = f"{name}: {shown(key, cfg.get(key))}"
         kb.row(_btn(label, Admin(section="cfg", action=action, id=CONFIG_KEYS.index(key))))
     kb.row(_back(t, Admin(section="cfg")))
     return kb.as_markup()
@@ -269,7 +270,7 @@ async def config(
             await call.answer()
             await state.set_state(AdminStates.config_value)
             await state.update_data(config_key=key)
-            name = esc(t("adm_cfg_" + key))
+            name = esc(t(f"adm_cfg_{key}"))
             current = esc(shown(key, cfg.get(key)))
             ask = "adm_cfg_ask_secret" if shop_settings.SPECS[key].secret else "adm_cfg_ask"
             await _ask(call, t(ask, name=name, value=current), t)
