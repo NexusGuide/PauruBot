@@ -72,6 +72,17 @@ def _event_message(event: TelegramObject) -> Message | CallbackQuery | None:
     return None
 
 
+def flood_exempt(update: Any) -> bool:
+    """Payment updates skip the flood guard: an unanswered pre-checkout makes Telegram cancel the
+    payment, and a dropped successful_payment would leave a paid order unfulfilled."""
+    if update is None:
+        return False
+    if getattr(update, "pre_checkout_query", None) is not None:
+        return True
+    message = getattr(update, "message", None)
+    return message is not None and getattr(message, "successful_payment", None) is not None
+
+
 async def _notify(event: TelegramObject, text: str) -> None:
     target = _event_message(event)
     try:
@@ -138,11 +149,12 @@ class ContextMiddleware(BaseMiddleware):
                 result = await handler(event, data)
                 await session.commit()
                 return result
-            allowed, count = await kv.hit(f"flood:{tg_user.id}", FLOOD_LIMIT, FLOOD_WINDOW)
-            if not allowed:
-                if count == FLOOD_LIMIT + 1:
-                    log.info("flood guard engaged for %s", tg_user.id)
-                return None
+            if not flood_exempt(update):
+                allowed, count = await kv.hit(f"flood:{tg_user.id}", FLOOD_LIMIT, FLOOD_WINDOW)
+                if not allowed:
+                    if count == FLOOD_LIMIT + 1:
+                        log.info("flood guard engaged for %s", tg_user.id)
+                    return None
             customer, created = await customers.upsert_from_telegram(
                 session,
                 shop.id,

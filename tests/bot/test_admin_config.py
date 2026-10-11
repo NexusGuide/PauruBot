@@ -103,7 +103,7 @@ def test_parse_card() -> None:
     ("perms", "sections"),
     [
         ((), []),
-        (("settings.write",), ["cfg", "cards"]),
+        (("settings.write",), ["cfg", "cards", "grw", "xcfg"]),
         (("catalog.write", "wallet.adjust"), ["dc", "gc"]),
         (("panels.write",), ["pcfg"]),
     ],

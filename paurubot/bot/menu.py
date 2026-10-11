@@ -185,7 +185,9 @@ def main_menu(t: Texts, cfg: dict[str, Any], *, is_staff: bool) -> ReplyKeyboard
             rows.append(buttons)
     if is_staff:
         rows.append([styled(t("btn_admin"), styles.get("admin"))])
-    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, is_persistent=True)
+    # Not persistent: the phone's back button and the keyboard icon must be able to fold it away,
+    # or it covers half the chat on small screens and nothing can close it.
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
 
 def validate_help(value: Any) -> list[dict[str, str]]:

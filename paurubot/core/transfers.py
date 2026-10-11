@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from paurubot.core import customers
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import utcnow
-from paurubot.db.models import Customer, LedgerEntry, LedgerJournal
+from paurubot.db.models import Customer, LedgerAccount, LedgerEntry, LedgerJournal
 from paurubot.ledger.accounts import wallet_account
 from paurubot.ledger.posting import InsufficientFunds, transfer
 
@@ -65,8 +65,10 @@ async def check(session: AsyncSession, sender: Customer, amount: int) -> None:
     if sender.is_banned:
         raise TransferError("transfer_off")
     minimum = int(cfg["wallet_transfer_min"] or 0)
-    if amount < max(1, minimum) or amount > MAX_AMOUNT:
+    if amount < max(1, minimum):
         raise TransferError("transfer_min", low=minimum)
+    if amount > MAX_AMOUNT:
+        raise TransferError("transfer_max", high=MAX_AMOUNT)
     daily = int(cfg["wallet_transfer_daily_max"] or 0)
     if daily and await sent_today(session, sender) + amount > daily:
         raise TransferError("transfer_daily_max", high=daily)
@@ -76,16 +78,24 @@ async def send(
     session: AsyncSession, sender: Customer, recipient: Customer, amount: int, *, key: str
 ) -> None:
     """Move `amount` from the sender's wallet to the recipient's, once per `key`."""
+    if recipient.shop_id != sender.shop_id or recipient.id == sender.id:
+        raise TransferError("transfer_no_recipient")
+    source = await wallet_account(session, sender.shop_id, sender.id)
+    target = await wallet_account(session, sender.shop_id, recipient.id)
+    # Lock both wallets (in id order, like the ledger does) before reading today's total, so two
+    # transfers sent at the same moment are checked one after the other against the daily cap.
+    await session.execute(
+        select(LedgerAccount.id)
+        .where(LedgerAccount.id.in_(sorted({source.id, target.id})))
+        .order_by(LedgerAccount.id)
+        .with_for_update()
+    )
     done = await session.scalar(
         select(LedgerJournal.id).where(LedgerJournal.idempotency_key == f"transfer:{key}")
     )
     if done is not None:
         return  # the same confirmation pressed again
     await check(session, sender, amount)
-    if recipient.shop_id != sender.shop_id or recipient.id == sender.id:
-        raise TransferError("transfer_no_recipient")
-    source = await wallet_account(session, sender.shop_id, sender.id)
-    target = await wallet_account(session, sender.shop_id, recipient.id)
     try:
         await transfer(
             session,

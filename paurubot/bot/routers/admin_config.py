@@ -147,6 +147,10 @@ def config_buttons(t: Texts, staff: StaffIdentity) -> list[tuple[str, Admin]]:
         out.append((t("adm_gc_btn"), Admin(section="gc")))
     if staff.can("panels.write"):
         out.append((t("adm_pcfg_btn"), Admin(section="pcfg")))
+    # Local import: admin_growth reuses this module's helpers.
+    from paurubot.bot.routers.admin_growth import growth_buttons
+
+    out += growth_buttons(t, staff)
     return out
 
 

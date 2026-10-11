@@ -218,14 +218,20 @@ async def transfer_go(
 
 @router.callback_query(Wallet.filter(F.action == "history"))
 async def history(
-    call: CallbackQuery, callback_data: Wallet, session: AsyncSession, customer: Customer, t: Texts
+    call: CallbackQuery,
+    callback_data: Wallet,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
 ) -> None:
     await call.answer()
     rows = await wallet.history(
         session, customer.shop_id, customer.id, limit=10, before_id=callback_data.before or None
     )
     if not rows:
-        await show(call, t("history_empty"), keyboards.wallet_kb(t))
+        kb = keyboards.wallet_kb(t, transfer=bool(cfg["wallet_transfer_enabled"]))
+        await show(call, t("history_empty"), kb)
         return
     lines = [t("history_header")]
     for entry, journal in rows:
@@ -279,6 +285,9 @@ async def typed_amount(
         return
     await state.clear()
     methods = await payments.available(session, customer.shop_id, customer)
+    if not methods:
+        await message.answer(t("no_payment_methods"), reply_markup=menu(t, cfg, staff))
+        return
     await message.answer(t("topup_amount_set", amount=money(amount)), reply_markup=menu(t, cfg, staff))
     await message.answer(
         t("topup_choose_method"), reply_markup=keyboards.topup_methods_kb(t, amount, methods)
