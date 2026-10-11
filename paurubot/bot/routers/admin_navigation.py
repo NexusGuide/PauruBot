@@ -111,20 +111,27 @@ GROUPS: dict[str, tuple[Entry, ...]] = {
     "guide": (),
     "updates": (Entry("adm_backups", "backups", "backups.manage"),),
     "features": (
-        Entry("adm_hub_features", "feat", "settings.write"),
+        Entry("adm_feat_group_main", "feat", "settings.write", action="cat", page=0),
+        Entry("adm_feat_group_users", "feat", "settings.write", action="cat", page=1),
+        Entry("adm_feat_group_sales", "feat", "settings.write", action="cat", page=2),
+        Entry("adm_feat_group_growth", "feat", "settings.write", action="cat", page=3),
+        Entry("adm_feat_group_payments", "fgw", "settings.write", action="show"),
+        Entry("adm_cfg_group_crons", "cfg", "settings.write", action="grp", page=1),
+        Entry("adm_look", "look", "settings.write"),
+        Entry("adm_status", "status", "settings.write"),
         Entry("adm_x_btn", "xcfg", "settings.write"),
         Entry("adm_grw_btn", "grw", "settings.write"),
     ),
     "receipts": (Entry("adm_payments", "payments", "payments.review"),),
+    # Fixed links of the general settings hub; its switches carry live values (admin_general).
     "settings": (
-        Entry("adm_settings", "settings", "settings.write"),
-        Entry("adm_cfg_btn", "cfg", "settings.write"),
-        Entry("adm_cards_btn", "cards", "settings.write"),
-        Entry("adm_look", "look", "settings.write"),
-        Entry("adm_x_btn", "xcfg", "settings.write"),
+        Entry("adm_gs_main", "feat", "settings.write", action="cat", page=0),
+        Entry("adm_hub_features", "feat", "settings.write"),
+        Entry("adm_gs_look", "look", "settings.write"),
+        Entry("adm_cfg_group_crons", "cfg", "settings.write", action="grp", page=1),
+        Entry("adm_gs_values", "settings", "settings.write", action="show"),
         Entry("adm_status", "status", "settings.write"),
         Entry("adm_backups", "backups", "backups.manage"),
-        Entry("adm_nav_maintenance", "maintenance", "settings.write"),
     ),
 }
 LABEL_KEYS = tuple(f"adm_nav_{group}" for group in GROUPS) + ("adm_nav_back",)
@@ -161,7 +168,8 @@ def menu(t: Texts, cfg: dict[str, Any], staff: StaffIdentity) -> ReplyKeyboardMa
         if row:
             rows.append(row)
     rows.append([KeyboardButton(text=t("adm_nav_back"))])
-    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, is_persistent=True)
+    # Not persistent: the phone's back button must be able to hide it (the keyboard icon reopens it).
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, is_persistent=False)
 
 
 def home_kb(t: Texts, staff: StaffIdentity, cfg: dict[str, Any]) -> InlineKeyboardMarkup:
@@ -198,6 +206,14 @@ def group_kb(t: Texts, staff: StaffIdentity, group: str, cfg: dict[str, Any]) ->
         from paurubot.bot.routers.admin_users import home_kb as user_kb
 
         return user_kb(t, staff)
+    if group == "settings":
+        from paurubot.bot.routers.admin_general import hub_kb
+
+        return hub_kb(t, staff, cfg)
+    if group == "features":
+        from paurubot.bot.routers.admin_hub import features_kb
+
+        return features_kb(t, cfg)
     kb = InlineKeyboardBuilder()
     for item in entries(group, staff):
         label = t(item.key)
@@ -208,7 +224,7 @@ def group_kb(t: Texts, staff: StaffIdentity, group: str, cfg: dict[str, Any]) ->
         kb.button(text=t("rb_btn_hub"), callback_data=Rb(action="home"))
     kb.adjust(2)
     url = get_settings().public_url.rstrip("/")
-    web_pages = {"addpanel": "panels", "updates": "updates", "guide": "help", "settings": ""}
+    web_pages = {"addpanel": "panels", "updates": "updates", "guide": "help"}
     if url and group in web_pages:
         kb.row(InlineKeyboardButton(text=t("adm_nav_open_web"), url=f"{url}/admin/{web_pages[group]}"))
     kb.row(InlineKeyboardButton(text=t("adm_nav_home"), callback_data=Admin(section="home").pack()))
@@ -222,6 +238,10 @@ def group_text(t: Texts, group: str) -> str:
         return t("adm_f_home")
     if group == "users":
         return t("adm_users_home")
+    if group == "settings":
+        return t("adm_gs_home")
+    if group == "features":
+        return t("adm_feat_title")
     if group in {"guide", "addpanel", "updates"}:
         suffix = "text" if get_settings().public_url else "no_web"
         return t(f"adm_nav_{group}_{suffix}")

@@ -958,7 +958,7 @@ async def settings_view(
                 text=t(f"adm_set_group_{group}"),
                 callback_data=Admin(section="settings", action="group", page=index),
             )
-        kb.button(text=t("btn_back"), callback_data=Admin(section="home"))
+        kb.button(text=t("btn_back"), callback_data=Admin(section="gset", action="show"))
         kb.adjust(2)
         await show(call, t("adm_settings_title"), kb.as_markup())
         return
@@ -1001,7 +1001,7 @@ def _group_kb(t: Texts, group: str, cfg: dict[str, Any]) -> InlineKeyboardMarkup
         )
     if group == "growth":
         kb.button(text=t("adm_trial_reset_all"), callback_data=Admin(section="trialreset"))
-    kb.button(text=t("btn_back"), callback_data=Admin(section="settings"))
+    kb.button(text=t("btn_back"), callback_data=Admin(section="settings", action="show"))
     kb.adjust(1)
     return kb.as_markup()
 

@@ -45,6 +45,7 @@ PAGE = 10
 TZ = ZoneInfo("Asia/Tehran")
 
 # Feature switches grouped like the "feature status" screens; every key is a bool in SPECS.
+# Payment gateways are not here: the finance hub owns them with readiness checks and review.
 FEATURES: dict[str, list[str]] = {
     "main": [
         "bot_enabled",
@@ -86,26 +87,6 @@ FEATURES: dict[str, list[str]] = {
         "wheel_buyers_only",
         "lottery_enabled",
         "loyalty_enabled",
-    ],
-    "payments": [
-        "card_enabled",
-        "card_auto_approve",
-        "card_random_tail",
-        "receipt_duplicate_block",
-        "wallet_transfer_enabled",
-        "stars_enabled",
-        "zarinpal_enabled",
-        "nowpayments_enabled",
-        "plisio_enabled",
-        "aqayepardakht_enabled",
-        "tetra98_enabled",
-        "variza_enabled",
-        "abangateway_enabled",
-        "blupal_enabled",
-        "tronado_enabled",
-        "cubepay_enabled",
-        "atlaspay_enabled",
-        "crypto_enabled",
     ],
 }
 FEATURE_KEYS: list[str] = [key for keys in FEATURES.values() for key in keys]
@@ -237,29 +218,122 @@ def _back(t: Texts, target: Admin) -> list[InlineKeyboardButton]:
 # --- feature switches ------------------------------------------------------------------------
 
 
-def features_kb(t: Texts) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    for index, group in enumerate(FEATURES):
-        kb.button(
-            text=t(f"adm_feat_group_{group}"), callback_data=Admin(section="feat", action="cat", page=index)
-        )
-    kb.adjust(2)
-    kb.row(*_back(t, Admin(section="home")))
-    return kb.as_markup()
+def features_kb(t: Texts, cfg: dict[str, Any] | None = None) -> InlineKeyboardMarkup:
+    """Feature categories; only things PauruBot really has, one per row."""
+    from paurubot.bot.routers.admin_general import CRONS_PAGE
+
+    cfg = cfg or {}
+    rows = [
+        [_btn(t(f"adm_feat_group_{group}"), Admin(section="feat", action="cat", page=index))]
+        for index, group in enumerate(FEATURES)
+    ]
+    emojis = len(cfg.get("premium_emojis") or {})
+    rows += [
+        [_btn(t("adm_feat_group_payments"), Admin(section="fgw", action="show"))],
+        [_btn(t("adm_cfg_group_crons"), Admin(section="cfg", action="grp", page=CRONS_PAGE))],
+        [_btn(t("adm_feat_emoji", count=emojis), Admin(section="look", action=""))],
+        [_btn(t("adm_feat_system"), Admin(section="status", action=""))],
+        [
+            _btn(t("adm_x_btn"), Admin(section="xcfg", action="")),
+            _btn(t("adm_grw_btn"), Admin(section="grw", action="")),
+        ],
+        [
+            _btn(t("adm_ud_admin"), Admin(section="home")),
+            _btn(t("adm_ud_close"), Admin(section="gset", action="close")),
+        ],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def group_kb(t: Texts, group: str, cfg: dict[str, Any]) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
+def _btn(text: str, target: Admin) -> InlineKeyboardButton:
+    return InlineKeyboardButton(text=text[:64], callback_data=target.pack())
+
+
+# Feature -> (label, target, permission) of its own settings page, shown as a third cell.
+SETTINGS_LINKS: dict[str, tuple[str, Admin, str]] = {
+    "reseller_applications_enabled": (
+        "adm_feat_link_requests",
+        Admin(section="applications", action=""),
+        "resellers.manage",
+    ),
+    "self_delete_enabled": (
+        "adm_feat_link_settings",
+        Admin(section="xcfg", action="grp", page=3),
+        "settings.write",
+    ),
+    "bulk_buy_enabled": ("adm_feat_link_settings", Admin(section="sconf", action="show"), "settings.write"),
+    "custom_buy_enabled": (
+        "adm_feat_link_settings",
+        Admin(section="xcfg", action="grp", page=2),
+        "settings.write",
+    ),
+    "extras_enabled": ("adm_feat_link_prices", Admin(section="xcfg", action="grp", page=3), "settings.write"),
+    "move_enabled": ("adm_feat_link_prices", Admin(section="xcfg", action="grp", page=3), "settings.write"),
+    "trial_enabled": (
+        "adm_feat_link_settings",
+        Admin(section="settings", action="group", page=2),
+        "settings.write",
+    ),
+    "referral_enabled": (
+        "adm_feat_link_settings",
+        Admin(section="xcfg", action="grp", page=1),
+        "settings.write",
+    ),
+    "wheel_enabled": ("adm_feat_link_prizes", Admin(section="grw", action="prizes"), "settings.write"),
+    "lottery_enabled": ("adm_feat_link_manage", Admin(section="grw", action="lots"), "settings.write"),
+}
+# Extra full-width rows after a group's switches: (label, target, permission).
+GROUP_LINKS: dict[str, tuple[tuple[str, Admin, str], ...]] = {
+    "users": (("adm_tickets", Admin(section="tickets", action=""), "tickets.reply"),),
+    "growth": (("adm_grw_btn", Admin(section="grw", action=""), "settings.write"),),
+}
+
+
+def group_text(t: Texts, group: str) -> str:
+    return t(f"adm_feat_text_{group}")
+
+
+def group_kb(
+    t: Texts, group: str, cfg: dict[str, Any], staff: StaffIdentity | None = None
+) -> InlineKeyboardMarkup:
+    """Status on the left, title on the right (both switch); a third cell opens settings."""
+
+    def can(permission: str) -> bool:
+        return staff.can(permission) if staff is not None else permission == "settings.write"
+
+    noop = Admin(section="gset", action="noop")
+    rows = []
+    if group == "main":
+        rows.append([_btn(t("adm_feat_col_status"), noop), _btn(t("adm_feat_col_title"), noop)])
+    origin = list(FEATURES).index(group) + 1
     for key in FEATURES[group]:
-        icon = "\u2705" if cfg.get(key) else "\u274c"
-        kb.row(
-            InlineKeyboardButton(
-                text=f"{icon} {t('adm_feat_' + key)}",
-                callback_data=Admin(section="feat", action="tog", id=FEATURE_KEYS.index(key)).pack(),
-            )
-        )
-    kb.row(*_back(t, Admin(section="feat")))
-    return kb.as_markup()
+        on = bool(cfg.get(key))
+        # page carries the wanted value (1 = off, 2 = on); a double tap cannot undo itself.
+        target = Admin(section="feat", action="tog", id=FEATURE_KEYS.index(key), page=1 if on else 2)
+        status = t("adm_gs_on") if on else t("adm_gs_off")
+        row = [_btn(status, target), _btn(t(f"adm_feat_{key}"), target)]
+        link = SETTINGS_LINKS.get(key)
+        if link and can(link[2]):
+            row.insert(0, _btn(t(link[0]), link[1]))
+        elif key == "info_card_enabled":
+            from paurubot.bot.routers.admin_general import theme_button
+
+            row.insert(0, theme_button(t, cfg, origin))
+        rows.append(row)
+    if group == "main":
+        from paurubot.bot.routers.admin_general import main_extra_rows
+
+        rows += main_extra_rows(t, cfg)
+    for label, link_target, permission in GROUP_LINKS.get(group, ()):
+        if can(permission):
+            rows.append([_btn(t(label), link_target)])
+    rows.append(
+        [
+            _btn(t("btn_back"), Admin(section="feat", action="")),
+            _btn(t("adm_ud_close"), Admin(section="gset", action="close")),
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 @router.callback_query(Admin.filter(F.section == "feat"), StaffOnly("settings.write"))
@@ -275,29 +349,39 @@ async def features(
 
     groups = list(FEATURES)
     if callback_data.action == "tog":
-        if not 0 <= callback_data.id < len(FEATURE_KEYS):
+        if not 0 <= callback_data.id < len(FEATURE_KEYS) or callback_data.page not in {0, 1, 2}:
             await call.answer(t("button_expired"), show_alert=True)
             return
         key = FEATURE_KEYS[callback_data.id]
-        cfg = await shop_settings.load(session, shop.id, fresh=True)
-        value = not bool(cfg.get(key))
-        if value and not can_enable(key, cfg):
-            await call.answer(t("adm_feat_needs_setup"), show_alert=True)
-            return
-        await _save_setting(session, shop, staff, key, value)
-        await session.commit()
-        await call.answer(t("adm_saved"))
         group = next(g for g in groups if key in FEATURES[g])
         cfg = await shop_settings.load(session, shop.id, fresh=True)
-        await show(call, t(f"adm_feat_group_{group}"), group_kb(t, group, cfg))
+        current = bool(cfg.get(key))
+        # page 0: an old button that simply flips; 1/2: the value it was drawn to set.
+        value = not current if callback_data.page == 0 else callback_data.page == 2
+        if value and not current and not can_enable(key, cfg):
+            await call.answer(t("adm_feat_needs_setup"), show_alert=True)
+            return
+        if key == "bot_enabled" and current and not value:
+            from paurubot.bot.routers.admin_general import MAIN, confirm_kb
+
+            await call.answer()
+            yes = Admin(section="gset", action="botoff", id=0, page=MAIN).pack()
+            await show(call, t("adm_gs_bot_off_ask"), confirm_kb(t, yes))
+            return
+        if value != current:
+            await _save_setting(session, shop, staff, key, value)
+            await session.commit()
+        await call.answer(t("adm_saved"))
+        cfg = await shop_settings.load(session, shop.id, fresh=True)
+        await show(call, group_text(t, group), group_kb(t, group, cfg, staff))
         return
     await call.answer()
+    cfg = await shop_settings.load(session, shop.id, fresh=True)
     if callback_data.action == "cat" and 0 <= callback_data.page < len(groups):
         group = groups[callback_data.page]
-        cfg = await shop_settings.load(session, shop.id, fresh=True)
-        await show(call, t(f"adm_feat_group_{group}"), group_kb(t, group, cfg))
+        await show(call, group_text(t, group), group_kb(t, group, cfg, staff))
         return
-    await show(call, t("adm_feat_title"), features_kb(t))
+    await show(call, t("adm_feat_title"), features_kb(t, cfg))
 
 
 # --- customer lists --------------------------------------------------------------------------
