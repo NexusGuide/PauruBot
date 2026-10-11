@@ -168,7 +168,8 @@ def menu(t: Texts, cfg: dict[str, Any], staff: StaffIdentity) -> ReplyKeyboardMa
         if row:
             rows.append(row)
     rows.append([KeyboardButton(text=t("adm_nav_back"))])
-    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, is_persistent=True)
+    # Not persistent: the phone's back button must be able to hide it (the keyboard icon reopens it).
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, is_persistent=False)
 
 
 def home_kb(t: Texts, staff: StaffIdentity, cfg: dict[str, Any]) -> InlineKeyboardMarkup:

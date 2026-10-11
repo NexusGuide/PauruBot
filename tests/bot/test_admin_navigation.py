@@ -42,7 +42,8 @@ def test_owner_layout_matches_reference() -> None:
     expected = [[FA(f"adm_nav_{g}") for g in row] for row in nav.HOME_ROWS]
     expected.append([FA("adm_nav_back")])
     assert [[b.text for b in row] for row in markup.keyboard] == expected
-    assert markup.resize_keyboard and markup.is_persistent
+    # The phone's back button must be able to hide the admin keyboard.
+    assert markup.resize_keyboard and not markup.is_persistent
     assert [len(row) for row in markup.keyboard] == [1, 1, 2, 1, 2, 1, 2, 2, 2, 1]
 
 
