@@ -179,7 +179,7 @@ def features_kb(t: Texts, panel: Panel, staff: StaffIdentity, cfg: dict[str, Any
         )
         kb.row(
             InlineKeyboardButton(text=text, callback_data=target),
-            InlineKeyboardButton(text=t("adm_pm_f_" + feature.key), callback_data=target),
+            InlineKeyboardButton(text=t(f"adm_pm_f_{feature.key}"), callback_data=target),
         )
     if staff.can("panels.write") and "renew" in changes:
         kb.row(btn(t, "adm_pm_reset_inherit", "pfeat", panel.id, "inherit", 5))
@@ -306,7 +306,7 @@ async def management(
         await call.answer()
         await show(
             call,
-            t("adm_pm_ask_" + action),
+            t(f"adm_pm_ask_{action}"),
             InlineKeyboardMarkup(inline_keyboard=[[btn(t, "btn_cancel", "pmgr", panel.id)]]),
         )
         return
@@ -373,7 +373,7 @@ async def management(
                     ),
                     callback_data=Nav(to="noop").pack(),
                 ),
-                InlineKeyboardButton(text=t("adm_pm_c_" + key), callback_data=Nav(to="noop").pack()),
+                InlineKeyboardButton(text=t(f"adm_pm_c_{key}"), callback_data=Nav(to="noop").pack()),
             )
         kb.row(btn(t, "btn_back", "pmgr", panel.id))
         await call.answer()
@@ -491,7 +491,7 @@ async def financial_text(session: AsyncSession, t: Texts, panel: Panel) -> str:
             )
         ).one()
         lines.append(
-            t("adm_pm_finance_line", kind=t("adm_pm_order_" + kind.value), count=num, amount=money(total))
+            t("adm_pm_finance_line", kind=t(f"adm_pm_order_{kind.value}"), count=num, amount=money(total))
         )
     lines.append(t("adm_pm_finance_note"))
     return "\n\n".join(lines)
