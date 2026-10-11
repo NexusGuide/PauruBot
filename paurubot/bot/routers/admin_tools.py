@@ -5,6 +5,7 @@ a wallet gift for many customers; and broadcast options (audience, a link button
 from __future__ import annotations
 
 import secrets
+from datetime import timedelta
 from typing import Any
 
 from aiogram import F, Router
@@ -118,6 +119,7 @@ BOUNDS: dict[str, tuple[int, int]] = {
 }
 AUDIENCES = ("all", "buyers", "active", "inactive", "never_bought", "resellers")
 PIN_CYCLE = (None, 0, 24, 48)  # off, until unpinned, 24 h, 48 h
+GIVE_GUARD_SECONDS = 30  # the same free service again within this window is a double tap
 
 
 def tools_kb(t: Texts, staff: StaffIdentity) -> list[tuple[str, Admin]]:
@@ -307,6 +309,8 @@ async def service_action(
             await call.answer()
             return
     except PanelError:
+        # The update middleware commits after the handler: drop whatever was half changed.
+        await session.rollback()
         await call.answer(t("adm_panel_error"), show_alert=True)
         return
     await record(
@@ -420,6 +424,22 @@ async def give_service(
         return
     from paurubot.db.base import utcnow
 
+    # A double tap (or Telegram resending a slow callback) must not give two services: the row
+    # lock makes the second tap wait for the first one's commit, then it sees that order.
+    await session.execute(select(Customer.id).where(Customer.id == customer.id).with_for_update())
+    recent = await session.scalar(
+        select(Order.id)
+        .where(
+            Order.customer_id == customer.id,
+            Order.plan_id == plan.id,
+            Order.source == "staff_bot",
+            Order.paid_at >= utcnow() - timedelta(seconds=GIVE_GUARD_SECONDS),
+        )
+        .limit(1)
+    )
+    if recent is not None:
+        await call.answer(t("adm_given"))
+        return
     order = Order(
         shop_id=shop.id,
         customer_id=customer.id,
