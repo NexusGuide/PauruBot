@@ -34,9 +34,13 @@ def visible_plans_stmt(shop_id: int, customer: Customer | None) -> Select:  # ty
     )
     from paurubot.core.stock import available_stmt
 
+    category_ok = select(Category.id).where(
+        Category.shop_id == catalog_owner(shop_id), Category.is_active.is_(True)
+    )
     stmt = select(Plan).where(
         Plan.shop_id == catalog_owner(shop_id),
         Plan.is_active.is_(True),
+        or_(Plan.category_id.is_(None), Plan.category_id.in_(category_ok)),
         or_(
             (Plan.delivery == "stock") & available_stmt(Plan.id),
             (Plan.delivery != "stock")
