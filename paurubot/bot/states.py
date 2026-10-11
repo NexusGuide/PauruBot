@@ -72,3 +72,4 @@ class AdminStates(StatesGroup):
     growth_value = State()
     prize_new = State()
     lottery_new = State()
+    extra_value = State()
