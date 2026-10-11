@@ -37,5 +37,6 @@
   "adm_x_move_enabled": "تغییر لوکیشن",
   "adm_x_move_price": "هزینه تغییر لوکیشن",
   "adm_x_self_delete_enabled": "حذف سرویس توسط مشتری",
-  "adm_x_self_delete_refund_percent": "درصد بازگشت وجه حذف"
+  "adm_x_self_delete_refund_percent": "درصد بازگشت وجه حذف",
+  "transfer_max": "مبلغ هر انتقال حداکثر می‌تواند {high} باشد."
 }
