@@ -184,3 +184,42 @@ async def test_support_staff_cannot_change_general_settings(session, env) -> Non
     cfg = await cfg_of(session, env)
     assert cfg["bot_enabled"] is True and cfg["terms_required"] is False
     assert not [c for c in env["fake"].calls if isinstance(c, EditMessageText)]
+
+
+async def test_other_pages_link_real_settings(session, env) -> None:  # type: ignore[no-untyped-def]
+    groups = list(admin_hub.FEATURES)
+    await tap(env, "cat", page=groups.index("users"), section="feat")
+    msg = env["fake"].last(EditMessageText)
+    assert msg.text == FA("adm_feat_text_users")
+    rows = msg.reply_markup.inline_keyboard
+    first = [b.text for b in rows[0]]
+    assert first == [
+        FA("adm_feat_link_requests"),
+        FA("adm_gs_on"),
+        FA("adm_feat_reseller_applications_enabled"),
+    ]
+    assert FA("adm_tickets") in [b.text for row in rows for b in row]
+    await tap(env, "cat", page=groups.index("sales"), section="feat")
+    rows = env["fake"].last(EditMessageText).reply_markup.inline_keyboard
+    card = next(row for row in rows if row[-1].text == FA("adm_feat_info_card_enabled"))
+    assert len(card) == 3 and card[0].text == FA("adm_gs_theme", value=FA("adm_gs_theme_midnight"))
+    # The colour button cycles to the theme it shows next and stays on the sales page.
+    await env["send"](callback_update(OWNER, card[0].callback_data))
+    await env["send"](callback_update(OWNER, card[0].callback_data))  # stale repeat: same value
+    assert (await cfg_of(session, env))["info_card_theme"] == "paper"
+    assert env["fake"].last(EditMessageText).text == FA("adm_feat_text_sales")
+    await tap(env, "theme", id=99, page=groups.index("sales") + 1)
+    assert env["fake"].last(AnswerCallbackQuery).show_alert
+    # Every settings link points at a section some router really handles.
+    for _, target, _ in admin_hub.SETTINGS_LINKS.values():
+        await env["send"](callback_update(OWNER, target.pack()))
+        assert FA("unknown_command") not in env["fake"].texts()
+
+
+async def test_support_staff_do_not_see_request_links(session, env) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.bot.context import StaffIdentity
+
+    staff = StaffIdentity(role=StaffRole.OWNER, staff=None, permissions=frozenset({"settings.write"}))
+    kb = admin_hub.group_kb(FA, "users", {}, staff)
+    labels = [b.text for row in kb.inline_keyboard for b in row]
+    assert FA("adm_feat_link_requests") not in labels and FA("adm_tickets") not in labels

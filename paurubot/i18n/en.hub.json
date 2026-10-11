@@ -5,7 +5,7 @@
   "adm_feat_title": "📌 <b>Feature status</b>\nWhich group of features do you want to manage?\n💡 Tap a group to open its settings.",
   "adm_feat_needs_setup": "Set this gateway's credentials in the web panel first, then switch it on.",
   "adm_feat_group_main": "🤖 Main bot options",
-  "adm_feat_group_users": "👥 Users and resellers",
+  "adm_feat_group_users": "👥 Users and support",
   "adm_feat_group_sales": "🛍 Sales and services",
   "adm_feat_group_growth": "🎁 Wheel, lottery and referrals",
   "adm_feat_group_payments": "💳 Payments and gateways",

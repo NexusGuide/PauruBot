@@ -178,12 +178,34 @@ def confirm_kb(t: Texts, yes: str) -> InlineKeyboardMarkup:
 async def render(
     event: CallbackQuery | Message, t: Texts, staff: StaffIdentity, cfg: dict[str, Any], origin: int
 ) -> None:
-    if origin == MAIN:
-        from paurubot.bot.routers.admin_hub import group_kb
+    """origin 0 is this hub; origin n opens feature group n - 1 (1 is the main options)."""
+    from paurubot.bot.routers.admin_hub import FEATURES, group_kb, group_text
 
-        await show(event, t("adm_feat_group_main"), group_kb(t, "main", cfg))
+    groups = list(FEATURES)
+    if 1 <= origin <= len(groups):
+        group = groups[origin - 1]
+        await show(event, group_text(t, group), group_kb(t, group, cfg, staff))
         return
     await show(event, t("adm_gs_home"), hub_kb(t, staff, cfg))
+
+
+def themes() -> tuple[str, ...]:
+    from paurubot.bot.infocard import THEMES
+
+    return tuple(THEMES)
+
+
+def current_theme(cfg: dict[str, Any]) -> str:
+    name = str(cfg.get("info_card_theme") or "")
+    return name if name in themes() else themes()[0]
+
+
+def theme_button(t: Texts, cfg: dict[str, Any], origin: int) -> InlineKeyboardButton:
+    """Cycles the service info-card colour theme; the button carries the next theme."""
+    names = themes()
+    wanted = (names.index(current_theme(cfg)) + 1) % len(names)
+    label = t("adm_gs_theme", value=t(f"adm_gs_theme_{current_theme(cfg)}"))
+    return _btn(label, _cb("theme", wanted, origin))
 
 
 async def _save(session: AsyncSession, shop: ShopRow, staff: StaffIdentity, key: str, value: Any) -> None:
@@ -202,8 +224,10 @@ async def general(
     staff: StaffIdentity,
     state: FSMContext,
 ) -> None:
+    from paurubot.bot.routers.admin_hub import FEATURES
+
     action, value, origin = callback_data.action, callback_data.id, callback_data.page
-    if origin not in {HUB, MAIN}:
+    if action != "lang" and not 0 <= origin <= len(FEATURES):
         origin = HUB
     if action == "noop":
         await call.answer()
@@ -249,6 +273,12 @@ async def general(
             return
         if current_mode(cfg) != MENU_MODES[value]:
             await _save(session, shop, staff, "menu_mode", MENU_MODES[value])
+    elif action == "theme":
+        if not 0 <= value < len(themes()):
+            await call.answer(t("button_expired"), show_alert=True)
+            return
+        if current_theme(cfg) != themes()[value]:
+            await _save(session, shop, staff, "info_card_theme", themes()[value])
     elif action == "langs":
         await call.answer()
         await show(call, t("adm_gs_langs_title"), langs_kb(t, cfg))

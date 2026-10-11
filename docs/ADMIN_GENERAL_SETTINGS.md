@@ -21,6 +21,19 @@ cannot undo itself. Rows: bot status, rules, phone verification, phone for trial
 verification, Mini App, premium emoji, Iranian numbers only (`phone_country_codes` = `["98"]`;
 custom codes set on the web are never overwritten), menu mode and start sticker/media.
 
+## Other feature pages
+Each page has its own description. A third cell opens that feature's existing settings page,
+only when the staff member has its permission.
+- **Users and support**: reseller requests (→ applications), reseller web panel, reseller bot,
+  panel accounts, IP notice, ban disables services, customer self-delete (→ refund settings),
+  plus a support tickets row.
+- **Sales and services**: bulk buy (→ bulk settings), custom buy (→ settings), custom username,
+  extra data/days (→ prices), upgrade, location move (→ prices), renew resets usage, renew queue,
+  service info card (→ colour theme, cycles the real `info_card_theme` values), card QR, branded links.
+- **Wheel, lottery and referrals**: trial (→ trial settings), referrals (→ settings), commission on
+  every purchase, start gift for referred users only, wheel (→ prizes), buyers-only wheel,
+  lottery (→ manage), loyalty club, plus the growth page.
+
 ## Feature categories
 Main, users and resellers, sales and services, wheel/lottery/referrals, payments (opens the
 finance gateway hub with its readiness checks), crons, premium emoji, system status, extra

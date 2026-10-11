@@ -39,5 +39,19 @@
   "adm_feat_col_title": "عنوان",
   "adm_feat_emoji": "🌟 ایموجی پرمیوم ({count})",
   "adm_feat_system": "🧠 وضعیت سیستم (دیتابیس و Redis)",
-  "adm_gs_lang_sep": "، "
+  "adm_gs_lang_sep": "، ",
+  "adm_feat_text_main": "🤖 <b>آپشن‌های اصلی ربات</b>\n\nقابلیت‌های اصلی ربات را از اینجا مدیریت کنید.",
+  "adm_feat_text_users": "👥 <b>کاربران و پشتیبانی</b>\n\nقابلیت‌های مربوط به کاربران، نمایندگان و پشتیبانی را اینجا تنظیم کنید.",
+  "adm_feat_text_sales": "🛍 <b>فروش و خدمات</b>\n\nقابلیت‌های فروشگاه، سرویس‌ها و خدمات جانبی را اینجا تنظیم کنید.",
+  "adm_feat_text_growth": "🎁 <b>گردونه، قرعه‌کشی و معرفی</b>\n\nاکانت تست، زیرمجموعه‌گیری، گردونه شانس و قرعه‌کشی را اینجا تنظیم کنید.",
+  "adm_feat_link_requests": "📋 درخواست‌ها",
+  "adm_feat_link_settings": "⚙️ تنظیمات",
+  "adm_feat_link_prices": "💰 قیمت‌ها",
+  "adm_feat_link_prizes": "🎁 جوایز",
+  "adm_feat_link_manage": "📋 مدیریت",
+  "adm_gs_theme": "🎨 رنگ: {value}",
+  "adm_gs_theme_midnight": "سرمه‌ای",
+  "adm_gs_theme_paper": "روشن",
+  "adm_gs_theme_rose": "صورتی",
+  "adm_gs_theme_amber": "کهربایی"
 }

@@ -249,20 +249,84 @@ def _btn(text: str, target: Admin) -> InlineKeyboardButton:
     return InlineKeyboardButton(text=text[:64], callback_data=target.pack())
 
 
-def group_kb(t: Texts, group: str, cfg: dict[str, Any]) -> InlineKeyboardMarkup:
-    """Two-column table: status on the left, title on the right; both cells switch."""
+# Feature -> (label, target, permission) of its own settings page, shown as a third cell.
+SETTINGS_LINKS: dict[str, tuple[str, Admin, str]] = {
+    "reseller_applications_enabled": (
+        "adm_feat_link_requests",
+        Admin(section="applications", action=""),
+        "resellers.manage",
+    ),
+    "self_delete_enabled": (
+        "adm_feat_link_settings",
+        Admin(section="xcfg", action="grp", page=3),
+        "settings.write",
+    ),
+    "bulk_buy_enabled": ("adm_feat_link_settings", Admin(section="sconf", action="show"), "settings.write"),
+    "custom_buy_enabled": (
+        "adm_feat_link_settings",
+        Admin(section="xcfg", action="grp", page=2),
+        "settings.write",
+    ),
+    "extras_enabled": ("adm_feat_link_prices", Admin(section="xcfg", action="grp", page=3), "settings.write"),
+    "move_enabled": ("adm_feat_link_prices", Admin(section="xcfg", action="grp", page=3), "settings.write"),
+    "trial_enabled": (
+        "adm_feat_link_settings",
+        Admin(section="settings", action="group", page=2),
+        "settings.write",
+    ),
+    "referral_enabled": (
+        "adm_feat_link_settings",
+        Admin(section="xcfg", action="grp", page=1),
+        "settings.write",
+    ),
+    "wheel_enabled": ("adm_feat_link_prizes", Admin(section="grw", action="prizes"), "settings.write"),
+    "lottery_enabled": ("adm_feat_link_manage", Admin(section="grw", action="lots"), "settings.write"),
+}
+# Extra full-width rows after a group's switches: (label, target, permission).
+GROUP_LINKS: dict[str, tuple[tuple[str, Admin, str], ...]] = {
+    "users": (("adm_tickets", Admin(section="tickets", action=""), "tickets.reply"),),
+    "growth": (("adm_grw_btn", Admin(section="grw", action=""), "settings.write"),),
+}
+
+
+def group_text(t: Texts, group: str) -> str:
+    return t(f"adm_feat_text_{group}")
+
+
+def group_kb(
+    t: Texts, group: str, cfg: dict[str, Any], staff: StaffIdentity | None = None
+) -> InlineKeyboardMarkup:
+    """Status on the left, title on the right (both switch); a third cell opens settings."""
+
+    def can(permission: str) -> bool:
+        return staff.can(permission) if staff is not None else permission == "settings.write"
+
     noop = Admin(section="gset", action="noop")
-    rows = [[_btn(t("adm_feat_col_status"), noop), _btn(t("adm_feat_col_title"), noop)]]
+    rows = []
+    if group == "main":
+        rows.append([_btn(t("adm_feat_col_status"), noop), _btn(t("adm_feat_col_title"), noop)])
+    origin = list(FEATURES).index(group) + 1
     for key in FEATURES[group]:
         on = bool(cfg.get(key))
         # page carries the wanted value (1 = off, 2 = on); a double tap cannot undo itself.
         target = Admin(section="feat", action="tog", id=FEATURE_KEYS.index(key), page=1 if on else 2)
         status = t("adm_gs_on") if on else t("adm_gs_off")
-        rows.append([_btn(status, target), _btn(t(f"adm_feat_{key}"), target)])
+        row = [_btn(status, target), _btn(t(f"adm_feat_{key}"), target)]
+        link = SETTINGS_LINKS.get(key)
+        if link and can(link[2]):
+            row.insert(0, _btn(t(link[0]), link[1]))
+        elif key == "info_card_enabled":
+            from paurubot.bot.routers.admin_general import theme_button
+
+            row.insert(0, theme_button(t, cfg, origin))
+        rows.append(row)
     if group == "main":
         from paurubot.bot.routers.admin_general import main_extra_rows
 
         rows += main_extra_rows(t, cfg)
+    for label, link_target, permission in GROUP_LINKS.get(group, ()):
+        if can(permission):
+            rows.append([_btn(t(label), link_target)])
     rows.append(
         [
             _btn(t("btn_back"), Admin(section="feat", action="")),
@@ -309,13 +373,13 @@ async def features(
             await session.commit()
         await call.answer(t("adm_saved"))
         cfg = await shop_settings.load(session, shop.id, fresh=True)
-        await show(call, t(f"adm_feat_group_{group}"), group_kb(t, group, cfg))
+        await show(call, group_text(t, group), group_kb(t, group, cfg, staff))
         return
     await call.answer()
     cfg = await shop_settings.load(session, shop.id, fresh=True)
     if callback_data.action == "cat" and 0 <= callback_data.page < len(groups):
         group = groups[callback_data.page]
-        await show(call, t(f"adm_feat_group_{group}"), group_kb(t, group, cfg))
+        await show(call, group_text(t, group), group_kb(t, group, cfg, staff))
         return
     await show(call, t("adm_feat_title"), features_kb(t, cfg))
 

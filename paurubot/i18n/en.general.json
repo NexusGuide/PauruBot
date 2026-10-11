@@ -39,5 +39,19 @@
   "adm_feat_col_title": "Title",
   "adm_feat_emoji": "🌟 Premium emoji ({count})",
   "adm_feat_system": "🧠 System status (database and Redis)",
-  "adm_gs_lang_sep": ", "
+  "adm_gs_lang_sep": ", ",
+  "adm_feat_text_main": "🤖 <b>Main bot options</b>\n\nManage the bot's main features here.",
+  "adm_feat_text_users": "👥 <b>Users and support</b>\n\nSet features for users, resellers and support here.",
+  "adm_feat_text_sales": "🛍 <b>Sales and services</b>\n\nSet shop, service and add-on features here.",
+  "adm_feat_text_growth": "🎁 <b>Wheel, lottery and referrals</b>\n\nSet test accounts, referrals, the lucky wheel and lotteries here.",
+  "adm_feat_link_requests": "📋 Requests",
+  "adm_feat_link_settings": "⚙️ Settings",
+  "adm_feat_link_prices": "💰 Prices",
+  "adm_feat_link_prizes": "🎁 Prizes",
+  "adm_feat_link_manage": "📋 Manage",
+  "adm_gs_theme": "🎨 Colour: {value}",
+  "adm_gs_theme_midnight": "midnight",
+  "adm_gs_theme_paper": "paper",
+  "adm_gs_theme_rose": "rose",
+  "adm_gs_theme_amber": "amber"
 }
