@@ -219,7 +219,9 @@ def _back(t: Texts, target: Admin) -> list[InlineKeyboardButton]:
 def features_kb(t: Texts) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for index, group in enumerate(FEATURES):
-        kb.button(text=t(f"adm_feat_group_{group}"), callback_data=Admin(section="feat", action="cat", page=index))
+        kb.button(
+            text=t(f"adm_feat_group_{group}"), callback_data=Admin(section="feat", action="cat", page=index)
+        )
     kb.adjust(2)
     kb.row(*_back(t, Admin(section="home")))
     return kb.as_markup()
@@ -320,20 +322,20 @@ async def user_lists(
     kb = InlineKeyboardBuilder()
     for row in rows:
         label = f"{row.display_name} \u00b7 {row.telegram_id} \u00b7 {money(balances.get(row.id, 0))}"
-        kb.row(
-            InlineKeyboardButton(text=label[:64], callback_data=Admin(section="user", id=row.id).pack())
-        )
+        kb.row(InlineKeyboardButton(text=label[:64], callback_data=Admin(section="user", id=row.id).pack()))
     nav: list[InlineKeyboardButton] = []
     if page > 0:
         nav.append(
             InlineKeyboardButton(
-                text="\u2039", callback_data=Admin(section="ulist", action="f", id=callback_data.id, page=page - 1).pack()
+                text="\u2039",
+                callback_data=Admin(section="ulist", action="f", id=callback_data.id, page=page - 1).pack(),
             )
         )
     if page + 1 < pages:
         nav.append(
             InlineKeyboardButton(
-                text="\u203a", callback_data=Admin(section="ulist", action="f", id=callback_data.id, page=page + 1).pack()
+                text="\u203a",
+                callback_data=Admin(section="ulist", action="f", id=callback_data.id, page=page + 1).pack(),
             )
         )
     if nav:
@@ -359,7 +361,9 @@ async def period_stats(session: AsyncSession, shop_id: int, name: str) -> dict[s
     sales = await one(select(func.count(Order.id)).where(*paid))
     amount = await one(select(func.coalesce(func.sum(Order.amount), 0)).where(*paid))
     renew = [*paid, Order.kind == OrderKind.RENEW]
-    users = await one(select(func.count(Customer.id)).where(Customer.shop_id == shop_id, Customer.telegram_id > 0))
+    users = await one(
+        select(func.count(Customer.id)).where(Customer.shop_id == shop_id, Customer.telegram_id > 0)
+    )
     buyers_ever = await one(
         select(func.count(func.distinct(Order.customer_id))).where(*done, Order.amount > 0)
     )
@@ -409,7 +413,9 @@ async def period_stats(session: AsyncSession, shop_id: int, name: str) -> dict[s
                 Payment.shop_id == shop_id, Payment.status == PaymentStatus.VERIFYING
             )
         ),
-        "panels": await one(select(func.count(Panel.id)).where(Panel.shop_id == shop_id, Panel.is_active.is_(True))),
+        "panels": await one(
+            select(func.count(Panel.id)).where(Panel.shop_id == shop_id, Panel.is_active.is_(True))
+        ),
         "resellers": await one(
             select(func.count(ResellerProfile.id)).where(
                 ResellerProfile.shop_id == shop_id, ResellerProfile.is_active.is_(True)
@@ -419,7 +425,9 @@ async def period_stats(session: AsyncSession, shop_id: int, name: str) -> dict[s
 
 
 @router.callback_query(Admin.filter(F.section == "pstats"), StaffOnly("reports.read"))
-async def stats(call: CallbackQuery, callback_data: Admin, session: AsyncSession, shop: ShopRow, t: Texts) -> None:
+async def stats(
+    call: CallbackQuery, callback_data: Admin, session: AsyncSession, shop: ShopRow, t: Texts
+) -> None:
     index = callback_data.page if 0 <= callback_data.page < len(PERIODS) else 0
     name = PERIODS[index]
     await call.answer()
@@ -427,7 +435,9 @@ async def stats(call: CallbackQuery, callback_data: Admin, session: AsyncSession
     kb = InlineKeyboardBuilder()
     for i, period in enumerate(PERIODS):
         label = t(f"adm_pstats_{period}")
-        kb.button(text=f"\u2705 {label}" if i == index else label, callback_data=Admin(section="pstats", page=i))
+        kb.button(
+            text=f"\u2705 {label}" if i == index else label, callback_data=Admin(section="pstats", page=i)
+        )
     kb.adjust(3)
     kb.row(*_back(t, Admin(section="home")))
     await show(call, t("adm_pstats_text", period=esc(t(f"adm_pstats_{name}")), **data), kb.as_markup())
