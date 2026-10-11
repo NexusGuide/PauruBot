@@ -86,7 +86,10 @@ def create_app() -> FastAPI:
             except ValueError:
                 address = None
             private = address is not None and any(address in net for net in PRIVATE_NETWORKS)
-            if not private:
+            # A request relayed by the reverse proxy came from outside even when the proxy's own
+            # private address is all we see (TRUST_PROXY_HOPS=0): never serve it without a token.
+            proxied = any(h in request.headers for h in ("x-forwarded-for", "forwarded", "x-real-ip"))
+            if not private or proxied:
                 return JSONResponse({"error": "forbidden"}, status_code=403)
         async with session_scope() as session:
             body = await metrics.render(session)

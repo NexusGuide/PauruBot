@@ -97,3 +97,6 @@ async def test_metrics_endpoint_is_private(env) -> None:  # type: ignore[no-unty
     public = httpx.ASGITransport(app=create_app(), client=("203.0.113.9", 4000))
     async with httpx.AsyncClient(transport=public, base_url="http://testserver") as outside:
         assert (await outside.get("/metrics")).status_code == 403
+    # Behind Caddy with TRUST_PROXY_HOPS=0 the peer is the proxy's private address: still refused.
+    relayed = await env["client"].get("/metrics", headers={"x-forwarded-for": "203.0.113.9"})
+    assert relayed.status_code == 403
