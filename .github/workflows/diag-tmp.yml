@@ -1,0 +1,76 @@
+name: diag-tmp
+
+on:
+  push:
+    branches: [feat/admin-hub-phase1]
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: paurubot_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/paurubot_test
+      REDIS_URL: redis://127.0.0.1:6379/15
+    outputs:
+      lines: ${{ steps.sum.outputs.lines }}
+      idx: ${{ steps.sum.outputs.idx }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt pytest pytest-asyncio ruff mypy
+      - name: fix and check
+        run: |
+          ruff check --output-format concise paurubot tests > lint.log 2>&1 || true
+          ruff format --diff paurubot tests > diff.log 2>&1 || true
+          mypy paurubot > mypy.log 2>&1 || true
+          pytest -q -rf --tb=line > tests.log 2>&1 || true
+      - id: sum
+        run: |
+          python - <<'PY'
+          import json, os, re
+          def read(p):
+              try:
+                  return open(p, encoding="utf-8", errors="replace").read().splitlines()
+              except OSError:
+                  return []
+          out = []
+          out += ["diff " + l for l in read("diff.log") if l[:1] in "+-@" and l.strip()]
+          out += ["lint " + l for l in read("lint.log") if re.search(r":\d+:\d+:|error", l)]
+          out += ["mypy " + l for l in read("mypy.log") if "error" in l or l.startswith("Found") or l.startswith("Success")]
+          tl = read("tests.log")
+          out += ["test " + l for l in tl if re.match(r"^(FAILED|ERROR|E |/.*:\d+:)", l)]
+          out += ["test " + l for l in tl[-2:]]
+          out = [re.sub(r"[\x00-\x1f]", " ", l).replace("/home/runner/work/PauruBot/PauruBot/", "")[:230] for l in out][:120] or ["empty"]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write("lines=" + json.dumps(out) + "\n")
+              fh.write("idx=" + json.dumps(list(range(len(out)))) + "\n")
+          PY
+
+  report:
+    needs: diag
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        i: ${{ fromJSON(needs.diag.outputs.idx) }}
+    name: "d${{ matrix.i }} ${{ fromJSON(needs.diag.outputs.lines)[matrix.i] }}"
+    steps:
+      - run: "true"
