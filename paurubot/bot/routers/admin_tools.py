@@ -198,10 +198,14 @@ async def customer_transfer_menu(
         kb.row(
             InlineKeyboardButton(
                 text=t("adm_transfer_target", title=esc(target.title)),
-                callback_data=Admin(section="utransfer", action="move", id=customer.id, page=target.id),
+                callback_data=Admin(
+                    section="utransfer", action="move", id=customer.id, page=target.id
+                ).pack(),
             )
         )
-    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Admin(section="user", id=customer.id)))
+    kb.row(
+        InlineKeyboardButton(text=t("btn_back"), callback_data=Admin(section="user", id=customer.id).pack())
+    )
     await show(call, t("adm_transfer_choose") if targets else t("adm_transfer_no_targets"), kb.as_markup())
 
 
