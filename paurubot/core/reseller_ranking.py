@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import false, func, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.db.models import Customer, Order, OrderStatus, ResellerProfile, Shop, Ticket
@@ -47,20 +47,24 @@ async def rankings(session: AsyncSession, shop_id: int) -> list[ResellerRank]:
             await session.scalars(select(Shop.id).where(Shop.reseller_profile_id == profile.id))
         )
         own_sales = (Order.shop_id == shop_id) & (Order.customer_id == profile.customer_id)
-        bot_sales = Order.shop_id.in_(child_ids) if child_ids else false()
+        sales_scope = [own_sales]
+        if child_ids:
+            sales_scope.append(Order.shop_id.in_(child_ids))
         sales, revenue = (
             await session.execute(
                 select(func.count(Order.id), func.coalesce(func.sum(Order.amount), 0)).where(
                     Order.status == OrderStatus.COMPLETED,
                     Order.amount > 0,
-                    or_(own_sales, bot_sales),
+                    or_(*sales_scope),
                 )
             )
         ).one()
         own_tickets = (Ticket.shop_id == shop_id) & (Ticket.customer_id == profile.customer_id)
-        bot_tickets = Ticket.shop_id.in_(child_ids) if child_ids else false()
+        ticket_scope = [own_tickets]
+        if child_ids:
+            ticket_scope.append(Ticket.shop_id.in_(child_ids))
         complaints = int(
-            await session.scalar(select(func.count(Ticket.id)).where(or_(own_tickets, bot_tickets))) or 0
+            await session.scalar(select(func.count(Ticket.id)).where(or_(*ticket_scope))) or 0
         )
         result.append((profile, customer.display_name, int(sales or 0), int(revenue or 0), complaints))
 
