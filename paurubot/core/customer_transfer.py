@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -91,7 +92,7 @@ async def target_shops(session: AsyncSession, source_shop_id: int) -> list[Shop]
 
 
 # Every customer-owned row with a shop_id moves together. Ticket messages follow their ticket.
-_CUSTOMER_ROWS = (
+_CUSTOMER_ROWS: tuple[Any, ...] = (
     DiscountCode,
     DiscountRedemption,
     GiftRedemption,
