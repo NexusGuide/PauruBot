@@ -44,9 +44,7 @@ async def rankings(session: AsyncSession, shop_id: int) -> list[ResellerRank]:
         customer = await session.get(Customer, profile.customer_id)
         if customer is None:
             continue
-        child_ids = list(
-            await session.scalars(select(Shop.id).where(Shop.reseller_profile_id == profile.id))
-        )
+        child_ids = list(await session.scalars(select(Shop.id).where(Shop.reseller_profile_id == profile.id)))
         own_sales = (Order.shop_id == shop_id) & (Order.customer_id == profile.customer_id)
         sales_conditions: list[Any] = [
             Order.status == OrderStatus.COMPLETED,
@@ -55,16 +53,14 @@ async def rankings(session: AsyncSession, shop_id: int) -> list[ResellerRank]:
         ]
         sales, revenue = (
             await session.execute(
-                select(func.count(Order.id), func.coalesce(func.sum(Order.amount), 0)).where(*sales_conditions)
+                select(func.count(Order.id), func.coalesce(func.sum(Order.amount), 0)).where(
+                    *sales_conditions
+                )
             )
         ).one()
         own_tickets = (Ticket.shop_id == shop_id) & (Ticket.customer_id == profile.customer_id)
-        ticket_scope: Any = (
-            or_(own_tickets, Ticket.shop_id.in_(child_ids)) if child_ids else own_tickets
-        )
-        complaints = int(
-            await session.scalar(select(func.count(Ticket.id)).where(ticket_scope)) or 0
-        )
+        ticket_scope: Any = or_(own_tickets, Ticket.shop_id.in_(child_ids)) if child_ids else own_tickets
+        complaints = int(await session.scalar(select(func.count(Ticket.id)).where(ticket_scope)) or 0)
         result.append((profile, customer.display_name, int(sales or 0), int(revenue or 0), complaints))
 
     result.sort(key=lambda row: (-score(row[2], row[3], row[4]), row[4], -row[2], row[0].id))
