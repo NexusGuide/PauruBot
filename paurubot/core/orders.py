@@ -343,6 +343,17 @@ async def create(
         d.params = {**d.params, "metered": True}
     if q.reseller_discount and not customer.is_reseller:
         d.params = {**d.params, "tier": pricing.reseller_percent(customer)}  # a loyalty discount (GRW-02)
+    # A reseller's discount code may reduce only its own margin, never the wholesale floor.
+    wholesale = int(d.params.get("wholesale") or 0)
+    if wholesale > 0 and q.amount < wholesale:
+        after_reseller = max(0, q.base_price - q.reseller_discount)
+        q = pricing.Quote(
+            q.base_price,
+            q.reseller_discount,
+            max(0, after_reseller - wholesale),
+            wholesale,
+            q.code,
+        )
     minutes = int(await shop_settings.get(session, customer.shop_id, "order_expire_minutes") or 60)
     order = Order(
         shop_id=customer.shop_id,
