@@ -109,7 +109,7 @@ async def service(session, env):  # type: ignore[no-untyped-def]
 def test_user_menu_layout_and_permissions() -> None:
     owner = StaffIdentity(StaffRole.OWNER, None, frozenset(rbac.permissions_for(StaffRole.OWNER)))
     kb = admin_users.home_kb(FA, owner)
-    assert [len(row) for row in kb.inline_keyboard] == [1, 1, 1, 1, 1, 2, 2, 2, 1, 2]
+    assert [len(row) for row in kb.inline_keyboard] == [1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 2]
     support = StaffIdentity(StaffRole.SUPPORT, None, frozenset(rbac.permissions_for(StaffRole.SUPPORT)))
     labels = [b.text for row in admin_users.home_kb(FA, support).inline_keyboard for b in row]
     assert FA("adm_users_bulk") not in labels
