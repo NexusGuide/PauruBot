@@ -22,7 +22,7 @@ from paurubot.bot.states import AdminStates
 from paurubot.bot.utils import Btn, StaffOnly, clear_customer_input, show
 from paurubot.core import customers, tickets
 from paurubot.core import settings as shop_settings
-from paurubot.core.formatting import esc, money, parse_int
+from paurubot.core.formatting import esc, jdate, money, parse_int
 from paurubot.db.models import (
     ApplicationStatus,
     Broadcast,
@@ -50,6 +50,9 @@ from paurubot.worker import queue
 router = Router(name="admin")
 router.message.filter(StaffOnly())
 router.callback_query.filter(StaffOnly())
+
+
+VERIFIED_TAG = "verified"  # staff-set identity mark, kept in Customer.tags
 
 
 def actor(staff: StaffIdentity) -> Actor:
@@ -553,6 +556,7 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
         )
         or 0
     )
+    profile = customer.reseller_profile
     text = t(
         "adm_customer",
         name=esc(customer.display_name),
@@ -563,11 +567,25 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
         banned=t("yes") if customer.is_banned else t("no"),
         reseller=t("yes") if customer.is_reseller else t("no"),
     )
+    text += "\n" + t(
+        "adm_ua_status",
+        kyc=t("adm_ua_kyc_yes") if VERIFIED_TAG in (customer.tags or []) else t("adm_ua_kyc_no"),
+        card=t(f"adm_trust_{customer.card_trust}"),
+        cron=t("adm_ua_off") if customer.alerts_muted else t("adm_ua_on"),
+    )
+    if profile is not None and profile.is_active:
+        text += "\n" + t(
+            "adm_ua_reseller_status",
+            expires=jdate(profile.expires_at) if profile.expires_at else t("unlimited"),
+            gb=money(profile.gb_price),
+            hour=money(profile.hourly_price),
+        )
     kb = InlineKeyboardBuilder()
 
-    def button(key: str, section: str, **params: Any) -> InlineKeyboardButton:
+    def button(key: str, section: str, action: str = "show", **params: Any) -> InlineKeyboardButton:
         return InlineKeyboardButton(
-            text=t(key, **params), callback_data=Admin(section=section, id=customer.id).pack()
+            text=t(key, **params),
+            callback_data=Admin(section=section, action=action, id=customer.id).pack(),
         )
 
     def pair(*buttons: InlineKeyboardButton | None) -> None:
@@ -575,29 +593,66 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
         if available:
             kb.row(*available)
 
+    write = staff.can("customers.write")
+    card = staff.can("payments.review")
+    # Rows follow the requested layout; each pair is (left, right) as Telegram draws it.
     pair(button("adm_user_btn_referrals", "uref"))
+    if write:
+        pair(
+            button("adm_ua_btn_unref", "urefx", "unref") if customer.referrer_id else None,
+            button("adm_ua_btn_clear_refs", "urefx", "clear"),
+        )
+    if card:
+        pair(button("adm_ua_btn_card_on", "ucard", "on"))
+    if write:
+        pair(button("adm_ua_btn_kyc_on", "ukyc", "on"), button("adm_ua_btn_kyc_off", "ukyc", "off"))
+    if card:
+        pair(button("adm_ua_btn_card_off", "ucard", "off"))
+    pair(
+        button("adm_user_btn_give", "ugive") if staff.can("services.create") else None,
+        button("adm_user_btn_trial", "utrial") if write else None,
+    )
+    can_move = write and staff.can("services.write") and staff.can("wallet.adjust")
+    pair(
+        button("adm_ud_payments", "upay") if staff.can("payments.read") else None,
+        button("adm_ua_btn_move", "umove") if can_move and profile is None else None,
+    )
+    if staff.can("services.write"):
+        pair(button("adm_ua_btn_power_off", "upower", "off"), button("adm_ua_btn_power_on", "upower", "on"))
+    pair(
+        button("adm_ua_btn_channels", "uchan"),
+        button("adm_ua_btn_zero", "uzero") if staff.can("wallet.adjust") else None,
+    )
+    if write:
+        pair(
+            button(
+                "adm_ua_btn_cron", "ucron", state=t("adm_ua_off") if customer.alerts_muted else t("adm_ua_on")
+            )
+        )
+    reseller = profile is not None and profile.is_active and staff.can("resellers.manage")
+    if reseller:
+        pair(button("adm_user_btn_rbot", "rbot"), button("adm_ua_btn_rbot_del", "urbotdel"))
+        pair(button("adm_ua_btn_base_gb", "ubase", "gb"), button("adm_ua_btn_base_hour", "ubase", "hour"))
+    if write:
+        pair(button("adm_ua_btn_hide_reseller" if reseller else "adm_user_btn_hide", "uhide"))
+        pair(button("adm_ua_btn_hidden", "uhidden"))
+    if reseller:
+        pair(button("adm_ua_btn_expiry", "uexp"))
+        pair(button("adm_ua_btn_demote", "udemote"))
+        pair(button("adm_user_btn_group", "ugroup"))
+    # The rest of the existing controls.
     pair(
         button("adm_user_btn_services", "usvc") if staff.can("services.read") else None,
-        button("adm_user_btn_give", "ugive") if staff.can("services.create") else None,
-    )
-    pair(
         button("btn_adjust_balance", "adjust") if staff.can("wallet.adjust") else None,
-        button("adm_ud_payments", "upay") if staff.can("payments.read") else None,
     )
-    if staff.can("payments.review"):
-        pair(button("adm_user_btn_trust", "utrust", state=t(f"adm_trust_{customer.card_trust}")))
     pair(
-        button("adm_user_btn_message", "umsg") if staff.can("customers.write") else None,
+        button("adm_user_btn_message", "umsg") if write else None,
         button("btn_unban" if customer.is_banned else "btn_ban", "ban")
         if staff.can("customers.ban")
         else None,
     )
-    pair(
-        button("adm_user_btn_hide", "uhide") if staff.can("customers.write") else None,
-        button("adm_user_btn_trial", "utrial") if staff.can("customers.write") else None,
-    )
-    if customer.is_reseller and staff.can("resellers.manage"):
-        pair(button("adm_user_btn_group", "ugroup"), button("adm_user_btn_rbot", "rbot"))
+    if card:
+        pair(button("adm_user_btn_trust", "utrust", state=t(f"adm_trust_{customer.card_trust}")))
     pair(button("adm_ud_back_list", "uprofile"), button("adm_ud_admin", "home"))
     pair(button("adm_ud_close", "uprofile_close"))
     return text, kb.as_markup()

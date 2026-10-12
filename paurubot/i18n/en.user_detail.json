@@ -10,7 +10,7 @@
   "adm_ud_closed": "🔒 User management closed.",
   "adm_ud_back_list": "↩️ Back to list",
   "adm_ud_admin": "🏠 Admin menu",
-  "adm_ud_payments": "💳 User payments",
+  "adm_ud_payments": "💰 View user payments",
   "adm_ud_payments_head": "💳 <b>Payments for {name}</b>\nTotal: {total} · Page {page}/{pages}",
   "adm_ud_payment_line": "• #{id} · {amount} {currency} · {provider}\nStatus: {status} · {date}",
   "adm_ud_payment_empty": "No payments for this user.",
