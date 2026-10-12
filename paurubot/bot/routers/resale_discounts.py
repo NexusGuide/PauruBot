@@ -18,9 +18,9 @@ from paurubot.bot.callbacks import Rb
 from paurubot.bot.routers.resale_bot import _actor, _ask, _running, _state_target
 from paurubot.bot.states import ResaleBotStates
 from paurubot.bot.utils import show
-from paurubot.core.formatting import esc, money, parse_int
+from paurubot.core.formatting import esc, parse_int
 from paurubot.db.base import utcnow
-from paurubot.db.models import Customer, DiscountCode, DiscountKind, ResellerProfile
+from paurubot.db.models import Customer, DiscountCode, DiscountKind
 from paurubot.db.models import Shop as ShopRow
 from paurubot.i18n import Texts
 
@@ -50,7 +50,10 @@ async def _show_codes(
             expiry = code.expires_at.strftime("%Y-%m-%d")
         uses = f"{code.used_count}/{code.max_uses}" if code.max_uses else f"{code.used_count}/∞"
         lines.append(f"• <code>{esc(code.code)}</code> · {code.value}% · {uses} · {expiry}")
-        kb.button(text=t("rb_btn_discount_delete", code=code.code)[:64], callback_data=Rb(action="code_del", id=code.id))
+        kb.button(
+            text=t("rb_btn_discount_delete", code=code.code)[:64],
+            callback_data=Rb(action="code_del", id=code.id),
+        )
     if not rows:
         lines.append(t("rb_discounts_empty"))
     kb.button(text=t("rb_btn_discount_new"), callback_data=Rb(action="code_new"))
