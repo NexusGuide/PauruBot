@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from sqlalchemy import select
+
 from paurubot.core import orders, resale
 from paurubot.db.base import utcnow
 from paurubot.db.models import DiscountCode, DiscountKind, OrderKind, OrderStatus
 from paurubot.ledger import wallet
-from sqlalchemy import select
 from tests import factories
 from tests.unit.test_provisioning import drain
 from tests.unit.test_reseller_bot import TOKEN

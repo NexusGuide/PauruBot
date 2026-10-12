@@ -15,6 +15,9 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from paurubot.audit.log import Actor, record
 from paurubot.bot import keyboards
 from paurubot.bot.callbacks import Admin, Rb, Rs
@@ -28,8 +31,6 @@ from paurubot.core.formatting import esc, money, parse_int
 from paurubot.db.models import Customer, ResellerProfile, StaffRole
 from paurubot.db.models import Shop as ShopRow
 from paurubot.i18n import Texts
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 router = Router(name="resale_bot")
 PLANS_PAGE = 10
