@@ -65,7 +65,7 @@ async def broadcast_got(
     if found is None:
         return
     profile, child = found
-    if not await resale.may_have_bot(profile, await shop_settings.load(session, profile.shop_id)):
+    if not resale.may_have_bot(profile, await shop_settings.load(session, profile.shop_id)):
         await state.clear()
         await message.answer(t("rb_not_allowed"))
         return
