@@ -48,6 +48,12 @@ class ResaleBotStates(StatesGroup):
     plan_price = State()
 
 
+class ResaleCustomizeStates(StatesGroup):
+    text = State()
+    logo = State()
+    channel = State()
+
+
 class AdminStates(StatesGroup):
     lookup = State()
     order_lookup = State()

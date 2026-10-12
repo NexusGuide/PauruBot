@@ -1,0 +1,16 @@
+{
+  "rb_btn_customize": "🎨 Customize bot",
+  "rb_customize_title": "🎨 <b>Customize your sales bot</b>\nChoose what to change:",
+  "rb_customize_welcome": "✍️ Welcome message",
+  "rb_customize_rules": "📜 Rules",
+  "rb_customize_guide": "📘 Connection guide",
+  "rb_customize_logo": "🖼 Logo / welcome image",
+  "rb_customize_channel": "📢 Required channel",
+  "rb_customize_text_ask": "Send the new text. It will be saved for your current language (up to {max} characters).",
+  "rb_customize_text_invalid": "Send a non-empty text up to {max} characters.",
+  "rb_customize_logo_ask": "Send a photo to show before /start, or send - to remove it.",
+  "rb_customize_logo_invalid": "Send a photo, or - to remove the current image.",
+  "rb_customize_channel_ask": "Send <code>@channel | https://t.me/channel</code>, or - to remove the required channel. The bot must be an admin there.",
+  "rb_customize_channel_invalid": "Format: <code>@channel | https://t.me/channel</code>.",
+  "rb_customize_saved": "✅ Saved."
+}
