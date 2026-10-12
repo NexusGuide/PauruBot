@@ -10,11 +10,12 @@ from typing import Any
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Font
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from paurubot.core.reports import day_bounds
 from paurubot.db.base import utcnow
 from paurubot.db.models import Customer, Order, OrderStatus
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @dataclass(slots=True)

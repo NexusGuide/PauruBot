@@ -7,6 +7,8 @@ from typing import Any
 from aiogram import F, Router
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from paurubot.bot.callbacks import Rb
 from paurubot.bot.routers.resale_bot import _running
 from paurubot.bot.utils import show
@@ -15,7 +17,6 @@ from paurubot.core.formatting import money
 from paurubot.db.models import Customer
 from paurubot.db.models import Shop as ShopRow
 from paurubot.i18n import Texts
-from sqlalchemy.ext.asyncio import AsyncSession
 
 router = Router(name="resale_reports")
 
