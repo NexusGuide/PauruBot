@@ -29,16 +29,20 @@ async def eligibility(session: AsyncSession, customer: Customer) -> str | None:
     from paurubot.core import resale
 
     cfg = await shop_settings.load(session, customer.shop_id)
-    if not cfg["trial_enabled"]:
-        return "trial_disabled"
     sale = await resale.for_shop(session, customer.shop_id)
+    # The reseller toggle is only an additional gate. The parent shop remains the source of
+    # truth for trial policy, so a reseller cannot bypass a disabled trial, phone requirement,
+    # quota or generation reset (TEN-18).
+    policy = await shop_settings.load(session, sale.parent_id) if sale is not None else cfg
+    if not cfg["trial_enabled"] or not policy["trial_enabled"]:
+        return "trial_disabled"
     if sale is not None and (not sale.open or not sale.offers("trial")):
         return "trial_disabled"  # a reseller bot offers trials only when staff allow it (TEN-18)
     if customer.risk == "high":
         return "trial_unavailable"
-    if (cfg["trial_requires_phone"] or cfg["require_phone"]) and not customer.phone:
+    if (policy["trial_requires_phone"] or policy["require_phone"]) and not customer.phone:
         return "trial_needs_phone"
-    generation = int(cfg["trial_generation"] or 1)
+    generation = int(policy["trial_generation"] or 1)
     taken = await session.scalar(
         select(TrialGrant.id).where(
             TrialGrant.shop_id == customer.shop_id,
@@ -48,7 +52,7 @@ async def eligibility(session: AsyncSession, customer: Customer) -> str | None:
     )
     if taken:
         return "trial_already_used"
-    quota = int(cfg["trial_daily_quota"] or 0)
+    quota = int(policy["trial_daily_quota"] or 0)
     if quota:
         since = utcnow() - timedelta(days=1)
         today = await session.scalar(
@@ -92,11 +96,11 @@ async def request(session: AsyncSession, customer: Customer) -> Order:
     from paurubot.core import resale
 
     cfg = await shop_settings.load(session, customer.shop_id)
-    generation = int(cfg["trial_generation"] or 1)
     sale = await resale.for_shop(session, customer.shop_id)
+    rules = await shop_settings.load(session, sale.parent_id) if sale is not None else cfg
+    generation = int(rules["trial_generation"] or 1)
     extra: dict[str, int] = {}
     # A reseller bot gives the parent shop's trial, on its panels, and pays a fee for it (TEN-18).
-    rules = await shop_settings.load(session, sale.parent_id) if sale is not None else cfg
     panel = await _trial_panel(
         session, sale.parent_id if sale is not None else customer.shop_id, rules["trial_panel_id"]
     )
