@@ -55,8 +55,12 @@ async def _drain(session) -> int:  # type: ignore[no-untyped-def]
 
 
 async def _run_until_dead(session, order_id: int) -> None:  # type: ignore[no-untyped-def]
-    for _ in range(20):
-        job = await session.scalar(select(Job).where(Job.dedupe_key == f"order:{order_id}:provision"))
+    for _ in range(40):
+        job = await session.scalar(
+            select(Job)
+            .where(Job.dedupe_key == f"order:{order_id}:provision")
+            .execution_options(populate_existing=True)
+        )
         if job.status in {JobStatus.DEAD, JobStatus.DONE}:
             return
         job.run_at = datetime.now(UTC)

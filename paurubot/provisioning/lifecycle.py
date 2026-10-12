@@ -417,8 +417,9 @@ async def _alert_uncertain(session: AsyncSession, order: Order, outcome: str) ->
     from paurubot.notifications.handlers import report
 
     text = (
-        f"⚠️ سفارش #{order.id} ({order.kind.value}): وضعیت پنل نامطمئن است ({outcome}).\n"
-        "نه با هدف تمدید یکی است و نه با وضعیت قبل؛ مبلغ برگشت داده نشد. لطفاً سرویس را بررسی کنید."
+        f"⚠️ Order #{order.id} ({order.kind.value}): panel state is uncertain ({outcome}).\n"
+        "It matches neither the renewal target nor the previous state; no refund was made. "
+        "Please check the service."
     )
     try:
         await report(session, order.shop_id, "errors", text)
