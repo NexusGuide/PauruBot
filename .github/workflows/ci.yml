@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   python:
@@ -38,7 +39,9 @@ jobs:
       - name: lint
         run: ruff check paurubot tests && ruff format --check paurubot tests
       - name: types
-        run: mypy paurubot
+        run: |
+          set -o pipefail
+          mypy paurubot 2>&1 | tee mypy.log
       - name: security suite
         run: |
           set -o pipefail
@@ -50,6 +53,14 @@ jobs:
       - name: Show failures as annotations
         if: failure()
         run: grep -hE "^(FAILED|ERROR|E  )" security.log tests.log 2>/dev/null | head -40 | sed 's/^/::error::/' || true
+
+      - name: Debug report to PR (temporary)
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo '```'; grep -hE "^(FAILED|ERROR|E  )|error:|^tests/.*(Error|assert)" mypy.log security.log tests.log 2>/dev/null | head -80; echo '```'; } > report.md
+          gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body-file report.md
 
   frontend:
     runs-on: ubuntu-latest
