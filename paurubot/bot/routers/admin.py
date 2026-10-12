@@ -576,6 +576,7 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
             kb.row(*available)
 
     pair(button("adm_user_btn_referrals", "uref"))
+    pair(button("adm_user_btn_transfer", "utransfer") if staff.can("resellers.manage") else None)
     pair(
         button("adm_user_btn_services", "usvc") if staff.can("services.read") else None,
         button("adm_user_btn_give", "ugive") if staff.can("services.create") else None,

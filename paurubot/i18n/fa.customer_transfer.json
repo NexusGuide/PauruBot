@@ -1,0 +1,12 @@
+{
+  "adm_user_btn_transfer": "↔️ انتقال مشتری",
+  "adm_transfer_choose": "مقصد انتقال این مشتری را انتخاب کنید.",
+  "adm_transfer_target": "انتقال به {title}",
+  "adm_transfer_no_targets": "هیچ ربات نمایندهٔ مجازی برای این انتقال وجود ندارد.",
+  "adm_transfer_target_invalid": "این مقصد دیگر در دسترس نیست.",
+  "adm_transfer_not_found": "مشتری پیدا نشد.",
+  "adm_transfer_target_not_allowed": "این مقصد مجاز نیست.",
+  "adm_transfer_reseller": "هویت نمایندگی قابل انتقال نیست.",
+  "adm_transfer_already_exists": "این مشتری در مقصد از قبل وجود دارد.",
+  "adm_transfer_done": "مشتری و رکوردهای مربوط به فروشگاه با موفقیت منتقل شدند."
+}

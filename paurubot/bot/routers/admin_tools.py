@@ -29,7 +29,7 @@ from paurubot.bot.routers.admin import actor, back_home, customer_card
 from paurubot.bot.routers.admin_navigation import menu
 from paurubot.bot.states import AdminStates
 from paurubot.bot.utils import StaffOnly, clear_customer_input, show
-from paurubot.core import catalog, customers, finance, pricing
+from paurubot.core import catalog, customer_transfer, customers, finance, pricing
 from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import esc, jdate, money, parse_int
 from paurubot.db.models import (
@@ -150,6 +150,57 @@ def tools_kb(t: Texts, staff: StaffIdentity) -> list[tuple[str, Admin]]:
 
 async def _customer(session: AsyncSession, shop: ShopRow, customer_id: int) -> Customer | None:
     return await customers.get(session, shop.id, customer_id)
+
+
+@router.callback_query(Admin.filter(F.section == "utransfer"), StaffOnly("resellers.manage"))
+async def customer_transfer_menu(
+    call: CallbackQuery,
+    callback_data: Admin,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+) -> None:
+    customer = await _customer(session, shop, callback_data.id)
+    if customer is None:
+        await call.answer(t("adm_customer_not_found"), show_alert=True)
+        return
+    targets = await customer_transfer.target_shops(session, shop.id)
+    if callback_data.action == "move":
+        target = next((row for row in targets if row.id == callback_data.page), None)
+        if target is None:
+            await call.answer(t("adm_transfer_target_invalid"), show_alert=True)
+            return
+        try:
+            result = await customer_transfer.transfer_customer(session, customer.id, target.id)
+        except customer_transfer.CustomerTransferError as exc:
+            await call.answer(t(f"adm_transfer_{exc.key}"), show_alert=True)
+            return
+        await record(
+            session,
+            shop_id=shop.id,
+            actor=actor(staff),
+            action="customer.transfer",
+            entity="customer",
+            entity_id=result.customer_id,
+            before={"shop_id": result.source_shop_id},
+            after={"shop_id": result.target_shop_id},
+        )
+        await session.commit()
+        await call.answer(t("adm_transfer_done"))
+        await show(call, t("adm_transfer_done"), keyboards.back(t, Admin(section="home").pack()))
+        return
+    await call.answer()
+    kb = InlineKeyboardBuilder()
+    for target in targets:
+        kb.row(
+            InlineKeyboardButton(
+                text=t("adm_transfer_target", title=esc(target.title)),
+                callback_data=Admin(section="utransfer", action="move", id=customer.id, page=target.id),
+            )
+        )
+    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Admin(section="user", id=customer.id)))
+    await show(call, t("adm_transfer_choose") if targets else t("adm_transfer_no_targets"), kb.as_markup())
 
 
 # --- a customer's services -----------------------------------------------------------------
