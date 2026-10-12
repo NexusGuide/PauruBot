@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import select
-
 from paurubot.core import orders, resale, trials
 from paurubot.core import settings as shop_settings
 from paurubot.db.models import Order, OrderKind, OrderStatus, Panel, Service
 from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
+from sqlalchemy import select
 from tests import factories
 from tests.unit.test_provisioning import drain
 from tests.unit.test_reseller_bot import TOKEN, _sell
@@ -147,9 +146,7 @@ async def test_parent_trial_policy_cannot_be_bypassed(session, env) -> None:  # 
     with pytest.raises(trials.TrialError, match="trial_disabled"):
         await trials.request(session, buyer)
 
-    await shop_settings.set_many(
-        session, shop.id, {"trial_enabled": True, "trial_requires_phone": True}
-    )
+    await shop_settings.set_many(session, shop.id, {"trial_enabled": True, "trial_requires_phone": True})
     shop_settings.invalidate(shop.id)
     with pytest.raises(trials.TrialError, match="trial_needs_phone"):
         await trials.request(session, buyer)

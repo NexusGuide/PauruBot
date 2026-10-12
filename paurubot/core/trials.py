@@ -8,14 +8,13 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from sqlalchemy import delete, func, select, update
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import utcnow
 from paurubot.db.models import Customer, Order, OrderKind, OrderStatus, Panel, TrialGrant
 from paurubot.worker import queue
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class TrialError(Exception):
