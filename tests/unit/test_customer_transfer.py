@@ -27,7 +27,7 @@ def test_reseller_shop_can_return_customer_to_parent_only() -> None:
     reseller = shop(2, parent_id=1, reseller_profile_id=8)
     sibling = shop(3, parent_id=1, reseller_profile_id=9)
     assert allowed_target(reseller, main)
-    assert not allowed_target(reseller, sibling)
+    assert allowed_target(reseller, sibling)
 
 
 def test_inactive_destination_is_rejected() -> None:

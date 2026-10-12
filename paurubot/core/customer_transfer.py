@@ -50,7 +50,9 @@ def allowed_target(source: Shop, target: Shop) -> bool:
         return False
     if source.parent_id is None:
         return target.parent_id == source.id and target.reseller_profile_id is not None
-    return target.id == source.parent_id
+    return target.id == source.parent_id or (
+        target.parent_id == source.parent_id and target.reseller_profile_id is not None
+    )
 
 
 async def target_shops(session: AsyncSession, source_shop_id: int) -> list[Shop]:
@@ -71,7 +73,21 @@ async def target_shops(session: AsyncSession, source_shop_id: int) -> list[Shop]
             )
         )
     parent = await session.get(Shop, source.parent_id)
-    return [parent] if parent is not None and parent.status == ShopStatus.ACTIVE else []
+    if parent is None or parent.status != ShopStatus.ACTIVE:
+        return []
+    siblings = list(
+        await session.scalars(
+            select(Shop)
+            .where(
+                Shop.parent_id == source.parent_id,
+                Shop.reseller_profile_id.is_not(None),
+                Shop.status == ShopStatus.ACTIVE,
+                Shop.id != source.id,
+            )
+            .order_by(Shop.title)
+        )
+    )
+    return [parent, *siblings]
 
 
 # Every customer-owned row with a shop_id moves together. Ticket messages follow their ticket.
