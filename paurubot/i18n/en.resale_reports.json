@@ -1,6 +1,6 @@
 {
   "rb_btn_reports": "📈 Profit reports",
-  "rb_profit_report": "📈 <b>{period} profit</b>\n\nSales: {sales}\nRevenue: {revenue}\nWholesale cost: {wholesale}\nProfit before gateway fees: {profit}",
+  "rb_profit_report": "📈 <b>{period} profit</b>\n\nSales: {sales}\nRevenue: {revenue}\nWholesale cost: {wholesale}\nNet profit: {profit}",
   "rb_profit_day": "Today",
   "rb_profit_week": "Last 7 days",
   "rb_profit_month": "Last 30 days",
