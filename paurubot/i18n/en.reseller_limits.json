@@ -1,0 +1,6 @@
+{
+  "adm_user_btn_limit": "📊 Daily sales cap",
+  "adm_reseller_limit_ask": "Current daily purchase cap: {current}. Send a number from 1 to 100000, or 0 for unlimited.",
+  "adm_reseller_limit_invalid": "Send a number from 0 to 100000. 0 means unlimited.",
+  "adm_reseller_limit_unlimited": "unlimited"
+}

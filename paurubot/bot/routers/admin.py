@@ -597,7 +597,11 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
         button("adm_user_btn_trial", "utrial") if staff.can("customers.write") else None,
     )
     if customer.is_reseller and staff.can("resellers.manage"):
-        pair(button("adm_user_btn_group", "ugroup"), button("adm_user_btn_rbot", "rbot"))
+        pair(
+            button("adm_user_btn_group", "ugroup"),
+            button("adm_user_btn_rbot", "rbot"),
+        )
+        pair(button("adm_user_btn_limit", "ulimit"))
     pair(button("adm_ud_back_list", "uprofile"), button("adm_ud_admin", "home"))
     pair(button("adm_ud_close", "uprofile_close"))
     return text, kb.as_markup()
