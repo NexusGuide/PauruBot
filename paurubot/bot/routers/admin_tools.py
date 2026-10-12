@@ -29,7 +29,7 @@ from paurubot.bot.routers.admin import actor, back_home, customer_card
 from paurubot.bot.routers.admin_navigation import menu
 from paurubot.bot.states import AdminStates
 from paurubot.bot.utils import StaffOnly, clear_customer_input, show
-from paurubot.core import catalog, customer_transfer, customers, finance, pricing
+from paurubot.core import catalog, customers, finance, pricing
 from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import esc, jdate, money, parse_int
 from paurubot.db.models import (
@@ -161,6 +161,8 @@ async def customer_transfer_menu(
     t: Texts,
     staff: StaffIdentity,
 ) -> None:
+    from paurubot.core import customer_transfer
+
     customer = await _customer(session, shop, callback_data.id)
     if customer is None:
         await call.answer(t("adm_customer_not_found"), show_alert=True)
