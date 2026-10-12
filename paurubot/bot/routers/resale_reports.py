@@ -7,8 +7,6 @@ from typing import Any
 from aiogram import F, Router
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from paurubot.bot.callbacks import Rb
 from paurubot.bot.routers.resale_bot import _running
 from paurubot.bot.utils import show
@@ -17,6 +15,7 @@ from paurubot.core.formatting import money
 from paurubot.db.models import Customer
 from paurubot.db.models import Shop as ShopRow
 from paurubot.i18n import Texts
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = Router(name="resale_reports")
 
@@ -35,13 +34,17 @@ async def _render(call: CallbackQuery, session: AsyncSession, child: ShopRow, t:
     for item in ("day", "week", "month"):
         kb.button(text=t(f"rb_profit_{item}"), callback_data=Rb(action=f"profit_{item}"))
     for days, label in ((1, "rb_profit_day"), (7, "rb_profit_week"), (30, "rb_profit_month")):
-        kb.button(text=t("rb_profit_export", period=t(label)), callback_data=Rb(action="profit_xlsx", page=days))
+        kb.button(
+            text=t("rb_profit_export", period=t(label)), callback_data=Rb(action="profit_xlsx", page=days)
+        )
     kb.button(text=t("btn_back"), callback_data=Rb(action="home"))
     kb.adjust(1)
     await show(call, text, kb.as_markup())
 
 
-@router.callback_query(Rb.filter(F.action.in_({"profit", "profit_day", "profit_week", "profit_month", "profit_xlsx"})))
+@router.callback_query(
+    Rb.filter(F.action.in_({"profit", "profit_day", "profit_week", "profit_month", "profit_xlsx"}))
+)
 async def profit_report(
     call: CallbackQuery,
     callback_data: Rb,

@@ -10,12 +10,11 @@ from typing import Any
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Font
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from paurubot.core.reports import day_bounds
 from paurubot.db.base import utcnow
 from paurubot.db.models import Customer, Order, OrderStatus
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @dataclass(slots=True)
@@ -96,13 +95,25 @@ async def workbook(session: AsyncSession, shop_id: int, key: str) -> bytes:
             period.profit,
         ]
     )
-    header(orders_ws, ["order_id", "completed_at", "customer_id", "customer", "kind", "revenue", "wholesale", "profit"])
+    header(
+        orders_ws,
+        ["order_id", "completed_at", "customer_id", "customer", "kind", "revenue", "wholesale", "profit"],
+    )
     for order, customer in rows:
         revenue = int(order.amount or 0)
         cost = int((order.params or {}).get("wholesale") or 0)
         completed = order.completed_at.replace(tzinfo=None) if order.completed_at else None
         orders_ws.append(
-            [order.id, completed, customer.id, customer.display_name, str(order.kind), revenue, cost, revenue - cost]
+            [
+                order.id,
+                completed,
+                customer.id,
+                customer.display_name,
+                str(order.kind),
+                revenue,
+                cost,
+                revenue - cost,
+            ]
         )
     buf = io.BytesIO()
     wb.save(buf)
