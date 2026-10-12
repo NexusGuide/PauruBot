@@ -1,0 +1,24 @@
+name: audit-snapshot
+on:
+  push:
+    branches: [chore/audit-snapshot]
+    paths: [".github/workflows/snapshot.yml"]
+permissions:
+  contents: write
+jobs:
+  snap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          git rm -q --cached -r . >/dev/null
+          tar --exclude=.git --exclude='package-lock.json' --exclude='*.png' --exclude='*.jpg' --exclude='*.ico' --exclude='*.woff*' --exclude='*.ttf' -cf - . | xz -9e > /tmp/s.tar.xz
+          ls -l /tmp/s.tar.xz
+          mkdir -p snapshot
+          base64 -w 0 /tmp/s.tar.xz | split -b 700000 -d - snapshot/part_
+          git reset -q
+          git config user.name audit-bot
+          git config user.email audit-bot@users.noreply.github.com
+          git add snapshot
+          git commit -qm "chore: audit snapshot [skip ci]"
+          git push
