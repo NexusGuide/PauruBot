@@ -11,9 +11,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from paurubot.core import catalog, pricing, resellers
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import affected, utcnow
@@ -36,6 +33,8 @@ from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.ledger.posting import InsufficientFunds
 from paurubot.worker import queue
+from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 PROVISION_QUEUE = "provision"
 ACCOUNT_KINDS = frozenset(

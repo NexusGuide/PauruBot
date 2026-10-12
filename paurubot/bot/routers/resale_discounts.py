@@ -10,9 +10,6 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from paurubot.audit.log import record
 from paurubot.bot.callbacks import Rb
 from paurubot.bot.routers.resale_bot import _actor, _ask, _running, _state_target
@@ -23,6 +20,8 @@ from paurubot.db.base import utcnow
 from paurubot.db.models import Customer, DiscountCode, DiscountKind
 from paurubot.db.models import Shop as ShopRow
 from paurubot.i18n import Texts
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = Router(name="resale_discounts")
 CODE_SHAPE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{2,31}$")

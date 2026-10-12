@@ -8,7 +8,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import BaseStorage
 from aiogram.fsm.storage.redis import DefaultKeyBuilder, RedisStorage
 from aiogram.types import BotCommand, CallbackQuery, Message
-
 from paurubot.bot.context import ContextMiddleware, GateMiddleware, StaffIdentity
 from paurubot.bot.routers import (
     account,
