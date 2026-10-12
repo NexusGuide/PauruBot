@@ -439,7 +439,7 @@ async def reconcile_renewal(session: AsyncSession, order_id: int) -> str:
     if renewal_state.is_settled(order):
         renewal_state.note_check(order, "settled")
         await _resume(session, order)
-        order.params = {**order.params, "renewal": {**renewal_state.record(order), "parked": False}}
+        order.params = {**(order.params or {}), "renewal": {**renewal_state.record(order), "parked": False}}
         await session.commit()
         return "resumed"
     service = await session.get(Service, order.service_id) if order.service_id else None
