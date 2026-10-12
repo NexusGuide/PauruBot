@@ -137,3 +137,19 @@ async def test_upgrades_credit_both_prices(session, env) -> None:  # type: ignor
     assert 80_000 <= d.params["wholesale"] <= 81_000  # 160,000 - ~80,000
     assert 96_000 <= d.base_price <= 97_000  # 192,000 - ~96,000
     assert d.base_price >= d.params["wholesale"]
+
+
+async def test_parent_trial_policy_cannot_be_bypassed(session, env) -> None:  # type: ignore[no-untyped-def]
+    shop = env["shop"]
+    await shop_settings.set_many(session, shop.id, {"trial_enabled": False})
+    child = await _child(session, env, "trial")
+    buyer = await factories.customer(session, child, telegram_id=63005)
+    with pytest.raises(trials.TrialError, match="trial_disabled"):
+        await trials.request(session, buyer)
+
+    await shop_settings.set_many(
+        session, shop.id, {"trial_enabled": True, "trial_requires_phone": True}
+    )
+    shop_settings.invalidate(shop.id)
+    with pytest.raises(trials.TrialError, match="trial_needs_phone"):
+        await trials.request(session, buyer)
