@@ -46,6 +46,7 @@ class ResaleBotStates(StatesGroup):
     support = State()
     card = State()
     plan_price = State()
+    broadcast = State()
 
 
 class AdminStates(StatesGroup):
