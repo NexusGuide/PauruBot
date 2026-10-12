@@ -25,7 +25,7 @@ from paurubot.db.models import (
     TrialGrant,
 )
 from paurubot.panels import GB, UNSET, PanelError, PanelRef, PanelUser, UserSpec, driver_for
-from paurubot.provisioning import renewal_policy
+from paurubot.provisioning import renewal_policy, renewal_state
 
 log = logging.getLogger(__name__)
 
@@ -258,6 +258,7 @@ def _target_for(
 
 
 async def _modify_service(session: AsyncSession, order: Order) -> Service:
+    """Apply a renewal, upgrade or add-on through the renewal state machine (renewal_state)."""
     service = await session.get(Service, order.service_id) if order.service_id else None
     if service is None or service.status == ServiceStatus.DELETED:
         raise ProvisionError("service_not_found")
@@ -272,8 +273,17 @@ async def _modify_service(session: AsyncSession, order: Order) -> Service:
         mode = renew_mode(plan, panel, cfg)
         params["target"] = _target_for(service, order, plan, mode, queued=bool(params.get("queued")))
         order.params = params
+        renewal_state.move(order, renewal_state.PENDING)
         await session.commit()
-    target = params["target"]
+    elif renewal_state.state(order) is None:
+        # Started before the state machine existed: the panel may already hold it.
+        renewal_state.move(order, renewal_state.PENDING, "resumed")
+        renewal_state.move(order, renewal_state.RUNNING)
+        renewal_state.move(order, renewal_state.UNCERTAIN, "started before the state machine")
+        await session.commit()
+    if renewal_state.is_settled(order):
+        return service  # an earlier attempt or reconciliation already applied it; just finish
+    target = dict(order.params["target"])
     expire_value = target.get("expire")
     expire_at: datetime | None = datetime.fromisoformat(str(expire_value)) if expire_value else None
     driver = await driver_for(panel)
@@ -285,52 +295,189 @@ async def _modify_service(session: AsyncSession, order: Order) -> Service:
             # Panels that sell profiles (PNL-11) renew or upgrade to the plan's own profile.
             service.panel_data = {**(service.panel_data or {}), "profile": str(chosen)}
             await session.flush()
+    verifies = renewal_policy.should_verify(panel.options, driver)
+    if renewal_state.state(order) == renewal_state.RUNNING:
+        renewal_state.move(order, renewal_state.UNCERTAIN, "interrupted")  # a crashed worker
+        await session.commit()
+    if renewal_state.state(order) == renewal_state.UNCERTAIN and verifies:
+        # Look before acting: an earlier attempt may have reached the panel after all.
+        current = await driver.get_user(ref(service))
+        if current is not None and not renewal_policy.verify(target, current):
+            apply_panel_user(service, current)
+            _settle_service(service, order, plan, target, verified=True)
+            renewal_state.move(order, renewal_state.RECONCILED, "found applied on retry")
+            await session.commit()
+            return service
+    renewal_state.move(order, renewal_state.RUNNING)
+    await session.commit()
+    try:
+        verified = await _apply_target(session, order, service, driver, target, expire_at, verifies)
+    except Exception as exc:
+        renewal_state.move(order, renewal_state.UNCERTAIN, f"{exc.__class__.__name__}: {exc}")
+        try:
+            await session.commit()
+        except Exception:
+            log.exception("order %s: could not record the uncertain renewal", order.id)
+        raise
+    _settle_service(service, order, plan, target, verified=verified)
+    renewal_state.move(order, renewal_state.APPLIED)
+    await session.commit()  # from here a retry only finishes the order, it never re-applies
+    return service
+
+
+async def _apply_target(
+    session: AsyncSession,
+    order: Order,
+    service: Service,
+    driver: Any,
+    target: dict[str, Any],
+    expire_at: datetime | None,
+    verifies: bool,
+) -> bool:
+    """The panel calls of a modification. Returns whether the panel confirmed the target."""
+    params = dict(order.params or {})
     last_check = params.get("verification") or {}
     redo_reset = not params.get("reset_done") or "usage_not_reset" in (last_check.get("problems") or [])
     if target.get("reset") and redo_reset:
         await driver.reset_usage(ref(service))
         # A retry must not wipe the traffic used since this reset, unless the panel ignored it.
-        params = {**params, "reset_done": True}
-        order.params = params
+        order.params = {**(order.params or {}), "reset_done": True}
         await session.commit()
     info = await driver.update_user(
         ref(service),
         expire_at=expire_at if target.get("set_expire") else UNSET,
-        data_limit=target.get("limit"),  # type: ignore[arg-type]
+        data_limit=target.get("limit"),
         enabled=True,
     )
     apply_panel_user(service, info)
-    verified = False
-    if renewal_policy.should_verify(panel.options, driver):
-        # Read the account back: the change counts only once the panel really holds the target.
-        fresh = await driver.get_user(ref(service))
-        problems = ["missing_on_panel"] if fresh is None else renewal_policy.verify(target, fresh)
-        params = {
-            **params,
-            "verification": {"ok": not problems, "problems": problems, "checked_at": utcnow().isoformat()},
-        }
-        order.params = params
-        if problems:
-            log.warning("order %s: panel did not confirm the change: %s", order.id, problems)
-            await session.commit()
-            raise renewal_policy.NotConfirmed(problems)
-        assert fresh is not None
-        apply_panel_user(service, fresh)
-        verified = True
+    if not verifies:
+        return False
+    # Read the account back: the change counts only once the panel really holds the target.
+    fresh = await driver.get_user(ref(service))
+    problems = ["missing_on_panel"] if fresh is None else renewal_policy.verify(target, fresh)
+    order.params = {
+        **(order.params or {}),
+        "verification": {"ok": not problems, "problems": problems, "checked_at": utcnow().isoformat()},
+    }
+    if problems:
+        log.warning("order %s: panel did not confirm the change: %s", order.id, problems)
+        raise renewal_policy.NotConfirmed(problems)
+    assert fresh is not None
+    apply_panel_user(service, fresh)
+    return True
+
+
+def _settle_service(
+    service: Service, order: Order, plan: Plan | None, target: dict[str, Any], *, verified: bool
+) -> None:
+    """Record the applied target on the service."""
+    expire_value = target.get("expire")
     if target.get("reset") and not verified:
         service.used_bytes = 0  # unverified: assume the reset worked
     if target.get("set_expire"):
-        service.expire_at = expire_at
+        service.expire_at = datetime.fromisoformat(str(expire_value)) if expire_value else None
     if target.get("limit") is not None:
-        service.data_limit = int(target["limit"])  # type: ignore[call-overload]
+        service.data_limit = int(target["limit"])
     if plan is not None and order.kind in {OrderKind.RENEW, OrderKind.UPGRADE}:
         service.plan_id = plan.id
         service.is_trial = False
     service.status = ServiceStatus.ACTIVE
     service.disabled_reason = None
     service.alerts_sent = {}
-    await session.flush()
-    return service
+
+
+# --- reconciliation of parked renewals ------------------------------------------------------
+
+
+async def parked_renewals(session: AsyncSession, limit: int = 200) -> list[int]:
+    """Modification orders whose job gave up while the panel state was unknown."""
+    rows = await session.scalars(
+        select(Order)
+        .where(Order.status == OrderStatus.PROVISIONING, Order.kind.in_(list(renewal_state.KINDS)))
+        .order_by(Order.id)
+        .limit(limit)
+    )
+    return [order.id for order in rows if renewal_state.parked(order)]
+
+
+async def _resume(session: AsyncSession, order: Order) -> None:
+    """Run the order's provisioning job again so it finishes (rewards, notification)."""
+    from paurubot.db.models import Job
+    from paurubot.worker import queue
+
+    key = f"order:{order.id}:provision"
+    job_id = await session.scalar(select(Job.id).where(Job.dedupe_key == key))
+    if job_id is None or not await queue.retry_dead(session, job_id):
+        await queue.enqueue(
+            session, "provision", "order", {"order_id": order.id}, shop_id=order.shop_id, dedupe_key=key
+        )
+
+
+async def _alert_uncertain(session: AsyncSession, order: Order, outcome: str) -> None:
+    from paurubot.notifications.handlers import report
+
+    text = (
+        f"⚠️ سفارش #{order.id} ({order.kind.value}): وضعیت پنل نامطمئن است ({outcome}).\n"
+        "نه با هدف تمدید یکی است و نه با وضعیت قبل؛ مبلغ برگشت داده نشد. لطفاً سرویس را بررسی کنید."
+    )
+    try:
+        await report(session, order.shop_id, "errors", text)
+    except Exception:
+        log.exception("could not report uncertain renewal %s", order.id)
+
+
+async def reconcile_renewal(session: AsyncSession, order_id: int) -> str:
+    """Settle one parked order by reading the panel. Never re-applies the change by itself.
+
+    - the panel holds the target → ``reconciled`` and the order is finished;
+    - the panel still shows the state before the change → ``failed`` and the order is refunded;
+    - anything else (partial change, panel unreachable) → stays ``uncertain`` for the staff.
+    """
+    order = await session.get(Order, order_id, with_for_update=True, populate_existing=True)
+    if order is None or order.status != OrderStatus.PROVISIONING or not renewal_state.parked(order):
+        return "skipped"
+    if renewal_state.is_settled(order):
+        renewal_state.note_check(order, "settled")
+        await _resume(session, order)
+        order.params = {**order.params, "renewal": {**renewal_state.record(order), "parked": False}}
+        await session.commit()
+        return "resumed"
+    service = await session.get(Service, order.service_id) if order.service_id else None
+    panel = await session.get(Panel, service.panel_id) if service is not None else None
+    target = dict((order.params or {}).get("target") or {})
+    if service is None or panel is None or not target:
+        outcome = "service_missing"
+    else:
+        try:
+            current = await (await driver_for(panel)).get_user(ref(service))
+        except PanelError as exc:
+            current, outcome = None, f"panel_unreachable: {exc}"
+        else:
+            outcome = "missing_on_panel" if current is None else "partial"
+        if current is not None:
+            if not renewal_policy.verify(target, current):
+                apply_panel_user(service, current)
+                plan = await session.get(Plan, order.plan_id) if order.plan_id else None
+                _settle_service(service, order, plan, target, verified=True)
+                renewal_state.move(order, renewal_state.RECONCILED, "found applied by reconciliation")
+                await _resume(session, order)
+                await session.commit()
+                return "reconciled"
+            before = renewal_policy.untouched(target)
+            reset_done = bool((order.params or {}).get("reset_done"))
+            if (
+                before is not None
+                and not reset_done
+                and not renewal_policy.verify(before, current, check_enabled=False)
+            ):
+                renewal_state.move(order, renewal_state.FAILED, "panel unchanged")
+                await session.commit()
+                await give_up(session, order.id, "renewal was not applied on the panel")
+                return "failed"
+    if renewal_state.note_check(order, outcome) == 1:
+        await _alert_uncertain(session, order, outcome)
+    await session.commit()
+    return "uncertain"
 
 
 def _move_target(service: Service, plan: Plan | None) -> dict[str, Any]:
@@ -627,6 +774,16 @@ async def give_up(session: AsyncSession, order_id: int, reason: str) -> None:
     order = await session.get(Order, order_id, populate_existing=True)
     if order is None or order.status in {OrderStatus.COMPLETED, OrderStatus.REFUNDED}:
         return
+    if not renewal_state.refundable(order):
+        # The panel may hold the change: refunding could give it away. Reconcile instead.
+        if renewal_state.state(order) == renewal_state.RUNNING:
+            renewal_state.move(order, renewal_state.UNCERTAIN, "job gave up")
+        renewal_state.park(order, reason)
+        log.warning("order %s parked for reconciliation: %s", order.id, reason[:200])
+        await session.commit()
+        return
+    if order.kind in renewal_state.KINDS and renewal_state.state(order) == renewal_state.PENDING:
+        renewal_state.move(order, renewal_state.FAILED, "gave up before touching the panel")
     await refund_failed(session, order, reason)
     from paurubot.core import resale
 

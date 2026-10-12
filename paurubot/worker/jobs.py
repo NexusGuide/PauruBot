@@ -225,6 +225,22 @@ async def reconcile_ledger() -> None:
         log.error("ledger drift detected: %s", [(d.code, d.cached, d.actual) for d in drift][:20])
 
 
+@every(600, "renewals.reconcile")
+async def reconcile_renewals() -> None:
+    """Settle renewals parked as uncertain by reading the panel, never by a blind retry."""
+    async with session_scope() as session:
+        order_ids = await lifecycle.parked_renewals(session)
+    for order_id in order_ids:
+        try:
+            async with session_scope() as session:
+                outcome = await lifecycle.reconcile_renewal(session, order_id)
+        except Exception:
+            log.exception("reconciling renewal order %s failed", order_id)
+            continue
+        if outcome != "uncertain":
+            log.info("renewal order %s reconciled: %s", order_id, outcome)
+
+
 DEFAULT_RETENTION_DAYS = 14
 
 

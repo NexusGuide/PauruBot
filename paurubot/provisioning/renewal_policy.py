@@ -200,10 +200,10 @@ def _parse(value: object) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def verify(target: dict[str, Any], info: PanelUser) -> list[str]:
+def verify(target: dict[str, Any], info: PanelUser, *, check_enabled: bool = True) -> list[str]:
     """Problems found comparing the panel's account with a stored target; empty when confirmed."""
     problems: list[str] = []
-    if info.status == "disabled":
+    if check_enabled and info.status == "disabled":
         problems.append("still_disabled")
     if not info.limits_known:
         return problems  # the panel cannot report limits (PNL-11); ours are authoritative
@@ -228,6 +228,19 @@ def verify(target: dict[str, Any], info: PanelUser) -> list[str]:
     if target.get("reset") and used_before >= USAGE_CHECK_FLOOR and int(info.used_bytes) >= used_before:
         problems.append("usage_not_reset")
     return problems
+
+
+def untouched(target: dict[str, Any]) -> dict[str, Any] | None:
+    """The state the panel shows when a change was never applied, in the shape `verify` takes."""
+    before = target.get("before")
+    if not isinstance(before, dict):
+        return None
+    return {
+        "set_expire": bool(target.get("set_expire")),
+        "expire": before.get("expire"),
+        "limit": before.get("limit") if target.get("limit") is not None else None,
+        "reset": False,
+    }
 
 
 def should_verify(panel_options: dict[str, Any] | None, driver: object) -> bool:
