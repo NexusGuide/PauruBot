@@ -501,8 +501,14 @@ async def extras_menu(
     t: Texts,
     cfg: dict[str, Any],
 ) -> None:
+    from paurubot.core import resale
+
     service = await session.get(Service, callback_data.id)
-    gb_price, day_price = orders.service_extras(cfg, service) if service is not None else (None, None)
+    gb_price, day_price = (
+        await resale.listed_extras(session, service, customer.shop_id, cfg)
+        if service is not None
+        else (None, None)
+    )
     price = gb_price if callback_data.action == "extra_gb" else day_price
     if service is None or service.customer_id != customer.id or price is None:
         await call.answer(t("extras_unavailable"), show_alert=True)

@@ -26,9 +26,14 @@ class TrialError(Exception):
 
 async def eligibility(session: AsyncSession, customer: Customer) -> str | None:
     """None when the customer may take a trial, else a locale key with the reason."""
+    from paurubot.core import resale
+
     cfg = await shop_settings.load(session, customer.shop_id)
     if not cfg["trial_enabled"]:
         return "trial_disabled"
+    sale = await resale.for_shop(session, customer.shop_id)
+    if sale is not None and (not sale.open or not sale.offers("trial")):
+        return "trial_disabled"  # a reseller bot offers trials only when staff allow it (TEN-18)
     if customer.risk == "high":
         return "trial_unavailable"
     if (cfg["trial_requires_phone"] or cfg["require_phone"]) and not customer.phone:
@@ -84,11 +89,27 @@ async def request(session: AsyncSession, customer: Customer) -> Order:
     reason = await eligibility(session, customer)
     if reason:
         raise TrialError(reason)
+    from paurubot.core import resale
+
     cfg = await shop_settings.load(session, customer.shop_id)
-    panel = await _trial_panel(session, customer.shop_id, cfg["trial_panel_id"])
+    generation = int(cfg["trial_generation"] or 1)
+    sale = await resale.for_shop(session, customer.shop_id)
+    extra: dict[str, int] = {}
+    # A reseller bot gives the parent shop's trial, on its panels, and pays a fee for it (TEN-18).
+    rules = await shop_settings.load(session, sale.parent_id) if sale is not None else cfg
+    panel = await _trial_panel(
+        session, sale.parent_id if sale is not None else customer.shop_id, rules["trial_panel_id"]
+    )
     if panel is None:
         raise TrialError("trial_disabled")
-    generation = int(cfg["trial_generation"] or 1)
+    if sale is not None:
+        fee = int(rules["resale_trial_fee"] or 0)
+        if fee > 0:
+            from paurubot.ledger.accounts import wallet_balance
+
+            if await wallet_balance(session, sale.parent_id, sale.reseller.id) < fee:
+                raise TrialError("trial_unavailable")
+            extra = {"wholesale": fee, "resale_profile": sale.profile.id}
     grant_id = await session.scalar(
         insert(TrialGrant)
         .values(
@@ -110,10 +131,11 @@ async def request(session: AsyncSession, customer: Customer) -> Order:
         status=OrderStatus.PAID,
         params={
             "panel_id": panel.id,
-            "days": int(cfg["trial_days"] or 1),
-            "gb": int(cfg["trial_gb"] or 1),
+            "days": int(rules["trial_days"] or 1),
+            "gb": int(rules["trial_gb"] or 1),
             "grant_id": grant_id,
             "label": "trial",
+            **extra,
         },
         amount=0,
         paid_at=utcnow(),

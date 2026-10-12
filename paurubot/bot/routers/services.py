@@ -17,7 +17,7 @@ from paurubot.bot.states import ServiceStates
 from paurubot.bot.utils import Btn, show
 from paurubot.bot.views import qr_png, service_card
 from paurubot.core.formatting import esc
-from paurubot.core.orders import MOVABLE, service_extras
+from paurubot.core.orders import MOVABLE
 from paurubot.db.models import Customer, Service, ServiceStatus
 from paurubot.i18n import Texts
 from paurubot.panels import PanelError
@@ -37,11 +37,13 @@ async def owned(session: AsyncSession, customer: Customer, service_id: int) -> S
     return service
 
 
-def _service_markup(t: Texts, service: Service, cfg: dict[str, Any]):  # type: ignore[no-untyped-def]
+async def _service_markup(session: AsyncSession, t: Texts, service: Service, cfg: dict[str, Any]):  # type: ignore[no-untyped-def]
+    from paurubot.core import resale
+
     return keyboards.service_kb(
         t,
         service,
-        extras=service_extras(cfg, service),
+        extras=await resale.listed_extras(session, service, service.shop_id, cfg),
         upgrade=bool(cfg["upgrade_enabled"]),
         move=bool(cfg["move_enabled"]) and service.status in MOVABLE,
         card=bool(cfg["info_card_enabled"]),
@@ -133,7 +135,11 @@ async def view(
     if service.status == ServiceStatus.DELETED:
         await show(call, t("service_removed_from_panel"))
         return
-    await show(call, service_card(t, service, customer_link(service, cfg)), _service_markup(t, service, cfg))
+    await show(
+        call,
+        service_card(t, service, customer_link(service, cfg)),
+        await _service_markup(session, t, service, cfg),
+    )
 
 
 @router.callback_query(Svc.filter(F.action == "mute"))
@@ -301,7 +307,7 @@ async def links(
         return
     kind = delivery_of(service.panel.kind if service.panel else None)
     if kind == "account":
-        await show(call, service_card(t, service, None), _service_markup(t, service, cfg))
+        await show(call, service_card(t, service, None), await _service_markup(session, t, service, cfg))
         return
     items = await lifecycle.links(session, service)
     if kind == "wireguard":
@@ -504,7 +510,11 @@ async def revoke(
         return
     await session.commit()
     await call.answer(t("revoked"))
-    await show(call, service_card(t, service, customer_link(service, cfg)), _service_markup(t, service, cfg))
+    await show(
+        call,
+        service_card(t, service, customer_link(service, cfg)),
+        await _service_markup(session, t, service, cfg),
+    )
 
 
 @router.callback_query(Svc.filter(F.action == "rename"))
@@ -547,6 +557,6 @@ async def rename(
     await message.answer(t("label_saved"), reply_markup=menu(t, cfg, staff))
     await message.answer(
         service_card(t, service, customer_link(service, cfg)),
-        reply_markup=_service_markup(t, service, cfg),
+        reply_markup=await _service_markup(session, t, service, cfg),
         disable_web_page_preview=True,
     )
