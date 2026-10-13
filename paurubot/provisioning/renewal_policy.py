@@ -178,9 +178,9 @@ def compute(
 
 # --- verification -------------------------------------------------------------------------
 
-# Panels store end dates differently (seconds, milliseconds, whole days): a renewal is confirmed
-# when the panel's end date is within this slack of the target.
+# Day-based panels need rounding slack, but it must never overlap the previous expiry.
 EXPIRE_SLACK = timedelta(hours=26)
+PRECISE_EXPIRE_SLACK = timedelta(minutes=5)
 LIMIT_SLACK = 16 * 1024**2  # panels that count data in (fractional) GB round a little
 USAGE_CHECK_FLOOR = 128 * 1024**2  # below this the reset cannot be told apart from new traffic
 
@@ -213,8 +213,15 @@ def verify(target: dict[str, Any], info: PanelUser, *, check_enabled: bool = Tru
         if wanted is None:
             if actual is not None:
                 problems.append("expire_mismatch")
-        elif actual is None or abs(actual - wanted) > EXPIRE_SLACK:
-            problems.append("expire_mismatch")
+        else:
+            previous = _parse((target.get("before") or {}).get("expire"))
+            # With no snapshot there is no evidence of the size of the change.
+            slack = PRECISE_EXPIRE_SLACK
+            if previous is not None:
+                change = abs(wanted - previous)
+                slack = min(EXPIRE_SLACK, change / 2) if change else EXPIRE_SLACK
+            if actual is None or abs(actual - wanted) > slack:
+                problems.append("expire_mismatch")
     limit = target.get("limit")
     if limit is not None:
         wanted_limit, actual_limit = int(limit), int(info.data_limit or 0)
@@ -237,6 +244,26 @@ def can_confirm(info: PanelUser) -> bool:
     passes for them whatever the panel holds. Their account is no evidence either way.
     """
     return bool(info.limits_known)
+
+
+def reset_pending(params: dict[str, Any]) -> bool:
+    """A reset was reserved durably, but its response was never recorded."""
+    return bool(params.get("reset_attempted") and not params.get("reset_done"))
+
+
+def reset_confirmed(target: dict[str, Any], info: PanelUser) -> bool:
+    """Conservative read-back evidence for a reset whose response was lost.
+
+    Low pre-reset traffic and blind panels cannot distinguish a reset from an unchanged account.
+    Those orders stay uncertain for staff; repeating a destructive reset is not safe.
+    """
+    before = int((target.get("before") or {}).get("used") or 0)
+    return bool(
+        target.get("reset")
+        and can_confirm(info)
+        and before >= USAGE_CHECK_FLOOR
+        and 0 <= int(info.used_bytes) < before
+    )
 
 
 def untouched(target: dict[str, Any]) -> dict[str, Any] | None:

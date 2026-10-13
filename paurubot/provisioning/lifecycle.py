@@ -24,7 +24,15 @@ from paurubot.db.models import (
     ServiceStatus,
     TrialGrant,
 )
-from paurubot.panels import GB, UNSET, PanelError, PanelRef, PanelUser, UserSpec, driver_for
+from paurubot.panels import (
+    GB,
+    UNSET,
+    PanelError,
+    PanelRef,
+    PanelUser,
+    UserSpec,
+    driver_for,
+)
 from paurubot.provisioning import renewal_policy, renewal_state
 
 log = logging.getLogger(__name__)
@@ -307,8 +315,14 @@ async def _modify_service(session: AsyncSession, order: Order) -> Service:
         if (
             current is not None
             and renewal_policy.can_confirm(current)
+            and (
+                not renewal_policy.reset_pending(order.params or {})
+                or renewal_policy.reset_confirmed(target, current)
+            )
             and not renewal_policy.verify(target, current)
         ):
+            if renewal_policy.reset_pending(order.params or {}):
+                order.params = {**(order.params or {}), "reset_done": True}
             apply_panel_user(service, current)
             _settle_service(service, order, plan, target, verified=True)
             renewal_state.move(order, renewal_state.RECONCILED, "found applied on retry")
@@ -341,14 +355,33 @@ async def _apply_target(
     verifies: bool,
 ) -> bool:
     """The panel calls of a modification. Returns whether the panel confirmed the target."""
-    params = dict(order.params or {})
-    last_check = params.get("verification") or {}
-    redo_reset = not params.get("reset_done") or "usage_not_reset" in (last_check.get("problems") or [])
-    if target.get("reset") and redo_reset:
-        await driver.reset_usage(ref(service))
-        # A retry must not wipe the traffic used since this reset, unless the panel ignored it.
-        order.params = {**(order.params or {}), "reset_done": True}
-        await session.commit()
+    if target.get("reset"):
+        # Re-read under a row lock: a stale worker must see another worker's reset reservation.
+        await session.refresh(order, with_for_update=True)
+        params = dict(order.params or {})
+        if renewal_policy.reset_pending(params):
+            fresh = await driver.get_user(ref(service))
+            if fresh is None or not renewal_policy.reset_confirmed(target, fresh):
+                order.params = {
+                    **params,
+                    "verification": {
+                        "ok": False,
+                        "problems": ["reset_uncertain"],
+                        "checked_at": utcnow().isoformat(),
+                    },
+                }
+                await session.commit()
+                raise renewal_policy.NotConfirmed(["reset_uncertain"])
+            order.params = {**params, "reset_done": True}
+            await session.commit()
+        elif not params.get("reset_done"):
+            # Commit the intent BEFORE the remote call. A lost response (or a killed worker)
+            # leaves an uncertain reservation, never permission to reset usage a second time.
+            order.params = {**params, "reset_attempted": utcnow().isoformat()}
+            await session.commit()
+            await driver.reset_usage(ref(service))
+            order.params = {**(order.params or {}), "reset_done": True}
+            await session.commit()
     info = await driver.update_user(
         ref(service),
         expire_at=expire_at if target.get("set_expire") else UNSET,
@@ -490,6 +523,13 @@ async def reconcile_renewal(session: AsyncSession, order_id: int) -> str:
             current, outcome = None, f"panel_unreachable: {exc}"
         else:
             outcome = "missing_on_panel" if current is None else "partial"
+        if current is not None and renewal_policy.reset_pending(order.params or {}):
+            if renewal_policy.reset_confirmed(target, current):
+                order.params = {**(order.params or {}), "reset_done": True}
+                await session.commit()
+            else:
+                # Even an unchanged account is not proof that the reserved reset never ran.
+                current, outcome = None, "reset_uncertain"
         if current is not None and not renewal_policy.can_confirm(current):
             return await _reapply_unverifiable(session, order)
         if current is not None:
@@ -506,6 +546,7 @@ async def reconcile_renewal(session: AsyncSession, order_id: int) -> str:
             if (
                 before is not None
                 and not reset_done
+                and not (order.params or {}).get("reset_attempted")
                 and not renewal_policy.verify(before, current, check_enabled=False)
             ):
                 renewal_state.move(order, renewal_state.FAILED, "panel unchanged")

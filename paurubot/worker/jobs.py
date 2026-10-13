@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core import orders
 from paurubot.db.base import utcnow
-from paurubot.db.models import Job, JobStatus, Panel, Shop
+from paurubot.db.models import Job, JobStatus, Panel, Service, Shop
 from paurubot.db.session import session_scope
 from paurubot.panels import PanelError, PanelUnavailable
 from paurubot.payments import engine as payments
@@ -246,17 +246,24 @@ async def auto_renew_services() -> None:
     """Renew or top up the services whose owners turned auto-renewal on (F-02)."""
     from paurubot.core import auto_renew
 
+    now, cursor = utcnow(), 0
     async with session_scope() as session:
-        service_ids = await auto_renew.due(session)
-    for service_id in service_ids:
-        try:
-            async with session_scope() as session:
-                outcome = await auto_renew.run_service(session, service_id)
-        except Exception:
-            log.exception("auto-renewing service %s failed", service_id)
-            continue
-        if outcome not in {"idle", "cooldown", "busy", "short"}:
-            log.info("auto-renew for service %s: %s", service_id, outcome)
+        through_id = int(await session.scalar(select(func.max(Service.id))) or 0)
+    while cursor < through_id:
+        async with session_scope() as session:
+            service_ids = await auto_renew.due(session, now, after_id=cursor, through_id=through_id)
+        if not service_ids:
+            break
+        cursor = service_ids[-1]  # advance even if every service in this batch is busy or short
+        for service_id in service_ids:
+            try:
+                async with session_scope() as session:
+                    outcome = await auto_renew.run_service(session, service_id)
+            except Exception:
+                log.exception("auto-renewing service %s failed", service_id)
+                continue
+            if outcome not in {"idle", "cooldown", "busy", "short"}:
+                log.info("auto-renew for service %s: %s", service_id, outcome)
 
 
 DEFAULT_RETENTION_DAYS = 14
