@@ -13,6 +13,7 @@ interface AppState {
   t: Translate;
   reload: () => Promise<void>;
   setLocale: (locale: string) => Promise<void>;
+  setMarketing: (optOut: boolean) => Promise<void>;
   toast: (message: string, tone?: "ok" | "error") => void;
   toastMessage: { text: string; tone: "ok" | "error" } | null;
 }
@@ -53,14 +54,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [reload],
   );
 
+  const setMarketing = useCallback(async (optOut: boolean) => {
+    const preferences = await api.setMarketing(optOut);
+    setMe(current => current ? { ...current, preferences } : current);
+  }, []);
+
   const toast = useCallback((text: string, tone: "ok" | "error" = "ok") => {
     setToast({ text, tone });
     window.setTimeout(() => setToast(null), 2600);
   }, []);
 
   const value = useMemo(
-    () => ({ me, error, locale, t, reload, setLocale, toast, toastMessage }),
-    [me, error, locale, t, reload, setLocale, toast, toastMessage],
+    () => ({ me, error, locale, t, reload, setLocale, setMarketing, toast, toastMessage }),
+    [me, error, locale, t, reload, setLocale, setMarketing, toast, toastMessage],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

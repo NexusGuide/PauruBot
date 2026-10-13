@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -53,6 +53,7 @@ BROADCAST_FIELDS = [
     "failed",
     "blocked",
     "deleted",
+    "skipped",
     "scheduled_at",
     "created_at",
     "finished_at",
@@ -177,7 +178,11 @@ async def update_code(
     return await _code_out(db, row)
 
 
+AudienceKind = Literal["all", "resellers", "buyers", "active", "inactive", "never_bought"]
+
+
 class BroadcastBody(BaseModel):
+    kind: AudienceKind = "all"
     text: str = Field(min_length=1, max_length=4000)
     buttons: list[dict[str, str]] = Field(default_factory=list, max_length=6)
     resellers_only: bool = False
@@ -215,7 +220,12 @@ async def create_broadcast(
     _check_buttons(body)
     if not broadcasts.schedule_ok(body.scheduled_at):
         raise HTTPException(status_code=422, detail="schedule_invalid")
-    audience = {"resellers_only": body.resellers_only, "buyers_only": body.buyers_only, "locale": body.locale}
+    audience = {
+        "kind": body.kind,
+        "resellers_only": body.resellers_only,
+        "buyers_only": body.buyers_only,
+        "locale": body.locale,
+    }
     row = Broadcast(
         shop_id=ctx.shop_id,
         created_by_staff_id=ctx.staff.id,
@@ -326,13 +336,25 @@ async def resume_broadcast(
 
 @router.get("/broadcasts/audience")
 async def audience_size(
-    ctx: Annotated[StaffContext, Depends(require("broadcast.send"))], db: DB
+    ctx: Annotated[StaffContext, Depends(require("broadcast.send"))],
+    db: DB,
+    kind: AudienceKind = "all",
+    locale: str | None = None,
+    resellers_only: bool = False,
+    buyers_only: bool = False,
 ) -> dict[str, int]:
-    total = await db.scalar(
-        select(func.count(Customer.id)).where(
-            Customer.shop_id == ctx.shop_id, Customer.is_banned.is_(False), Customer.blocked_bot_at.is_(None)
-        )
+    from paurubot.notifications.handlers import _audience
+
+    draft = Broadcast(
+        shop_id=ctx.shop_id,
+        audience={
+            "kind": kind,
+            "locale": locale,
+            "resellers_only": resellers_only,
+            "buyers_only": buyers_only,
+        },
     )
+    total = await db.scalar(select(func.count(Customer.id)).where(*_audience(draft)))
     return {"reachable": int(total or 0)}
 
 
