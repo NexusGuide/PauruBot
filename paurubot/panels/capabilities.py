@@ -126,6 +126,7 @@ def summary(checks: list[Check]) -> str:
 
 async def report(driver: PanelDriver, *, write: bool = False) -> dict[str, Any]:
     checks = await read_probes(driver)
-    if write and checks and checks[0].status == "ok":
+    write_tested = bool(write and checks and checks[0].status == "ok")
+    if write_tested:
         checks += await write_probes(driver)
-    return {"status": summary(checks), "write_tested": write, "checks": [c.as_dict() for c in checks]}
+    return {"status": summary(checks), "write_tested": write_tested, "checks": [c.as_dict() for c in checks]}

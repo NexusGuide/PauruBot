@@ -30,8 +30,9 @@ async def panel_capabilities(panel_id: int, body: CapabilityBody, ctx: Writer, d
         driver = await registry.driver_for(panel)
     except PanelError as exc:
         check = {"key": "connect", "status": "fail", "detail": str(exc)[:200]}
-        return {"status": "fail", "write_tested": False, "checks": [check]}
-    result = await report(driver, write=body.write)
+        result = {"status": "fail", "write_tested": False, "checks": [check]}
+    else:
+        result = await report(driver, write=body.write)
     await record(
         db,
         shop_id=ctx.shop_id,
@@ -39,6 +40,6 @@ async def panel_capabilities(panel_id: int, body: CapabilityBody, ctx: Writer, d
         action="panel.capabilities",
         entity="panel",
         entity_id=panel.id,
-        after={"status": result["status"], "write": body.write},
+        after={"status": result["status"], "write": body.write, "write_tested": result["write_tested"]},
     )
     return result

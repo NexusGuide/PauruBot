@@ -88,3 +88,39 @@ async def test_write_probe_cleans_up_even_when_a_step_fails() -> None:
     assert result["status"] == "fail"
     assert driver.users == {}
     assert driver.deleted and driver.deleted[0].startswith(PROBE_PREFIX)
+
+
+async def test_unhealthy_panel_does_not_claim_writes_were_tested() -> None:
+    class DownDriver(FakeDriver):
+        async def health_check(self) -> PanelHealth:
+            return PanelHealth(False, "offline", 0)
+
+    driver = DownDriver()
+    result = await report(driver, write=True)
+    assert result["status"] == "fail"
+    assert result["write_tested"] is False
+    assert driver.users == {} and driver.deleted == []
+
+
+async def test_cleanup_failure_reports_the_exact_probe_username() -> None:
+    class DeleteFailDriver(FakeDriver):
+        async def delete_user(self, ref: PanelRef) -> None:
+            raise PanelError("forbidden", 403)
+
+    driver = DeleteFailDriver()
+    result = await report(driver, write=True)
+    assert result["status"] == "fail"
+    check = next(c for c in result["checks"] if c["key"] == "delete")
+    username = next(iter(driver.users))
+    assert username in check["detail"] and "by hand" in check["detail"]
+
+
+async def test_create_failure_does_not_delete_an_unknown_user() -> None:
+    class CreateFailDriver(FakeDriver):
+        async def create_user(self, spec: UserSpec) -> PanelUser:
+            raise PanelError("forbidden", 403)
+
+    driver = CreateFailDriver()
+    result = await report(driver, write=True)
+    assert _by_key(result)["create"] == "fail"
+    assert driver.deleted == []
