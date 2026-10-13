@@ -1,0 +1,13 @@
+{
+  "rb_btn_discounts": "🏷 Discount codes",
+  "rb_discounts_title": "🏷 <b>Your discount codes</b>",
+  "rb_discounts_empty": "No active discount codes.",
+  "rb_btn_discount_new": "➕ New discount code",
+  "rb_btn_discount_delete": "Deactivate {code}",
+  "rb_discount_new_ask": "Send: CODE PERCENT [MAX_USES] [DAYS]\nExample: VIP20 20 100 30\nUse - for unlimited uses or no expiry.",
+  "rb_discount_invalid": "Invalid format. Use CODE PERCENT [MAX_USES] [DAYS]. Percent: 1–100.",
+  "rb_discount_exists": "This code already exists.",
+  "rb_discount_created": "✅ Code {code} created with {percent}% off.",
+  "rb_discount_deleted": "Discount code deactivated.",
+  "rb_discount_unlimited": "unlimited"
+}
