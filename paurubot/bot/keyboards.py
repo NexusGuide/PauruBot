@@ -293,6 +293,7 @@ def service_kb(
     card: bool = False,
     cancel: bool = False,
     link: str | None = None,
+    auto: bool | None = None,
 ) -> InlineKeyboardMarkup:
     from paurubot.core.orders import can_change
 
@@ -314,6 +315,11 @@ def service_kb(
             kb.button(text=t("btn_extra_volume"), callback_data=Svc(action="extra_gb", id=sid))
         if extras[1] is not None:
             kb.button(text=t("btn_extra_days"), callback_data=Svc(action="extra_days", id=sid))
+    if auto is not None:
+        kb.button(
+            text=t("btn_auto_renew_on") if auto else t("btn_auto_renew_off"),
+            callback_data=Svc(action="auto", id=sid),
+        )
     if upgrade and can_change(service, "upgrade"):
         kb.button(text=t("btn_upgrade"), callback_data=Svc(action="upgrade", id=sid))
     if move and not service.is_trial:
@@ -330,6 +336,57 @@ def service_kb(
 
         kb.row(InlineKeyboardButton(text=t("btn_copy_link"), copy_text=CopyTextButton(text=link[:256])))
     kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Svc(action="list").pack()))
+    return kb.as_markup()
+
+
+def auto_renew_kb(
+    t: Texts,
+    service_id: int,
+    plans: Sequence[tuple[Plan, int]],
+    *,
+    gb_options: Sequence[int],
+    day_options: Sequence[int],
+    chosen: dict[str, Any] | None,
+    removable: bool = False,
+) -> InlineKeyboardMarkup:
+    """Choosing what auto-renewal buys (F-02); the current choice carries a check mark."""
+    chosen = chosen or {}
+    mode = chosen.get("mode")
+
+    def mark(on: bool, text: str) -> str:
+        return f"✅ {text}" if on else text
+
+    kb = InlineKeyboardBuilder()
+    for plan, price in plans:
+        on = mode == "renew" and chosen.get("plan_id") == plan.id
+        kb.row(
+            InlineKeyboardButton(
+                text=mark(on, t("auto_renew_plan_option", plan=plan.title, price=money(price))),
+                callback_data=Svc(action="auto_plan", id=service_id, value=plan.id).pack(),
+            )
+        )
+    for kind, options, action in (("gb", gb_options, "auto_gb"), ("days", day_options, "auto_days")):
+        if not options:
+            continue
+        current = chosen.get(kind) if mode == "extra" else None
+        kb.row(
+            *[
+                InlineKeyboardButton(
+                    text=mark(current == value, t(f"auto_renew_{kind}_option", value=value)),
+                    callback_data=Svc(
+                        action=action, id=service_id, value=0 if current == value else value
+                    ).pack(),
+                )
+                for value in options
+            ]
+        )
+    if mode or removable:
+        kb.row(
+            InlineKeyboardButton(
+                text=t("btn_auto_renew_disable"), callback_data=Svc(action="auto_off", id=service_id).pack()
+            )
+        )
+    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Svc(action="view", id=service_id).pack()))
     return kb.as_markup()
 
 
