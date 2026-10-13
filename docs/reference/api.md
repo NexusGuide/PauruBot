@@ -18,11 +18,18 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/backups` | `backups.manage` | List backups |
 | POST | `/api/admin/backups` | `backups.manage` | Start backup |
 | GET | `/api/admin/broadcasts/audience` | `broadcast.send` | Audience size |
+| POST | `/api/admin/broadcasts/test` | `broadcast.send` | Send test broadcast |
 | POST | `/api/admin/broadcasts/{broadcast_id}/cancel` | `broadcast.send` | Cancel broadcast |
+| POST | `/api/admin/broadcasts/{broadcast_id}/pause` | `broadcast.send` | Pause broadcast |
+| POST | `/api/admin/broadcasts/{broadcast_id}/resume` | `broadcast.send` | Resume broadcast |
 | GET | `/api/admin/broadcasts` | `broadcast.send` | List broadcasts |
 | POST | `/api/admin/broadcasts` | `broadcast.send` | Create broadcast |
 | GET | `/api/admin/bundle` | `backups.manage` | The shop's setup (no secrets, no customers) as a JSON file. |
 | POST | `/api/admin/bundle` | `backups.manage` | Import bundle |
+| DELETE | `/api/admin/canned-replies/{reply_id}` | `settings.write` | Delete canned reply |
+| PUT | `/api/admin/canned-replies/{reply_id}` | `settings.write` | Update canned reply |
+| GET | `/api/admin/canned-replies` | `tickets.reply` | List canned replies |
+| POST | `/api/admin/canned-replies` | `settings.write` | Create canned reply |
 | GET | `/api/admin/catalog` | `catalog.read` | Catalog |
 | PUT | `/api/admin/categories/{row_id}` | `catalog.write` | Update category |
 | POST | `/api/admin/categories` | `catalog.write` | Create category |
@@ -72,12 +79,15 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/my-bot` | `resellers.bot` | My bot |
 | PUT | `/api/admin/my-bot` | `resellers.bot` | Save my bot |
 | GET | `/api/admin/my/billing` | `dashboard.view` | My billing |
+| GET | `/api/admin/my/hub` | `dashboard.view` | My hub |
+| POST | `/api/admin/orders/{order_id}/confirm-refund` | `payments.refund` | Step one of a large refund (F-22): type the amount to confirm. |
 | POST | `/api/admin/orders/{order_id}/refund` | `payments.refund` | Return a completed or failed order's money to the wallet (NEW-04). The service is not touched. |
 | GET | `/api/admin/orders` | `orders.read` | List orders |
 | POST | `/api/admin/panel-accounts/{row_id}/{action}` | `resellers.manage` | Act on panel account |
 | GET | `/api/admin/panel-accounts` | `resellers.manage` | List panel accounts |
 | POST | `/api/admin/panels/certificate` | `panels.secrets` | Inspect certificate |
 | GET | `/api/admin/panels/{panel_id}/admins` | `panels.write` | The panel's admins and how many users each one owns. |
+| POST | `/api/admin/panels/{panel_id}/capabilities` | `panels.write` | Panel capabilities |
 | POST | `/api/admin/panels/{panel_id}/check` | `panels.read` | Run one monitoring probe right away and return the fresh figures (PNL-12, PNL-13). |
 | GET | `/api/admin/panels/{panel_id}/import` | `panels.write` | Import preview |
 | POST | `/api/admin/panels/{panel_id}/import` | `panels.write` | Import users |
@@ -114,11 +124,14 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/resellers/{profile_id}/bot/allow` | `resellers.manage` | Allow reseller bot |
 | POST | `/api/admin/resellers/{profile_id}/bot/stop` | `resellers.manage` | Stop reseller bot |
 | GET | `/api/admin/resellers/{profile_id}/bot` | `resellers.manage` | Reseller bot |
+| GET | `/api/admin/resellers/{profile_id}/hub` | `resellers.manage` | Reseller hub |
 | POST | `/api/admin/resellers/{profile_id}/suspend` | `resellers.manage` | Suspend reseller |
 | GET | `/api/admin/resellers` | `resellers.manage` | Resellers |
 | PUT | `/api/admin/resellers` | `resellers.manage` | Upsert profile |
+| POST | `/api/admin/services/bulk/confirm` | `services.write` | Step one of a bulk delete or disable (F-22): type how many services it touches. |
 | POST | `/api/admin/services/bulk` | `services.write` | Queue one job per service so slow panels never block the request and failures retry. |
 | POST | `/api/admin/services/{service_id}/action` | `services.write` | Service action |
+| POST | `/api/admin/services/{service_id}/confirm-delete` | `services.write` | Step one of deleting a service (F-22): type its username to confirm. |
 | POST | `/api/admin/services/{service_id}/move` | `services.write` | Move a service to another panel with its remaining data and end date; the link stays (SVC-04). |
 | PUT | `/api/admin/services/{service_id}/note` | `services.write` | A note on a service only staff see (SVC-16). |
 | GET | `/api/admin/services/{service_id}` | `services.read` | Service detail |
@@ -139,9 +152,15 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | DELETE | `/api/admin/texts/{locale}/{key}` | `texts.write` | Reset text |
 | PUT | `/api/admin/texts/{locale}/{key}` | `texts.write` | Set text |
 | GET | `/api/admin/texts` | `texts.write` | List texts |
+| DELETE | `/api/admin/ticket-departments/{department_id}` | `settings.write` | Delete ticket department |
+| PUT | `/api/admin/ticket-departments/{department_id}` | `settings.write` | Update ticket department |
+| GET | `/api/admin/ticket-departments` | `tickets.read` | List ticket departments |
+| POST | `/api/admin/ticket-departments` | `settings.write` | Create ticket department |
 | POST | `/api/admin/tickets/{ticket_id}/close` | `tickets.reply` | Close |
+| POST | `/api/admin/tickets/{ticket_id}/note` | `tickets.reply` | Add ticket note |
 | POST | `/api/admin/tickets/{ticket_id}/reply` | `tickets.reply` | Reply |
 | GET | `/api/admin/tickets/{ticket_id}` | `tickets.read` | Ticket detail |
+| PATCH | `/api/admin/tickets/{ticket_id}` | `tickets.reply` | Update ticket |
 | GET | `/api/admin/tickets` | `tickets.read` | List tickets |
 | POST | `/api/admin/tickets` | `tickets.reply` | A reseller writes to the shop owner from the web panel (SUP-02). |
 | DELETE | `/api/admin/updates` | `backups.manage` | Cancel update |
@@ -211,6 +230,11 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/staff/reviews/{payment_id}/receipt` | Mini App initData | Receipt |
 | POST | `/api/webapp/staff/reviews/{payment_id}/reject` | Mini App initData | Reject |
 | GET | `/api/webapp/staff/reviews` | Mini App initData | Reviews |
+| POST | `/api/webapp/tickets/{ticket_id}/close` | Mini App initData | Ticket close |
+| POST | `/api/webapp/tickets/{ticket_id}/reply` | Mini App initData | Ticket answer |
+| GET | `/api/webapp/tickets/{ticket_id}` | Mini App initData | Ticket thread |
+| GET | `/api/webapp/tickets` | Mini App initData | My tickets |
+| POST | `/api/webapp/tickets` | Mini App initData | New ticket |
 | POST | `/api/webapp/trial` | Mini App initData | Trial |
 | POST | `/api/webapp/wallet/gift` | Mini App initData | Redeem gift |
 | GET | `/api/webapp/wallet/history` | Mini App initData | History |

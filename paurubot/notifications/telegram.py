@@ -17,6 +17,7 @@ from aiogram.exceptions import (
     TelegramRetryAfter,
     TelegramServerError,
 )
+from aiogram.types import Message
 
 from paurubot.config import get_settings
 from paurubot.worker.runner import Retry
@@ -121,24 +122,24 @@ def is_guest_chat(chat_id: int) -> bool:
     return int(chat_id) <= GUEST_CHAT_LIMIT
 
 
-async def send_text(chat_id: int, text: str, *, shop_id: int | None = None, **kwargs: Any) -> None:
+async def send_text(chat_id: int, text: str, *, shop_id: int | None = None, **kwargs: Any) -> Message | None:
     if is_guest_chat(chat_id):
-        return
+        return None
     bot = await bot_for(shop_id)
     if bot is None:
-        return
-    await deliver(lambda: bot.send_message(chat_id, text, **kwargs))
+        return None
+    return await deliver(lambda: bot.send_message(chat_id, text, **kwargs))
 
 
 async def send_photo(
     chat_id: int, photo: Any, caption: str | None = None, *, shop_id: int | None = None, **kwargs: Any
-) -> None:
+) -> Message | None:
     if is_guest_chat(chat_id):
-        return
+        return None
     bot = await bot_for(shop_id)
     if bot is None:
-        return
-    await deliver(lambda: bot.send_photo(chat_id, photo, caption=caption, **kwargs))
+        return None
+    return await deliver(lambda: bot.send_photo(chat_id, photo, caption=caption, **kwargs))
 
 
 async def send_document(
