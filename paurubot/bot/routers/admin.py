@@ -400,18 +400,18 @@ async def ticket_detail(
         return
     if callback_data.action == "canned":
         await call.answer()
-        kb = InlineKeyboardBuilder()
+        picker = InlineKeyboardBuilder()
         for row in await tickets.canned_replies(session, shop.id, ticket.department_id):
-            kb.button(
+            picker.button(
                 text=row.title[:60], callback_data=Admin(section="tcanned", id=ticket.id, page=row.id)
             )
-        kb.adjust(1)
-        kb.row(
+        picker.adjust(1)
+        picker.row(
             InlineKeyboardButton(
                 text=t("btn_back"), callback_data=Admin(section="ticket", id=ticket.id).pack()
             )
         )
-        await show(call, t("adm_ticket_canned_pick", id=ticket.id), kb.as_markup())
+        await show(call, t("adm_ticket_canned_pick", id=ticket.id), picker.as_markup())
         return
     if callback_data.action in {"prio", "take"}:
         if callback_data.action == "prio":

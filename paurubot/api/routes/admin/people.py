@@ -808,8 +808,7 @@ async def ticket_detail(
         "ticket": _ticket_row(ticket),
         "customer": customer.display_name if customer else None,
         "messages": [
-            plain(m, MESSAGE_FIELDS) | {"has_attachment": bool(m.attachment_file_id)}
-            for m in messages
+            plain(m, MESSAGE_FIELDS) | {"has_attachment": bool(m.attachment_file_id)} for m in messages
         ],
     }
 

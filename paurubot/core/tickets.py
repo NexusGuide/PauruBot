@@ -210,9 +210,7 @@ async def canned_replies(
     """The shop's saved answers; with a department, its own answers and the shared ones."""
     stmt = select(CannedReply).where(CannedReply.shop_id == shop_id)
     if department_id is not None:
-        stmt = stmt.where(
-            (CannedReply.department_id == department_id) | CannedReply.department_id.is_(None)
-        )
+        stmt = stmt.where((CannedReply.department_id == department_id) | CannedReply.department_id.is_(None))
     return list(await session.scalars(stmt.order_by(CannedReply.sort, CannedReply.id)))
 
 
