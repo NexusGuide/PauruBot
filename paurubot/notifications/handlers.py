@@ -33,6 +33,7 @@ from paurubot.db.models import (
     Staff,
     StockItem,
     Ticket,
+    TicketDepartment,
 )
 from paurubot.i18n import Texts, texts_for
 from paurubot.notifications import review_sync, telegram
@@ -689,8 +690,43 @@ async def reseller_application(session: AsyncSession, job: queue.Claimed) -> Non
     )
 
 
+async def _ticket_staff_chats(session: AsyncSession, ticket: Ticket) -> list[int]:
+    """An assigned ticket goes to its assignee only; otherwise to everyone who answers tickets (F-14)."""
+    chats = await staff_chats(session, ticket.shop_id, "tickets.reply")
+    if ticket.assigned_staff_id:
+        assignee = await session.get(Staff, ticket.assigned_staff_id)
+        if (
+            assignee is not None
+            and assignee.is_active
+            and assignee.telegram_id
+            and not rbac.is_scoped(assignee.role)
+            and rbac.allowed(assignee.role, "tickets.reply")
+        ):
+            return [assignee.telegram_id]
+    return chats
+
+
+async def _report_ticket(
+    session: AsyncSession, ticket: Ticket, department: TicketDepartment | None, text: str
+) -> None:
+    """A department with its own chat gets its tickets there; the rest go to the "tickets" log topic."""
+    if department is not None and department.log_chat_id:
+        try:
+            await telegram.send_text(
+                department.log_chat_id,
+                text,
+                message_thread_id=department.log_thread_id,
+                shop_id=ticket.shop_id,
+            )
+        except telegram.Undeliverable:
+            log.warning("ticket department %s chat is unreachable", department.id)
+        return
+    await report(session, ticket.shop_id, "tickets", text)
+
+
 async def ticket_new_message(session: AsyncSession, job: queue.Claimed) -> None:
     from paurubot.bot.callbacks import Admin
+    from paurubot.core.tickets import PRIORITY_ICON
 
     ticket = await session.get(Ticket, int(job.payload["ticket_id"]))
     if ticket is None:
@@ -700,6 +736,12 @@ async def ticket_new_message(session: AsyncSession, job: queue.Claimed) -> None:
     if shop is None or customer is None:
         return
     t = await texts_for(session, shop.id, shop.default_locale)
+    department = await session.get(TicketDepartment, ticket.department_id) if ticket.department_id else None
+    text = t("adm_ticket_new", id=ticket.id, subject=esc(ticket.subject), customer=esc(customer.display_name))
+    details = [f"{PRIORITY_ICON.get(ticket.priority, '')} {t(f'ticket_priority_{ticket.priority}')}"]
+    if department is not None:
+        details.insert(0, t("adm_ticket_department", department=esc(department.title)))
+    text += "\n" + " · ".join(details)
     markup = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -709,13 +751,12 @@ async def ticket_new_message(session: AsyncSession, job: queue.Claimed) -> None:
             ]
         ]
     )
-    await _to_staff(
-        session,
-        shop.id,
-        "tickets.reply",
-        t("adm_ticket_new", id=ticket.id, subject=esc(ticket.subject), customer=esc(customer.display_name)),
-        markup=markup,
-    )
+    for chat_id in await _ticket_staff_chats(session, ticket):
+        try:
+            await telegram.send_text(chat_id, text, reply_markup=markup, shop_id=shop.id)
+        except telegram.Undeliverable:
+            continue
+    await _report_ticket(session, ticket, department, text)
 
 
 async def ticket_reply(session: AsyncSession, job: queue.Claimed) -> None:

@@ -1,4 +1,11 @@
 {
+  "err_staff_not_found": "That staff member was not found.",
+  "err_ticket_department_unknown": "That department does not exist.",
+  "err_ticket_note_staff_only": "Internal notes are for staff only.",
+  "err_ticket_priority_unknown": "Unknown priority.",
+  "log_topic_tickets": "Tickets",
+  "err_ticket_limit": "Too many open tickets; close one first.",
+  "err_ticket_closed": "This ticket is closed.",
   "account": "My account",
   "active": "Active",
   "add": "Add",

@@ -439,6 +439,16 @@ def tickets_kb(t: Texts, items: Sequence[Any]) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
+def departments_kb(t: Texts, items: Sequence[Any]) -> InlineKeyboardMarkup:
+    """Which desk a new ticket is for (F-14)."""
+    kb = InlineKeyboardBuilder()
+    for desk in items:
+        kb.button(text=desk.title, callback_data=Ticket(action="dept", id=desk.id))
+    kb.adjust(2)
+    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Ticket(action="list").pack()))
+    return kb.as_markup()
+
+
 def ticket_kb(t: Texts, ticket_id: int, closed: bool) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if not closed:
