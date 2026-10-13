@@ -7,6 +7,7 @@ import { errorText, useApp } from "../state";
 import { haptic, tg } from "../telegram";
 import { Button, Empty, Loading, Panel, Ring, Row, Screen, StatusDot } from "../ui";
 import { timeRatio, usageRatio } from "./Home";
+import { UsageChart } from "../usage/UsageChart";
 
 export function Services() {
   const { t, locale } = useApp();
@@ -132,6 +133,7 @@ export function ServiceDetail() {
 
   return (
     <Screen title={service.label}>
+      <UsageChart key={service.id} serviceId={service.id} />
       <div className="mb-5 flex flex-col items-center">
         <Ring size={210} outer={usageRatio(service)} inner={timeRatio(service)}>
           <span className="num text-3xl font-extrabold">

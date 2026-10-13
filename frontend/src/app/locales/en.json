@@ -270,5 +270,16 @@
   "marketing_hint": "This only affects advertising and discount offers from this shop. Payment, service and support messages are unchanged. Use /marketing to change this later.",
   "marketing_enable": "Enable advertising",
   "marketing_disable": "Stop advertising",
-  "marketing_saved": "Advertising preference saved."
+  "marketing_saved": "Advertising preference saved.",
+  "usage_history": "Usage counter history",
+  "usage_counter_hint": "Last reported counter per hour, not daily traffic or a sum of billing periods. Lines break at gaps over two hours, counter drops or limit/panel changes.",
+  "usage_days": "{days} days",
+  "usage_loading": "Loading history…",
+  "usage_retry": "Try again",
+  "usage_collecting": "Not enough observations yet. History starts when recording is enabled; some panel drivers do not yet report a verified counter.",
+  "usage_counter_unit": "Reported counter ({unit})",
+  "usage_chart_label": "{count} real observations; latest counter {value}",
+  "usage_observation": "Observation time (device time zone)",
+  "usage_stale": "The latest observation is over two hours old; data may be stale.",
+  "err_usage_invalid": "The chart data is invalid. Please try again."
 }

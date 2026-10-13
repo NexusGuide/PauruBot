@@ -206,6 +206,16 @@ async def usage_sync() -> None:
         log.info("usage sync panel=%s synced=%s failed=%s", panel_id, synced, failed)
 
 
+@every(3600, "usage_history.cleanup")
+async def cleanup_usage_history() -> None:
+    from paurubot.core import usage_history
+
+    async with session_scope() as session:
+        removed = await usage_history.prune(session)
+    if removed:
+        log.info("usage history pruned=%s", removed)
+
+
 @every(3600, "services.cleanup")
 async def cleanup_services() -> None:
     async with session_scope() as session:

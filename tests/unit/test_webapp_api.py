@@ -210,3 +210,42 @@ async def test_marketing_preferences_require_auth_and_only_modify_self(session, 
     await session.refresh(customer)
     assert customer.marketing_opt_out is True and customer.alerts_muted is False
     assert customer.marketing_change_source == "miniapp"
+
+
+async def test_usage_history_is_self_only_and_does_not_query_the_panel(session, app_env, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from unittest.mock import AsyncMock
+
+    from paurubot.core import usage_history
+    from paurubot.panels.base import PanelUser
+    from paurubot.provisioning import lifecycle
+
+    client, shop, panel = app_env["client"], app_env["shop"], app_env["panel"]
+    owner = await factories.customer(session, shop, telegram_id=81601)
+    service = Service(
+        shop_id=shop.id,
+        customer_id=owner.id,
+        panel_id=panel.id,
+        panel_username="history-owned",
+        status=ServiceStatus.ACTIVE,
+    )
+    session.add(service)
+    await session.flush()
+    await usage_history.observe(
+        session, service, PanelUser("history-owned", used_bytes=123, usage_known=True), source="poll"
+    )
+    await session.commit()
+    refresh = AsyncMock(side_effect=AssertionError("history GET must not contact the panel"))
+    monkeypatch.setattr(lifecycle, "refresh", refresh)
+    path = f"/api/webapp/services/{service.id}/usage"
+    assert (await client.get(path)).status_code == 401
+    assert (await client.get(path, headers=h(81602))).status_code == 404
+    for days in (7, 30):
+        response = await client.get(path, headers=h(81601), params={"days": days})
+        assert response.status_code == 200, response.text
+        assert response.json()["points"][0]["used_bytes"] == 123
+        assert response.json()["days"] == days
+    assert (await client.get(path, headers=h(81601), params={"days": 14})).status_code == 422
+    refresh.assert_not_awaited()
+    service.status = ServiceStatus.DELETED
+    await session.commit()
+    assert (await client.get(path, headers=h(81601))).status_code == 404
