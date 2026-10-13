@@ -26,6 +26,7 @@ from paurubot.core import tickets
 from paurubot.core.resellers import web_login
 from paurubot.db.models import (
     ApplicationStatus,
+    CannedReply,
     Customer,
     LedgerAccount,
     Panel,
@@ -39,6 +40,7 @@ from paurubot.db.models import (
     Staff,
     StaffRole,
     Ticket,
+    TicketDepartment,
     TicketStatus,
 )
 from paurubot.worker import queue
@@ -720,6 +722,11 @@ async def list_tickets(
     db: DB,
     page: Annotated[Page, Depends(page_params)],
     status: TicketStatus | None = None,
+    department_id: int | None = None,
+    priority: Literal["low", "normal", "high", "urgent"] | None = None,
+    assigned: Literal["me", "none"] | None = None,
+    assigned_staff_id: int | None = None,
+    awaiting: bool | None = None,
 ) -> dict[str, Any]:
     stmt = select(Ticket).where(Ticket.shop_id == ctx.shop_id)
     owner = await reseller_customer_id(db, ctx)
@@ -727,21 +734,57 @@ async def list_tickets(
         stmt = stmt.where(Ticket.customer_id == owner)
     if status:
         stmt = stmt.where(Ticket.status == status)
+    # The help desk filters (F-14).
+    if department_id is not None:
+        stmt = stmt.where(
+            Ticket.department_id.is_(None) if department_id == 0 else Ticket.department_id == department_id
+        )
+    if priority:
+        stmt = stmt.where(Ticket.priority == priority)
+    if assigned == "me":
+        stmt = stmt.where(Ticket.assigned_staff_id == (ctx.staff.id if ctx.staff else -1))
+    elif assigned == "none":
+        stmt = stmt.where(Ticket.assigned_staff_id.is_(None))
+    elif assigned_staff_id is not None:
+        stmt = stmt.where(Ticket.assigned_staff_id == assigned_staff_id)
+    if awaiting is not None:
+        waiting = (Ticket.status != TicketStatus.CLOSED) & Ticket.last_customer_at.is_not(None)
+        waiting = waiting & (
+            Ticket.last_staff_at.is_(None) | (Ticket.last_staff_at < Ticket.last_customer_at)
+        )
+        stmt = stmt.where(waiting if awaiting else ~waiting)
     rows, total = await paginate(db, stmt.order_by(Ticket.updated_at.desc()), page)
     names = {
         c.id: c.display_name
         for c in await db.scalars(select(Customer).where(Customer.id.in_([t.customer_id for t in rows])))
     }
     return {
-        "items": [
-            {
-                **plain(t, ["id", "subject", "status", "source", "customer_id", "created_at", "updated_at"]),
-                "customer": names.get(t.customer_id),
-            }
-            for t in rows
-        ],
+        "items": [{**_ticket_row(t), "customer": names.get(t.customer_id)} for t in rows],
         "total": total,
     }
+
+
+TICKET_FIELDS = [
+    "id",
+    "subject",
+    "status",
+    "source",
+    "customer_id",
+    "department_id",
+    "priority",
+    "assigned_staff_id",
+    "last_customer_at",
+    "last_staff_at",
+    "created_at",
+    "updated_at",
+]
+
+
+MESSAGE_FIELDS = ["id", "author_type", "author_id", "text", "attachment_kind", "is_internal", "created_at"]
+
+
+def _ticket_row(ticket: Ticket) -> dict[str, Any]:
+    return plain(ticket, TICKET_FIELDS) | {"awaiting": tickets.awaiting_staff(ticket)}
 
 
 async def _ticket(db: DB, ticket_id: int, ctx: StaffContext) -> Ticket:
@@ -758,15 +801,14 @@ async def ticket_detail(
 ) -> dict[str, Any]:
     ticket = await _ticket(db, ticket_id, ctx)
     customer = await db.get(Customer, ticket.customer_id)
-    messages = await tickets.messages(db, ticket.id, limit=200)
+    # A reseller reads its own ticket as the customer side, so staff notes stay hidden from it.
+    staff_view = await reseller_customer_id(db, ctx) is None
+    messages = await tickets.messages(db, ticket.id, limit=200, include_internal=staff_view)
     return {
-        "ticket": plain(
-            ticket, ["id", "subject", "status", "source", "customer_id", "created_at", "updated_at"]
-        ),
+        "ticket": _ticket_row(ticket),
         "customer": customer.display_name if customer else None,
         "messages": [
-            plain(m, ["id", "author_type", "author_id", "text", "attachment_kind", "created_at"])
-            | {"has_attachment": bool(m.attachment_file_id)}
+            plain(m, MESSAGE_FIELDS) | {"has_attachment": bool(m.attachment_file_id)}
             for m in messages
         ],
     }
@@ -806,6 +848,7 @@ async def reply(
 class NewTicketBody(BaseModel):
     subject: str = Field(min_length=1, max_length=128)
     text: str = Field(min_length=1, max_length=4000)
+    department_id: int | None = None
 
 
 @router.post("/tickets")
@@ -819,7 +862,9 @@ async def open_internal_ticket(
     customer = await db.get(Customer, own)
     assert customer is not None
     try:
-        ticket = await tickets.open_ticket(db, customer, body.subject, source="panel")
+        ticket = await tickets.open_ticket(
+            db, customer, body.subject, source="panel", department_id=body.department_id
+        )
         message = await tickets.add_message(db, ticket, author_type="customer", author_id=own, text=body.text)
     except tickets.TicketError as exc:
         raise HTTPException(status_code=409, detail=exc.key) from exc
@@ -839,4 +884,223 @@ async def close(
 ) -> dict[str, Any]:
     ticket = await _ticket(db, ticket_id, ctx)
     await tickets.close(db, ticket)
+    return {"ok": True}
+
+
+# --- the help desk: departments, priorities, assignees, notes, canned replies (F-14) ------------
+
+Replier = Annotated[StaffContext, Depends(require("tickets.reply"))]
+DeskAdmin = Annotated[StaffContext, Depends(require("settings.write"))]
+DEPARTMENT_FIELDS = ["id", "title", "sort", "is_active", "log_chat_id", "log_thread_id"]
+CANNED_FIELDS = ["id", "title", "text", "department_id", "sort"]
+
+
+async def _staff_ticket(db: DB, ticket_id: int, ctx: StaffContext) -> Ticket:
+    """Desk actions belong to the shop's staff; a reseller only writes on its own tickets."""
+    if await reseller_customer_id(db, ctx) is not None:
+        raise HTTPException(status_code=404, detail="not_found")
+    return await _ticket(db, ticket_id, ctx)
+
+
+class TicketUpdateBody(BaseModel):
+    department_id: int | None = None
+    priority: Literal["low", "normal", "high", "urgent"] | None = None
+    assigned_staff_id: int | None = None
+
+
+@router.patch("/tickets/{ticket_id}")
+async def update_ticket(ticket_id: int, body: TicketUpdateBody, ctx: Replier, db: DB) -> dict[str, Any]:
+    ticket = await _staff_ticket(db, ticket_id, ctx)
+    sent = body.model_fields_set
+    if body.assigned_staff_id is not None:
+        assignee = await db.get(Staff, body.assigned_staff_id)
+        if (
+            assignee is None
+            or assignee.shop_id != ctx.shop_id
+            or not assignee.is_active
+            or rbac.is_scoped(assignee.role)
+        ):
+            raise HTTPException(status_code=404, detail="staff_not_found")
+    before = _ticket_row(ticket)
+    try:
+        changed = await tickets.update(
+            db,
+            ticket,
+            department_id=body.department_id,
+            clear_department="department_id" in sent and body.department_id is None,
+            priority=body.priority,
+            assigned_staff_id=body.assigned_staff_id,
+            unassign="assigned_staff_id" in sent and body.assigned_staff_id is None,
+        )
+    except tickets.TicketError as exc:
+        raise HTTPException(status_code=422, detail=exc.key) from exc
+    if changed:
+        await record(
+            db,
+            shop_id=ctx.shop_id,
+            actor=ctx.actor,
+            action="ticket.update",
+            entity="ticket",
+            entity_id=ticket.id,
+            before={key: before.get(key) for key in changed},
+            after=changed,
+        )
+    return {"ticket": _ticket_row(ticket)}
+
+
+class NoteBody(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+
+
+@router.post("/tickets/{ticket_id}/note")
+async def add_ticket_note(ticket_id: int, body: NoteBody, ctx: Replier, db: DB) -> dict[str, Any]:
+    ticket = await _staff_ticket(db, ticket_id, ctx)
+    note = await tickets.add_message(
+        db,
+        ticket,
+        author_type="staff",
+        author_id=ctx.staff.id if ctx.staff else None,
+        text=body.text,
+        internal=True,
+    )
+    return {"id": note.id}
+
+
+class DepartmentBody(BaseModel):
+    title: str = Field(min_length=1, max_length=64)
+    sort: int = 0
+    is_active: bool = True
+    log_chat_id: int | None = None
+    log_thread_id: int | None = Field(default=None, ge=1)
+
+
+@router.get("/ticket-departments")
+async def list_ticket_departments(
+    ctx: Annotated[StaffContext, Depends(require("tickets.read"))], db: DB
+) -> dict[str, Any]:
+    rows = await tickets.departments(db, ctx.shop_id, active_only=False)
+    return {"items": [plain(row, DEPARTMENT_FIELDS) for row in rows]}
+
+
+@router.post("/ticket-departments")
+async def create_ticket_department(body: DepartmentBody, ctx: DeskAdmin, db: DB) -> dict[str, Any]:
+    row = TicketDepartment(shop_id=ctx.shop_id, **body.model_dump())
+    db.add(row)
+    await db.flush()
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="ticket_department.create",
+        entity="ticket_department",
+        entity_id=row.id,
+        after=body.model_dump(),
+    )
+    return plain(row, DEPARTMENT_FIELDS)
+
+
+@router.put("/ticket-departments/{department_id}")
+async def update_ticket_department(
+    department_id: int, body: DepartmentBody, ctx: DeskAdmin, db: DB
+) -> dict[str, Any]:
+    row = await owned(db, TicketDepartment, department_id, ctx)
+    before = plain(row, DEPARTMENT_FIELDS)
+    for key, value in body.model_dump().items():
+        setattr(row, key, value)
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="ticket_department.update",
+        entity="ticket_department",
+        entity_id=row.id,
+        before=before,
+        after=body.model_dump(),
+    )
+    return plain(row, DEPARTMENT_FIELDS)
+
+
+@router.delete("/ticket-departments/{department_id}")
+async def delete_ticket_department(department_id: int, ctx: DeskAdmin, db: DB) -> dict[str, bool]:
+    row = await owned(db, TicketDepartment, department_id, ctx)
+    await db.delete(row)  # its tickets stay, without a department; its canned replies become shared
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="ticket_department.delete",
+        entity="ticket_department",
+        entity_id=department_id,
+    )
+    return {"ok": True}
+
+
+class CannedBody(BaseModel):
+    title: str = Field(min_length=1, max_length=64)
+    text: str = Field(min_length=1, max_length=4000)
+    department_id: int | None = None
+    sort: int = 0
+
+
+async def _check_department(db: DB, ctx: StaffContext, department_id: int | None) -> None:
+    if department_id is not None:
+        await owned(db, TicketDepartment, department_id, ctx)
+
+
+@router.get("/canned-replies")
+async def list_canned_replies(ctx: Replier, db: DB, department_id: int | None = None) -> dict[str, Any]:
+    if await reseller_customer_id(db, ctx) is not None:
+        raise HTTPException(status_code=404, detail="not_found")
+    rows = await tickets.canned_replies(db, ctx.shop_id, department_id)
+    return {"items": [plain(row, CANNED_FIELDS) for row in rows]}
+
+
+@router.post("/canned-replies")
+async def create_canned_reply(body: CannedBody, ctx: DeskAdmin, db: DB) -> dict[str, Any]:
+    await _check_department(db, ctx, body.department_id)
+    row = CannedReply(shop_id=ctx.shop_id, **body.model_dump())
+    db.add(row)
+    await db.flush()
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="canned_reply.create",
+        entity="canned_reply",
+        entity_id=row.id,
+        after={"title": body.title, "department_id": body.department_id},
+    )
+    return plain(row, CANNED_FIELDS)
+
+
+@router.put("/canned-replies/{reply_id}")
+async def update_canned_reply(reply_id: int, body: CannedBody, ctx: DeskAdmin, db: DB) -> dict[str, Any]:
+    row = await owned(db, CannedReply, reply_id, ctx)
+    await _check_department(db, ctx, body.department_id)
+    for key, value in body.model_dump().items():
+        setattr(row, key, value)
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="canned_reply.update",
+        entity="canned_reply",
+        entity_id=row.id,
+        after={"title": body.title, "department_id": body.department_id},
+    )
+    return plain(row, CANNED_FIELDS)
+
+
+@router.delete("/canned-replies/{reply_id}")
+async def delete_canned_reply(reply_id: int, ctx: DeskAdmin, db: DB) -> dict[str, bool]:
+    row = await owned(db, CannedReply, reply_id, ctx)
+    await db.delete(row)
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="canned_reply.delete",
+        entity="canned_reply",
+        entity_id=reply_id,
+    )
     return {"ok": True}

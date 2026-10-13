@@ -1607,5 +1607,12 @@
   "trial_again": "Another trial",
   "trial_again_done": "This user can take one more trial.",
   "err_trial_not_used": "This user hasn't taken a trial yet and can take one now.",
-  "customer_hidden_panels_hint": "This user can't see or buy the plans of these panels (nor in their own sales bot, for a reseller)."
+  "customer_hidden_panels_hint": "This user can't see or buy the plans of these panels (nor in their own sales bot, for a reseller).",
+  "log_topic_tickets": "Tickets",
+  "err_ticket_department_unknown": "That department does not exist.",
+  "err_ticket_priority_unknown": "Unknown priority.",
+  "err_ticket_note_staff_only": "Internal notes are for staff only.",
+  "err_staff_not_found": "That staff member was not found.",
+  "err_ticket_closed": "This ticket is closed.",
+  "err_ticket_limit": "Too many open tickets; close one first."
 }

@@ -26,6 +26,7 @@ from paurubot.core.formatting import esc, money, parse_int
 from paurubot.db.models import (
     ApplicationStatus,
     Broadcast,
+    CannedReply,
     Customer,
     JobStatus,
     Order,
@@ -37,6 +38,7 @@ from paurubot.db.models import (
     ResellerProfile,
     Service,
     ServiceStatus,
+    Staff,
     Ticket,
     TicketStatus,
 )
@@ -297,19 +299,74 @@ async def open_tickets(call: CallbackQuery, session: AsyncSession, shop: ShopRow
             select(Ticket)
             .where(Ticket.shop_id == shop.id, Ticket.status == TicketStatus.OPEN)
             .order_by(Ticket.updated_at)
-            .limit(15)
+            .limit(100)
         )
     )
+    # The most urgent first, then the longest waiting (F-14).
+    rank = {name: index for index, name in enumerate(reversed(tickets.PRIORITIES))}
+    rows = sorted(rows, key=lambda row: rank.get(row.priority, len(rank)))[:15]
     kb = InlineKeyboardBuilder()
     for ticket in rows:
+        icon = tickets.PRIORITY_ICON.get(ticket.priority, "")
         kb.row(
             InlineKeyboardButton(
-                text=f"#{ticket.id} · {ticket.subject[:40]}",
+                text=f"{icon} #{ticket.id} · {ticket.subject[:40]}",
                 callback_data=Admin(section="ticket", id=ticket.id).pack(),
             )
         )
     kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Admin(section="home").pack()))
     await show(call, t("adm_open_tickets", count=len(rows)), kb.as_markup())
+
+
+async def _ticket_view(
+    session: AsyncSession, t: Texts, ticket: Ticket, staff: StaffIdentity
+) -> tuple[str, InlineKeyboardMarkup]:
+    customer = await session.get(Customer, ticket.customer_id)
+    lines = [
+        t(
+            "adm_ticket_title",
+            id=ticket.id,
+            subject=esc(ticket.subject),
+            customer=esc(customer.display_name if customer else "-"),
+        )
+    ]
+    details = [f"{tickets.PRIORITY_ICON.get(ticket.priority, '')} {t('ticket_priority_' + ticket.priority)}"]
+    desk = await tickets.department(session, ticket.shop_id, ticket.department_id, active_only=False)
+    if desk is not None:
+        details.insert(0, t("adm_ticket_department", department=esc(desk.title)))
+    if ticket.assigned_staff_id:
+        assignee = await session.get(Staff, ticket.assigned_staff_id)
+        name = (assignee.display_name or assignee.username) if assignee else "?"
+        details.append(t("adm_ticket_assignee", staff=esc(name or "?")))
+    lines.append(" · ".join(details))
+    for item in await tickets.messages(session, ticket.id, include_internal=True):
+        if item.is_internal:
+            who = t("adm_ticket_note_label")
+        elif item.author_type == "staff":
+            who = t("ticket_support")
+        else:
+            who = esc(customer.display_name if customer else "?")
+        lines.append(f"<b>{who}</b>\n{esc(item.text or '')}{' 📎' if item.attachment_file_id else ''}")
+    tid = ticket.id
+    kb = InlineKeyboardBuilder()
+    kb.button(text=t("btn_ticket_reply"), callback_data=Admin(section="ticket", action="reply", id=tid))
+    kb.button(text=t("btn_ticket_note"), callback_data=Admin(section="ticket", action="note", id=tid))
+    if await tickets.canned_replies(session, ticket.shop_id, ticket.department_id):
+        kb.button(text=t("btn_ticket_canned"), callback_data=Admin(section="ticket", action="canned", id=tid))
+    upcoming = t("ticket_priority_" + tickets.next_priority(ticket.priority))
+    kb.button(
+        text=t("btn_ticket_priority", priority=upcoming),
+        callback_data=Admin(section="ticket", action="prio", id=tid),
+    )
+    mine = staff.id is not None and ticket.assigned_staff_id == staff.id
+    kb.button(
+        text=t("btn_ticket_unassign" if mine else "btn_ticket_take"),
+        callback_data=Admin(section="ticket", action="take", id=tid),
+    )
+    kb.button(text=t("btn_ticket_close"), callback_data=Admin(section="ticket", action="close", id=tid))
+    kb.adjust(2)
+    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Admin(section="tickets").pack()))
+    return "\n\n".join(lines)[-3900:], kb.as_markup()
 
 
 @router.callback_query(Admin.filter(F.section == "ticket"), StaffOnly("tickets.reply"))
@@ -319,6 +376,7 @@ async def ticket_detail(
     session: AsyncSession,
     shop: ShopRow,
     t: Texts,
+    staff: StaffIdentity,
     state: FSMContext,
 ) -> None:
     ticket = await session.get(Ticket, callback_data.id)
@@ -329,40 +387,93 @@ async def ticket_detail(
         await tickets.close(session, ticket)
         await call.answer(t("ticket_closed_ok"))
         return
-    if callback_data.action == "reply":
+    if callback_data.action in {"reply", "note"}:
         await call.answer()
-        await state.set_state(AdminStates.ticket_reply)
+        note = callback_data.action == "note"
+        await state.set_state(AdminStates.ticket_note if note else AdminStates.ticket_reply)
         await state.update_data(ticket_id=ticket.id)
         if isinstance(call.message, Message):
             await call.message.answer(
-                t("adm_ticket_reply_ask", id=ticket.id), reply_markup=keyboards.cancel(t)
+                t("adm_ticket_note_ask" if note else "adm_ticket_reply_ask", id=ticket.id),
+                reply_markup=keyboards.cancel(t),
             )
         return
-    await call.answer()
+    if callback_data.action == "canned":
+        await call.answer()
+        kb = InlineKeyboardBuilder()
+        for row in await tickets.canned_replies(session, shop.id, ticket.department_id):
+            kb.button(
+                text=row.title[:60], callback_data=Admin(section="tcanned", id=ticket.id, page=row.id)
+            )
+        kb.adjust(1)
+        kb.row(
+            InlineKeyboardButton(
+                text=t("btn_back"), callback_data=Admin(section="ticket", id=ticket.id).pack()
+            )
+        )
+        await show(call, t("adm_ticket_canned_pick", id=ticket.id), kb.as_markup())
+        return
+    if callback_data.action in {"prio", "take"}:
+        if callback_data.action == "prio":
+            changed = await tickets.update(session, ticket, priority=tickets.next_priority(ticket.priority))
+        elif staff.id is None:
+            await call.answer(t("adm_ticket_take_no_account"), show_alert=True)
+            return
+        elif ticket.assigned_staff_id == staff.id:
+            changed = await tickets.update(session, ticket, unassign=True)
+        else:
+            changed = await tickets.update(session, ticket, assigned_staff_id=staff.id)
+        if changed:
+            await record(
+                session,
+                shop_id=shop.id,
+                actor=actor(staff),
+                action="ticket.update",
+                entity="ticket",
+                entity_id=ticket.id,
+                after=changed,
+            )
+        await call.answer(t("adm_saved"))
+    else:
+        await call.answer()
+    text, kb = await _ticket_view(session, t, ticket, staff)
+    await show(call, text, kb)
+
+
+@router.callback_query(Admin.filter(F.section == "tcanned"), StaffOnly("tickets.reply"))
+async def ticket_canned(
+    call: CallbackQuery,
+    callback_data: Admin,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+) -> None:
+    ticket = await session.get(Ticket, callback_data.id)
+    reply = await session.get(CannedReply, callback_data.page)
+    if ticket is None or ticket.shop_id != shop.id or reply is None or reply.shop_id != shop.id:
+        await call.answer(t("ticket_not_found"), show_alert=True)
+        return
     customer = await session.get(Customer, ticket.customer_id)
-    lines = [
-        t(
-            "adm_ticket_title",
-            id=ticket.id,
-            subject=esc(ticket.subject),
-            customer=esc(customer.display_name if customer else "-"),
+    try:
+        await tickets.add_message(
+            session,
+            ticket,
+            author_type="staff",
+            author_id=staff.id,
+            text=tickets.render_canned(reply.text, customer=customer, ticket=ticket),
         )
-    ]
-    for item in await tickets.messages(session, ticket.id):
-        who = (
-            t("ticket_support")
-            if item.author_type == "staff"
-            else esc(customer.display_name if customer else "?")
-        )
-        lines.append(f"<b>{who}</b>\n{esc(item.text or '')}{' 📎' if item.attachment_file_id else ''}")
-    kb = InlineKeyboardBuilder()
-    kb.button(text=t("btn_ticket_reply"), callback_data=Admin(section="ticket", action="reply", id=ticket.id))
-    kb.button(text=t("btn_ticket_close"), callback_data=Admin(section="ticket", action="close", id=ticket.id))
-    kb.adjust(2)
-    await show(call, "\n\n".join(lines)[-3900:], kb.as_markup())
+    except tickets.TicketError as exc:
+        await call.answer(t(exc.key), show_alert=True)
+        return
+    await queue.enqueue(session, "notify", "ticket_reply", {"ticket_id": ticket.id}, shop_id=shop.id)
+    await call.answer(t("adm_ticket_replied"))
+    text, kb = await _ticket_view(session, t, ticket, staff)
+    await show(call, text, kb)
 
 
 @router.message(AdminStates.ticket_reply)
+@router.message(AdminStates.ticket_note)
 async def ticket_reply(
     message: Message,
     session: AsyncSession,
@@ -373,6 +484,7 @@ async def ticket_reply(
     state: FSMContext,
 ) -> None:
     data = await state.get_data()
+    note = await state.get_state() == AdminStates.ticket_note.state
     ticket = await session.get(Ticket, int(data.get("ticket_id") or 0))
     await state.clear()
     if ticket is None or ticket.shop_id != shop.id:
@@ -392,9 +504,13 @@ async def ticket_reply(
             text=message.text or message.caption,
             attachment_file_id=file_id,
             attachment_kind="photo" if message.photo else ("document" if file_id else None),
+            internal=note,
         )
     except tickets.TicketError as exc:
         await message.answer(t(exc.key), reply_markup=menu(t, cfg, staff))
+        return
+    if note:  # staff-only: the customer is not told
+        await message.answer(t("adm_ticket_noted"), reply_markup=menu(t, cfg, staff))
         return
     await queue.enqueue(session, "notify", "ticket_reply", {"ticket_id": ticket.id}, shop_id=shop.id)
     await message.answer(t("adm_ticket_replied"), reply_markup=menu(t, cfg, staff))

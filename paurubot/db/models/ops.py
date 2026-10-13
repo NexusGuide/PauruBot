@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from paurubot.db.base import Base, TimestampMixin, UpdatedMixin, str_enum, utcnow
@@ -66,6 +66,13 @@ class Ticket(Base, UpdatedMixin):
     assigned_staff_id: Mapped[int | None] = mapped_column(ForeignKey("staff.id", ondelete="SET NULL"))
     # "bot" for customer tickets, "panel" for a reseller writing to the owner from the web panel (SUP-02).
     source: Mapped[str] = mapped_column(String(16), default="bot", server_default="bot")
+    # The help desk (F-14): which department handles it, how urgent it is, and who wrote last when.
+    department_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ticket_departments.id", ondelete="SET NULL")
+    )
+    priority: Mapped[str] = mapped_column(String(8), default="normal", server_default="normal")
+    last_customer_at: Mapped[datetime | None] = mapped_column()
+    last_staff_at: Mapped[datetime | None] = mapped_column()
 
 
 class TicketMessage(Base, TimestampMixin):
@@ -78,6 +85,40 @@ class TicketMessage(Base, TimestampMixin):
     text: Mapped[str | None] = mapped_column(Text)
     attachment_file_id: Mapped[str | None] = mapped_column(String(255))
     attachment_kind: Mapped[str | None] = mapped_column(String(16))
+    # A staff-only note (F-14): never shown to the customer and never sent to them.
+    is_internal: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
+
+class TicketDepartment(Base, TimestampMixin):
+    """A support desk customers pick when they open a ticket (F-14), e.g. sales or technical.
+
+    With a chat set, its tickets are reported there (a group or a forum topic) instead of the
+    shop's "tickets" log channel."""
+
+    __tablename__ = "ticket_departments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(64))
+    sort: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    log_chat_id: Mapped[int | None] = mapped_column()
+    log_thread_id: Mapped[int | None] = mapped_column()
+
+
+class CannedReply(Base, TimestampMixin):
+    """A saved answer staff send with one tap (F-14). {name} and {ticket} are filled in."""
+
+    __tablename__ = "canned_replies"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"), index=True)
+    department_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ticket_departments.id", ondelete="SET NULL")
+    )
+    title: Mapped[str] = mapped_column(String(64))
+    text: Mapped[str] = mapped_column(Text)
+    sort: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class AuditLog(Base, TimestampMixin):
