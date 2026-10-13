@@ -29,3 +29,14 @@ async def sent_today(session: AsyncSession, shop_id: int) -> int:
 
 async def remaining_today(session: AsyncSession, shop_id: int) -> int:
     return max(0, DAILY_LIMIT - await sent_today(session, shop_id))
+
+
+async def lock_capacity(session: AsyncSession, shop_id: int) -> bool:
+    """Serialize daily-cap decisions for one bot until its broadcast transaction commits.
+
+    Callers must insert the broadcast before committing or releasing this shop-row lock.
+    """
+    from paurubot.db.models import Shop
+
+    shop = await session.get(Shop, shop_id, with_for_update=True)
+    return shop is not None and await remaining_today(session, shop_id) > 0

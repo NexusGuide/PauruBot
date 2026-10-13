@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
+import pytest
 from sqlalchemy import select
 
 from paurubot.core import resale_broadcasts
@@ -28,3 +31,23 @@ async def test_reseller_broadcasts_are_scoped_and_capped(session) -> None:  # ty
     assert await resale_broadcasts.remaining_today(session, child.id) == 0
     assert await resale_broadcasts.remaining_today(session, parent.id) == resale_broadcasts.DAILY_LIMIT
     assert other.id not in [row.id for row in rows]
+
+
+async def test_capacity_locks_the_shop_before_counting(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    events: list[str] = []
+
+    async def get(model: object, row_id: int, *, with_for_update: bool) -> object:
+        assert row_id == 7 and with_for_update
+        events.append("locked")
+        return object()
+
+    async def remaining(session: object, row_id: int) -> int:
+        events.append("counted")
+        return 1
+
+    monkeypatch.setattr(resale_broadcasts, "remaining_today", remaining)
+    session = SimpleNamespace(get=AsyncMock(side_effect=get))
+    assert await resale_broadcasts.lock_capacity(session, 7)  # type: ignore[arg-type]
+    assert events == ["locked", "counted"]

@@ -69,7 +69,7 @@ async def broadcast_got(
         await state.clear()
         await message.answer(t("rb_not_allowed"))
         return
-    if await resale_broadcasts.remaining_today(session, child.id) <= 0:
+    if not await resale_broadcasts.lock_capacity(session, child.id):
         await state.clear()
         await message.answer(t("rb_broadcast_limit", limit=resale_broadcasts.DAILY_LIMIT))
         return
