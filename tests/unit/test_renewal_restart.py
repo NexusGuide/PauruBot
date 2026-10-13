@@ -103,8 +103,8 @@ async def _service(session, env) -> Service:  # type: ignore[no-untyped-def]
     return service
 
 
-def _hook(env, name: str, *, crash: bool = False, apply: bool = True, status: int = 500):  # type: ignore[no-untyped-def]
-    """Break the first user update: kill the worker, or answer with an error.
+def _hook(env, name: str, *, crash: bool = False, apply: bool = True, status: int = 500, times: int = 1):  # type: ignore[no-untyped-def]
+    """Break the first `times` user updates: kill the worker, or answer with an error.
 
     `apply` decides whether the panel kept the change before that happened. Later updates work.
     """
@@ -114,7 +114,7 @@ def _hook(env, name: str, *, crash: bool = False, apply: bool = True, status: in
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "PUT" and request.url.path == f"/api/user/{name}":
             calls["put"] += 1
-            if calls["put"] == 1:
+            if calls["put"] <= times:
                 if apply:
                     original(request)
                 if crash:
@@ -196,7 +196,7 @@ class _Blind:
 async def _parked(session, env, service: Service):  # type: ignore[no-untyped-def]
     env["plan"].renew_mode = "extend_carry"
     await session.commit()
-    _hook(env, service.panel_username, apply=False, status=500)
+    _hook(env, service.panel_username, apply=False, status=500, times=10_000)  # the panel refuses
     renewal = await _buy(session, env["cust"], OrderKind.RENEW, plan=env["plan"], service=service)
     charged = await wallet_balance(session, env["shop"].id, env["cust"].id)
     await _run_until_dead(session, renewal.id)
