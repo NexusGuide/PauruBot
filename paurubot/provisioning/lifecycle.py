@@ -25,6 +25,7 @@ from paurubot.db.models import (
     TrialGrant,
 )
 from paurubot.panels import GB, UNSET, PanelError, PanelRef, PanelUser, UserSpec, driver_for
+from paurubot.provisioning import renewal_policy
 
 log = logging.getLogger(__name__)
 
@@ -84,7 +85,8 @@ def apply_panel_user(service: Service, info: PanelUser) -> None:
 
 # How a renewal treats the time and data left (SVC-13): the end date either extends from the
 # current one or starts again today; data either resets to the plan or carries what's left over.
-RENEW_MODES = ("extend_reset", "extend_carry", "restart_reset", "restart_carry")
+# The rules themselves live in the renewal policy engine.
+RENEW_MODES = renewal_policy.RENEW_MODES
 
 
 def renew_mode(plan: Plan | None, panel: Panel | None, cfg: dict[str, Any]) -> str:
@@ -99,26 +101,15 @@ def renew_mode(plan: Plan | None, panel: Panel | None, cfg: dict[str, Any]) -> s
     return "extend_reset" if cfg.get("renew_resets_usage", True) else "extend_carry"
 
 
+def _plan_bytes(plan: Plan) -> int:
+    return int(plan.data_gb) * GB if plan.data_gb > 0 else 0
+
+
 def renewal_target(service: Service, plan: Plan, mode: str) -> tuple[datetime | None, int, bool]:
     """New expiry, data limit and whether usage resets when renewing with `plan`."""
-    now = datetime.now(UTC).replace(microsecond=0)
-    lapsed = service.status in {ServiceStatus.EXPIRED, ServiceStatus.LIMITED, ServiceStatus.DISABLED}
-    restart = mode.startswith("restart") or lapsed
-    carry = mode.endswith("carry") and not lapsed
-    if plan.days > 0:
-        start = service.expire_at if service.expire_at and service.expire_at > now and not restart else now
-        new_expire: datetime | None = start + timedelta(days=plan.days)
-    else:
-        new_expire = None
-    plan_bytes = int(plan.data_gb) * GB if plan.data_gb > 0 else 0
-    if plan_bytes == 0:
-        return new_expire, 0, not carry
-    if not carry:
-        return new_expire, plan_bytes, True
-    remaining = max(0, int(service.data_limit) - int(service.used_bytes)) if service.data_limit else 0
-    if mode == "restart_carry":
-        return new_expire, remaining + plan_bytes, True  # a fresh period with the leftover data
-    return new_expire, int(service.used_bytes) + remaining + plan_bytes, False
+    policy = renewal_policy.policy_for(OrderKind.RENEW, mode, lapsed=service.status in renewal_policy.LAPSED)
+    target = renewal_policy.compute(service, policy, days=plan.days, data_bytes=_plan_bytes(plan))
+    return target.expire, int(target.limit or 0), target.reset
 
 
 async def claim(session: AsyncSession, order_id: int) -> Order | None:
@@ -242,36 +233,28 @@ async def _create_service(session: AsyncSession, order: Order) -> Service:
     return service
 
 
-def _target_for(service: Service, order: Order, plan: Plan | None, mode: str) -> dict[str, object]:
+def _target_for(
+    service: Service, order: Order, plan: Plan | None, mode: str, *, queued: bool = False
+) -> dict[str, object]:
     """Absolute end state of a modification, computed once so retries are idempotent."""
-    now = datetime.now(UTC).replace(microsecond=0)
-    target: dict[str, object] = {"set_expire": False, "expire": None, "limit": None, "reset": False}
-    if order.kind == OrderKind.UPGRADE:
-        assert plan is not None
-        expire = now + timedelta(days=plan.days) if plan.days > 0 else None
-        target.update(
-            set_expire=True,
-            expire=expire.isoformat() if expire else None,
-            limit=plan.data_gb * GB if plan.data_gb > 0 else 0,
-            reset=True,
+    try:
+        policy = renewal_policy.policy_for(
+            order.kind, mode, queued=queued, lapsed=service.status in renewal_policy.LAPSED
         )
-    elif order.kind == OrderKind.RENEW:
+    except renewal_policy.UnsupportedChange as exc:
+        raise ProvisionError("unsupported_order") from exc
+    if order.kind in {OrderKind.RENEW, OrderKind.UPGRADE}:
         assert plan is not None
-        expire, limit, reset = renewal_target(service, plan, mode)
-        target.update(
-            set_expire=True, expire=expire.isoformat() if expire else None, limit=limit, reset=reset
-        )
-    elif order.kind == OrderKind.EXTRA_VOLUME:
-        extra = int(order.params.get("extra_gb") or 0) * GB
-        target["limit"] = int(service.data_limit) + extra if service.data_limit else 0
-    elif order.kind == OrderKind.EXTRA_DAYS:
-        days = int(order.params.get("extra_days") or 0)
-        if service.expire_at:
-            base = service.expire_at if service.expire_at > now else now
-            target.update(set_expire=True, expire=(base + timedelta(days=days)).isoformat())
+        days, data_bytes = plan.days, _plan_bytes(plan)
     else:
-        raise ProvisionError("unsupported_order")
-    return target
+        days = int(order.params.get("extra_days") or 0) if order.kind == OrderKind.EXTRA_DAYS else 0
+        data_bytes = (
+            int(order.params.get("extra_gb") or 0) * GB if order.kind == OrderKind.EXTRA_VOLUME else 0
+        )
+    target = renewal_policy.compute(
+        service, policy, days=days, data_bytes=data_bytes, addon=order.kind in renewal_policy.ADDONS
+    )
+    return target.as_params()
 
 
 async def _modify_service(session: AsyncSession, order: Order) -> Service:
@@ -287,9 +270,7 @@ async def _modify_service(session: AsyncSession, order: Order) -> Service:
     if "target" not in params:
         cfg = await shop_settings.load(session, order.shop_id)
         mode = renew_mode(plan, panel, cfg)
-        if params.get("queued") and mode.endswith("carry"):
-            mode = "extend_reset"  # a queued renewal starts when the period ends, with fresh data
-        params["target"] = _target_for(service, order, plan, mode)
+        params["target"] = _target_for(service, order, plan, mode, queued=bool(params.get("queued")))
         order.params = params
         await session.commit()
     target = params["target"]
@@ -304,8 +285,14 @@ async def _modify_service(session: AsyncSession, order: Order) -> Service:
             # Panels that sell profiles (PNL-11) renew or upgrade to the plan's own profile.
             service.panel_data = {**(service.panel_data or {}), "profile": str(chosen)}
             await session.flush()
-    if target.get("reset"):
+    last_check = params.get("verification") or {}
+    redo_reset = not params.get("reset_done") or "usage_not_reset" in (last_check.get("problems") or [])
+    if target.get("reset") and redo_reset:
         await driver.reset_usage(ref(service))
+        # A retry must not wipe the traffic used since this reset, unless the panel ignored it.
+        params = {**params, "reset_done": True}
+        order.params = params
+        await session.commit()
     info = await driver.update_user(
         ref(service),
         expire_at=expire_at if target.get("set_expire") else UNSET,
@@ -313,8 +300,25 @@ async def _modify_service(session: AsyncSession, order: Order) -> Service:
         enabled=True,
     )
     apply_panel_user(service, info)
-    if target.get("reset"):
-        service.used_bytes = 0
+    verified = False
+    if renewal_policy.should_verify(panel.options, driver):
+        # Read the account back: the change counts only once the panel really holds the target.
+        fresh = await driver.get_user(ref(service))
+        problems = ["missing_on_panel"] if fresh is None else renewal_policy.verify(target, fresh)
+        params = {
+            **params,
+            "verification": {"ok": not problems, "problems": problems, "checked_at": utcnow().isoformat()},
+        }
+        order.params = params
+        if problems:
+            log.warning("order %s: panel did not confirm the change: %s", order.id, problems)
+            await session.commit()
+            raise renewal_policy.NotConfirmed(problems)
+        assert fresh is not None
+        apply_panel_user(service, fresh)
+        verified = True
+    if target.get("reset") and not verified:
+        service.used_bytes = 0  # unverified: assume the reset worked
     if target.get("set_expire"):
         service.expire_at = expire_at
     if target.get("limit") is not None:
