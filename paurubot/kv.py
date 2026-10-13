@@ -82,3 +82,8 @@ async def reset(key: str) -> None:
 async def set_once(key: str, ttl: int) -> bool:
     """True the first time `key` is set within `ttl` seconds, False after that."""
     return bool(await get_redis().set(f"once:{key}", "1", nx=True, ex=ttl))
+
+
+async def forget_once(key: str) -> None:
+    """Undo `set_once`, so the next attempt counts as the first again."""
+    await get_redis().delete(f"once:{key}")
