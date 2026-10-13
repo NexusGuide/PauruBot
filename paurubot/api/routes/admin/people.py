@@ -742,7 +742,7 @@ async def list_tickets(
     if priority:
         stmt = stmt.where(Ticket.priority == priority)
     if assigned == "me":
-        stmt = stmt.where(Ticket.assigned_staff_id == (ctx.staff.id if ctx.staff else -1))
+        stmt = stmt.where(Ticket.assigned_staff_id == ctx.staff.id)
     elif assigned == "none":
         stmt = stmt.where(Ticket.assigned_staff_id.is_(None))
     elif assigned_staff_id is not None:
