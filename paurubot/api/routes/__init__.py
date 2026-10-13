@@ -18,6 +18,7 @@ OPTIONAL_ROUTERS: list[str] = [
     "admin.commerce",
     "admin.catalog",
     "admin.panels",
+    "admin.panel_capabilities",
     "admin.growth",
     "admin.people",
     "admin.system",
