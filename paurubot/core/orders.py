@@ -157,10 +157,19 @@ async def draft(
 
     shop_resale = await resale.for_shop(session, customer.shop_id)
     if shop_resale is not None:
-        # A reseller's own bot sells the parent's plans, purchases and renewals only (TEN-04).
+        # A reseller's own bot sells the parent's plans: purchases and renewals always (TEN-04),
+        # extras and upgrades only when staff allow them and the reseller turned them on (TEN-18).
         if not shop_resale.open:
             raise OrderError("shop_unavailable")
-        if (
+        if kind in {OrderKind.EXTRA_VOLUME, OrderKind.EXTRA_DAYS}:
+            if not shop_resale.offers("extras"):
+                raise OrderError("extras_unavailable")
+        elif kind == OrderKind.UPGRADE:
+            if not shop_resale.offers("upgrade"):
+                raise OrderError("plan_unavailable")
+            if plan is None or plan.shop_id != shop_resale.parent_id:
+                raise OrderError("plan_unavailable")
+        elif (
             kind not in {OrderKind.PURCHASE, OrderKind.RENEW}
             or plan is None
             or plan.shop_id != shop_resale.parent_id
@@ -172,7 +181,11 @@ async def draft(
                 session,
                 shop_resale.reseller,
                 kind=kind,
-                add_gb=plan.data_gb if kind == OrderKind.PURCHASE else 0,
+                add_gb=(
+                    plan.data_gb
+                    if kind == OrderKind.PURCHASE and plan is not None
+                    else (extra_gb if kind == OrderKind.EXTRA_VOLUME else 0)
+                ),
                 bot_shop_id=shop_resale.shop.id,
             )
         except resellers.ResellerError as exc:
@@ -189,16 +202,31 @@ async def draft(
         custom_gb=custom_gb,
         custom_days=custom_days,
         move_to=move_to,
+        # Extras and upgrades in a reseller bot follow the parent shop's own rules and prices.
+        settings_shop_id=shop_resale.parent_id if shop_resale is not None else None,
     )
     name = usernames.wanted(wanted_username) if kind == OrderKind.PURCHASE else None
     if name:
         d.params["wanted_username"] = name  # the customer's own service name (CAT-12)
     if shop_resale is not None:
-        cost = await resale.wholesale(session, shop_resale, plan.id if plan else None, d.base_price)
+        if kind in {OrderKind.EXTRA_VOLUME, OrderKind.EXTRA_DAYS}:
+            assert service is not None
+            gb_cost, day_cost = await resale.extra_units(session, shop_resale, service)
+            unit = gb_cost if kind == OrderKind.EXTRA_VOLUME else day_cost
+            if unit is None:
+                raise OrderError("extras_unavailable")
+            count = extra_gb if kind == OrderKind.EXTRA_VOLUME else extra_days
+            cost, listed = unit * count, resale.retail(shop_resale, None, unit) * count
+        elif kind == OrderKind.UPGRADE:
+            assert service is not None and plan is not None
+            cost, listed = await resale.upgrade_prices(session, shop_resale, service, plan)
+        else:
+            cost = await resale.wholesale(session, shop_resale, plan.id if plan else None, d.base_price)
+            listed = resale.retail(shop_resale, plan.id if plan else None, cost)
         if cost <= 0:
             raise OrderError("plan_unavailable")  # nothing for the reseller to pay means nothing to resell
         d.params.update(wholesale=cost, resale_profile=shop_resale.profile.id)
-        d.base_price = resale.retail(shop_resale, plan.id if plan else None, cost)
+        d.base_price = listed
     return d
 
 
@@ -215,8 +243,9 @@ async def _draft(
     custom_gb: int = 0,
     custom_days: int = 0,
     move_to: Panel | None = None,
+    settings_shop_id: int | None = None,
 ) -> Draft:
-    cfg = await shop_settings.load(session, customer.shop_id)
+    cfg = await shop_settings.load(session, settings_shop_id or customer.shop_id)
     params: dict[str, Any] = {}
     if label:
         params["label"] = label[:48]
