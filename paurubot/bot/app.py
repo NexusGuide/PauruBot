@@ -10,6 +10,7 @@ from aiogram.fsm.storage.redis import DefaultKeyBuilder, RedisStorage
 from aiogram.types import BotCommand, CallbackQuery, Message
 
 from paurubot.bot.context import ContextMiddleware, GateMiddleware, StaffIdentity
+from paurubot.bot.dedupe import UpdateDedupeMiddleware
 from paurubot.bot.routers import (
     account,
     accounts,
@@ -75,6 +76,8 @@ def build_dispatcher(storage: BaseStorage | None = None, shop_id: int | None = N
             get_settings().redis_url, key_builder=DefaultKeyBuilder(with_bot_id=True, prefix="fsm")
         )
     dp = Dispatcher(storage=storage, shop_id=shop_id)
+    # First: a retried webhook delivery must not open a second ticket or revoke twice.
+    dp.update.outer_middleware(UpdateDedupeMiddleware())
     dp.update.outer_middleware(ContextMiddleware())
     gate = GateMiddleware()
     dp.message.middleware(gate)

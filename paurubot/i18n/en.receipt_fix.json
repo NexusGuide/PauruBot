@@ -1,0 +1,11 @@
+{
+  "btn_fix_amount": "✏️ Fix amount",
+  "btn_fix_card": "💳 Card mismatch",
+  "adm_fix_amount_by": "✏️ Sent back to fix the amount by {admin}",
+  "adm_fix_card_by": "💳 Sent back for a card mismatch by {admin}",
+  "adm_fix_sent": "The customer was notified",
+  "payment_fix_amount": "✏️ The receipt for payment #{payment_id} doesn't match the requested amount ({amount} Toman).\nIf you sent less, transfer the rest and send the correct receipt; if you sent the wrong receipt, send the right one.\nYour payment is still open and was not rejected.",
+  "payment_fix_card": "💳 The card holder name on the receipt for payment #{payment_id} ({amount} Toman) doesn't match your registered card.\nPlease pay from a card in your own name, or send a receipt that shows the card holder's name.\nYour payment is still open and was not rejected.",
+  "btn_receipt_resend": "📸 Send a new receipt",
+  "receipt_fix_send_hint": "📸 Send the new receipt for payment #{payment_id} ({amount} Toman) here."
+}

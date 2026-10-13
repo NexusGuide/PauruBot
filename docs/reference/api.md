@@ -18,11 +18,18 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/backups` | `backups.manage` | List backups |
 | POST | `/api/admin/backups` | `backups.manage` | Start backup |
 | GET | `/api/admin/broadcasts/audience` | `broadcast.send` | Audience size |
+| POST | `/api/admin/broadcasts/test` | `broadcast.send` | Send test broadcast |
 | POST | `/api/admin/broadcasts/{broadcast_id}/cancel` | `broadcast.send` | Cancel broadcast |
+| POST | `/api/admin/broadcasts/{broadcast_id}/pause` | `broadcast.send` | Pause broadcast |
+| POST | `/api/admin/broadcasts/{broadcast_id}/resume` | `broadcast.send` | Resume broadcast |
 | GET | `/api/admin/broadcasts` | `broadcast.send` | List broadcasts |
 | POST | `/api/admin/broadcasts` | `broadcast.send` | Create broadcast |
 | GET | `/api/admin/bundle` | `backups.manage` | The shop's setup (no secrets, no customers) as a JSON file. |
 | POST | `/api/admin/bundle` | `backups.manage` | Import bundle |
+| DELETE | `/api/admin/canned-replies/{reply_id}` | `settings.write` | Delete canned reply |
+| PUT | `/api/admin/canned-replies/{reply_id}` | `settings.write` | Update canned reply |
+| GET | `/api/admin/canned-replies` | `tickets.reply` | List canned replies |
+| POST | `/api/admin/canned-replies` | `settings.write` | Create canned reply |
 | GET | `/api/admin/catalog` | `catalog.read` | Catalog |
 | PUT | `/api/admin/categories/{row_id}` | `catalog.write` | Update category |
 | POST | `/api/admin/categories` | `catalog.write` | Create category |
@@ -140,9 +147,15 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | DELETE | `/api/admin/texts/{locale}/{key}` | `texts.write` | Reset text |
 | PUT | `/api/admin/texts/{locale}/{key}` | `texts.write` | Set text |
 | GET | `/api/admin/texts` | `texts.write` | List texts |
+| DELETE | `/api/admin/ticket-departments/{department_id}` | `settings.write` | Delete ticket department |
+| PUT | `/api/admin/ticket-departments/{department_id}` | `settings.write` | Update ticket department |
+| GET | `/api/admin/ticket-departments` | `tickets.read` | List ticket departments |
+| POST | `/api/admin/ticket-departments` | `settings.write` | Create ticket department |
 | POST | `/api/admin/tickets/{ticket_id}/close` | `tickets.reply` | Close |
+| POST | `/api/admin/tickets/{ticket_id}/note` | `tickets.reply` | Add ticket note |
 | POST | `/api/admin/tickets/{ticket_id}/reply` | `tickets.reply` | Reply |
 | GET | `/api/admin/tickets/{ticket_id}` | `tickets.read` | Ticket detail |
+| PATCH | `/api/admin/tickets/{ticket_id}` | `tickets.reply` | Update ticket |
 | GET | `/api/admin/tickets` | `tickets.read` | List tickets |
 | POST | `/api/admin/tickets` | `tickets.reply` | A reseller writes to the shop owner from the web panel (SUP-02). |
 | DELETE | `/api/admin/updates` | `backups.manage` | Cancel update |
@@ -212,6 +225,11 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/staff/reviews/{payment_id}/receipt` | Mini App initData | Receipt |
 | POST | `/api/webapp/staff/reviews/{payment_id}/reject` | Mini App initData | Reject |
 | GET | `/api/webapp/staff/reviews` | Mini App initData | Reviews |
+| POST | `/api/webapp/tickets/{ticket_id}/close` | Mini App initData | Ticket close |
+| POST | `/api/webapp/tickets/{ticket_id}/reply` | Mini App initData | Ticket answer |
+| GET | `/api/webapp/tickets/{ticket_id}` | Mini App initData | Ticket thread |
+| GET | `/api/webapp/tickets` | Mini App initData | My tickets |
+| POST | `/api/webapp/tickets` | Mini App initData | New ticket |
 | POST | `/api/webapp/trial` | Mini App initData | Trial |
 | POST | `/api/webapp/wallet/gift` | Mini App initData | Redeem gift |
 | GET | `/api/webapp/wallet/history` | Mini App initData | History |
