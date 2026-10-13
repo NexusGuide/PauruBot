@@ -51,6 +51,9 @@ BROADCAST_FIELDS = [
     "total",
     "sent",
     "failed",
+    "blocked",
+    "deleted",
+    "scheduled_at",
     "created_at",
     "finished_at",
 ]
@@ -180,6 +183,15 @@ class BroadcastBody(BaseModel):
     resellers_only: bool = False
     buyers_only: bool = False
     locale: str | None = Field(default=None, max_length=8)
+    # F-16: start later instead of now (timezone-aware, at most 60 days ahead)
+    scheduled_at: datetime | None = None
+
+
+def _check_buttons(body: BroadcastBody) -> None:
+    for button in body.buttons:
+        url = button.get("url", "")
+        if not button.get("text") or not url.startswith(("https://", "tg://")):
+            raise HTTPException(status_code=422, detail="bad_button")
 
 
 @router.get("/broadcasts")
@@ -198,10 +210,11 @@ async def list_broadcasts(
 async def create_broadcast(
     body: BroadcastBody, ctx: Annotated[StaffContext, Depends(require("broadcast.send"))], db: DB
 ) -> dict[str, Any]:
-    for button in body.buttons:
-        url = button.get("url", "")
-        if not button.get("text") or not url.startswith(("https://", "tg://")):
-            raise HTTPException(status_code=422, detail="bad_button")
+    from paurubot.core import broadcasts
+
+    _check_buttons(body)
+    if not broadcasts.schedule_ok(body.scheduled_at):
+        raise HTTPException(status_code=422, detail="schedule_invalid")
     audience = {"resellers_only": body.resellers_only, "buyers_only": body.buyers_only, "locale": body.locale}
     row = Broadcast(
         shop_id=ctx.shop_id,
@@ -210,17 +223,11 @@ async def create_broadcast(
         buttons=body.buttons,
         audience=audience,
         status=JobStatus.QUEUED,
+        scheduled_at=body.scheduled_at,
     )
     db.add(row)
     await db.flush()
-    await queue.enqueue(
-        db,
-        "broadcast",
-        "run",
-        {"broadcast_id": row.id},
-        shop_id=ctx.shop_id,
-        dedupe_key=f"broadcast:{row.id}",
-    )
+    await broadcasts.start(db, row)
     await record(
         db,
         shop_id=ctx.shop_id,
@@ -228,18 +235,92 @@ async def create_broadcast(
         action="broadcast.queued",
         entity="broadcast",
         entity_id=row.id,
+        after={"scheduled_at": body.scheduled_at.isoformat()} if body.scheduled_at else None,
     )
     return plain(row, BROADCAST_FIELDS)
+
+
+@router.post("/broadcasts/test")
+async def send_test_broadcast(
+    body: BroadcastBody, ctx: Annotated[StaffContext, Depends(require("broadcast.send"))], db: DB
+) -> dict[str, Any]:
+    # Send the message only to the staff member's own Telegram chat before sending it to everyone.
+    from paurubot.notifications import handlers, telegram
+
+    _check_buttons(body)
+    chat_id = ctx.staff.telegram_id
+    if not chat_id:
+        raise HTTPException(status_code=422, detail="no_telegram")
+    draft = Broadcast(shop_id=ctx.shop_id, text=body.text, buttons=body.buttons, audience={})
+    bot = await telegram.bot_for(ctx.shop_id)
+    if bot is None:
+        raise HTTPException(status_code=502, detail="telegram_unavailable")
+    try:
+        await telegram.deliver(handlers.broadcast_copier(bot, draft)(int(chat_id)))
+    except telegram.Undeliverable as exc:
+        raise HTTPException(status_code=422, detail="no_telegram") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="telegram_unavailable") from exc
+    return {"sent_to": int(chat_id)}
 
 
 @router.post("/broadcasts/{broadcast_id}/cancel")
 async def cancel_broadcast(
     broadcast_id: int, ctx: Annotated[StaffContext, Depends(require("broadcast.send"))], db: DB
 ) -> dict[str, Any]:
+    from paurubot.core import broadcasts
+
     row = await owned(db, Broadcast, broadcast_id, ctx)
-    if row.status in {JobStatus.DONE, JobStatus.CANCELED}:
+    if not await broadcasts.cancel(db, row):
         raise HTTPException(status_code=409, detail="already_finished")
-    row.status = JobStatus.CANCELED
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="broadcast.cancel",
+        entity="broadcast",
+        entity_id=row.id,
+    )
+    return plain(row, BROADCAST_FIELDS)
+
+
+@router.post("/broadcasts/{broadcast_id}/pause")
+async def pause_broadcast(
+    broadcast_id: int, ctx: Annotated[StaffContext, Depends(require("broadcast.send"))], db: DB
+) -> dict[str, Any]:
+    from paurubot.core import broadcasts
+
+    row = await owned(db, Broadcast, broadcast_id, ctx)
+    if not await broadcasts.pause(db, row):
+        raise HTTPException(status_code=409, detail="not_pausable")
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="broadcast.pause",
+        entity="broadcast",
+        entity_id=row.id,
+    )
+    return plain(row, BROADCAST_FIELDS)
+
+
+@router.post("/broadcasts/{broadcast_id}/resume")
+async def resume_broadcast(
+    broadcast_id: int, ctx: Annotated[StaffContext, Depends(require("broadcast.send"))], db: DB
+) -> dict[str, Any]:
+    from paurubot.core import broadcasts
+
+    row = await owned(db, Broadcast, broadcast_id, ctx)
+    if not await broadcasts.resume(db, row):
+        raise HTTPException(status_code=409, detail="not_paused")
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="broadcast.resume",
+        entity="broadcast",
+        entity_id=row.id,
+    )
     return plain(row, BROADCAST_FIELDS)
 
 
