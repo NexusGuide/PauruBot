@@ -176,7 +176,8 @@ async def attach_receipt(
         if cfg["receipt_duplicate_block"]:
             await reject(session, payment.id, staff_id=None, note="duplicate receipt")
         return duplicate
-    if duplicate is None and await auto_approvable(session, payment, cfg):
+    fixing = bool((payment.meta or {}).get("fix_requests"))  # staff asked for this one (F-23)
+    if duplicate is None and not fixing and await auto_approvable(session, payment, cfg):
         payment.review_note = "auto-approved"
         await mark_paid(session, payment.id, provider_tx_id=f"card:{payment.id}")
     return duplicate
@@ -345,6 +346,78 @@ async def reject(session: AsyncSession, payment_id: int, *, staff_id: int | None
         )
     )
     return bool(affected(result))
+
+
+FIX_KINDS = ("amount", "card")
+MAX_FIX_HISTORY = 10
+
+
+def fix_count(payment: Payment) -> int:
+    """How many times staff sent this payment's receipt back for a fix (F-23)."""
+    return len((payment.meta or {}).get("fix_requests") or [])
+
+
+async def request_fix(
+    session: AsyncSession, payment_id: int, *, staff_id: int | None, kind: str, note: str = ""
+) -> bool:
+    """Send a card receipt back to the customer instead of rejecting it (F-23).
+
+    The payment goes back to waiting for a receipt (PENDING) with a fresh deadline; nothing is
+    credited or refunded and the provider is untouched. The old receipt is kept in `meta`.
+    False when the payment is not a card receipt under review anymore.
+    """
+    if kind not in FIX_KINDS:
+        raise ValueError(f"unknown fix kind {kind!r}")
+    payment = await session.get(Payment, payment_id)
+    if payment is None or payment.provider != "card" or payment.status != PaymentStatus.VERIFYING:
+        return False
+    cfg = await shop_settings.load(session, payment.shop_id)
+    now = utcnow()
+    meta = dict(payment.meta or {})
+    history = list(meta.get("fix_requests") or [])
+    history.append(
+        {
+            "kind": kind,
+            "note": note[:255] or None,
+            "by": staff_id,
+            "at": now.isoformat(),
+            "receipt_file_id": payment.receipt_file_id,
+            "receipt_text": payment.receipt_text,
+        }
+    )
+    meta["fix_requests"] = history[-MAX_FIX_HISTORY:]
+    meta.pop("receipt_at", None)
+    expires = now + timedelta(minutes=int(cfg["payment_expire_minutes"] or 60))
+    result = await session.execute(
+        update(Payment)
+        .where(
+            Payment.id == payment_id,
+            Payment.provider == "card",
+            Payment.status == PaymentStatus.VERIFYING,
+        )
+        .values(
+            status=PaymentStatus.PENDING,
+            receipt_file_id=None,
+            receipt_text=None,
+            duplicate_of_id=None,
+            expires_at=expires,
+            meta=meta,
+        )
+    )
+    if not affected(result):
+        return False
+    await session.refresh(payment)
+    if payment.order_id:
+        order = await session.get(Order, payment.order_id)
+        if (
+            order is not None
+            and order.status == OrderStatus.PENDING
+            and order.expires_at
+            and order.expires_at < expires
+        ):
+            order.expires_at = expires  # keep the order alive while the customer fixes the receipt
+    await session.flush()
+    return True
 
 
 async def verify(session: AsyncSession, payment_id: int, params: dict[str, Any]) -> bool:
