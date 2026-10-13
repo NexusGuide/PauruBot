@@ -29,7 +29,7 @@ from paurubot.bot.routers.admin import actor, back_home, customer_card
 from paurubot.bot.routers.admin_navigation import menu
 from paurubot.bot.states import AdminStates
 from paurubot.bot.utils import StaffOnly, clear_customer_input, show
-from paurubot.core import catalog, customers, finance, pricing
+from paurubot.core import catalog, confirm, customers, finance, pricing
 from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import esc, jdate, money, parse_int
 from paurubot.db.models import (
@@ -311,16 +311,24 @@ async def service_action(
         return
     action = callback_data.action
     if action == "del" and not callback_data.page:
+        # Two steps (F-22): the confirm button carries a one-time number tied to this staff member
+        # and service, so an old or forwarded button can't delete anything.
+        nonce = await confirm.issue_nonce(f"tg:{staff.id}", "service.delete", service.id)
         await call.answer()
         await show(
             call,
             t("adm_svc_delete_confirm", name=esc(service.label or service.panel_username)),
             keyboards.confirm(
                 t,
-                Admin(section="svcact", action="del", id=service.id, page=1).pack(),
+                Admin(section="svcact", action="del", id=service.id, page=nonce).pack(),
                 Admin(section="svc", id=service.id).pack(),
             ),
         )
+        return
+    if action == "del" and not await confirm.consume_nonce(
+        f"tg:{staff.id}", "service.delete", service.id, callback_data.page
+    ):
+        await call.answer(t("button_expired"), show_alert=True)
         return
     try:
         if action in {"on", "off"}:
