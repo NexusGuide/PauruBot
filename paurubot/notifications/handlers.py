@@ -637,7 +637,7 @@ async def ticket_new_message(session: AsyncSession, job: queue.Claimed) -> None:
     t = await texts_for(session, shop.id, shop.default_locale)
     department = await session.get(TicketDepartment, ticket.department_id) if ticket.department_id else None
     text = t("adm_ticket_new", id=ticket.id, subject=esc(ticket.subject), customer=esc(customer.display_name))
-    details = [f"{PRIORITY_ICON.get(ticket.priority, '')} {t('ticket_priority_' + ticket.priority)}"]
+    details = [f"{PRIORITY_ICON.get(ticket.priority, '')} {t(f'ticket_priority_{ticket.priority}')}"]
     if department is not None:
         details.insert(0, t("adm_ticket_department", department=esc(department.title)))
     text += "\n" + " · ".join(details)

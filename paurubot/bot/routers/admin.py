@@ -330,7 +330,7 @@ async def _ticket_view(
             customer=esc(customer.display_name if customer else "-"),
         )
     ]
-    details = [f"{tickets.PRIORITY_ICON.get(ticket.priority, '')} {t('ticket_priority_' + ticket.priority)}"]
+    details = [f"{tickets.PRIORITY_ICON.get(ticket.priority, '')} {t(f'ticket_priority_{ticket.priority}')}"]
     desk = await tickets.department(session, ticket.shop_id, ticket.department_id, active_only=False)
     if desk is not None:
         details.insert(0, t("adm_ticket_department", department=esc(desk.title)))
@@ -353,7 +353,7 @@ async def _ticket_view(
     kb.button(text=t("btn_ticket_note"), callback_data=Admin(section="ticket", action="note", id=tid))
     if await tickets.canned_replies(session, ticket.shop_id, ticket.department_id):
         kb.button(text=t("btn_ticket_canned"), callback_data=Admin(section="ticket", action="canned", id=tid))
-    upcoming = t("ticket_priority_" + tickets.next_priority(ticket.priority))
+    upcoming = t(f"ticket_priority_{tickets.next_priority(ticket.priority)}")
     kb.button(
         text=t("btn_ticket_priority", priority=upcoming),
         callback_data=Admin(section="ticket", action="prio", id=tid),
