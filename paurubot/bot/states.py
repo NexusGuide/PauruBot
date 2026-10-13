@@ -57,6 +57,7 @@ class AdminStates(StatesGroup):
     broadcast = State()
     reject_reason = State()
     ticket_reply = State()
+    ticket_note = State()
     message = State()
     plan_price = State()
     bulk_price = State()

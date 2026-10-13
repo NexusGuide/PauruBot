@@ -225,6 +225,40 @@ async def reconcile_ledger() -> None:
         log.error("ledger drift detected: %s", [(d.code, d.cached, d.actual) for d in drift][:20])
 
 
+@every(600, "renewals.reconcile")
+async def reconcile_renewals() -> None:
+    """Settle renewals parked as uncertain by reading the panel, never by a blind retry."""
+    async with session_scope() as session:
+        order_ids = await lifecycle.parked_renewals(session)
+    for order_id in order_ids:
+        try:
+            async with session_scope() as session:
+                outcome = await lifecycle.reconcile_renewal(session, order_id)
+        except Exception:
+            log.exception("reconciling renewal order %s failed", order_id)
+            continue
+        if outcome != "uncertain":
+            log.info("renewal order %s reconciled: %s", order_id, outcome)
+
+
+@every(60, "services.auto_renew")
+async def auto_renew_services() -> None:
+    """Renew or top up the services whose owners turned auto-renewal on (F-02)."""
+    from paurubot.core import auto_renew
+
+    async with session_scope() as session:
+        service_ids = await auto_renew.due(session)
+    for service_id in service_ids:
+        try:
+            async with session_scope() as session:
+                outcome = await auto_renew.run_service(session, service_id)
+        except Exception:
+            log.exception("auto-renewing service %s failed", service_id)
+            continue
+        if outcome not in {"idle", "cooldown", "busy", "short"}:
+            log.info("auto-renew for service %s: %s", service_id, outcome)
+
+
 DEFAULT_RETENTION_DAYS = 14
 
 

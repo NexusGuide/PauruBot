@@ -1,4 +1,11 @@
 {
+  "err_staff_not_found": "این کارمند پیدا نشد.",
+  "err_ticket_department_unknown": "این بخش وجود ندارد.",
+  "err_ticket_note_staff_only": "یادداشت داخلی فقط برای کارکنان است.",
+  "err_ticket_priority_unknown": "اولویت نامعتبر است.",
+  "log_topic_tickets": "تیکت‌ها",
+  "err_ticket_limit": "تیکت‌های باز زیاد است؛ اول یکی را ببندید.",
+  "err_ticket_closed": "این تیکت بسته شده است.",
   "account": "حساب من",
   "active": "فعال",
   "add": "افزودن",
@@ -631,6 +638,11 @@
   "setting_terms_required": "پذیرش قوانین",
   "setting_terms_version": "نسخه قوانین",
   "setting_terms_version_hint": "با بالا بردن عدد، همه دوباره قوانین را تأیید می‌کنند.",
+  "setting_typed_confirm_enabled": "تأیید تایپی برای حذف",
+  "setting_typed_confirm_enabled_hint": "حذف سرویس، حذف یا غیرفعال‌سازی گروهی و بازگشت وجه بزرگ نیاز به تایپ تأیید دارد. وقتی پنل پنجرهٔ تأیید را نشان داد روشنش کنید.",
+  "setting_typed_confirm_refund_min": "تأیید تایپی برای بازگشت وجه از (تومان)",
+  "setting_typed_confirm_refund_min_hint": "بازگشت وجه به این مبلغ یا بیشتر نیاز به تایپ مبلغ دارد. خالی: هیچ‌وقت.",
+  "err_confirmation_required": "اول این کار را تأیید کنید: متن خواسته‌شده را در پنجره تایپ کنید.",
   "setting_ton_address": "آدرس کیف پول TON",
   "setting_ton_rate": "نرخ دستی TON (تومان)",
   "setting_toncenter_api_key": "کلید Toncenter",
@@ -1607,5 +1619,9 @@
   "trial_again": "تست دوباره",
   "trial_again_done": "این کاربر یک تست دیگر می‌تواند بگیرد.",
   "err_trial_not_used": "این کاربر هنوز تستش را نگرفته و همین حالا می‌تواند بگیرد.",
-  "customer_hidden_panels_hint": "پلن‌های این پنل‌ها برای این کاربر (و در ربات اختصاصی‌اش اگر نماینده باشد) نه دیده می‌شوند و نه خریده."
+  "customer_hidden_panels_hint": "پلن‌های این پنل‌ها برای این کاربر (و در ربات اختصاصی‌اش اگر نماینده باشد) نه دیده می‌شوند و نه خریده.",
+  "err_schedule_invalid": "زمانی در آینده انتخاب کن، حداکثر ۶۰ روز بعد.",
+  "err_not_pausable": "فقط پیام همگانیِ در صف یا در حال ارسال را می‌شود متوقف کرد.",
+  "err_not_paused": "این پیام همگانی متوقف نیست.",
+  "err_no_telegram": "برای دریافت پیام آزمایشی، حساب تلگرامت را وصل کن و ربات را استارت کن."
 }

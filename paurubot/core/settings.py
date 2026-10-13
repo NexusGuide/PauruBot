@@ -31,6 +31,9 @@ SPECS: dict[str, Spec] = {
     "support_username": Spec(str, "", "general"),
     "terms_required": Spec(bool, False, "general"),
     "terms_version": Spec(int, 1, "general"),
+    # typed second step for destructive staff actions on the web (F-22)
+    "typed_confirm_enabled": Spec(bool, False, "general"),
+    "typed_confirm_refund_min": Spec(int, 1_000_000, "general"),
     # trial (CAT-04)
     "trial_enabled": Spec(bool, True, "trial"),
     "trial_panel_id": Spec(int, None, "trial"),
