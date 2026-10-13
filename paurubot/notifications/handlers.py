@@ -25,6 +25,7 @@ from paurubot.db.models import (
     OrderKind,
     OrderStatus,
     Payment,
+    PaymentStatus,
     ResellerApplication,
     Service,
     ServiceStatus,
@@ -35,9 +36,9 @@ from paurubot.db.models import (
     TicketDepartment,
 )
 from paurubot.i18n import Texts, texts_for
-from paurubot.notifications import telegram
+from paurubot.notifications import review_sync, telegram
 from paurubot.worker import queue
-from paurubot.worker.runner import Permanent, QueueSpec, register_queue
+from paurubot.worker.runner import Permanent, QueueSpec, Retry, register_queue
 
 log = logging.getLogger(__name__)
 
@@ -89,17 +90,22 @@ async def _to_staff(
     *,
     photo: str | None = None,
     markup: InlineKeyboardMarkup | None = None,
-) -> None:
+) -> list[Any]:
+    """Send to every staff chat with the permission; returns the messages that went out."""
+    sent: list[Any] = []
     for chat_id in await staff_chats(session, shop_id, permission):
         try:
             if photo:
-                await telegram.send_photo(
+                message = await telegram.send_photo(
                     chat_id, photo, caption=text[:1024], reply_markup=markup, shop_id=shop_id
                 )
             else:
-                await telegram.send_text(chat_id, text, reply_markup=markup, shop_id=shop_id)
+                message = await telegram.send_text(chat_id, text, reply_markup=markup, shop_id=shop_id)
         except telegram.Undeliverable:
             continue
+        if message is not None:
+            sent.append(message)
+    return sent
 
 
 async def report(session: AsyncSession, shop_id: int, topic: str, text: str) -> None:
@@ -394,13 +400,74 @@ async def receipt_review(session: AsyncSession, job: queue.Claimed) -> None:
         return
     t = await texts_for(session, shop.id, shop.default_locale)
     caption = receipt_caption(t, payment, customer, job.payload.get("duplicate_of"))
-    await _to_staff(
+    sent = await _to_staff(
         session,
         shop.id,
         "payments.review",
         caption,
         photo=payment.receipt_file_id,
-        markup=review_kb(t, payment.id),
+        markup=review_kb(t, payment.id, fixable=payment.provider == "card"),
+    )
+    for message in sent:
+        await review_sync.remember(payment.id, message)
+
+
+async def review_decided(session: AsyncSession, job: queue.Claimed) -> None:
+    """A receipt was approved or rejected somewhere: update every reviewer's copy (F-24)."""
+    from paurubot.bot.routers.admin import receipt_caption
+
+    payment = await session.get(Payment, int(job.payload["payment_id"]))
+    if payment is None:
+        return
+    key = review_sync.OUTCOMES.get(str(job.payload.get("outcome")))
+    customer = await session.get(Customer, payment.customer_id)
+    shop = await session.get(Shop, payment.shop_id)
+    if key is None or customer is None or shop is None:
+        return
+    given = job.payload.get("refs")
+    refs = list(given) if isinstance(given, list) else await review_sync.take(payment.id)
+    if not refs:
+        return
+    t = await texts_for(session, shop.id, shop.default_locale)
+    who = esc(str(job.payload.get("by") or "-"))
+    body = f"{receipt_caption(t, payment, customer)}\n\n{t(key, admin=who)}"
+    skip = job.payload.get("skip")
+    left = await review_sync.edit_all(
+        shop.id, refs, body, skip=(int(skip[0]), int(skip[1])) if skip else None
+    )
+    if left:
+        if not isinstance(given, list):
+            await review_sync.give_back(payment.id, left)
+        raise Retry("telegram busy while updating review messages")
+
+
+async def payment_fix_requested(session: AsyncSession, job: queue.Claimed) -> None:
+    """Staff sent a card receipt back (F-23): tell the customer what to fix, with a resend button."""
+    from paurubot.bot.callbacks import Receipt
+
+    payment = await session.get(Payment, int(job.payload["payment_id"]))
+    if payment is None or payment.status != PaymentStatus.PENDING or payment.receipt_file_id:
+        return  # already re-sent, expired or decided: the message would only confuse
+    customer = await session.get(Customer, payment.customer_id)
+    if customer is None:
+        return
+    t = await _texts(session, customer)
+    key = "payment_fix_card" if job.payload.get("kind") == "card" else "payment_fix_amount"
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t("btn_receipt_resend"),
+                    callback_data=Receipt(action="resend", id=payment.id).pack(),
+                )
+            ]
+        ]
+    )
+    await _to_customer(
+        session,
+        customer,
+        t(key, amount=money(payment.amount), payment_id=payment.id),
+        reply_markup=markup,
     )
 
 
@@ -490,6 +557,40 @@ async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
         await _to_customer(session, customer, text)
         return
     markup = None if alert == "deleted" or service.is_trial else _renew_markup(t, service.id)
+    await _to_customer(session, customer, text, reply_markup=markup)
+
+
+async def auto_renew_notice(session: AsyncSession, job: queue.Claimed) -> None:
+    """Auto-renewal could not run (F-02): a short wallet, or a rule that had to stop."""
+    from paurubot.bot.callbacks import Svc
+    from paurubot.core import auto_renew
+
+    service = await session.get(Service, int(job.payload["service_id"]))
+    if service is None or service.status == ServiceStatus.DELETED or auto_renew.rule(service) is None:
+        return  # turned off or gone since: nothing left to say
+    customer = await session.get(Customer, service.customer_id)
+    if customer is None:
+        return
+    t = await _texts(session, customer)
+    name = esc(service.label or service.panel_username)
+    if job.payload.get("reason") == auto_renew.SHORT:
+        text = t(
+            "auto_renew_short",
+            name=name,
+            required=money(int(job.payload.get("required") or 0)),
+            balance=money(int(job.payload.get("balance") or 0)),
+        )
+    else:
+        text = t("auto_renew_stopped", name=name)
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t("btn_auto_renew"), callback_data=Svc(action="auto", id=service.id).pack()
+                )
+            ]
+        ]
+    )
     await _to_customer(session, customer, text, reply_markup=markup)
 
 
@@ -974,7 +1075,10 @@ register_queue(
             "payment_fulfilled": payment_fulfilled,
             "payment_rejected": payment_rejected,
             "receipt_review": receipt_review,
+            "review_decided": review_decided,
+            "payment_fix_requested": payment_fix_requested,
             "service_alert": service_alert,
+            "auto_renew_notice": auto_renew_notice,
             "referral_joined": simple_customer,
             "referral_reward": simple_customer,
             "wallet_adjusted": simple_customer,
@@ -1033,13 +1137,8 @@ async def run_unpin(session: AsyncSession, job: queue.Claimed) -> None:
         await session.commit()
 
 
-async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
-    row = await session.get(Broadcast, int(job.payload["broadcast_id"]))
-    if row is None or row.status in {JobStatus.DONE, JobStatus.CANCELED}:
-        return
-    bot = await telegram.bot_for(row.shop_id)
-    if bot is None:
-        raise Permanent("this shop's bot is stopped")
+def broadcast_copier(bot: Any, row: Broadcast) -> Callable[[int], Callable[[], Awaitable[Any]]]:
+    """How one broadcast reaches one chat; also used for the staff test send (F-16)."""
     markup = None
     if row.buttons:
         markup = InlineKeyboardMarkup(
@@ -1049,8 +1148,6 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
                 if b.get("text") and b.get("url")
             ]
         )
-    pin = bool((row.audience or {}).get("pin"))
-    pin_hours = int((row.audience or {}).get("pin_hours") or 0)
     forward = bool((row.audience or {}).get("forward"))
     if row.source_chat_id is not None and row.source_message_id is not None:
         source_chat, source_message = int(row.source_chat_id), int(row.source_message_id)
@@ -1066,6 +1163,22 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
             return lambda: bot.send_message(chat_id, text, reply_markup=markup)
     else:
         raise Permanent("broadcast has no content")
+    return copier
+
+
+async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
+    from paurubot.core import broadcasts
+
+    row = await session.get(Broadcast, int(job.payload["broadcast_id"]))
+    run = int(job.payload.get("run") or 0)
+    if row is None or broadcasts.should_stop(row, run):
+        return  # finished, canceled, paused, or a newer run took over (F-16)
+    bot = await telegram.bot_for(row.shop_id)
+    if bot is None:
+        raise Permanent("this shop's bot is stopped")
+    copier = broadcast_copier(bot, row)
+    pin = bool((row.audience or {}).get("pin"))
+    pin_hours = int((row.audience or {}).get("pin_hours") or 0)
     row.status = JobStatus.RUNNING
     if not row.total:
         from sqlalchemy import func
@@ -1084,8 +1197,8 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
         )
         if not batch:
             break
-        await session.refresh(row, ["status"])
-        if row.status == JobStatus.CANCELED:
+        await session.refresh(row, ["status", "run"])
+        if broadcasts.should_stop(row, run):
             return
         for customer in batch:
             chat_id = customer.telegram_id
@@ -1104,9 +1217,13 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
                             unpin_at=utcnow() + timedelta(hours=pin_hours) if pin_hours else None,
                         )
                     )
-            except telegram.Undeliverable:
+            except telegram.Undeliverable as exc:
                 customer.blocked_bot_at = utcnow()
                 row.failed += 1
+                if broadcasts.undeliverable_reason(exc) == "blocked":
+                    row.blocked = (row.blocked or 0) + 1
+                else:
+                    row.deleted = (row.deleted or 0) + 1
             except Exception as exc:
                 if "retry after" in str(exc):
                     await session.commit()
