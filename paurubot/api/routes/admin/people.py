@@ -23,7 +23,7 @@ from paurubot.audit.log import record, snapshot
 from paurubot.auth import rbac, sessions
 from paurubot.auth import staff as staff_service
 from paurubot.core import tickets
-from paurubot.core.resellers import web_login
+from paurubot.core.resellers import estimate_runway, timeline, web_login
 from paurubot.db.models import (
     ApplicationStatus,
     CannedReply,
@@ -435,6 +435,26 @@ async def reseller_billing(profile_id: int, ctx: Manager, db: DB) -> dict[str, A
     return await _billing_view(db, await owned(db, ResellerProfile, profile_id, ctx))
 
 
+# What the reseller itself sees of an audit row; staff also get who did it and the before/after.
+OWN_AUDIT_FIELDS = ("at", "type", "kind")
+
+
+async def _hub_view(db: DB, profile: ResellerProfile, *, staff: bool) -> dict[str, Any]:
+    """The reseller hub (F-21): wallet runway plus the account's timeline, newest first."""
+    runway = await estimate_runway(db, profile)
+    items = []
+    for item in await timeline(db, profile, limit=100):
+        if item["type"] == "audit" and not staff:
+            item = {key: item[key] for key in OWN_AUDIT_FIELDS}
+        items.append({**item, "at": item["at"].isoformat() if item["at"] else None})
+    return {"runway": runway.as_dict(), "timeline": items}
+
+
+@router.get("/resellers/{profile_id}/hub")
+async def reseller_hub(profile_id: int, ctx: Manager, db: DB) -> dict[str, Any]:
+    return await _hub_view(db, await owned(db, ResellerProfile, profile_id, ctx), staff=True)
+
+
 # --- level-2 resellers, managed by a level-1 reseller (TEN-01) ---------------------------
 
 SubManager = Annotated[StaffContext, Depends(require("resellers.sub"))]
@@ -456,6 +476,14 @@ async def my_billing(
     if profile is None:
         raise HTTPException(status_code=404, detail="not_found")
     return await _billing_view(db, profile)
+
+
+@router.get("/my/hub")
+async def my_hub(ctx: Annotated[StaffContext, Depends(require("dashboard.view"))], db: DB) -> dict[str, Any]:
+    profile = await reseller_profile(db, ctx)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    return await _hub_view(db, profile, staff=False)
 
 
 @router.get("/sub-resellers")

@@ -344,6 +344,8 @@
   "reseller_suspended": "⛔️ نمایندگیت معلق شد و سرویس‌هات موقتاً خاموش شدن.\nبدهی: {debt} تومان | موجودی: {balance} تومان\nبا شارژ کیف پول همه‌چیز خودکار برمی‌گرده.",
   "reseller_resumed": "✅ نمایندگیت دوباره فعال شد و سرویس‌هات روشن شدن.",
   "reseller_low_balance": "🔔 موجودی کیف پولت کم شده: {balance} تومان. برای اینکه سرویس‌هات قطع نشن، شارژ کن.",
+  "reseller_runway_days": "⏳ با این سرعت مصرف، موجودی حدود {days} روز دیگه کافیه.",
+  "reseller_runway_hours": "⏳ با این سرعت مصرف، موجودی فقط حدود {hours} ساعت دیگه کافیه.",
   "report_reseller_suspended": "⛔️ نماینده {customer} معلق شد. بدهی: {debt} تومان",
   "report_reseller_resumed": "✅ نماینده {customer} دوباره فعال شد.",
   "reseller_suspended_error": "⛔️ نمایندگیت معلقه؛ اول کیف پولت رو شارژ کن.",
