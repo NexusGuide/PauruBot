@@ -78,6 +78,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/panel-accounts` | `resellers.manage` | List panel accounts |
 | POST | `/api/admin/panels/certificate` | `panels.secrets` | Inspect certificate |
 | GET | `/api/admin/panels/{panel_id}/admins` | `panels.write` | The panel's admins and how many users each one owns. |
+| POST | `/api/admin/panels/{panel_id}/capabilities` | `panels.write` | Panel capabilities |
 | POST | `/api/admin/panels/{panel_id}/check` | `panels.read` | Run one monitoring probe right away and return the fresh figures (PNL-12, PNL-13). |
 | GET | `/api/admin/panels/{panel_id}/import` | `panels.write` | Import preview |
 | POST | `/api/admin/panels/{panel_id}/import` | `panels.write` | Import users |
