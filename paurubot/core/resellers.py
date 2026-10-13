@@ -99,7 +99,8 @@ async def make_child(
         parent_id=parent.id,
         group_id=parent.group_id,
         discount_override=discount,
-        permissions=[p for p in parent.permissions if p != "resellers.sub"],
+        # A sub-reseller's own bot features are granted to it by staff, not inherited (TEN-18).
+        permissions=[p for p in parent.permissions if p != "resellers.sub" and not p.startswith("resale.")],
         expires_at=parent.expires_at,
     )
     session.add(profile)

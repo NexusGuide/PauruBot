@@ -150,7 +150,11 @@ async def view(
     if service.status == ServiceStatus.DELETED:
         await show(call, t("service_removed_from_panel"))
         return
-    await show(call, service_card(t, service, customer_link(service, cfg)), _service_markup(t, service, cfg))
+    await show(
+        call,
+        service_card(t, service, customer_link(service, cfg)),
+        await _resale_service_markup(session, t, service, cfg),
+    )
 
 
 @router.callback_query(Svc.filter(F.action == "mute"))
@@ -285,6 +289,22 @@ async def report_problem(
     await show(call, t("report_known_outage" if down else "report_sent", id=ticket.id))
 
 
+async def _resale_service_markup(session: AsyncSession, t: Texts, service: Service, cfg: dict[str, Any]):  # type: ignore[no-untyped-def]
+    from paurubot.core import resale
+
+    return keyboards.service_kb(
+        t,
+        service,
+        extras=await resale.listed_extras(session, service, service.shop_id, cfg),
+        upgrade=bool(cfg["upgrade_enabled"]),
+        move=bool(cfg["move_enabled"]) and service.status in MOVABLE,
+        card=bool(cfg["info_card_enabled"]),
+        cancel=bool(cfg["self_delete_enabled"]),
+        link=customer_link(service, cfg),
+        auto=_auto_offer(service, cfg),
+    )
+
+
 async def _send_wireguard(message: Message, t: Texts, service: Service, config: str | None) -> None:
     """A WireGuard service is a .conf file and its QR, not a link (PNL-08)."""
     if not config:
@@ -318,7 +338,9 @@ async def links(
         return
     kind = delivery_of(service.panel.kind if service.panel else None)
     if kind == "account":
-        await show(call, service_card(t, service, None), _service_markup(t, service, cfg))
+        await show(
+            call, service_card(t, service, None), await _resale_service_markup(session, t, service, cfg)
+        )
         return
     items = await lifecycle.links(session, service)
     if kind == "wireguard":
@@ -521,7 +543,11 @@ async def revoke(
         return
     await session.commit()
     await call.answer(t("revoked"))
-    await show(call, service_card(t, service, customer_link(service, cfg)), _service_markup(t, service, cfg))
+    await show(
+        call,
+        service_card(t, service, customer_link(service, cfg)),
+        await _resale_service_markup(session, t, service, cfg),
+    )
 
 
 @router.callback_query(Svc.filter(F.action == "rename"))
@@ -564,7 +590,7 @@ async def rename(
     await message.answer(t("label_saved"), reply_markup=menu(t, cfg, staff))
     await message.answer(
         service_card(t, service, customer_link(service, cfg)),
-        reply_markup=_service_markup(t, service, cfg),
+        reply_markup=await _resale_service_markup(session, t, service, cfg),
         disable_web_page_preview=True,
     )
 

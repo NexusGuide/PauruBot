@@ -101,6 +101,7 @@ SETTINGS: dict[str, list[str]] = {
         "bulk_buy_enabled",
         "panel_accounts_enabled",
         "reseller_bot_open",
+        "resale_trial_fee",
     ],
     "timing": [
         "order_expire_minutes",
@@ -123,6 +124,7 @@ BOUNDS: dict[str, tuple[int, int]] = {
     "trial_days": (1, 365),
     "trial_gb": (1, 10_000),
     "card_auto_min_history": (0, 1_000),
+    "resale_trial_fee": (0, 10_000_000),
 }
 AUDIENCES = ("all", "buyers", "active", "inactive", "never_bought", "resellers")
 PIN_CYCLE = (None, 0, 24, 48)  # off, until unpinned, 24 h, 48 h
