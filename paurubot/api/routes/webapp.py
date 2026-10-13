@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from paurubot.api.routes import webapp_staff
 from paurubot.api.webapp_auth import WebApp
-from paurubot.core import catalog, customers, orders, pricing, reseller_desk, trials
+from paurubot.core import catalog, customers, orders, pricing, reseller_desk, tickets, trials
 from paurubot.db.models import (
     Category,
     DiscountCode,
@@ -25,6 +25,7 @@ from paurubot.db.models import (
     Plan,
     Service,
     ServiceStatus,
+    Ticket,
 )
 from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
@@ -535,6 +536,105 @@ async def trial(ctx: WebApp) -> dict[str, Any]:
     except trials.TrialError as exc:
         raise HTTPException(status_code=400, detail=exc.key) from exc
     return {"order": order_view(order)}
+
+
+# --- support tickets in the Mini App (F-14) -----------------------------------------------
+
+
+def _ticket_view(ticket: Ticket) -> dict[str, Any]:
+    return {
+        "id": ticket.id,
+        "subject": ticket.subject,
+        "status": ticket.status.value,
+        "department_id": ticket.department_id,
+        "created_at": _iso(ticket.created_at),
+        "updated_at": _iso(ticket.updated_at),
+    }
+
+
+async def _own_ticket(ctx: WebApp, ticket_id: int) -> Ticket:
+    ticket = await ctx.session.get(Ticket, ticket_id)
+    if ticket is None or ticket.customer_id != ctx.customer.id:
+        raise HTTPException(status_code=404, detail="ticket_not_found")
+    return ticket
+
+
+@router.get("/tickets")
+async def my_tickets(ctx: WebApp) -> dict[str, Any]:
+    rows = await tickets.for_customer(ctx.session, ctx.customer, limit=20)
+    desks = await tickets.departments(ctx.session, ctx.shop.id)
+    return {
+        "items": [_ticket_view(row) for row in rows],
+        "departments": [{"id": desk.id, "title": desk.title} for desk in desks],
+    }
+
+
+class TicketBody(BaseModel):
+    subject: str = Field(min_length=1, max_length=128)
+    text: str = Field(min_length=1, max_length=4000)
+    department_id: int | None = None
+
+
+@router.post("/tickets")
+async def new_ticket(body: TicketBody, ctx: WebApp) -> dict[str, Any]:
+    try:
+        ticket = await tickets.open_ticket(
+            ctx.session, ctx.customer, body.subject, source="webapp", department_id=body.department_id
+        )
+        await tickets.add_message(
+            ctx.session, ticket, author_type="customer", author_id=ctx.customer.id, text=body.text
+        )
+    except tickets.TicketError as exc:
+        raise HTTPException(status_code=400, detail=exc.key) from exc
+    await queue.enqueue(
+        ctx.session, "notify", "ticket_new_message", {"ticket_id": ticket.id}, shop_id=ctx.shop.id
+    )
+    return {"ticket": _ticket_view(ticket)}
+
+
+@router.get("/tickets/{ticket_id}")
+async def ticket_thread(ticket_id: int, ctx: WebApp) -> dict[str, Any]:
+    ticket = await _own_ticket(ctx, ticket_id)
+    rows = await tickets.messages(ctx.session, ticket.id, limit=100)  # staff notes never come back
+    return {
+        "ticket": _ticket_view(ticket),
+        "messages": [
+            {
+                "id": row.id,
+                "from": "me" if row.author_type == "customer" else "support",
+                "text": row.text,
+                "has_attachment": bool(row.attachment_file_id),
+                "created_at": _iso(row.created_at),
+            }
+            for row in rows
+        ],
+    }
+
+
+class TicketReplyBody(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+
+
+@router.post("/tickets/{ticket_id}/reply")
+async def ticket_answer(ticket_id: int, body: TicketReplyBody, ctx: WebApp) -> dict[str, Any]:
+    ticket = await _own_ticket(ctx, ticket_id)
+    try:
+        await tickets.add_message(
+            ctx.session, ticket, author_type="customer", author_id=ctx.customer.id, text=body.text
+        )
+    except tickets.TicketError as exc:
+        raise HTTPException(status_code=409, detail=exc.key) from exc
+    await queue.enqueue(
+        ctx.session, "notify", "ticket_new_message", {"ticket_id": ticket.id}, shop_id=ctx.shop.id
+    )
+    return {"ticket": _ticket_view(ticket)}
+
+
+@router.post("/tickets/{ticket_id}/close")
+async def ticket_close(ticket_id: int, ctx: WebApp) -> dict[str, Any]:
+    ticket = await _own_ticket(ctx, ticket_id)
+    await tickets.close(ctx.session, ticket)
+    return {"ticket": _ticket_view(ticket)}
 
 
 # --- the reseller's desk in the Mini App (TEN-15) ----------------------------------------
