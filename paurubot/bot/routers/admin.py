@@ -44,6 +44,7 @@ from paurubot.db.models import Shop as ShopRow
 from paurubot.i18n import Texts
 from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
+from paurubot.notifications import review_sync
 from paurubot.payments import engine as payments
 from paurubot.worker import queue
 
@@ -164,11 +165,12 @@ async def pending_payments(call: CallbackQuery, session: AsyncSession, shop: Sho
     for payment in rows:
         caption = receipt_caption(t, payment, payment.customer)
         if payment.receipt_file_id:
-            await call.message.answer_photo(
-                payment.receipt_file_id, caption=caption, reply_markup=review_kb(t, payment.id)
+            sent = await call.message.answer_photo(
+                payment.receipt_file_id, caption=caption[:1024], reply_markup=review_kb(t, payment.id)
             )
         else:
-            await call.message.answer(caption, reply_markup=review_kb(t, payment.id))
+            sent = await call.message.answer(caption, reply_markup=review_kb(t, payment.id))
+        await review_sync.remember(payment.id, sent)  # so a decision elsewhere updates it (F-24)
 
 
 def receipt_caption(t: Texts, payment: Payment, customer: Customer, duplicate_of: int | None = None) -> str:
@@ -230,6 +232,10 @@ async def approve(
         entity="payment",
         entity_id=payment.id,
     )
+    here = (call.message.chat.id, call.message.message_id) if call.message else None
+    await review_sync.announce(
+        session, payment.id, shop.id, "approved", call.from_user.full_name, skip=here
+    )
     await session.commit()
     await payments.fulfill_one(session, payment.id)
     await call.answer(t("approved_short"))
@@ -283,6 +289,9 @@ async def reject(
     await queue.enqueue(
         session, "notify", "payment_rejected", {"payment_id": payment.id, "reason": reason}, shop_id=shop.id
     )
+    # Every copy, the one this reviewer tapped included, now says who rejected it (F-24).
+    name = message.from_user.full_name if message.from_user else "-"
+    await review_sync.announce(session, payment.id, shop.id, "rejected", name)
     await message.answer(t("rejected_short"), reply_markup=menu(t, cfg, staff))
 
 
