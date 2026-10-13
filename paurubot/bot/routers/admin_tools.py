@@ -618,6 +618,84 @@ async def reseller_group(
     await show(call, t("adm_choose_group") if groups else t("adm_no_groups"), kb.as_markup())
 
 
+# --- reseller sales cap -------------------------------------------------------------------
+
+
+@router.callback_query(Admin.filter(F.section == "ulimit"), StaffOnly("resellers.manage"))
+async def reseller_limit_ask(
+    call: CallbackQuery,
+    callback_data: Admin,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    state: FSMContext,
+) -> None:
+    customer = await _customer(session, shop, callback_data.id)
+    profile = (
+        await session.scalar(select(ResellerProfile).where(ResellerProfile.customer_id == customer.id))
+        if customer
+        else None
+    )
+    if customer is None or profile is None:
+        await call.answer(t("adm_not_reseller"), show_alert=True)
+        return
+    await call.answer()
+    await state.set_state(AdminStates.reseller_limit)
+    await state.update_data(customer_id=customer.id)
+    if isinstance(call.message, Message):
+        await call.message.answer(
+            t(
+                "adm_reseller_limit_ask",
+                current=profile.max_purchases_per_day or t("adm_reseller_limit_unlimited"),
+            ),
+            reply_markup=keyboards.cancel(t),
+        )
+
+
+@router.message(AdminStates.reseller_limit, F.text, StaffOnly("resellers.manage"))
+async def reseller_limit_save(
+    message: Message,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    value = parse_int(message.text)
+    if value is None or value < 0 or value > 100_000:
+        await message.answer(t("adm_reseller_limit_invalid"))
+        return
+    data = await state.get_data()
+    customer = await _customer(session, shop, int(data.get("customer_id") or 0))
+    profile = (
+        await session.scalar(select(ResellerProfile).where(ResellerProfile.customer_id == customer.id))
+        if customer
+        else None
+    )
+    if customer is None or profile is None:
+        await state.clear()
+        await message.answer(t("adm_not_reseller"), reply_markup=menu(t, cfg, staff))
+        return
+    before = profile.max_purchases_per_day
+    profile.max_purchases_per_day = value or None
+    await record(
+        session,
+        shop_id=shop.id,
+        actor=actor(staff),
+        action="reseller.daily_limit",
+        entity="reseller_profile",
+        entity_id=profile.id,
+        before={"max_purchases_per_day": before},
+        after={"max_purchases_per_day": profile.max_purchases_per_day},
+    )
+    await session.commit()
+    await state.clear()
+    await message.answer(t("adm_saved"), reply_markup=menu(t, cfg, staff))
+    text, kb = await customer_card(session, t, customer, staff)
+    await message.answer(text, reply_markup=kb)
+
+
 # --- plans and prices ----------------------------------------------------------------------
 
 

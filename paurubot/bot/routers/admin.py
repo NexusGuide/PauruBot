@@ -823,6 +823,7 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
         pair(button("adm_ua_btn_expiry", "uexp"))
         pair(button("adm_ua_btn_demote", "udemote"))
         pair(button("adm_user_btn_group", "ugroup"))
+        pair(button("adm_user_btn_limit", "ulimit"))
     # The rest of the existing controls.
     pair(
         button("adm_user_btn_services", "usvc") if staff.can("services.read") else None,

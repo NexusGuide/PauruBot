@@ -70,6 +70,7 @@ class AdminStates(StatesGroup):
     rbot_token = State()
     service_note = State()
     config_value = State()
+    reseller_limit = State()
     card_account = State()
     code_new = State()
     panel_value = State()
