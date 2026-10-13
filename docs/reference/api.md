@@ -211,6 +211,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 |---|---|---|---|
 | GET | `/api/webapp/catalog` | Mini App initData | Catalog view |
 | POST | `/api/webapp/me/locale` | Mini App initData | Set locale |
+| POST | `/api/webapp/me/marketing` | Mini App initData | Set marketing |
 | GET | `/api/webapp/me` | Mini App initData | Me |
 | POST | `/api/webapp/orders/{order_id}/cancel` | Mini App initData | Cancel order |
 | POST | `/api/webapp/orders/{order_id}/pay` | Mini App initData | Pay order |
