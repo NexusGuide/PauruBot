@@ -76,3 +76,6 @@ class AdminStates(StatesGroup):
     prize_new = State()
     lottery_new = State()
     extra_value = State()
+    account_move = State()
+    reseller_price = State()
+    reseller_expiry = State()

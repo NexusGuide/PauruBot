@@ -10,7 +10,7 @@
   "adm_ud_closed": "🔒 صفحه مدیریت کاربران بسته شد.",
   "adm_ud_back_list": "↩️ بازگشت به لیست",
   "adm_ud_admin": "🏠 منوی مدیریت",
-  "adm_ud_payments": "💳 پرداخت‌های کاربر",
+  "adm_ud_payments": "💰 مشاهده پرداختی کاربر",
   "adm_ud_payments_head": "💳 <b>پرداخت‌های {name}</b>\nتعداد: {total} · صفحه {page} از {pages}",
   "adm_ud_payment_line": "• #{id} · {amount} {currency} · {provider}\nوضعیت: {status} · {date}",
   "adm_ud_payment_empty": "این کاربر پرداختی ندارد.",
