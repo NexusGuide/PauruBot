@@ -559,6 +559,40 @@ async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
     await _to_customer(session, customer, text, reply_markup=markup)
 
 
+async def auto_renew_notice(session: AsyncSession, job: queue.Claimed) -> None:
+    """Auto-renewal could not run (F-02): a short wallet, or a rule that had to stop."""
+    from paurubot.bot.callbacks import Svc
+    from paurubot.core import auto_renew
+
+    service = await session.get(Service, int(job.payload["service_id"]))
+    if service is None or service.status == ServiceStatus.DELETED or auto_renew.rule(service) is None:
+        return  # turned off or gone since: nothing left to say
+    customer = await session.get(Customer, service.customer_id)
+    if customer is None:
+        return
+    t = await _texts(session, customer)
+    name = esc(service.label or service.panel_username)
+    if job.payload.get("reason") == auto_renew.SHORT:
+        text = t(
+            "auto_renew_short",
+            name=name,
+            required=money(int(job.payload.get("required") or 0)),
+            balance=money(int(job.payload.get("balance") or 0)),
+        )
+    else:
+        text = t("auto_renew_stopped", name=name)
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t("btn_auto_renew"), callback_data=Svc(action="auto", id=service.id).pack()
+                )
+            ]
+        ]
+    )
+    await _to_customer(session, customer, text, reply_markup=markup)
+
+
 async def ip_replaced(session: AsyncSession, job: queue.Claimed) -> None:
     """A new device took a connection slot and an older one was cut off (JOB-03)."""
     service = await session.get(Service, int(job.payload["service_id"]))
@@ -1003,6 +1037,7 @@ register_queue(
             "review_decided": review_decided,
             "payment_fix_requested": payment_fix_requested,
             "service_alert": service_alert,
+            "auto_renew_notice": auto_renew_notice,
             "referral_joined": simple_customer,
             "referral_reward": simple_customer,
             "wallet_adjusted": simple_customer,

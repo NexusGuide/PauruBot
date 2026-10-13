@@ -241,6 +241,24 @@ async def reconcile_renewals() -> None:
             log.info("renewal order %s reconciled: %s", order_id, outcome)
 
 
+@every(60, "services.auto_renew")
+async def auto_renew_services() -> None:
+    """Renew or top up the services whose owners turned auto-renewal on (F-02)."""
+    from paurubot.core import auto_renew
+
+    async with session_scope() as session:
+        service_ids = await auto_renew.due(session)
+    for service_id in service_ids:
+        try:
+            async with session_scope() as session:
+                outcome = await auto_renew.run_service(session, service_id)
+        except Exception:
+            log.exception("auto-renewing service %s failed", service_id)
+            continue
+        if outcome not in {"idle", "cooldown", "busy", "short"}:
+            log.info("auto-renew for service %s: %s", service_id, outcome)
+
+
 DEFAULT_RETENTION_DAYS = 14
 
 
