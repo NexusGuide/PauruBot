@@ -1607,5 +1607,9 @@
   "trial_again": "Another trial",
   "trial_again_done": "This user can take one more trial.",
   "err_trial_not_used": "This user hasn't taken a trial yet and can take one now.",
-  "customer_hidden_panels_hint": "This user can't see or buy the plans of these panels (nor in their own sales bot, for a reseller)."
+  "customer_hidden_panels_hint": "This user can't see or buy the plans of these panels (nor in their own sales bot, for a reseller).",
+  "err_schedule_invalid": "Pick a time in the future, at most 60 days ahead.",
+  "err_not_pausable": "Only a queued or running broadcast can be paused.",
+  "err_not_paused": "This broadcast is not paused.",
+  "err_no_telegram": "Link your Telegram account and start the bot to receive a test."
 }

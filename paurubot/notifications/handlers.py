@@ -992,13 +992,8 @@ async def run_unpin(session: AsyncSession, job: queue.Claimed) -> None:
         await session.commit()
 
 
-async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
-    row = await session.get(Broadcast, int(job.payload["broadcast_id"]))
-    if row is None or row.status in {JobStatus.DONE, JobStatus.CANCELED}:
-        return
-    bot = await telegram.bot_for(row.shop_id)
-    if bot is None:
-        raise Permanent("this shop's bot is stopped")
+def broadcast_copier(bot: Any, row: Broadcast) -> Callable[[int], Callable[[], Awaitable[Any]]]:
+    """How one broadcast reaches one chat; also used for the staff test send (F-16)."""
     markup = None
     if row.buttons:
         markup = InlineKeyboardMarkup(
@@ -1008,8 +1003,6 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
                 if b.get("text") and b.get("url")
             ]
         )
-    pin = bool((row.audience or {}).get("pin"))
-    pin_hours = int((row.audience or {}).get("pin_hours") or 0)
     forward = bool((row.audience or {}).get("forward"))
     if row.source_chat_id is not None and row.source_message_id is not None:
         source_chat, source_message = int(row.source_chat_id), int(row.source_message_id)
@@ -1025,6 +1018,22 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
             return lambda: bot.send_message(chat_id, text, reply_markup=markup)
     else:
         raise Permanent("broadcast has no content")
+    return copier
+
+
+async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
+    from paurubot.core import broadcasts
+
+    row = await session.get(Broadcast, int(job.payload["broadcast_id"]))
+    run = int(job.payload.get("run") or 0)
+    if row is None or broadcasts.should_stop(row, run):
+        return  # finished, canceled, paused, or a newer run took over (F-16)
+    bot = await telegram.bot_for(row.shop_id)
+    if bot is None:
+        raise Permanent("this shop's bot is stopped")
+    copier = broadcast_copier(bot, row)
+    pin = bool((row.audience or {}).get("pin"))
+    pin_hours = int((row.audience or {}).get("pin_hours") or 0)
     row.status = JobStatus.RUNNING
     if not row.total:
         from sqlalchemy import func
@@ -1043,8 +1052,8 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
         )
         if not batch:
             break
-        await session.refresh(row, ["status"])
-        if row.status == JobStatus.CANCELED:
+        await session.refresh(row, ["status", "run"])
+        if broadcasts.should_stop(row, run):
             return
         for customer in batch:
             chat_id = customer.telegram_id
@@ -1063,9 +1072,13 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
                             unpin_at=utcnow() + timedelta(hours=pin_hours) if pin_hours else None,
                         )
                     )
-            except telegram.Undeliverable:
+            except telegram.Undeliverable as exc:
                 customer.blocked_bot_at = utcnow()
                 row.failed += 1
+                if broadcasts.undeliverable_reason(exc) == "blocked":
+                    row.blocked = (row.blocked or 0) + 1
+                else:
+                    row.deleted = (row.deleted or 0) + 1
             except Exception as exc:
                 if "retry after" in str(exc):
                     await session.commit()
