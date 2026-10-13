@@ -28,6 +28,7 @@
   "adm_receipt": "💳 <b>Receipt #{id}</b>\n👤 {customer} (<code>{telegram_id}</code>)\n💵 Amount: <b>{amount} Toman</b>\n🧾 Order: {order}\n📝 Note: {note}",
   "adm_receipt_duplicate": "⚠️ <b>This receipt looks like receipt #{other}.</b> Check it carefully.",
   "adm_reject_reason": "Write a reason for rejecting (or «-» for none):",
+  "adm_rejected_by": "❌ Rejected by {admin}",
   "adm_saved": "Saved ✅",
   "adm_stats": "📊 Stats",
   "adm_stats_text": "📊 <b>Stats</b>\n\n👥 Users: {customers} (today: {customers_today})\n🟢 Active services: {active}\n💵 Sales today: {sales_today} Toman\n💵 Sales (30 days): {sales_month} Toman\n💳 Receipts waiting: {pending}\n🎧 Open tickets: {tickets}",

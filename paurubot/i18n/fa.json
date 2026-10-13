@@ -28,6 +28,7 @@
   "adm_receipt": "💳 <b>رسید #{id}</b>\n👤 {customer} (<code>{telegram_id}</code>)\n💵 مبلغ: <b>{amount} تومان</b>\n🧾 سفارش: {order}\n📝 توضیح: {note}",
   "adm_receipt_duplicate": "⚠️ <b>این رسید مشابه رسید #{other} است.</b> با دقت بررسی کن.",
   "adm_reject_reason": "دلیل رد رو بنویس (یا «-» بدون دلیل):",
+  "adm_rejected_by": "❌ رد شد توسط {admin}",
   "adm_saved": "ذخیره شد ✅",
   "adm_stats": "📊 آمار",
   "adm_stats_text": "📊 <b>آمار</b>\n\n👥 کاربران: {customers} (امروز: {customers_today})\n🟢 سرویس‌های فعال: {active}\n💵 فروش امروز: {sales_today} تومان\n💵 فروش ۳۰ روز: {sales_month} تومان\n💳 رسیدهای منتظر: {pending}\n🎧 تیکت‌های باز: {tickets}",
