@@ -26,7 +26,12 @@ TTL_SECONDS = 14 * 86400  # longer than any receipt waits for review
 MAX_REFS = 50
 CAPTION_LIMIT = 1024
 TEXT_LIMIT = 4096
-OUTCOMES = {"approved": "adm_approved_by", "rejected": "adm_rejected_by"}
+OUTCOMES = {
+    "approved": "adm_approved_by",
+    "rejected": "adm_rejected_by",
+    "fix_amount": "adm_fix_amount_by",  # sent back to the customer to fix (F-23)
+    "fix_card": "adm_fix_card_by",
+}
 
 
 def _key(payment_id: int) -> str:
@@ -68,6 +73,19 @@ async def take(payment_id: int) -> list[dict[str, Any]]:
             seen.add(pair)
             refs.append({"chat": pair[0], "msg": pair[1], "photo": bool(ref.get("photo"))})
     return refs
+
+
+async def take_now(payment_id: int) -> list[dict[str, Any]] | None:
+    """`take`, but None when Redis is unreachable so the job can try again itself.
+
+    A receipt sent back for a fix (F-23) can come back for review before the sync job runs; taking
+    the copies at decision time keeps the new review messages out of that sync.
+    """
+    try:
+        return await take(payment_id)
+    except Exception:
+        log.warning("could not take review messages for payment %s", payment_id, exc_info=True)
+        return None
 
 
 async def give_back(payment_id: int, refs: list[dict[str, Any]]) -> None:
@@ -131,11 +149,17 @@ async def announce(
     by: str,
     *,
     skip: tuple[int, int] | None = None,
+    refs: list[dict[str, Any]] | None = None,
 ) -> None:
-    """Queue the update of every copy, in the same transaction as the decision itself."""
+    """Queue the update of every copy, in the same transaction as the decision itself.
+
+    `refs` are copies already taken from Redis (see `take_now`); without them the job takes them.
+    """
     from paurubot.worker import queue
 
     payload: dict[str, Any] = {"payment_id": payment_id, "outcome": outcome, "by": by[:96]}
     if skip is not None:
         payload["skip"] = [int(skip[0]), int(skip[1])]
+    if refs is not None:
+        payload["refs"] = refs
     await queue.enqueue(session, "notify", "review_decided", payload, shop_id=shop_id)

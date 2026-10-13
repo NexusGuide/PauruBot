@@ -25,6 +25,7 @@ from paurubot.db.models import (
     OrderKind,
     OrderStatus,
     Payment,
+    PaymentStatus,
     ResellerApplication,
     Service,
     ServiceStatus,
@@ -404,7 +405,7 @@ async def receipt_review(session: AsyncSession, job: queue.Claimed) -> None:
         "payments.review",
         caption,
         photo=payment.receipt_file_id,
-        markup=review_kb(t, payment.id),
+        markup=review_kb(t, payment.id, fixable=payment.provider == "card"),
     )
     for message in sent:
         await review_sync.remember(payment.id, message)
@@ -422,7 +423,8 @@ async def review_decided(session: AsyncSession, job: queue.Claimed) -> None:
     shop = await session.get(Shop, payment.shop_id)
     if key is None or customer is None or shop is None:
         return
-    refs = await review_sync.take(payment.id)
+    given = job.payload.get("refs")
+    refs = list(given) if isinstance(given, list) else await review_sync.take(payment.id)
     if not refs:
         return
     t = await texts_for(session, shop.id, shop.default_locale)
@@ -433,8 +435,39 @@ async def review_decided(session: AsyncSession, job: queue.Claimed) -> None:
         shop.id, refs, body, skip=(int(skip[0]), int(skip[1])) if skip else None
     )
     if left:
-        await review_sync.give_back(payment.id, left)
+        if not isinstance(given, list):
+            await review_sync.give_back(payment.id, left)
         raise Retry("telegram busy while updating review messages")
+
+
+async def payment_fix_requested(session: AsyncSession, job: queue.Claimed) -> None:
+    """Staff sent a card receipt back (F-23): tell the customer what to fix, with a resend button."""
+    from paurubot.bot.callbacks import Receipt
+
+    payment = await session.get(Payment, int(job.payload["payment_id"]))
+    if payment is None or payment.status != PaymentStatus.PENDING or payment.receipt_file_id:
+        return  # already re-sent, expired or decided: the message would only confuse
+    customer = await session.get(Customer, payment.customer_id)
+    if customer is None:
+        return
+    t = await _texts(session, customer)
+    key = "payment_fix_card" if job.payload.get("kind") == "card" else "payment_fix_amount"
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t("btn_receipt_resend"),
+                    callback_data=Receipt(action="resend", id=payment.id).pack(),
+                )
+            ]
+        ]
+    )
+    await _to_customer(
+        session,
+        customer,
+        t(key, amount=money(payment.amount), payment_id=payment.id),
+        reply_markup=markup,
+    )
 
 
 async def card_verify(session: AsyncSession, job: queue.Claimed) -> None:
@@ -968,6 +1001,7 @@ register_queue(
             "payment_rejected": payment_rejected,
             "receipt_review": receipt_review,
             "review_decided": review_decided,
+            "payment_fix_requested": payment_fix_requested,
             "service_alert": service_alert,
             "referral_joined": simple_customer,
             "referral_reward": simple_customer,

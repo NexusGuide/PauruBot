@@ -9,7 +9,7 @@ from aiogram.types import CallbackQuery, LabeledPrice, Message, PreCheckoutQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.bot import keyboards
-from paurubot.bot.callbacks import Pay, Wallet
+from paurubot.bot.callbacks import Pay, Receipt, Wallet
 from paurubot.bot.routers.start import menu
 from paurubot.bot.states import WalletStates
 from paurubot.bot.utils import Btn, error_text, show
@@ -511,6 +511,36 @@ async def gift_code(
     )
 
 
+@router.callback_query(Receipt.filter(F.action == "resend"))
+async def resend_receipt(
+    call: CallbackQuery,
+    callback_data: Receipt,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    state: FSMContext,
+) -> None:
+    """Staff sent the receipt back for a fix (F-23): wait for the corrected one."""
+    payment = await session.get(Payment, callback_data.id)
+    if (
+        payment is None
+        or payment.customer_id != customer.id
+        or payment.provider != "card"
+        or payment.status != PaymentStatus.PENDING
+        or payment.receipt_file_id
+    ):
+        await call.answer(t("payment_not_waiting"), show_alert=True)
+        return
+    await call.answer()
+    await state.set_state(WalletStates.receipt)
+    await state.update_data(payment_id=payment.id)
+    if isinstance(call.message, Message):
+        await call.message.answer(
+            t("receipt_fix_send_hint", amount=money(payment.amount), payment_id=payment.id),
+            reply_markup=keyboards.cancel(t),
+        )
+
+
 @router.message(WalletStates.receipt, F.photo | F.document | F.text)
 async def receipt(
     message: Message,
@@ -557,7 +587,9 @@ async def receipt(
         "receipt_review",
         {"payment_id": payment.id, "duplicate_of": duplicate.id if duplicate else None},
         shop_id=customer.shop_id,
-        dedupe_key=f"payment:{payment.id}:review",
+        # A receipt sent back for a fix (F-23) goes to review again under its own key.
+        dedupe_key=f"payment:{payment.id}:review"
+        + (f":{payments.fix_count(payment)}" if payments.fix_count(payment) else ""),
     )
     await state.clear()
     await message.answer(t("receipt_received"), reply_markup=menu(t, cfg, staff))

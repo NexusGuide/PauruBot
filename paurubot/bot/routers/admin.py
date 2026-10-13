@@ -130,19 +130,33 @@ async def stats(call: CallbackQuery, session: AsyncSession, shop: ShopRow, t: Te
 # --- payments -------------------------------------------------------------------
 
 
-def review_kb(t: Texts, payment_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+# Review button action -> what the customer is asked to fix (F-23).
+FIXES = {"fixa": "amount", "fixc": "card"}
+
+
+def review_kb(t: Texts, payment_id: int, *, fixable: bool = False) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=t("btn_approve"), callback_data=Review(action="ok", id=payment_id).pack()
+            ),
+            InlineKeyboardButton(
+                text=t("btn_reject"), callback_data=Review(action="no", id=payment_id).pack()
+            ),
+        ]
+    ]
+    if fixable:  # card receipts can be sent back instead of rejected (F-23)
+        rows.append(
             [
                 InlineKeyboardButton(
-                    text=t("btn_approve"), callback_data=Review(action="ok", id=payment_id).pack()
+                    text=t("btn_fix_amount"), callback_data=Review(action="fixa", id=payment_id).pack()
                 ),
                 InlineKeyboardButton(
-                    text=t("btn_reject"), callback_data=Review(action="no", id=payment_id).pack()
+                    text=t("btn_fix_card"), callback_data=Review(action="fixc", id=payment_id).pack()
                 ),
             ]
-        ]
-    )
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 @router.callback_query(Admin.filter(F.section == "payments"), StaffOnly("payments.review"))
@@ -166,10 +180,14 @@ async def pending_payments(call: CallbackQuery, session: AsyncSession, shop: Sho
         caption = receipt_caption(t, payment, payment.customer)
         if payment.receipt_file_id:
             sent = await call.message.answer_photo(
-                payment.receipt_file_id, caption=caption[:1024], reply_markup=review_kb(t, payment.id)
+                payment.receipt_file_id,
+                caption=caption[:1024],
+                reply_markup=review_kb(t, payment.id, fixable=payment.provider == "card"),
             )
         else:
-            sent = await call.message.answer(caption, reply_markup=review_kb(t, payment.id))
+            sent = await call.message.answer(
+                caption, reply_markup=review_kb(t, payment.id, fixable=payment.provider == "card")
+            )
         await review_sync.remember(payment.id, sent)  # so a decision elsewhere updates it (F-24)
 
 
@@ -239,6 +257,48 @@ async def approve(
     await call.answer(t("approved_short"))
     who = esc(call.from_user.full_name)
     await _mark(call, t("adm_approved_by", admin=who))
+
+
+@router.callback_query(Review.filter(F.action.in_(set(FIXES))), StaffOnly("payments.review"))
+async def request_fix(
+    call: CallbackQuery,
+    callback_data: Review,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+) -> None:
+    """Send a card receipt back to the customer instead of rejecting it (F-23)."""
+    kind = FIXES[callback_data.action]
+    payment = await session.get(Payment, callback_data.id)
+    if payment is None or payment.shop_id != shop.id:
+        await call.answer(t("payment_not_found"), show_alert=True)
+        return
+    if not await payments.request_fix(session, payment.id, staff_id=staff.id, kind=kind):
+        await call.answer(t("payment_already_reviewed"), show_alert=True)
+        return
+    await record(
+        session,
+        shop_id=shop.id,
+        actor=actor(staff),
+        action="payment.fix_requested",
+        entity="payment",
+        entity_id=payment.id,
+        after={"kind": kind},
+    )
+    await queue.enqueue(
+        session, "notify", "payment_fix_requested", {"payment_id": payment.id, "kind": kind}, shop_id=shop.id
+    )
+    outcome = f"fix_{kind}"
+    here = (call.message.chat.id, call.message.message_id) if call.message else None
+    # Taken now: the corrected receipt's new review messages must not be swept into this sync.
+    refs = await review_sync.take_now(payment.id)
+    await review_sync.announce(
+        session, payment.id, shop.id, outcome, call.from_user.full_name, skip=here, refs=refs
+    )
+    await session.commit()
+    await call.answer(t("adm_fix_sent"))
+    await _mark(call, t(review_sync.OUTCOMES[outcome], admin=esc(call.from_user.full_name)))
 
 
 @router.callback_query(Review.filter(F.action == "no"), StaffOnly("payments.review"))
