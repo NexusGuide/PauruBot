@@ -18,7 +18,10 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/backups` | `backups.manage` | List backups |
 | POST | `/api/admin/backups` | `backups.manage` | Start backup |
 | GET | `/api/admin/broadcasts/audience` | `broadcast.send` | Audience size |
+| POST | `/api/admin/broadcasts/test` | `broadcast.send` | Send test broadcast |
 | POST | `/api/admin/broadcasts/{broadcast_id}/cancel` | `broadcast.send` | Cancel broadcast |
+| POST | `/api/admin/broadcasts/{broadcast_id}/pause` | `broadcast.send` | Pause broadcast |
+| POST | `/api/admin/broadcasts/{broadcast_id}/resume` | `broadcast.send` | Resume broadcast |
 | GET | `/api/admin/broadcasts` | `broadcast.send` | List broadcasts |
 | POST | `/api/admin/broadcasts` | `broadcast.send` | Create broadcast |
 | GET | `/api/admin/bundle` | `backups.manage` | The shop's setup (no secrets, no customers) as a JSON file. |

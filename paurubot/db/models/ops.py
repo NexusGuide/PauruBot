@@ -52,6 +52,12 @@ class Broadcast(Base, UpdatedMixin):
     failed: Mapped[int] = mapped_column(Integer, default=0)
     cursor: Mapped[int] = mapped_column(default=0)
     finished_at: Mapped[datetime | None] = mapped_column()
+    # F-16: why messages did not arrive (both also count in `failed`), when to start, and which run
+    # of the job may send (bumped on every resume, so a stopped job never sends again).
+    blocked: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    deleted: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    scheduled_at: Mapped[datetime | None] = mapped_column()
+    run: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class Ticket(Base, UpdatedMixin):
