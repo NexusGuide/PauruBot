@@ -36,6 +36,11 @@ def _sections(call) -> list[tuple[str, str]]:  # type: ignore[no-untyped-def]
     return out
 
 
+def _yes(env) -> str:  # type: ignore[no-untyped-def]
+    message = env["fake"].last(EditMessageText)
+    return next(data for label, data in env["fake"].buttons(message) if label == FA("btn_yes"))
+
+
 async def _actions(session, customer_id: int) -> list[str]:  # type: ignore[no-untyped-def]
     rows = await session.scalars(
         select(AuditLog.action).where(AuditLog.entity == "customer", AuditLog.entity_id == customer_id)
@@ -104,7 +109,7 @@ async def test_referral_removal(session, env) -> None:  # type: ignore[no-untype
     for child in children:
         await session.refresh(child)
         assert child.referrer_id == customer.id  # nothing before the confirmation
-    await send(callback_update(OWNER, Admin(section="urefx", action="go", id=customer.id).pack()))
+    await send(callback_update(OWNER, _yes(env)))
     for child in children:
         await session.refresh(child)
         assert child.referrer_id is None
@@ -150,7 +155,7 @@ async def test_zero_balance_after_confirmation(session, env) -> None:  # type: i
     await _owner_card(session, env, customer)
     await send(callback_update(OWNER, Admin(section="uzero", id=customer.id).pack()))
     assert await wallet_balance(session, shop.id, customer.id) == 45_000
-    await send(callback_update(OWNER, Admin(section="uzero", action="go", id=customer.id).pack()))
+    await send(callback_update(OWNER, _yes(env)))
     assert await wallet_balance(session, shop.id, customer.id) == 0
     await send(callback_update(OWNER, Admin(section="uzero", id=customer.id).pack()))
     assert FA("adm_ua_zero_already") in alerts(env["fake"])
@@ -192,7 +197,7 @@ async def test_account_power_off_and_on(session, env) -> None:  # type: ignore[n
     await send(callback_update(OWNER, Admin(section="upower", action="off", id=customer.id).pack()))
     await session.refresh(first)
     assert first.status != ServiceStatus.DISABLED  # asks first
-    await send(callback_update(OWNER, Admin(section="upower", action="off", id=customer.id, page=1).pack()))
+    await send(callback_update(OWNER, _yes(env)))
     for service in (first, second):
         await session.refresh(service)
         assert service.status == ServiceStatus.DISABLED
@@ -266,7 +271,7 @@ async def test_reseller_controls(session, env) -> None:  # type: ignore[no-untyp
     await send(callback_update(OWNER, Admin(section="udemote", id=customer.id).pack()))
     await session.refresh(profile)
     assert profile.is_active
-    await send(callback_update(OWNER, Admin(section="udemote", action="go", id=customer.id).pack()))
+    await send(callback_update(OWNER, _yes(env)))
     await session.refresh(profile)
     assert not profile.is_active
     assert FA("adm_ua_btn_demote") not in labels(fake)
@@ -288,3 +293,22 @@ async def test_other_shop_customer_is_refused(session, env) -> None:  # type: ig
         assert alerts(env["fake"])[-1] == FA("adm_customer_not_found"), section
     row = await session.get(Customer, foreign.id)
     assert row is not None and not row.alerts_muted and "verified" not in (row.tags or [])
+
+
+async def test_forged_and_replayed_zero_confirmation_cannot_drain_wallet(session, env) -> None:  # type: ignore[no-untyped-def]
+    shop, send = env["shop"], env["send"]
+    customer = await factories.customer(session, shop, telegram_id=UID)
+    await wallet.topup(session, shop.id, customer.id, 45_000, provider="card", payment_id=next(_payments))
+    await session.commit()
+    await _owner_card(session, env, customer)
+    await send(callback_update(OWNER, Admin(section="uzero", action="go", id=customer.id).pack()))
+    assert await wallet_balance(session, shop.id, customer.id) == 45_000
+    await send(callback_update(OWNER, Admin(section="uzero", id=customer.id).pack()))
+    yes = _yes(env)
+    assert len(yes.encode()) <= 64
+    await send(callback_update(OWNER, yes))
+    assert await wallet_balance(session, shop.id, customer.id) == 0
+    await wallet.topup(session, shop.id, customer.id, 12_000, provider="card", payment_id=next(_payments))
+    await session.commit()
+    await send(callback_update(OWNER, yes))
+    assert await wallet_balance(session, shop.id, customer.id) == 12_000

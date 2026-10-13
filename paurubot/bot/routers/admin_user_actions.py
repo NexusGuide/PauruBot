@@ -25,7 +25,7 @@ from paurubot.bot.routers.admin import VERIFIED_TAG, actor, customer_card
 from paurubot.bot.routers.admin_navigation import menu
 from paurubot.bot.states import AdminStates
 from paurubot.bot.utils import StaffOnly, clear_customer_input, show
-from paurubot.core import customers, resale
+from paurubot.core import confirm, customers, resale
 from paurubot.core.formatting import esc, jdate, money, parse_int
 from paurubot.db.models import Customer, Panel, ResellerProfile, Service, ServiceStatus
 from paurubot.db.models import Shop as ShopRow
@@ -69,12 +69,26 @@ async def _card(
     await show(call, text, kb)
 
 
-def _confirm(t: Texts, section: str, customer_id: int, page: int = 0) -> InlineKeyboardMarkup:
+async def _confirm(
+    t: Texts, section: str, customer_id: int, telegram_id: int, page: int = 0
+) -> InlineKeyboardMarkup:
+    nonce = await confirm.issue_nonce(f"tg:{telegram_id}", f"user.{section}", f"{customer_id}:{page}")
     return keyboards.confirm(
         t,
-        Admin(section=section, action="go", id=customer_id, page=page).pack(),
+        Admin(section=section, action=f"go_{nonce}", id=customer_id, page=page).pack(),
         Admin(section="user", id=customer_id).pack(),
     )
+
+
+async def _confirmed(call: CallbackQuery, data: Admin, t: Texts) -> bool:
+    raw = data.action.removeprefix("go_")
+    nonce = int(raw) if data.action.startswith("go_") and raw.isdigit() else 0
+    if not await confirm.consume_nonce(
+        f"tg:{call.from_user.id}", f"user.{data.section}", f"{data.id}:{data.page}", nonce
+    ):
+        await call.answer(t("button_expired"), show_alert=True)
+        return False
+    return True
 
 
 def _back(t: Texts, customer_id: int) -> InlineKeyboardMarkup:
@@ -130,13 +144,15 @@ async def referral_actions(
     if count == 0:
         await call.answer(t("adm_ua_no_referrals"), show_alert=True)
         return
-    if action != "go":
+    if not action.startswith("go"):
         await call.answer()
         await show(
             call,
             t("adm_ua_clear_refs_confirm", name=esc(customer.display_name), count=count),
-            _confirm(t, "urefx", customer.id),
+            await _confirm(t, "urefx", customer.id, call.from_user.id),
         )
+        return
+    if not await _confirmed(call, callback_data, t):
         return
     await session.execute(update(Customer).where(*conds).values(referrer_id=None))
     await record(
@@ -276,7 +292,7 @@ async def account_move(
     if source is None:
         await call.answer(t("adm_customer_not_found"), show_alert=True)
         return
-    if callback_data.action != "go":
+    if not callback_data.action.startswith("go"):
         if source.reseller_profile is not None:
             await call.answer(t("adm_ua_move_reseller"), show_alert=True)
             return
@@ -289,6 +305,8 @@ async def account_move(
     error = _move_error(source, target)
     if error or target is None:
         await call.answer(t(error or "adm_ua_move_no_target"), show_alert=True)
+        return
+    if not await _confirmed(call, callback_data, t):
         return
     services = list(
         await session.scalars(
@@ -306,7 +324,6 @@ async def account_move(
     if balance > 0:
         src = await wallet_account(session, shop.id, source.id)
         dst = await wallet_account(session, shop.id, target.id)
-        message_id = call.message.message_id if isinstance(call.message, Message) else 0
         await transfer(
             session,
             shop_id=shop.id,
@@ -314,7 +331,7 @@ async def account_move(
             target_id=dst.id,
             amount=balance,
             kind="transfer",
-            idempotency_key=f"account_move:{source.id}:{target.id}:{message_id}",
+            idempotency_key=f"account_move:{source.id}:{target.id}:{callback_data.action}",
             reference_type="customer",
             reference_id=target.id,
             memo=f"account moved to customer {target.id}",
@@ -394,7 +411,9 @@ async def account_move_target(
             services=services,
             balance=money(max(balance, 0)),
         ),
-        reply_markup=_confirm(t, "umove", source.id, target.id),
+        reply_markup=await _confirm(
+            t, "umove", source.id, message.from_user.id if message.from_user else 0, target.id
+        ),
     )
 
 
@@ -411,17 +430,21 @@ async def account_power(
     staff: StaffIdentity,
 ) -> None:
     customer = await _customer(session, shop, callback_data.id)
-    if customer is None or callback_data.action not in {"on", "off"}:
+    if customer is None or (
+        callback_data.action not in {"on", "off"} and not callback_data.action.startswith("go_")
+    ):
         await call.answer(t("adm_customer_not_found"), show_alert=True)
         return
     enable = callback_data.action == "on"
-    if not enable and callback_data.page != 1:
+    if not enable and callback_data.action == "off":
         await call.answer()
         await show(
             call,
             t("adm_ua_power_off_confirm", name=esc(customer.display_name)),
-            _confirm_power(t, customer.id),
+            await _confirm(t, "upower", customer.id, call.from_user.id),
         )
+        return
+    if not enable and not await _confirmed(call, callback_data, t):
         return
     conds = [
         Service.shop_id == shop.id,
@@ -467,14 +490,6 @@ async def account_power(
     await _card(call, session, t, customer, staff)
 
 
-def _confirm_power(t: Texts, customer_id: int) -> InlineKeyboardMarkup:
-    return keyboards.confirm(
-        t,
-        Admin(section="upower", action="off", id=customer_id, page=1).pack(),
-        Admin(section="user", id=customer_id).pack(),
-    )
-
-
 # --- zero the wallet --------------------------------------------------------------------------
 
 
@@ -495,21 +510,22 @@ async def zero_balance(
     if balance == 0:
         await call.answer(t("adm_ua_zero_already"), show_alert=True)
         return
-    if callback_data.action != "go":
+    if not callback_data.action.startswith("go"):
         await call.answer()
         await show(
             call,
             t("adm_ua_zero_confirm", name=esc(customer.display_name), balance=money(balance)),
-            _confirm(t, "uzero", customer.id),
+            await _confirm(t, "uzero", customer.id, call.from_user.id),
         )
         return
-    message_id = call.message.message_id if isinstance(call.message, Message) else 0
+    if not await _confirmed(call, callback_data, t):
+        return
     await wallet.adjust(
         session,
         shop.id,
         customer.id,
         -balance,
-        key=f"zero:{customer.id}:{message_id}",
+        key=f"zero:{customer.id}:{callback_data.action}",
         actor=f"staff:{staff.id or call.from_user.id}",
         memo="balance zeroed by staff",
     )
@@ -613,9 +629,15 @@ async def reseller_bot_remove(
     if child is None or not child.bot_token_enc:
         await call.answer(t("adm_ua_rbot_none"), show_alert=True)
         return
-    if callback_data.action != "go":
+    if not callback_data.action.startswith("go"):
         await call.answer()
-        await show(call, t("adm_ua_rbot_del_confirm"), _confirm(t, "urbotdel", profile.customer_id))
+        await show(
+            call,
+            t("adm_ua_rbot_del_confirm"),
+            await _confirm(t, "urbotdel", profile.customer_id, call.from_user.id),
+        )
+        return
+    if not await _confirmed(call, callback_data, t):
         return
     await resale.disconnect(session, profile, by_staff=True)
     await record(
@@ -841,9 +863,15 @@ async def reseller_remove(
     if profile is None or not profile.is_active:
         await call.answer(t("adm_not_reseller"), show_alert=True)
         return
-    if callback_data.action != "go":
+    if not callback_data.action.startswith("go"):
         await call.answer()
-        await show(call, t("adm_ua_demote_confirm"), _confirm(t, "udemote", profile.customer_id))
+        await show(
+            call,
+            t("adm_ua_demote_confirm"),
+            await _confirm(t, "udemote", profile.customer_id, call.from_user.id),
+        )
+        return
+    if not await _confirmed(call, callback_data, t):
         return
     child = await resale.shop_of(session, profile)
     if child is not None and child.bot_token_enc:
