@@ -21,9 +21,10 @@ from paurubot.api.admin_common import (
     scope_services,
     sort_params,
 )
+from paurubot.api.confirmations import ConfirmFields, challenge, guard
 from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record, snapshot
-from paurubot.core import customers
+from paurubot.core import confirm, customers
 from paurubot.db.models import (
     Customer,
     Order,
@@ -441,7 +442,7 @@ async def service_detail(
     return {"service": service_out(service)}
 
 
-class ServiceAction(BaseModel):
+class ServiceAction(ConfirmFields):
     action: Literal["enable", "disable", "revoke", "reset_usage", "delete", "extend"]
     days: int = Field(default=0, ge=0, le=3650)
     gb: int = Field(default=0, ge=0, le=100_000)
@@ -471,6 +472,8 @@ async def service_action(
     db: DB,
 ) -> dict[str, Any]:
     service = await scoped_service(db, service_id, ctx)
+    if body.action == "delete":
+        await guard(db, ctx, "service.delete", service.id, service.panel_username, body)
     before = snapshot(service, ["status", "expire_at", "data_limit", "subscription_url"])
     try:
         if body.action in {"enable", "disable"}:
@@ -515,6 +518,19 @@ async def service_action(
     if body.notify:
         await notify_staff_change(db, service, body.action, body.reason)
     return {"service": service_out(service)}
+
+
+@router.post("/services/{service_id}/confirm-delete")
+async def confirm_service_delete(
+    service_id: int,
+    ctx: Annotated[StaffContext, Depends(require("services.write"))],
+    db: DB,
+) -> dict[str, Any]:
+    """Step one of deleting a service (F-22): type its username to confirm."""
+    service = await scoped_service(db, service_id, ctx)
+    if service.status == ServiceStatus.DELETED:
+        raise HTTPException(status_code=409, detail="already_deleted")
+    return await challenge(ctx, "service.delete", service.id, service.panel_username)
 
 
 class NoteBody(BaseModel):
@@ -677,7 +693,7 @@ async def _bulk_move(db: DB, ctx: StaffContext, ids: list[int], panel_id: int | 
     return {"queued": queued, "skipped": len(ids) - queued}
 
 
-class BulkServices(BaseModel):
+class BulkServices(ConfirmFields):
     """Act on explicit ids or on everything matching a filter (SVC-07, ADM-04)."""
 
     action: Literal["enable", "disable", "extend", "delete", "move"]
@@ -690,16 +706,11 @@ class BulkServices(BaseModel):
     notify: bool = True
 
 
-@router.post("/services/bulk")
-async def bulk_services(
-    body: BulkServices, ctx: Annotated[StaffContext, Depends(require("services.write"))], db: DB
-) -> dict[str, Any]:
-    """Queue one job per service so slow panels never block the request and failures retry."""
-    if body.action == "extend":
-        if ctx.scoped:
-            raise HTTPException(status_code=403, detail="forbidden")
-        if not body.days and not body.gb:
-            raise HTTPException(status_code=422, detail="nothing_to_extend")
+# Bulk actions that take services away from customers need the typed confirmation (F-22).
+CONFIRMED_BULK = {"delete", "disable"}
+
+
+async def _bulk_ids(db: DB, ctx: StaffContext, body: BulkServices) -> list[int]:
     if bool(body.ids) == (body.filter is not None):
         raise HTTPException(status_code=422, detail="ids_or_filter")
     if body.filter is not None:
@@ -712,6 +723,38 @@ async def bulk_services(
     ids = list(await db.scalars(stmt.with_only_columns(Service.id).limit(BULK_LIMIT + 1)))
     if len(ids) > BULK_LIMIT:
         raise HTTPException(status_code=422, detail="too_many")
+    return ids
+
+
+@router.post("/services/bulk/confirm")
+async def confirm_bulk_services(
+    body: BulkServices, ctx: Annotated[StaffContext, Depends(require("services.write"))], db: DB
+) -> dict[str, Any]:
+    """Step one of a bulk delete or disable (F-22): type how many services it touches."""
+    if body.action not in CONFIRMED_BULK:
+        raise HTTPException(status_code=422, detail="no_confirmation_needed")
+    ids = await _bulk_ids(db, ctx, body)
+    if not ids:
+        raise HTTPException(status_code=422, detail="nothing_selected")
+    target = confirm.selection_digest(body.action, ids)
+    return {**await challenge(ctx, f"service.bulk_{body.action}", target, str(len(ids))), "count": len(ids)}
+
+
+@router.post("/services/bulk")
+async def bulk_services(
+    body: BulkServices, ctx: Annotated[StaffContext, Depends(require("services.write"))], db: DB
+) -> dict[str, Any]:
+    """Queue one job per service so slow panels never block the request and failures retry."""
+    if body.action == "extend":
+        if ctx.scoped:
+            raise HTTPException(status_code=403, detail="forbidden")
+        if not body.days and not body.gb:
+            raise HTTPException(status_code=422, detail="nothing_to_extend")
+    ids = await _bulk_ids(db, ctx, body)
+    if body.action in CONFIRMED_BULK:
+        # The selection is part of the target: a filter that now matches more services needs a new one.
+        target = confirm.selection_digest(body.action, ids)
+        await guard(db, ctx, f"service.bulk_{body.action}", target, str(len(ids)), body)
     if body.action == "move":
         return await _bulk_move(db, ctx, ids, body.panel_id)
     batch = uuid.uuid4().hex[:12]
