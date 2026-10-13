@@ -278,3 +278,42 @@ async def test_broadcast_options_audience_button_and_pin(session, env) -> None: 
     assert [c.chat_id for c in copies] == [buyer_uid]
     assert copies[0].reply_markup.inline_keyboard[0][0].url == "https://t.me/PauruBot"
     assert any(type(c).__name__ == "PinChatMessage" for c in fake.calls)
+
+
+async def test_delete_needs_the_issued_confirmation(session, env) -> None:  # type: ignore[no-untyped-def]
+    send, fake, shop, panel, plan = env["send"], env["fake"], env["shop"], env["panel"], env["plan"]
+    await send(message_update(OWNER, "/start"))
+    customer = await factories.customer(session, shop)
+    service = Service(
+        shop_id=shop.id,
+        customer_id=customer.id,
+        panel_id=panel.id,
+        plan_id=plan.id,
+        panel_username="u_del",
+        status=ServiceStatus.ACTIVE,
+        data_limit=10 * GB,
+        expire_at=utcnow() + timedelta(days=5),
+    )
+    session.add(service)
+    await session.commit()
+    env["fake_panel"].users["u_del"] = {
+        "username": "u_del",
+        "status": "active",
+        "used_traffic": 0,
+        "data_limit": 10 * GB,
+        "expire": int(service.expire_at.timestamp()),
+        "sub": "s1",
+    }
+    # The old, guessable confirm button (page=1) no longer deletes anything.
+    await send(callback_update(OWNER, Admin(section="svcact", action="del", id=service.id, page=1).pack()))
+    await session.refresh(service)
+    assert service.status == ServiceStatus.ACTIVE
+
+    await send(callback_update(OWNER, Admin(section="svcact", action="del", id=service.id).pack()))
+    confirmation = fake.buttons(fake.last(EditMessageText))[0][1]
+    assert confirmation is not None
+    unpacked = Admin.unpack(confirmation)
+    assert unpacked.action == "del" and unpacked.page > 1
+    await send(callback_update(OWNER, confirmation))
+    await session.refresh(service)
+    assert service.status == ServiceStatus.DELETED
