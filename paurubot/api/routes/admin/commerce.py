@@ -19,6 +19,7 @@ from paurubot.api.admin_common import (
     reseller_scope,
     sort_params,
 )
+from paurubot.api.confirmations import ConfirmFields, challenge, guard
 from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record
 from paurubot.db.models import Order, OrderStatus, Payment, PaymentStatus
@@ -223,14 +224,48 @@ async def reject(
     return {"payment": payment_view(payment)}
 
 
+def _refundable(order: Order) -> bool:
+    return order.status in {OrderStatus.COMPLETED, OrderStatus.FAILED} and order.amount > 0
+
+
+async def _large_refund(db: DB, ctx: StaffContext, order: Order) -> bool:
+    from paurubot.core import settings as shop_settings
+
+    floor = await shop_settings.get(db, ctx.shop_id, "typed_confirm_refund_min")
+    return floor is not None and order.amount >= int(floor)
+
+
+@router.post("/orders/{order_id}/confirm-refund")
+async def confirm_refund(
+    order_id: int, ctx: Annotated[StaffContext, Depends(require("payments.refund"))], db: DB
+) -> dict[str, Any]:
+    """Step one of a large refund (F-22): type the amount to confirm."""
+    order = await owned(db, Order, order_id, ctx)
+    if not _refundable(order):
+        raise HTTPException(status_code=409, detail="not_refundable")
+    return {
+        **await challenge(ctx, "order.refund", order.id, str(order.amount)),
+        "required": await _large_refund(db, ctx, order),
+    }
+
+
+class RefundBody(ConfirmFields):
+    pass
+
+
 @router.post("/orders/{order_id}/refund")
 async def refund_order(
-    order_id: int, ctx: Annotated[StaffContext, Depends(require("payments.refund"))], db: DB
+    order_id: int,
+    ctx: Annotated[StaffContext, Depends(require("payments.refund"))],
+    db: DB,
+    body: RefundBody | None = None,
 ) -> dict[str, Any]:
     """Return a completed or failed order's money to the wallet (NEW-04). The service is not touched."""
     order = await owned(db, Order, order_id, ctx)
-    if order.status not in {OrderStatus.COMPLETED, OrderStatus.FAILED} or order.amount <= 0:
+    if not _refundable(order):
         raise HTTPException(status_code=409, detail="not_refundable")
+    if await _large_refund(db, ctx, order):
+        await guard(db, ctx, "order.refund", order.id, str(order.amount), body)
     from paurubot.ledger import wallet
 
     await wallet.refund(
