@@ -328,6 +328,11 @@ def _restore_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--write-env", metavar="PATH", help="put the backup's MASTER_KEY into this .env file when it differs"
     )
+    parser.add_argument(
+        "--print-master-key",
+        action="store_true",
+        help="print the backup's MASTER_KEY after restoring instead of comparing it with this server",
+    )
 
 
 @command("restore", "replace the database with a backup (stop api, bot and worker first)", _restore_args)

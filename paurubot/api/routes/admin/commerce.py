@@ -23,6 +23,7 @@ from paurubot.api.confirmations import ConfirmFields, challenge, guard
 from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record
 from paurubot.db.models import Order, OrderStatus, Payment, PaymentStatus
+from paurubot.notifications import review_sync
 from paurubot.payments import engine as payments
 from paurubot.worker import queue
 
@@ -181,6 +182,7 @@ async def approve(
         entity="payment",
         entity_id=payment.id,
     )
+    await review_sync.announce(db, payment.id, ctx.shop_id, "approved", review_sync.label(ctx.staff))
     await db.commit()
     result = await payments.fulfill_one(db, payment.id)
     await db.refresh(payment)
@@ -217,6 +219,7 @@ async def reject(
         {"payment_id": payment.id, "reason": body.reason},
         shop_id=ctx.shop_id,
     )
+    await review_sync.announce(db, payment.id, ctx.shop_id, "rejected", review_sync.label(ctx.staff))
     await db.refresh(payment)
     return {"payment": payment_view(payment)}
 
