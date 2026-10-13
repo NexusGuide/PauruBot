@@ -87,3 +87,24 @@ async def set_once(key: str, ttl: int) -> bool:
 async def forget_once(key: str) -> None:
     """Undo `set_once`, so the next attempt counts as the first again."""
     await get_redis().delete(f"once:{key}")
+
+
+async def seen_once(key: str) -> bool:
+    """Whether a successful operation has already been remembered."""
+    return bool(await get_redis().exists(f"once:{key}"))
+
+
+_COMPLETE_ONCE = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    redis.call('set', KEYS[2], '1', 'EX', ARGV[2])
+    return 1
+end
+return 0
+"""
+
+
+async def complete_once(key: str, owner: str, ttl: int) -> None:
+    """Mark work complete only while the caller still owns its in-flight lease."""
+    completed = await get_redis().eval(_COMPLETE_ONCE, 2, f"lock:{key}", f"once:{key}", owner, ttl)
+    if not completed:
+        raise LockNotAcquired(key)
