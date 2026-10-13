@@ -234,3 +234,41 @@ def test_card_parsing() -> None:
     for bad in ("", "6037991234567890 x", "12345", "Sara 6037991234567893"):
         with pytest.raises(resale.ResaleError):
             resale.parse_card(bad)
+
+
+async def test_staff_allow_features_and_the_reseller_switches_them(session, env) -> None:  # type: ignore[no-untyped-def]
+    """TEN-18: staff choose what a reseller may offer; the reseller turns those on or off."""
+    send, fake = env["send"], env["fake"]
+    profile = await _reseller(session, env, {"resellers.bot"})
+    await send(callback_update(RESELLER, Rb(action="token").pack()))
+    await send(message_update(RESELLER, TOKEN))
+    child = await resale.shop_of(session, profile)
+    assert child is not None
+
+    await send(callback_update(RESELLER, Rb(action="features").pack()))
+    assert FA("rb_features_none") in fake.last(EditMessageText).text
+    await send(callback_update(RESELLER, Rb(action="feature", id=0).pack()))
+    assert FA("rb_feature_locked") in alerts(fake)
+    assert not (await shop_settings.load(session, child.id, fresh=True))["trial_enabled"]
+
+    await send(message_update(OWNER, "/start"))
+    customer_id = profile.customer_id
+    await send(callback_update(OWNER, Admin(section="rbot", id=customer_id).pack()))
+    assert FA("adm_rbot_btn_features", count=0) in labels(fake)
+    await send(callback_update(OWNER, Admin(section="rbot", action="features", id=customer_id).pack()))
+    trial = FA("adm_rbot_btn_feature", name=FA("rb_feature_trial"), state=FA("no"))
+    assert trial in labels(fake)
+    await send(callback_update(OWNER, Admin(section="rbot", action="feature", id=customer_id, page=0).pack()))
+    await session.refresh(profile)
+    assert resale.allowed_features(profile) == {"trial"}
+
+    await send(callback_update(RESELLER, Rb(action="feature", id=0).pack()))
+    assert (await shop_settings.load(session, child.id, fresh=True))["trial_enabled"] is True
+    on = FA("rb_btn_feature", name=FA("rb_feature_trial"), state=FA("rb_on"))
+    assert on in labels(fake)
+
+    # Taking the right back turns the trial off in the reseller's bot straight away.
+    await send(callback_update(OWNER, Admin(section="rbot", action="feature", id=customer_id, page=0).pack()))
+    await session.refresh(profile)
+    assert resale.allowed_features(profile) == set()
+    assert (await shop_settings.load(session, child.id, fresh=True))["trial_enabled"] is False
