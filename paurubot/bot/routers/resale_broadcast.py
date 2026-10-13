@@ -42,6 +42,9 @@ async def broadcast_ask(
     if found is None:
         return
     _profile, child = found
+    if shop.id != child.id:
+        await call.answer(t("rb_broadcast_own_bot"), show_alert=True)
+        return
     if await resale_broadcasts.remaining_today(session, child.id) <= 0:
         await call.answer(t("rb_broadcast_limit", limit=resale_broadcasts.DAILY_LIMIT), show_alert=True)
         return
@@ -65,6 +68,10 @@ async def broadcast_got(
     if found is None:
         return
     profile, child = found
+    if shop.id != child.id:
+        await state.clear()
+        await message.answer(t("rb_broadcast_own_bot"))
+        return
     if not resale.may_have_bot(profile, await shop_settings.load(session, profile.shop_id)):
         await state.clear()
         await message.answer(t("rb_not_allowed"))
