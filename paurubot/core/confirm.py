@@ -18,7 +18,12 @@ from typing import Any
 from paurubot import kv
 
 TTL_SECONDS = 300
-_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "0123456789" * 2)
+# Persian (U+06F0..) and Arabic-Indic (U+0660..) digits; written as escapes, the code stays ASCII.
+_DIGITS = str.maketrans(
+    "".join(chr(0x06F0 + i) for i in range(10)) + "".join(chr(0x0660 + i) for i in range(10)),
+    "0123456789" * 2,
+)
+_ARABIC_THOUSANDS = "\u066c"
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +39,7 @@ class Challenge:
 def normalize(text: Any) -> str:
     """Persian/Arabic digits, case, spaces, separators and a leading @ don't matter when typing."""
     value = str(text or "").translate(_DIGITS).strip().lstrip("@").casefold()
-    return " ".join(value.replace(",", "").replace("٬", "").split())
+    return " ".join(value.replace(",", "").replace(_ARABIC_THOUSANDS, "").split())
 
 
 def key(actor: str, action: str, target: str | int) -> str:
