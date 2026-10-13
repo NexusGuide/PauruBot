@@ -34,9 +34,9 @@ from paurubot.db.models import (
     Ticket,
 )
 from paurubot.i18n import Texts, texts_for
-from paurubot.notifications import telegram
+from paurubot.notifications import review_sync, telegram
 from paurubot.worker import queue
-from paurubot.worker.runner import Permanent, QueueSpec, register_queue
+from paurubot.worker.runner import Permanent, QueueSpec, Retry, register_queue
 
 log = logging.getLogger(__name__)
 
@@ -88,17 +88,22 @@ async def _to_staff(
     *,
     photo: str | None = None,
     markup: InlineKeyboardMarkup | None = None,
-) -> None:
+) -> list[Any]:
+    """Send to every staff chat with the permission; returns the messages that went out."""
+    sent: list[Any] = []
     for chat_id in await staff_chats(session, shop_id, permission):
         try:
             if photo:
-                await telegram.send_photo(
+                message = await telegram.send_photo(
                     chat_id, photo, caption=text[:1024], reply_markup=markup, shop_id=shop_id
                 )
             else:
-                await telegram.send_text(chat_id, text, reply_markup=markup, shop_id=shop_id)
+                message = await telegram.send_text(chat_id, text, reply_markup=markup, shop_id=shop_id)
         except telegram.Undeliverable:
             continue
+        if message is not None:
+            sent.append(message)
+    return sent
 
 
 async def report(session: AsyncSession, shop_id: int, topic: str, text: str) -> None:
@@ -393,7 +398,7 @@ async def receipt_review(session: AsyncSession, job: queue.Claimed) -> None:
         return
     t = await texts_for(session, shop.id, shop.default_locale)
     caption = receipt_caption(t, payment, customer, job.payload.get("duplicate_of"))
-    await _to_staff(
+    sent = await _to_staff(
         session,
         shop.id,
         "payments.review",
@@ -401,6 +406,35 @@ async def receipt_review(session: AsyncSession, job: queue.Claimed) -> None:
         photo=payment.receipt_file_id,
         markup=review_kb(t, payment.id),
     )
+    for message in sent:
+        await review_sync.remember(payment.id, message)
+
+
+async def review_decided(session: AsyncSession, job: queue.Claimed) -> None:
+    """A receipt was approved or rejected somewhere: update every reviewer's copy (F-24)."""
+    from paurubot.bot.routers.admin import receipt_caption
+
+    payment = await session.get(Payment, int(job.payload["payment_id"]))
+    if payment is None:
+        return
+    key = review_sync.OUTCOMES.get(str(job.payload.get("outcome")))
+    customer = await session.get(Customer, payment.customer_id)
+    shop = await session.get(Shop, payment.shop_id)
+    if key is None or customer is None or shop is None:
+        return
+    refs = await review_sync.take(payment.id)
+    if not refs:
+        return
+    t = await texts_for(session, shop.id, shop.default_locale)
+    who = esc(str(job.payload.get("by") or "-"))
+    body = f"{receipt_caption(t, payment, customer)}\n\n{t(key, admin=who)}"
+    skip = job.payload.get("skip")
+    left = await review_sync.edit_all(
+        shop.id, refs, body, skip=(int(skip[0]), int(skip[1])) if skip else None
+    )
+    if left:
+        await review_sync.give_back(payment.id, left)
+        raise Retry("telegram busy while updating review messages")
 
 
 async def card_verify(session: AsyncSession, job: queue.Claimed) -> None:
@@ -933,6 +967,7 @@ register_queue(
             "payment_fulfilled": payment_fulfilled,
             "payment_rejected": payment_rejected,
             "receipt_review": receipt_review,
+            "review_decided": review_decided,
             "service_alert": service_alert,
             "referral_joined": simple_customer,
             "referral_reward": simple_customer,
