@@ -131,3 +131,22 @@ async def test_guard_enforces_only_when_enabled(redis: FakeRedis, monkeypatch: p
     await confirmations.guard(db, ctx, "service.delete", 7, "user_7", fields)
     with pytest.raises(HTTPException):
         await confirmations.guard(db, ctx, "service.delete", 7, "user_7", fields)  # replay
+
+
+async def test_unicode_wrong_text_rejects_without_server_error(redis: FakeRedis) -> None:
+    issued = await confirm.issue("staff:1", "service.delete", 7, "user_7")
+    assert not await confirm.consume("staff:1", "service.delete", 7, issued.token, "\u0646\u0647")
+    assert not await confirm.consume("staff:1", "service.delete", 7, issued.token, "user_7")
+
+
+async def test_unicode_phrase_can_be_compared(redis: FakeRedis) -> None:
+    phrase = "\u062a\u0627\u06cc\u06cc\u062f"
+    issued = await confirm.issue("staff:1", "test", 7, phrase)
+    assert await confirm.consume("staff:1", "test", 7, issued.token, phrase)
+
+
+async def test_bot_nonce_never_reissues_legacy_one(redis: FakeRedis, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(confirm.secrets, "randbelow", lambda n: 0)
+    nonce = await confirm.issue_nonce("tg:5", "service.delete", 9)
+    assert nonce == 2
+    assert not await confirm.consume_nonce("tg:5", "service.delete", 9, 1)

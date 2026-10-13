@@ -105,12 +105,12 @@ async def consume(
     expected = str(data.get("p", ""))
     if phrase is not None and normalize(phrase) != expected:
         return False
-    return hmac.compare_digest(normalize(typed), expected)
+    return hmac.compare_digest(normalize(typed).encode("utf-8"), expected.encode("utf-8"))
 
 
 async def issue_nonce(actor: str, action: str, target: str | int, *, ttl: int = TTL_SECONDS) -> int:
     """A one-time number for a bot's second confirm button (it fits callback data)."""
-    nonce = secrets.randbelow(2**31 - 2) + 1
+    nonce = secrets.randbelow(2**31 - 3) + 2
     await _store(key(actor, action, target), str(nonce), "", ttl)
     return nonce
 
