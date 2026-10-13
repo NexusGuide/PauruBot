@@ -300,9 +300,15 @@ async def _modify_service(session: AsyncSession, order: Order) -> Service:
         renewal_state.move(order, renewal_state.UNCERTAIN, "interrupted")  # a crashed worker
         await session.commit()
     if renewal_state.state(order) == renewal_state.UNCERTAIN and verifies:
-        # Look before acting: an earlier attempt may have reached the panel after all.
+        # Look before acting: an earlier attempt may have reached the panel after all. A panel that
+        # cannot report limits proves nothing; re-applying the absolute target is safe instead
+        # (the usage reset is never repeated, see _apply_target).
         current = await driver.get_user(ref(service))
-        if current is not None and not renewal_policy.verify(target, current):
+        if (
+            current is not None
+            and renewal_policy.can_confirm(current)
+            and not renewal_policy.verify(target, current)
+        ):
             apply_panel_user(service, current)
             _settle_service(service, order, plan, target, verified=True)
             renewal_state.move(order, renewal_state.RECONCILED, "found applied on retry")
@@ -413,13 +419,15 @@ async def _resume(session: AsyncSession, order: Order) -> None:
         )
 
 
-async def _alert_uncertain(session: AsyncSession, order: Order, outcome: str) -> None:
+async def _alert_uncertain(
+    session: AsyncSession, order: Order, outcome: str, detail: str | None = None
+) -> None:
     from paurubot.notifications.handlers import report
 
     text = (
         f"⚠️ Order #{order.id} ({order.kind.value}): panel state is uncertain ({outcome}).\n"
-        "It matches neither the renewal target nor the previous state; no refund was made. "
-        "Please check the service."
+        + (detail or "It matches neither the renewal target nor the previous state")
+        + "; no refund was made. Please check the service."
     )
     try:
         await report(session, order.shop_id, "errors", text)
@@ -427,11 +435,38 @@ async def _alert_uncertain(session: AsyncSession, order: Order, outcome: str) ->
         log.exception("could not report uncertain renewal %s", order.id)
 
 
+# Panels that cannot report limits (PNL-11) can prove neither that a renewal is there nor that it
+# is not: settling it from what they show would either give the change away or keep the money
+# for nothing. Reconciliation runs the job again instead; the target is absolute and the usage
+# reset is never repeated, so applying it again is safe. After a few tries the staff decide.
+UNVERIFIABLE_RETRIES = 3
+
+
+async def _reapply_unverifiable(session: AsyncSession, order: Order) -> str:
+    checks = renewal_state.note_check(order, "unverifiable")
+    if checks <= UNVERIFIABLE_RETRIES:
+        order.params = {**(order.params or {}), "renewal": {**renewal_state.record(order), "parked": False}}
+        await _resume(session, order)
+        await session.commit()
+        return "reapplied"
+    if checks == UNVERIFIABLE_RETRIES + 1:
+        await _alert_uncertain(
+            session,
+            order,
+            "unverifiable",
+            f"The panel cannot report limits and {UNVERIFIABLE_RETRIES} more attempts did not finish it",
+        )
+    await session.commit()
+    return "uncertain"
+
+
 async def reconcile_renewal(session: AsyncSession, order_id: int) -> str:
     """Settle one parked order by reading the panel. Never re-applies the change by itself.
 
     - the panel holds the target → ``reconciled`` and the order is finished;
     - the panel still shows the state before the change → ``failed`` and the order is refunded;
+    - the panel cannot report limits → the job runs again (``reapplied``), at most
+      ``UNVERIFIABLE_RETRIES`` times, then it stays ``uncertain`` for the staff;
     - anything else (partial change, panel unreachable) → stays ``uncertain`` for the staff.
     """
     order = await session.get(Order, order_id, with_for_update=True, populate_existing=True)
@@ -455,6 +490,8 @@ async def reconcile_renewal(session: AsyncSession, order_id: int) -> str:
             current, outcome = None, f"panel_unreachable: {exc}"
         else:
             outcome = "missing_on_panel" if current is None else "partial"
+        if current is not None and not renewal_policy.can_confirm(current):
+            return await _reapply_unverifiable(session, order)
         if current is not None:
             if not renewal_policy.verify(target, current):
                 apply_panel_user(service, current)
