@@ -46,7 +46,7 @@ class ResaleBotStates(StatesGroup):
     support = State()
     card = State()
     plan_price = State()
-    broadcast = State()
+    discount_code = State()
 
 
 class AdminStates(StatesGroup):
@@ -77,3 +77,6 @@ class AdminStates(StatesGroup):
     prize_new = State()
     lottery_new = State()
     extra_value = State()
+    account_move = State()
+    reseller_price = State()
+    reseller_expiry = State()
