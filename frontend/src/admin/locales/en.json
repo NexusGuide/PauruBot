@@ -1,4 +1,11 @@
 {
+  "err_staff_not_found": "That staff member was not found.",
+  "err_ticket_department_unknown": "That department does not exist.",
+  "err_ticket_note_staff_only": "Internal notes are for staff only.",
+  "err_ticket_priority_unknown": "Unknown priority.",
+  "log_topic_tickets": "Tickets",
+  "err_ticket_limit": "Too many open tickets; close one first.",
+  "err_ticket_closed": "This ticket is closed.",
   "account": "My account",
   "active": "Active",
   "add": "Add",
@@ -631,6 +638,11 @@
   "setting_terms_required": "Require terms",
   "setting_terms_version": "Terms version",
   "setting_terms_version_hint": "Raising it asks everyone to accept again.",
+  "setting_typed_confirm_enabled": "Type to confirm deletions",
+  "setting_typed_confirm_enabled_hint": "Deleting a service, a bulk delete or disable, and a large refund need a typed confirmation. Turn it on after the panel shows the confirm dialog.",
+  "setting_typed_confirm_refund_min": "Typed confirmation for refunds from (Toman)",
+  "setting_typed_confirm_refund_min_hint": "Refunds of this amount or more need the amount typed. Empty: never.",
+  "err_confirmation_required": "Confirm this action first: type the requested text in the dialog.",
   "setting_ton_address": "TON wallet address",
   "setting_ton_rate": "Manual TON rate (Toman)",
   "setting_toncenter_api_key": "Toncenter key",
@@ -1607,5 +1619,9 @@
   "trial_again": "Another trial",
   "trial_again_done": "This user can take one more trial.",
   "err_trial_not_used": "This user hasn't taken a trial yet and can take one now.",
-  "customer_hidden_panels_hint": "This user can't see or buy the plans of these panels (nor in their own sales bot, for a reseller)."
+  "customer_hidden_panels_hint": "This user can't see or buy the plans of these panels (nor in their own sales bot, for a reseller).",
+  "err_schedule_invalid": "Pick a time in the future, at most 60 days ahead.",
+  "err_not_pausable": "Only a queued or running broadcast can be paused.",
+  "err_not_paused": "This broadcast is not paused.",
+  "err_no_telegram": "Link your Telegram account and start the bot to receive a test."
 }
