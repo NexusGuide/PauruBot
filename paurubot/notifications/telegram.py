@@ -122,9 +122,7 @@ def is_guest_chat(chat_id: int) -> bool:
     return int(chat_id) <= GUEST_CHAT_LIMIT
 
 
-async def send_text(
-    chat_id: int, text: str, *, shop_id: int | None = None, **kwargs: Any
-) -> Message | None:
+async def send_text(chat_id: int, text: str, *, shop_id: int | None = None, **kwargs: Any) -> Message | None:
     if is_guest_chat(chat_id):
         return None
     bot = await bot_for(shop_id)

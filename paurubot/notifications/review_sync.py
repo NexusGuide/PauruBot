@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
+from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 
 from paurubot import kv
@@ -85,6 +87,17 @@ def label(staff: Any) -> str:
     return str(getattr(staff, "display_name", None) or getattr(staff, "username", None) or f"#{staff.id}")
 
 
+def _editor(bot: Bot, ref: dict[str, Any], body: str) -> Callable[[], Awaitable[Any]]:
+    """The edit for one copy: photo receipts carry the text as a caption."""
+    if ref["photo"]:
+        return lambda: bot.edit_message_caption(
+            chat_id=ref["chat"], message_id=ref["msg"], caption=body[:CAPTION_LIMIT], reply_markup=None
+        )
+    return lambda: bot.edit_message_text(
+        chat_id=ref["chat"], message_id=ref["msg"], text=body[:TEXT_LIMIT], reply_markup=None
+    )
+
+
 async def edit_all(
     shop_id: int | None,
     refs: list[dict[str, Any]],
@@ -101,21 +114,7 @@ async def edit_all(
         ref = pending[0]
         if skip is None or (ref["chat"], ref["msg"]) != tuple(skip):
             try:
-                if ref["photo"]:
-                    await telegram.deliver(
-                        lambda r=ref: bot.edit_message_caption(
-                            chat_id=r["chat"],
-                            message_id=r["msg"],
-                            caption=body[:CAPTION_LIMIT],
-                            reply_markup=None,
-                        )
-                    )
-                else:
-                    await telegram.deliver(
-                        lambda r=ref: bot.edit_message_text(
-                            chat_id=r["chat"], message_id=r["msg"], text=body[:TEXT_LIMIT], reply_markup=None
-                        )
-                    )
+                await telegram.deliver(_editor(bot, ref, body))
             except (telegram.Undeliverable, TelegramBadRequest):
                 pass  # deleted, too old to edit or already showing the decision: nothing to fix
             except Retry:

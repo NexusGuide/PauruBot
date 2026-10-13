@@ -233,9 +233,7 @@ async def approve(
         entity_id=payment.id,
     )
     here = (call.message.chat.id, call.message.message_id) if call.message else None
-    await review_sync.announce(
-        session, payment.id, shop.id, "approved", call.from_user.full_name, skip=here
-    )
+    await review_sync.announce(session, payment.id, shop.id, "approved", call.from_user.full_name, skip=here)
     await session.commit()
     await payments.fulfill_one(session, payment.id)
     await call.answer(t("approved_short"))
