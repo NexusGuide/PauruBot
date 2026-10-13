@@ -1,4 +1,5 @@
-"""Reseller hierarchy, limits, metered billing and suspension (TEN-01, TEN-05..TEN-08)."""
+"""Reseller hierarchy, limits, metered billing and suspension (TEN-01, TEN-05..TEN-08), and the
+reseller hub's timeline and wallet runway (F-21)."""
 
 from __future__ import annotations
 
@@ -8,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot import kv
@@ -16,7 +17,11 @@ from paurubot.core import pricing
 from paurubot.core.formatting import local
 from paurubot.db.base import utcnow
 from paurubot.db.models import (
+    AuditLog,
     Customer,
+    LedgerAccount,
+    LedgerEntry,
+    LedgerJournal,
     Order,
     OrderKind,
     OrderStatus,
@@ -36,6 +41,10 @@ LIVE = [ServiceStatus.ACTIVE, ServiceStatus.ON_HOLD, ServiceStatus.LIMITED]
 BILLING_MODES = ("prepaid", "usage", "hourly")
 BILL_EVERY = timedelta(hours=1)
 SUSPEND_REASONS = {"debt", "staff"}
+# The wallet runway (F-21): spending over the last week, and how soon a warning goes out.
+RUNWAY_WINDOW_DAYS = 7
+RUNWAY_WARN_DAYS = 2
+SPEND_KINDS = ("charge", "usage", "membership")
 
 
 class ResellerError(Exception):
@@ -278,11 +287,28 @@ async def _apply_suspension(session: AsyncSession, profile: ResellerProfile) -> 
     over = profile.billing_debt > max(0, profile.credit_limit)
     if over and profile.suspended_at is None:
         await suspend(session, profile, "debt")
+        await _audit_auto(session, profile, "reseller.suspend_auto")
         return True, False
     if not over and profile.suspended_at is not None and profile.suspend_reason == "debt":
         await resume(session, profile)
+        await _audit_auto(session, profile, "reseller.resume_auto")
         return False, True
     return False, False
+
+
+async def _audit_auto(session: AsyncSession, profile: ResellerProfile, action: str) -> None:
+    """Billing stops and restarts a reseller on its own; keep that in its timeline (F-21)."""
+    from paurubot.audit.log import Actor, record
+
+    await record(
+        session,
+        shop_id=profile.shop_id,
+        actor=Actor.system(),
+        action=action,
+        entity="reseller_profile",
+        entity_id=profile.id,
+        after={"debt": profile.billing_debt, "credit_limit": profile.credit_limit},
+    )
 
 
 async def suspend(session: AsyncSession, profile: ResellerProfile, reason: str) -> int:
@@ -353,13 +379,17 @@ async def resume(session: AsyncSession, profile: ResellerProfile) -> int:
 
 
 async def warn_low_balance(session: AsyncSession, profile: ResellerProfile) -> bool:
-    """At most one low-balance warning a day per reseller (TEN-06)."""
+    """At most one low-balance warning a day per reseller (TEN-06): below its threshold, or (F-21)
+    when at the current pace the wallet runs dry within RUNWAY_WARN_DAYS. The runway warning is
+    for resellers that set a threshold or are billed by usage / the hour."""
     from paurubot.worker import queue
 
-    if not profile.low_balance_threshold or not profile.is_current:
+    if not profile.is_current or not (profile.low_balance_threshold or profile.is_metered):
         return False
     balance = await wallet_balance(session, profile.shop_id, profile.customer_id)
-    if balance >= profile.low_balance_threshold:
+    runway = await estimate_runway(session, profile, balance=balance)
+    below = bool(profile.low_balance_threshold) and balance < int(profile.low_balance_threshold or 0)
+    if not below and not runway.low:
         return False
     if not await kv.set_once(f"reseller:{profile.id}:lowbalance", 86_400):
         return False
@@ -367,10 +397,138 @@ async def warn_low_balance(session: AsyncSession, profile: ResellerProfile) -> b
         session,
         "notify",
         "reseller_notice",
-        {"profile_id": profile.id, "notice": "low_balance", "balance": balance},
+        {"profile_id": profile.id, "notice": "low_balance", "balance": balance, "days": runway.days},
         shop_id=profile.shop_id,
     )
     return True
+
+
+# --- the reseller hub: runway and timeline (F-21) -------------------------------------------
+
+
+@dataclass(slots=True)
+class Runway:
+    balance: int
+    debt: int
+    daily_spend: int  # average over the window, rounded up
+    days: float | None  # None: nothing was spent, so no estimate
+
+    @property
+    def hours(self) -> int | None:
+        return None if self.days is None else int(self.days * 24)
+
+    @property
+    def low(self) -> bool:
+        return self.days is not None and self.days < RUNWAY_WARN_DAYS
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "balance": self.balance,
+            "debt": self.debt,
+            "daily_spend": self.daily_spend,
+            "days": self.days,
+            "hours": self.hours,
+            "low": self.low,
+            "window_days": RUNWAY_WINDOW_DAYS,
+        }
+
+
+def runway_from(balance: int, debt: int, spent: int, window_days: int = RUNWAY_WINDOW_DAYS) -> Runway:
+    """How long `balance` (less any billing debt) lasts at the window's average daily spend."""
+    daily = -(-spent // window_days) if spent > 0 and window_days > 0 else 0
+    if daily <= 0:
+        return Runway(balance, debt, 0, None)
+    days = max(0, balance - debt) / daily
+    return Runway(balance, debt, daily, round(days, 1))
+
+
+def runway_line(t: Any, days: float) -> str:
+    """"Lasts about N days" (or hours, under a day) in the reader's language; `t` is their Texts."""
+    if days < 1:
+        return str(t("reseller_runway_hours", hours=int(days * 24)))
+    return str(t("reseller_runway_days", days=f"{days:g}"))
+
+
+async def spent_since(session: AsyncSession, profile: ResellerProfile, since: datetime) -> int:
+    """What left the reseller's wallet for purchases, renewals, usage and membership since
+    `since`, less what came back as refunds. Top-ups, gifts and staff adjustments do not count."""
+    rows = await session.execute(
+        select(LedgerJournal.kind, func.coalesce(func.sum(LedgerEntry.amount), 0))
+        .join(LedgerJournal, LedgerJournal.id == LedgerEntry.journal_id)
+        .join(LedgerAccount, LedgerAccount.id == LedgerEntry.account_id)
+        .where(
+            LedgerAccount.shop_id == profile.shop_id,
+            LedgerAccount.customer_id == profile.customer_id,
+            LedgerEntry.created_at >= since,
+            LedgerJournal.kind.in_([*SPEND_KINDS, "refund"]),
+        )
+        .group_by(LedgerJournal.kind)
+    )
+    # Spending debits the wallet (negative entries) and refunds credit it back, so negating the
+    # sum over both kinds gives the net spend.
+    total = -sum(int(amount) for _kind, amount in rows.all())
+    return max(0, total)
+
+
+async def estimate_runway(
+    session: AsyncSession,
+    profile: ResellerProfile,
+    *,
+    balance: int | None = None,
+    now: datetime | None = None,
+) -> Runway:
+    """The reseller's wallet runway at the last RUNWAY_WINDOW_DAYS days' pace (F-21)."""
+    now = now or utcnow()
+    if balance is None:
+        balance = await wallet_balance(session, profile.shop_id, profile.customer_id)
+    spent = await spent_since(session, profile, now - timedelta(days=RUNWAY_WINDOW_DAYS))
+    return runway_from(balance, int(profile.billing_debt or 0), spent)
+
+
+async def timeline(session: AsyncSession, profile: ResellerProfile, limit: int = 50) -> list[dict[str, Any]]:
+    """The reseller account's history, newest first: wallet movements (purchases, renewals, top-ups,
+    usage charges, adjustments) merged with what staff and billing did to the account (pause,
+    resume, limits, group) from the audit trail."""
+    items: list[dict[str, Any]] = []
+    for entry, journal in await wallet.history(session, profile.shop_id, profile.customer_id, limit=limit):
+        items.append(
+            {
+                "at": entry.created_at,
+                "type": "ledger",
+                "kind": journal.kind,
+                "amount": entry.amount,
+                "balance_after": entry.balance_after,
+                "memo": journal.memo,
+                "reference_type": journal.reference_type,
+                "reference_id": journal.reference_id,
+            }
+        )
+    audits = await session.scalars(
+        select(AuditLog)
+        .where(
+            AuditLog.shop_id == profile.shop_id,
+            or_(
+                and_(AuditLog.entity == "reseller_profile", AuditLog.entity_id == profile.id),
+                and_(AuditLog.entity == "customer", AuditLog.entity_id == profile.customer_id),
+            ),
+        )
+        .order_by(AuditLog.id.desc())
+        .limit(limit)
+    )
+    for row in audits:
+        items.append(
+            {
+                "at": row.created_at,
+                "type": "audit",
+                "kind": row.action,
+                "actor_type": row.actor_type,
+                "actor_id": row.actor_id,
+                "before": row.before,
+                "after": row.after,
+            }
+        )
+    items.sort(key=lambda item: item["at"], reverse=True)
+    return items[:limit]
 
 
 async def run_billing(session: AsyncSession) -> int:

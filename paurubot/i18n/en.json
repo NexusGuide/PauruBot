@@ -343,6 +343,8 @@
   "reseller_suspended": "⛔️ Your reseller account is suspended and your services are paused.\nDebt: {debt} Toman | Balance: {balance} Toman\nTop up your wallet and everything comes back automatically.",
   "reseller_resumed": "✅ Your reseller account is active again and your services are back on.",
   "reseller_low_balance": "🔔 Your wallet is running low: {balance} Toman. Top up so your services don't stop.",
+  "reseller_runway_days": "⏳ At the current pace your balance lasts about {days} more days.",
+  "reseller_runway_hours": "⏳ At the current pace your balance lasts only about {hours} more hours.",
   "report_reseller_suspended": "⛔️ Reseller {customer} was suspended. Debt: {debt} Toman",
   "report_reseller_resumed": "✅ Reseller {customer} is active again.",
   "reseller_suspended_error": "⛔️ Your reseller account is suspended; top up your wallet first.",

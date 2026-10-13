@@ -72,6 +72,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/my-bot` | `resellers.bot` | My bot |
 | PUT | `/api/admin/my-bot` | `resellers.bot` | Save my bot |
 | GET | `/api/admin/my/billing` | `dashboard.view` | My billing |
+| GET | `/api/admin/my/hub` | `dashboard.view` | My hub |
 | POST | `/api/admin/orders/{order_id}/refund` | `payments.refund` | Return a completed or failed order's money to the wallet (NEW-04). The service is not touched. |
 | GET | `/api/admin/orders` | `orders.read` | List orders |
 | POST | `/api/admin/panel-accounts/{row_id}/{action}` | `resellers.manage` | Act on panel account |
@@ -114,6 +115,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/resellers/{profile_id}/bot/allow` | `resellers.manage` | Allow reseller bot |
 | POST | `/api/admin/resellers/{profile_id}/bot/stop` | `resellers.manage` | Stop reseller bot |
 | GET | `/api/admin/resellers/{profile_id}/bot` | `resellers.manage` | Reseller bot |
+| GET | `/api/admin/resellers/{profile_id}/hub` | `resellers.manage` | Reseller hub |
 | POST | `/api/admin/resellers/{profile_id}/suspend` | `resellers.manage` | Suspend reseller |
 | GET | `/api/admin/resellers` | `resellers.manage` | Resellers |
 | PUT | `/api/admin/resellers` | `resellers.manage` | Upsert profile |

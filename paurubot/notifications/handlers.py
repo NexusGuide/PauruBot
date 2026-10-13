@@ -701,6 +701,7 @@ async def panel_alert(session: AsyncSession, job: queue.Claimed) -> None:
 
 async def reseller_notice(session: AsyncSession, job: queue.Claimed) -> None:
     """Suspension, resumption and low-balance notices to a reseller, copied to the owners (TEN-06)."""
+    from paurubot.core.resellers import runway_line
     from paurubot.db.models import ResellerProfile
     from paurubot.ledger.accounts import wallet_balance
 
@@ -716,7 +717,11 @@ async def reseller_notice(session: AsyncSession, job: queue.Claimed) -> None:
     values = {"balance": money(balance), "debt": money(profile.billing_debt)}
     if notice not in {"suspended", "resumed", "low_balance"}:
         raise Permanent(f"unknown reseller notice {notice}")
-    await _to_customer(session, customer, t(f"reseller_{notice}", **values))
+    text = t(f"reseller_{notice}", **values)
+    days = job.payload.get("days") if notice == "low_balance" else None
+    if days is not None:  # F-21: how long the wallet lasts at the current pace
+        text += "\n" + runway_line(t, float(days))
+    await _to_customer(session, customer, text)
     if notice != "low_balance":
         await report(
             session,
