@@ -443,7 +443,7 @@ def runway_from(balance: int, debt: int, spent: int, window_days: int = RUNWAY_W
 
 
 def runway_line(t: Any, days: float) -> str:
-    """"Lasts about N days" (or hours, under a day) in the reader's language; `t` is their Texts."""
+    """The "lasts about N days" line (hours, under a day) in the reader's language; `t` is their Texts."""
     if days < 1:
         return str(t("reseller_runway_hours", hours=int(days * 24)))
     return str(t("reseller_runway_days", days=f"{days:g}"))

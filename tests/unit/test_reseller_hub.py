@@ -34,7 +34,8 @@ def test_runway_line_switches_to_hours_under_a_day() -> None:
 
 
 async def test_metered_reseller_runway_warning_and_timeline(
-    session: AsyncSession, env: dict[str, Any]  # noqa: F811
+    session: AsyncSession,
+    env: dict[str, Any],  # noqa: F811
 ) -> None:
     shop = env["shop"]
     cust, profile = await _reseller(session, shop, balance=10_000, billing_mode="usage", gb_price=1_000)
