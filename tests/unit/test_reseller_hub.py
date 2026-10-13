@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core import resellers
+from paurubot.db.base import utcnow
 from paurubot.db.models import Job, JobStatus
 from paurubot.ledger import wallet
 from tests.unit.test_resellers import _reseller, env, isolate_queue  # noqa: F401
@@ -67,3 +69,29 @@ async def test_metered_reseller_runway_warning_and_timeline(
     assert [item["kind"] for item in audits] == ["reseller.suspend_auto"]
     assert audits[0]["actor_type"] == "system"
     assert [item["at"] for item in items] == sorted((item["at"] for item in items), reverse=True)
+
+
+def test_runway_warning_uses_unrounded_days() -> None:
+    runway = resellers.runway_from(19_600, 0, 70_000)
+    assert runway.days == 1.96 and runway.low
+    assert not resellers.runway_from(20_000, 0, 70_000).low
+    assert resellers.runway_line(_T(), 3.142857) == "reseller_runway_days:{'days': '3.1'}"
+
+
+async def test_runway_spend_excludes_other_customers_and_adjustments(
+    session: AsyncSession,
+    env: dict[str, Any],  # noqa: F811
+) -> None:
+    shop = env["shop"]
+    cust, profile = await _reseller(session, shop, balance=100_000)
+    other, _ = await _reseller(session, shop, balance=100_000)
+    await wallet.charge(session, shop.id, cust.id, 14_000, order_id=cust.id + 8_000_000)
+    await wallet.refund(session, shop.id, cust.id, 7_000, order_id=cust.id + 8_000_000)
+    await wallet.adjust(session, shop.id, cust.id, -5_000, key=f"hub-adjust:{cust.id}", actor="test")
+    await wallet.reward(session, shop.id, cust.id, 10_000, key=f"hub-reward:{cust.id}")
+    await wallet.usage_charge(session, shop.id, other.id, 30_000, key=f"hub-other:{other.id}")
+    await session.commit()
+    assert await resellers.spent_since(session, profile, utcnow() - timedelta(days=7)) == 7_000
+    assert await resellers.spent_since(session, profile, utcnow() + timedelta(days=1)) == 0
+    runway = await resellers.estimate_runway(session, profile)
+    assert runway.daily_spend == 1_000

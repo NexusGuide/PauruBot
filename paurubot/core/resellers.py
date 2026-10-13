@@ -439,14 +439,14 @@ def runway_from(balance: int, debt: int, spent: int, window_days: int = RUNWAY_W
     if daily <= 0:
         return Runway(balance, debt, 0, None)
     days = max(0, balance - debt) / daily
-    return Runway(balance, debt, daily, round(days, 1))
+    return Runway(balance, debt, daily, days)
 
 
 def runway_line(t: Any, days: float) -> str:
     """The "lasts about N days" line (hours, under a day) in the reader's language; `t` is their Texts."""
     if days < 1:
         return str(t("reseller_runway_hours", hours=int(days * 24)))
-    return str(t("reseller_runway_days", days=f"{days:g}"))
+    return str(t("reseller_runway_days", days=f"{days:.1f}".rstrip("0").rstrip(".")))
 
 
 async def spent_since(session: AsyncSession, profile: ResellerProfile, since: datetime) -> int:
