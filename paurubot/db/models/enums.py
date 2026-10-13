@@ -117,6 +117,7 @@ class JobStatus(enum.StrEnum):
     FAILED = "failed"
     DEAD = "dead"
     CANCELED = "canceled"
+    PAUSED = "paused"  # a broadcast stopped by staff, to be resumed (F-16)
 
 
 class TicketStatus(enum.StrEnum):
