@@ -230,6 +230,15 @@ def verify(target: dict[str, Any], info: PanelUser, *, check_enabled: bool = Tru
     return problems
 
 
+def can_confirm(info: PanelUser) -> bool:
+    """Whether the panel's account can prove (or disprove) a target.
+
+    Panels that cannot report limits (PNL-11) only show usage and the enabled flag, so ``verify``
+    passes for them whatever the panel holds. Their account is no evidence either way.
+    """
+    return bool(info.limits_known)
+
+
 def untouched(target: dict[str, Any]) -> dict[str, Any] | None:
     """The state the panel shows when a change was never applied, in the shape `verify` takes."""
     before = target.get("before")
