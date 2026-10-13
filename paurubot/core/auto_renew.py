@@ -225,7 +225,15 @@ async def run_service(session: AsyncSession, service_id: int, now: datetime | No
     for kind, extra in wants:
         try:
             async with session.begin_nested():
-                d = await orders.draft(session, customer, kind, plan=plan, service=service, **extra)
+                d = await orders.draft(
+                    session,
+                    customer,
+                    kind,
+                    plan=plan,
+                    service=service,
+                    extra_gb=extra.get("extra_gb", 0),
+                    extra_days=extra.get("extra_days", 0),
+                )
                 order = await orders.create(session, customer, d, source=SOURCE)
                 await orders.settle_from_wallet(session, order.id)
         except orders.OrderError as exc:
