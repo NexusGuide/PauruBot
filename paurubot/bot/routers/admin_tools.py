@@ -650,7 +650,7 @@ async def reseller_limit_ask(
         )
 
 
-@router.message(AdminStates.reseller_limit, F.text)
+@router.message(AdminStates.reseller_limit, F.text, StaffOnly("resellers.manage"))
 async def reseller_limit_save(
     message: Message,
     session: AsyncSession,
