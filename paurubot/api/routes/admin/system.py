@@ -49,6 +49,7 @@ LOG_TOPICS = (
     "backups",
     "resellers",
     "panels",
+    "tickets",
 )
 CHANNEL_FIELDS = ["id", "chat_id", "title", "url", "sort"]
 LOG_FIELDS = ["id", "topic", "chat_id", "thread_id"]

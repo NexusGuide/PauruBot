@@ -44,6 +44,13 @@ class Review(CallbackData, prefix="rv"):
     id: int
 
 
+class Receipt(CallbackData, prefix="rc"):
+    """A customer re-sending a card receipt staff sent back for a fix (F-23)."""
+
+    action: str
+    id: int
+
+
 class Ticket(CallbackData, prefix="t"):
     action: str
     id: int = 0

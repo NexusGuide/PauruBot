@@ -55,6 +55,8 @@ class Service(Base, UpdatedMixin):
     billed_bytes: Mapped[int] = mapped_column(default=0, server_default="0")
     # addresses last seen on the panel, to tell the customer when a new device pushed one out (JOB-03)
     client_ips: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    # The customer's opt-in auto-renewal rule, None when off (F-02; see paurubot.core.auto_renew).
+    auto_renew: Mapped[dict[str, Any] | None] = mapped_column(JSON(none_as_null=True), nullable=True)
 
     customer: Mapped[Customer] = relationship(lazy="selectin")
     panel: Mapped[Panel] = relationship(lazy="selectin")
