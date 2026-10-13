@@ -40,7 +40,7 @@ async def test_expired_token_is_refreshed_once_for_many_callers() -> None:
         if request.url.path == "/api/admin/token":
             logins += 1
             await asyncio.sleep(0.01)
-            return httpx.Response(200, json={"access_token": f"t{logins}"})
+            return httpx.Response(200, json={"access_token": f"t{logins + 1}"})  # t1 has expired
         if request.headers.get("authorization") == "Bearer t1":
             return httpx.Response(401, json={"detail": "expired"})
         return httpx.Response(200, json={"version": "1"})
