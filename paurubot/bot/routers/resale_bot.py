@@ -117,6 +117,7 @@ def home_kb(
 ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if running:
+        kb.button(text=t("rb_btn_discounts"), callback_data=Rb(action="discounts"))
         kb.button(text=t("rb_btn_markup"), callback_data=Rb(action="markup"))
         kb.button(text=t("rb_btn_prices"), callback_data=Rb(action="prices"))
         kb.button(text=t("rb_btn_cards"), callback_data=Rb(action="cards"))
