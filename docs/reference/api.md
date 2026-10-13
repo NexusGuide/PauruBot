@@ -75,11 +75,11 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/migration/last` | `backups.manage` | Migration last |
 | POST | `/api/admin/migration/run` | `backups.manage` | Migration run |
 | POST | `/api/admin/migration/upload` | `backups.manage` | Store a MySQL dump or SQLite file and describe what it holds. |
+| GET | `/api/admin/my/hub` | `dashboard.view` | My hub |
 | DELETE | `/api/admin/my-bot` | `resellers.bot` | Stop my bot |
 | GET | `/api/admin/my-bot` | `resellers.bot` | My bot |
 | PUT | `/api/admin/my-bot` | `resellers.bot` | Save my bot |
 | GET | `/api/admin/my/billing` | `dashboard.view` | My billing |
-| GET | `/api/admin/my/hub` | `dashboard.view` | My hub |
 | POST | `/api/admin/orders/{order_id}/confirm-refund` | `payments.refund` | Step one of a large refund (F-22): type the amount to confirm. |
 | POST | `/api/admin/orders/{order_id}/refund` | `payments.refund` | Return a completed or failed order's money to the wallet (NEW-04). The service is not touched. |
 | GET | `/api/admin/orders` | `orders.read` | List orders |
