@@ -356,7 +356,12 @@ async def _state_target(
 ) -> tuple[ResellerProfile, ShopRow] | None:
     profile = await _profile(session, shop, customer, staff)
     child = await resale.shop_of(session, profile) if profile is not None else None
-    if profile is None or child is None or child.bot_token_enc is None:
+    if (
+        profile is None
+        or child is None
+        or child.bot_token_enc is None
+        or not await _allowed(session, shop, profile)
+    ):
         await state.clear()
         return None
     return profile, child
