@@ -7,6 +7,7 @@ import { Home } from "./screens/Home";
 import { Manage } from "./screens/Manage";
 import { More } from "./screens/More";
 import { Payment } from "./screens/Payment";
+import { Profile } from "./screens/Profile";
 import { Extra, ServiceDetail, Services } from "./screens/Services";
 import { Wallet } from "./screens/Wallet";
 import { AppProvider, useApp } from "./state";
@@ -60,6 +61,7 @@ function Shell() {
         <Route path="/extra/:id/:unit" element={<Extra />} />
         <Route path="/wallet" element={<Wallet />} />
         <Route path="/more" element={<More />} />
+        <Route path="/profile" element={<Profile />} />
         <Route path="/manage" element={<Manage />} />
         <Route path="/desk" element={<Desk />} />
         <Route path="*" element={<Home />} />

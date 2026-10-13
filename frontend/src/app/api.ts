@@ -18,6 +18,8 @@ export interface Me {
   topup_bounds: [number, number];
   staff: StaffAccess | null;
   preferences: MarketingPreference;
+  alerts_muted: boolean;
+  profile: { phone_masked: string | null; member_since: string };
 }
 
 export interface MarketingPreference {
@@ -181,6 +183,7 @@ const post = <T>(path: string, body: unknown = {}) =>
 
 export const api = {
   me: () => get<Me>("/me"),
+  setAlerts: (muted: boolean) => post<{ alerts_muted: boolean }>("/me/alerts", { alerts_muted: muted }),
   setMarketing: (optOut: boolean) =>
     post<MarketingPreference>("/me/marketing", { marketing_opt_out: optOut }),
   setLocale: (locale: string) => post<{ locale: string }>("/me/locale", { locale }),

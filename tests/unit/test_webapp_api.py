@@ -249,3 +249,38 @@ async def test_usage_history_is_self_only_and_does_not_query_the_panel(session, 
     service.status = ServiceStatus.DELETED
     await session.commit()
     assert (await client.get(path, headers=h(81601))).status_code == 404
+
+
+async def test_profile_alert_settings_are_strict_self_only_and_independent(session, app_env) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import Customer
+
+    client = app_env["client"]
+    path = "/api/webapp/me/alerts"
+    assert (await client.post(path, json={"alerts_muted": True})).status_code == 401
+    own = (await client.get("/api/webapp/me", headers=h(81701))).json()
+    other = (await client.get("/api/webapp/me", headers=h(81702))).json()
+    customer = await session.get(Customer, own["id"])
+    customer.phone = "+989123456789"
+    await session.commit()
+    profile = (await client.get("/api/webapp/me", headers=h(81701))).json()
+    assert profile["profile"]["phone_masked"] == "••••89"
+    assert profile["profile"]["member_since"]
+    assert "+989123456789" not in str(profile)
+    for bad in ("false", 1, None):
+        assert (await client.post(path, headers=h(81701), json={"alerts_muted": bad})).status_code == 422
+    for extra in ({"customer_id": other["id"]}, {"name": "changed"}, {"phone": "123"}):
+        assert (
+            await client.post(path, headers=h(81701), json={"alerts_muted": True, **extra})
+        ).status_code == 422
+    for _ in range(2):
+        response = await client.post(path, headers=h(81701), json={"alerts_muted": True})
+        assert response.status_code == 200 and response.json() == {"alerts_muted": True}
+    updated = (await client.get("/api/webapp/me", headers=h(81701))).json()
+    assert updated["alerts_muted"] is True and updated["preferences"] == own["preferences"]
+    assert updated["name"] == own["name"] and updated["telegram_id"] == own["telegram_id"]
+    assert (await client.get("/api/webapp/me", headers=h(81702))).json()["alerts_muted"] is False
+    assert (
+        await client.post(
+            "/api/webapp/me/locale", headers=h(81701), json={"locale": "fa", "customer_id": other["id"]}
+        )
+    ).status_code == 422
