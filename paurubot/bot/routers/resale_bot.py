@@ -124,6 +124,7 @@ def home_kb(
         kb.button(text=t("rb_btn_support"), callback_data=Rb(action="support"))
         kb.button(text=t("rb_btn_features"), callback_data=Rb(action="features"))
         kb.button(text=t("rb_btn_toggle"), callback_data=Rb(action="toggle"))
+        kb.button(text=t("rb_btn_broadcast"), callback_data=Rb(action="broadcast"))
         kb.button(text=t("rb_btn_token_swap"), callback_data=Rb(action="token"))
         kb.button(text=t("rb_btn_delete"), callback_data=Rb(action="delete"))
     elif can_connect:

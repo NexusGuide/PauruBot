@@ -41,6 +41,7 @@ class ResellerStates(StatesGroup):
 
 
 class ResaleBotStates(StatesGroup):
+    broadcast = State()
     token = State()
     markup = State()
     support = State()
