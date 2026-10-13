@@ -72,6 +72,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/my-bot` | `resellers.bot` | My bot |
 | PUT | `/api/admin/my-bot` | `resellers.bot` | Save my bot |
 | GET | `/api/admin/my/billing` | `dashboard.view` | My billing |
+| POST | `/api/admin/orders/{order_id}/confirm-refund` | `payments.refund` | Step one of a large refund (F-22): type the amount to confirm. |
 | POST | `/api/admin/orders/{order_id}/refund` | `payments.refund` | Return a completed or failed order's money to the wallet (NEW-04). The service is not touched. |
 | GET | `/api/admin/orders` | `orders.read` | List orders |
 | POST | `/api/admin/panel-accounts/{row_id}/{action}` | `resellers.manage` | Act on panel account |
@@ -117,8 +118,10 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/resellers/{profile_id}/suspend` | `resellers.manage` | Suspend reseller |
 | GET | `/api/admin/resellers` | `resellers.manage` | Resellers |
 | PUT | `/api/admin/resellers` | `resellers.manage` | Upsert profile |
+| POST | `/api/admin/services/bulk/confirm` | `services.write` | Step one of a bulk delete or disable (F-22): type how many services it touches. |
 | POST | `/api/admin/services/bulk` | `services.write` | Queue one job per service so slow panels never block the request and failures retry. |
 | POST | `/api/admin/services/{service_id}/action` | `services.write` | Service action |
+| POST | `/api/admin/services/{service_id}/confirm-delete` | `services.write` | Step one of deleting a service (F-22): type its username to confirm. |
 | POST | `/api/admin/services/{service_id}/move` | `services.write` | Move a service to another panel with its remaining data and end date; the link stays (SVC-04). |
 | PUT | `/api/admin/services/{service_id}/note` | `services.write` | A note on a service only staff see (SVC-16). |
 | GET | `/api/admin/services/{service_id}` | `services.read` | Service detail |
