@@ -158,11 +158,29 @@ async def upload(
     expected_revision: Annotated[str, Form(pattern=r"^[a-f0-9]{64}$")],
     file: Annotated[UploadFile, File()],
 ) -> dict[str, Any]:
+    return await submit_upload(payment_id, ctx, file, expected_revision=expected_revision)
+
+
+async def submit_upload(
+    payment_id: int,
+    ctx: WebApp,
+    file: UploadFile,
+    *,
+    expected_revision: str | None,
+    allow_legacy_initial: bool = False,
+) -> dict[str, Any]:
+    """Both upload URLs share ownership, locking, validation, settlement and commit rules."""
     payment = await _owned(ctx, payment_id, lock=True)
-    if revision(payment) != expected_revision:
+    view = receipt_view(payment)
+    if expected_revision is None:
+        # An old client cannot acknowledge a new operator instruction it has not read.
+        if not allow_legacy_initial or view["correction"] is not None:
+            raise HTTPException(409, "receipt_revision_required")
+    elif revision(payment) != expected_revision:
         raise HTTPException(409, "receipt_state_changed")
-    if not receipt_view(payment)["can_upload"]:
+    if not view["can_upload"]:
         raise HTTPException(409, "payment_not_waiting")
+    before_revision = revision(payment)
     data = await file.read(MAX_RECEIPT + 1)
     if len(data) > MAX_RECEIPT:
         raise HTTPException(413, "receipt_too_large")
@@ -180,7 +198,7 @@ async def upload(
     await ctx.session.refresh(payment)
     if payment.status == PaymentStatus.VERIFYING:
         # fix_requests is capped at ten. A count-only key loses subsequent reviews.
-        version = hashlib.sha256(f"{expected_revision}:{revision(payment)}".encode()).hexdigest()
+        version = hashlib.sha256(f"{before_revision}:{revision(payment)}".encode()).hexdigest()
         await queue.enqueue(
             ctx.session,
             "notify",

@@ -8,7 +8,8 @@ The existing Telegram staff correction workflow remains the authority. Customers
 | --- | --- | --- |
 | GET | `/api/webapp/receipts?before=<positive-id>` | Owned shop/customer card payments, descending IDs, at most 20 items, exclusive next_before cursor. |
 | GET | `/api/webapp/payments/{id}/receipt-state` | Owned payment, real status, revision, deadline and latest customer-visible correction. |
-| POST | `/api/webapp/payments/{id}/receipt-upload` | Multipart file + required expected_revision; row lock, state/deadline check, validated image, Telegram storage, existing engine, distinct review job, explicit commit. |
+| POST | `/api/webapp/payments/{id}/receipt-upload` | Multipart file + required expected_revision; row lock, state/deadline check, validated image, shop-bot Telegram storage, existing engine, distinct review job, explicit commit. |
+| POST | `/api/webapp/payments/{id}/receipt` | Same guarded pipeline. Initial legacy uploads may omit expected_revision; operator corrections require a matching revision. Returns the actual payment status. |
 
 The existing payment status endpoint also returns provider and order_id, allowing a card payment to reopen without session storage. Status and legacy receipt ownership checks additionally require the authenticated shop. New projections exclude staff IDs, old receipt file IDs, full correction history and arbitrary metadata.
 
@@ -39,4 +40,8 @@ No production upload, approval, transfer, merge or deployment was performed.
 
 ## Compatibility
 
-The old /receipt endpoint remains for legacy clients. Its constant review key, permissive image validation and optimistic response are not globally fixed by this module. New clients use /receipt-upload. Ship matching backend/frontend; the new UI fails closed with older APIs rather than reverting silently.
+The old /receipt endpoint remains for initial legacy clients, but now delegates to the same owned-shop/customer, row-locked, byte-validated, deadline-checked pipeline as /receipt-upload. It returns the actual engine status, uses the same revision-based review key and commits before reporting success. Legacy correction uploads without expected_revision fail with receipt_revision_required: an old client must not silently resubmit against an operator instruction it never read. New clients continue using /receipt-upload; they do not fall back silently.
+
+Receipt storage uses telegram.send_photo with ctx.shop.id, matching the shop bot used by staff review delivery. A stopped/unreachable child bot, absent photo or storage exception fails closed; it never falls back to the main bot. Old receipts stored by the wrong bot are not migrated by this patch and need explicit staging/review handling. Telegram upload remains outside the DB transaction; a photo may exist without a committed receipt after an expiry/commit failure.
+
+Regression coverage adds legacy initial/correction compatibility, schema and stale-version rejection, deadline before/during storage, byte validation, actual paid/failed output, duplicate clicks, storage/commit failure and matching storage/staff shop routing. These mocked cases do not replace real authenticated, PostgreSQL/Redis or Telegram staging tests.
