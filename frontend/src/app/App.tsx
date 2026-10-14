@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes, useLocation, useNavigate } from "react-ro
 import { Buy, Custom } from "./screens/Buy";
 import { Checkout, Done } from "./screens/Checkout";
 import { Desk } from "./screens/Desk";
+import { Help } from "./screens/Help";
 import { Home } from "./screens/Home";
 import { Manage } from "./screens/Manage";
 import { More } from "./screens/More";
@@ -62,6 +63,7 @@ function Shell() {
         <Route path="/extra/:id/:unit" element={<Extra />} />
         <Route path="/wallet" element={<Wallet />} />
         <Route path="/more" element={<More />} />
+        <Route path="/help" element={<Help />} />
         <Route path="/tickets" element={<Tickets />} />
         <Route path="/tickets/new" element={<NewTicket />} />
         <Route path="/tickets/:id" element={<TicketThread />} />

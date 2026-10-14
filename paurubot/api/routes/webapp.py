@@ -14,6 +14,7 @@ from paurubot.api.routes import webapp_staff
 from paurubot.api.webapp_auth import WebApp
 from paurubot.core import (
     catalog,
+    customer_help,
     customer_preferences,
     customers,
     marketing,
@@ -199,6 +200,11 @@ async def me(ctx: WebApp) -> dict[str, Any]:
         "profile": customer_preferences.profile_view(customer),
         "alerts_muted": customer.alerts_muted,
     }
+
+
+@router.get("/help")
+async def customer_help_view(ctx: WebApp) -> dict[str, Any]:
+    return customer_help.view(ctx.cfg, bot_username=ctx.shop.bot_username)
 
 
 class MarketingBody(BaseModel):
