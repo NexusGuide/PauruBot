@@ -4,12 +4,12 @@ import test from 'node:test';
 import ts from 'typescript';
 process.env.TZ='UTC';
 const load=async name=>{const source=readFileSync(new URL(`../src/admin/broadcasts/${name}.ts`,import.meta.url),'utf8');const {outputText}=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}});return import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)};
-const {parseRow,parsePage,parseReachable,emptyDraft,codepoints,validUrl,scheduledIso,buildBody,actions,audienceKey}=await load('model');
+const {parseRow,parsePage,parseReachable,emptyDraft,codepoints,validUrl,scheduledIso,buildBody,actions,audienceKey,AUDIENCE_KINDS,audiencePreviewPath,previewReady,submitPath}=await load('model');
 const now=Date.parse('2026-10-14T00:00:00Z');
-const row=()=>({id:1,text:'<script>x</script>',audience:{},status:'queued',total:0,sent:0,failed:0,blocked:0,deleted:0,scheduled_at:null,created_at:'2026-10-14T00:00:00Z',finished_at:null});
+const row=()=>({id:1,text:'<script>x</script>',audience:{},status:'queued',total:0,sent:0,failed:0,blocked:0,deleted:0,skipped:0,scheduled_at:null,created_at:'2026-10-14T00:00:00Z',finished_at:null});
 const draft=()=>({...emptyDraft(),text:'Hello 😀'});
 test('plain content stays literal and unknown properties are not projected',()=>{const v={...row(),token:'private'};assert.equal(parseRow(v).text,v.text);assert(!('token' in parseRow(v)))});
-for(const field of ['total','sent','failed','blocked','deleted','id'])for(const value of [-1,1.2,'1',NaN])test(`reject ${field}=${value}`,()=>assert.throws(()=>parseRow({...row(),[field]:value})));
+for(const field of ['total','sent','failed','blocked','deleted','skipped','id'])for(const value of [-1,1.2,'1',NaN])test(`reject ${field}=${value}`,()=>assert.throws(()=>parseRow({...row(),[field]:value})));
 for(const v of [null,[],{},true,{...row(),id:0},{...row(),created_at:'bad'},{...row(),scheduled_at:'bad'},{...row(),finished_at:'bad'},{...row(),audience:null}])test(`reject malformed row ${JSON.stringify(v)}`,()=>assert.throws(()=>parseRow(v)));
 test('queued zero count preserved, not synthesized from sent',()=>assert.equal(parseRow(row()).total,0));
 test('future status preserved without enabling actions',()=>{assert.equal(parseRow({...row(),status:'future'}).status,'future');assert.deepEqual(actions('future'),[])});
@@ -20,8 +20,8 @@ for(const n of [0,42])test(`reach ${n}`,()=>assert.equal(parseReachable({reachab
 for(const v of [null,{}, {reachable:-1},{reachable:'42'}])test(`bad audience ${JSON.stringify(v)}`,()=>assert.throws(()=>parseReachable(v)));
 for(const u of ['https://example.com/x?y=1','tg://resolve?domain=shop','https://example.com/#a'])test(`safe URL ${u}`,()=>assert(validUrl(u)));
 for(const u of ['http://x.com','javascript:alert(1)','https://u:p@x.com','https://x.com\n','https://x.com\\@evil.com','https:///','tg://','HTTPS://example.com','https://x.com/a b','data:text/plain,x'])test(`unsafe URL ${u}`,()=>assert(!validUrl(u)));
-test('body exact fields and single audience',()=>assert.deepEqual(buildBody(draft(),now),{text:'Hello 😀',buttons:[],buyers_only:false,resellers_only:false,locale:null,scheduled_at:null}));
-for(const audience of ['all','buyers','resellers'])test(`mutually exclusive audience ${audience}`,()=>{const body=buildBody({...draft(),audience},now);assert(!(body.buyers_only&&body.resellers_only));assert.equal(body.buyers_only,audience==='buyers');assert.equal(body.resellers_only,audience==='resellers')});
+test('body exact fields and single audience',()=>assert.deepEqual(buildBody(draft(),now),{kind:'all',text:'Hello 😀',buttons:[],buyers_only:false,resellers_only:false,locale:null,scheduled_at:null}));
+for(const audience of AUDIENCE_KINDS)test(`mutually exclusive audience ${audience}`,()=>{const body=buildBody({...draft(),audience},now);assert.equal(body.kind,audience);assert(!(body.buyers_only&&body.resellers_only));assert.equal(body.buyers_only,audience==='buyers');assert.equal(body.resellers_only,audience==='resellers')});
 test('emoji counted as Python Unicode codepoints',()=>{assert.equal(codepoints('😀'),1);assert.equal(buildBody({...draft(),text:'😀'.repeat(4000)},now).text.length,8000);assert.throws(()=>buildBody({...draft(),text:'😀'.repeat(4001)},now),/text/)});
 for(const text of ['',' ','\n\t'])test(`reject blank ${JSON.stringify(text)}`,()=>assert.throws(()=>buildBody({...draft(),text},now),/text/));
 test('button trimming and projection',()=>{const v=buildBody({...draft(),buttons:[{text:' A ',url:'https://x.com',extra:'x'}]},now);assert.deepEqual(v.buttons,[{text:'A',url:'https://x.com'}])});
@@ -36,3 +36,18 @@ test('legacy reseller precedence displayed',()=>assert.equal(audienceKey({buyers
 test('draft factories do not share buttons',()=>{const a=emptyDraft();a.buttons.push({text:'x',url:'x'});assert.equal(emptyDraft().buttons.length,0)});
 const {translator}=await load('copy');
 for(const lang of ['fa','en'])test(`${lang} primary copy available`,()=>{for(const k of ['uncertain','testHint','ack','estimateHint','counterHint','actionHint','queued','scheduleError'])assert(translator(lang)(k).length>5)});
+
+for(const kind of AUDIENCE_KINDS)test(`explicit audience ${kind}`,()=>assert.equal(audienceKey({kind}),kind));
+test('explicit active kind is not overridden by legacy buyers flag',()=>assert.equal(audienceKey({kind:'active',buyers_only:true}),'active'));
+test('reseller precedence matches server',()=>assert.equal(audienceKey({kind:'active',resellers_only:true}),'resellers'));
+for(const kind of ['future',false,{},42])test(`unknown kind is not all ${JSON.stringify(kind)}`,()=>assert.equal(audienceKey({kind}),'unknownAudience'));
+for(const kind of [undefined,null,''])test(`legacy default kind ${kind}`,()=>assert.equal(audienceKey({kind}),'all'));
+test('missing legacy skipped stays unknown',()=>{const v=row();delete v.skipped;assert.equal(parseRow(v).skipped,null);assert.equal(parseRow({...v,skipped:null}).skipped,null)});
+test('no customer fallback to legacy create',()=>{assert.equal(submitPath('create'),'/api/admin/broadcasts/targeted');assert.equal(submitPath('test'),'/api/admin/broadcasts/test')});
+for(const kind of AUDIENCE_KINDS)test(`preview filter ${kind}`,()=>{const path=audiencePreviewPath({audience:kind,locale:'fa'});const u=new URL(path,'https://test');assert.equal(u.pathname,'/api/admin/broadcasts/targeted/audience');assert.equal(u.searchParams.get('kind'),kind);assert.equal(u.searchParams.get('locale'),'fa')});
+test('empty locale omitted from preview',()=>assert(!audiencePreviewPath({audience:'all',locale:''}).includes('locale')));
+test('zero valid selected audience allows review, not guaranteed delivery',()=>assert(previewReady('a','a',false,false,0)));
+for(const [path,loading,error,data] of [['b',false,false,8],['a',true,false,8],['a',false,true,8],['a',false,false,null],[null,false,false,8]])test(`stale/unavailable preview blocks ${path}/${loading}/${error}/${data}`,()=>assert(!previewReady('a',path,loading,error,data)));
+for(const lang of ['fa','en'])test(`targeted copy ${lang}`,()=>{for(const k of [...AUDIENCE_KINDS,'unknownAudience','selectedEstimate','previewHint','previewUnavailable','skipped','skippedHint'])assert(translator(lang)(k).length>2)});
+
+for(const flags of [{resellers_only:'false'},{buyers_only:1}])test('malformed legacy flags do not imply all '+JSON.stringify(flags),()=>assert.equal(audienceKey(flags),'unknownAudience'));

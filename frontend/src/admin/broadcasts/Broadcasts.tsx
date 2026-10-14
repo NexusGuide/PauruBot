@@ -3,12 +3,13 @@ import { useSearchParams } from "react-router-dom";
 import { ApiError, call } from "../api";
 import { useSession } from "../session";
 import { Sheet } from "../ui";
-import { actions, audienceKey, buildBody, codepoints, emptyDraft, parsePage, parseReachable, parseRow, type Action, type Body, type BroadcastRow, type Draft } from "./model";
+import { AUDIENCE_KINDS, audiencePreviewPath, previewReady, submitPath, actions, audienceKey, buildBody, codepoints, emptyDraft, parsePage, parseReachable, parseRow, type Action, type Body, type BroadcastRow, type Draft } from "./model";
 import { translator, type CopyKey } from "./copy";
 import "./broadcasts.css";
 type T = ReturnType<typeof translator>;
 function useRead<TData>(path: string, parse: (v: unknown) => TData) {
     const [data, setData] = useState<TData | null>(null), [error, setError] = useState(false), [loading, setLoading] = useState(true);
+    const [dataPath, setDataPath] = useState<string | null>(null);
     const seq = useRef(0);
     const reload = useCallback(async () => {
         const current = ++seq.current;
@@ -16,8 +17,10 @@ function useRead<TData>(path: string, parse: (v: unknown) => TData) {
         setError(false);
         try {
             const value = parse(await call<unknown>(path));
-            if (current === seq.current)
+            if (current === seq.current) {
                 setData(value);
+                setDataPath(path);
+            }
         }
         catch {
             if (current === seq.current)
@@ -29,7 +32,7 @@ function useRead<TData>(path: string, parse: (v: unknown) => TData) {
         }
     }, [path, parse]);
     useEffect(() => { setData(null); void reload(); return () => { seq.current++; }; }, [reload]);
-    return { data, error, loading, reload };
+    return { data, dataPath, error, loading, reload };
 }
 function Modal({ title, onClose, children }: {
     title: string;
@@ -105,6 +108,9 @@ function Composer({ t, locale, onClose, onSaved }: {
         kind: "test" | "create";
         body: Body;
     } | null>(null);
+    const previewPath = audiencePreviewPath(draft);
+    const preview = useRead(previewPath, parseReachable);
+    const canQueue = previewReady(previewPath, preview.dataPath, preview.loading, preview.error, preview.data);
     const [ack, setAck] = useState(false), [busy, setBusy] = useState(false), [discard, setDiscard] = useState(false), [testOK, setTestOK] = useState(false);
     const [message, setMessage] = useState(""), [blocked, setBlocked] = useState(false), [failed, setFailed] = useState(false);
     const reviewHeading = useRef<HTMLHeadingElement>(null);
@@ -122,10 +128,13 @@ function Composer({ t, locale, onClose, onSaved }: {
     const prepare = (kind: "test" | "create") => {
         if (lock.current || blocked)
             return;
+        if (kind === "create" && !canQueue) {
+            setMessage(t("previewUnavailable")); setFailed(true); return;
+        }
         try {
             // Test never inherits schedule/audience: its only recipient is the current staff member.
             const body = buildBody(kind === "test" ? { ...draft, schedule: "" } : draft);
-            setReview({ kind, body: kind === "test" ? { ...body, buyers_only: false, resellers_only: false, locale: null } : body });
+            setReview({ kind, body: kind === "test" ? { ...body, kind: "all", buyers_only: false, resellers_only: false, locale: null } : body });
             setAck(false);
             setMessage("");
             setFailed(false);
@@ -139,6 +148,9 @@ function Composer({ t, locale, onClose, onSaved }: {
     const send = async () => {
         if (lock.current || !review || !ack || blocked)
             return;
+        if (review.kind === "create" && !canQueue) {
+            setMessage(t("previewUnavailable")); setFailed(true); return;
+        }
         // Recheck schedule at the final click, not only when the review was opened.
         if (review.kind === "create")
             try {
@@ -153,7 +165,7 @@ function Composer({ t, locale, onClose, onSaved }: {
         setBusy(true);
         setMessage("");
         try {
-            const response = await call<unknown>(`/api/admin/broadcasts${review.kind === "test" ? "/test" : ""}`, { method: "POST", body: review.body });
+            const response = await call<unknown>(submitPath(review.kind), { method: "POST", body: review.body });
             if (review.kind === "test") {
                 const sentTo = (response as {
                     sent_to?: unknown;
@@ -193,8 +205,9 @@ function Composer({ t, locale, onClose, onSaved }: {
     {!review ? <fieldset disabled={busy} style={{ border: 0, padding: 0 }}>
       <label htmlFor="bc-text">{t("text")}</label><textarea id="bc-text" value={draft.text} onChange={e => change({ ...draft, text: e.target.value })} aria-describedby="bc-count"/>
       <p id="bc-count" className="bc-muted" aria-live="polite"><bdi dir="ltr">{codepoints(draft.text)} / 4000</bdi></p>
-      <label htmlFor="bc-audience">{t("audience")}</label><select id="bc-audience" value={draft.audience} onChange={e => change({ ...draft, audience: e.target.value as Draft["audience"] })}>{(["all", "buyers", "resellers"] as const).map(k => <option key={k} value={k}>{t(k)}</option>)}</select>
+      <label htmlFor="bc-audience">{t("audience")}</label><select id="bc-audience" value={draft.audience} onChange={e => change({ ...draft, audience: e.target.value as Draft["audience"] })}>{AUDIENCE_KINDS.map(k => <option key={k} value={k}>{t(k)}</option>)}</select>
       <label htmlFor="bc-language">{t("language")}</label><select id="bc-language" value={draft.locale} onChange={e => change({ ...draft, locale: e.target.value as Draft["locale"] })}><option value="">{t("anyLanguage")}</option><option value="fa">فارسی</option><option value="en">English</option></select><p className="bc-muted">{t("languageHint")}</p>
+      <section className="bc-note" aria-live="polite"><p>{t("selectedEstimate")}: {preview.loading ? t("loading") : canQueue ? new Intl.NumberFormat(locale).format(preview.data!) : t("unknown")}</p><p className="bc-muted">{t("previewHint")}</p><button disabled={preview.loading} onClick={() => void preview.reload()}>{t("refresh")}</button></section>
       <fieldset><legend>{t("buttons")}</legend>{draft.buttons.map((b, i) => <div className="bc-link" key={i}>
         <label htmlFor={`bc-label-${i}`}>{t("label")} {i + 1}</label><input id={`bc-label-${i}`} value={b.text} onChange={e => change({ ...draft, buttons: draft.buttons.map((v, j) => j === i ? { ...v, text: e.target.value } : v) })}/>
         <label htmlFor={`bc-url-${i}`}>{t("url")} {i + 1}</label><input id={`bc-url-${i}`} dir="ltr" type="url" value={b.url} onChange={e => change({ ...draft, buttons: draft.buttons.map((v, j) => j === i ? { ...v, url: e.target.value } : v) })}/>
@@ -202,13 +215,13 @@ function Composer({ t, locale, onClose, onSaved }: {
       </div>)}<button disabled={busy || draft.buttons.length >= 6} onClick={() => change({ ...draft, buttons: [...draft.buttons, { text: "", url: "" }] })}>{t("add")}</button></fieldset>
       <label htmlFor="bc-schedule">{t("schedule")}</label><input id="bc-schedule" type="datetime-local" value={draft.schedule} onChange={e => change({ ...draft, schedule: e.target.value })}/><p className="bc-muted"><bdi>{zone}</bdi> · {t("scheduleHint")}</p>
       {testOK && <p className="bc-note">{t("testOK")}</p>}
-      <div className="bc-actions"><button disabled={busy || blocked} onClick={() => prepare("test")}>{t("test")}</button><button className="bc-primary" disabled={busy || blocked} onClick={() => prepare("create")}>{t("review")}</button></div>
+      <div className="bc-actions"><button disabled={busy || blocked} onClick={() => prepare("test")}>{t("test")}</button><button className="bc-primary" disabled={busy || blocked || !canQueue} onClick={() => prepare("create")}>{t("review")}</button></div>
     </fieldset> : <section aria-label={t(review.kind === "test" ? "testTitle" : "reviewTitle")}>
       <h2 tabIndex={-1} ref={reviewHeading}>{t(review.kind === "test" ? "testTitle" : "reviewTitle")}</h2><p>{t(review.kind === "test" ? "testHint" : "reviewHint")}</p>
       {review.kind === "create" && <dl><dt>{t("audience")}</dt><dd>{t(draft.audience)}</dd><dt>{t("language")}</dt><dd>{draft.locale || t("anyLanguage")}</dd><dt>{t("scheduled")}</dt><dd>{review.body.scheduled_at ? <><time>{stamp(review.body.scheduled_at, locale)}</time> · <bdi>{zone}</bdi><br /><bdi>{review.body.scheduled_at}</bdi></> : t("now")}</dd></dl>}
       <pre dir="auto">{review.body.text}</pre>{review.body.buttons.length > 0 && <ul>{review.body.buttons.map((b, i) => <li key={i}>{b.text} — <bdi>{b.url}</bdi></li>)}</ul>}
       <label className="bc-check"><input type="checkbox" checked={ack} disabled={busy || blocked} onChange={e => setAck(e.target.checked)}/>{t("ack")}</label>
-      <div className="bc-actions"><button disabled={busy} onClick={() => { setReview(null); setAck(false); setMessage(""); }}>{t("edit")}</button><button className="bc-primary" disabled={busy || blocked || !ack} onClick={() => void send()}>{t(review.kind === "test" ? "confirmTest" : review.body.scheduled_at ? "queueScheduled" : "queue")}</button></div>
+      <div className="bc-actions"><button disabled={busy} onClick={() => { setReview(null); setAck(false); setMessage(""); }}>{t("edit")}</button><button className="bc-primary" disabled={busy || blocked || !ack || (review.kind === "create" && !canQueue)} onClick={() => void send()}>{t(review.kind === "test" ? "confirmTest" : review.body.scheduled_at ? "queueScheduled" : "queue")}</button></div>
     </section>}
   </Modal>;
 }
@@ -274,8 +287,8 @@ function Manager({ t, locale }: {
     <div className="bc-list">{history.data?.items.map(row => <article className="bc-card" key={row.id} aria-label={`#${row.id}`}>
       <header className="bc-top"><h2>#{row.id}</h2><span className="bc-badge">{statusKey(row.status) ? t(statusKey(row.status)!) : row.status}</span></header><pre dir="auto">{row.text}</pre>
       <p className="bc-muted">{t(audienceKey(row.audience))} · {typeof row.audience.locale === "string" ? row.audience.locale : t("anyLanguage")}</p>
-      <dl className="bc-grid">{(["sent", "failed", "blocked", "deleted", "total"] as const).map(key => <div key={key}><dt>{t(key)}</dt><dd>{key === "total" && row.total === 0 && ["queued", "paused"].includes(row.status) ? t("uncounted") : new Intl.NumberFormat(locale).format(row[key])}</dd></div>)}</dl>
-      <p className="bc-muted">{t("counterHint")}</p><p className="bc-muted">{t("created")}: <time>{stamp(row.created_at, locale)}</time>{row.scheduled_at && <><br />{t("scheduled")}: <time>{stamp(row.scheduled_at, locale)}</time></>}{row.finished_at && <><br />{t("finished")}: <time>{stamp(row.finished_at, locale)}</time></>}</p>
+      <dl className="bc-grid">{(["sent", "failed", "blocked", "deleted", "skipped", "total"] as const).map(key => <div key={key}><dt>{t(key)}</dt><dd>{key === "total" && row.total === 0 && ["queued", "paused"].includes(row.status) ? t("uncounted") : row[key] === null ? t("unknown") : new Intl.NumberFormat(locale).format(row[key])}</dd></div>)}</dl>
+      <p className="bc-muted">{t("counterHint")}</p><p className="bc-muted">{t("skippedHint")}</p><p className="bc-muted">{t("created")}: <time>{stamp(row.created_at, locale)}</time>{row.scheduled_at && <><br />{t("scheduled")}: <time>{stamp(row.scheduled_at, locale)}</time></>}{row.finished_at && <><br />{t("finished")}: <time>{stamp(row.finished_at, locale)}</time></>}</p>
       <div className="bc-actions">{actions(row.status).map(value => <button key={value} disabled={history.loading || history.error} onClick={() => { setAction({ row, action: value }); setNotice(""); }}>{t(value)}</button>)}</div>
     </article>)}</div>
     <nav className="bc-actions" aria-label={t("page")}><button disabled={page === 0 || history.loading} onClick={() => changePage(page - 1)}>{t("previous")}</button><span>{t("page")} {new Intl.NumberFormat(locale).format(page + 1)}</span><button disabled={!history.data || history.error || history.loading || (page + 1) * 25 >= history.data.total} onClick={() => changePage(page + 1)}>{t("next")}</button></nav>

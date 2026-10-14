@@ -1,4 +1,6 @@
-/** The admin API exposes delivery counters, not a filtered audience estimate or skipped count. */
+export const AUDIENCE_KINDS = ["all", "buyers", "resellers", "active", "inactive", "never_bought"] as const;
+export type AudienceKind = typeof AUDIENCE_KINDS[number];
+/** Missing legacy skipped counters are unknown, not zero. */
 export interface BroadcastRow {
     id: number;
     text: string;
@@ -9,6 +11,7 @@ export interface BroadcastRow {
     failed: number;
     blocked: number;
     deleted: number;
+    skipped: number | null;
     scheduled_at: string | null;
     created_at: string;
     finished_at: string | null;
@@ -19,11 +22,12 @@ export interface Draft {
         text: string;
         url: string;
     }[];
-    audience: "all" | "buyers" | "resellers";
+    audience: AudienceKind;
     locale: "" | "fa" | "en";
     schedule: string;
 }
 export interface Body {
+    kind: AudienceKind;
     text: string;
     buttons: {
         text: string;
@@ -45,13 +49,14 @@ export function parseRow(value: unknown): BroadcastRow {
     if (!record(value) || !count(value.id) || value.id === 0 || typeof value.text !== "string" ||
         typeof value.status !== "string" || !record(value.audience) ||
         ![value.total, value.sent, value.failed, value.blocked, value.deleted].every(count) ||
+        (value.skipped != null && !count(value.skipped)) ||
         !date(value.created_at) || (value.scheduled_at !== null && !date(value.scheduled_at)) ||
         (value.finished_at !== null && !date(value.finished_at)))
         throw new Error("invalid_broadcast");
     // Project only known fields; never render arbitrary response properties as HTML.
     return { id: value.id, text: value.text, status: value.status, audience: value.audience,
         total: value.total as number, sent: value.sent as number, failed: value.failed as number,
-        blocked: value.blocked as number, deleted: value.deleted as number,
+        blocked: value.blocked as number, deleted: value.deleted as number, skipped: value.skipped == null ? null : value.skipped as number,
         created_at: value.created_at, scheduled_at: value.scheduled_at as string | null, finished_at: value.finished_at as string | null };
 }
 export function parsePage(value: unknown): {
@@ -101,9 +106,9 @@ export function buildBody(draft: Draft, now = Date.now()): Body {
         throw new Error("text" satisfies Problem);
     if (draft.buttons.length > 6 || draft.buttons.some(b => !b.text.trim() || !validUrl(b.url)))
         throw new Error("buttons" satisfies Problem);
-    if (!["all", "buyers", "resellers"].includes(draft.audience) || !["", "fa", "en"].includes(draft.locale))
+    if (!(AUDIENCE_KINDS as readonly string[]).includes(draft.audience) || !["", "fa", "en"].includes(draft.locale))
         throw new Error("buttons");
-    return { text: draft.text, buttons: draft.buttons.map(b => ({ text: b.text.trim(), url: b.url })),
+    return { kind: draft.audience, text: draft.text, buttons: draft.buttons.map(b => ({ text: b.text.trim(), url: b.url })),
         buyers_only: draft.audience === "buyers", resellers_only: draft.audience === "resellers",
         locale: draft.locale || null, scheduled_at: scheduledIso(draft.schedule, now) };
 }
@@ -114,6 +119,22 @@ export function actions(status: string): Action[] {
         return ["resume", "cancel"];
     return [];
 }
-export function audienceKey(audience: Record<string, unknown>): "all" | "buyers" | "resellers" {
-    return audience.resellers_only === true ? "resellers" : audience.buyers_only === true ? "buyers" : "all";
+/** Match server precedence, but never label an unsupported kind as "all". */
+export function audienceKey(audience: Record<string, unknown>): AudienceKind | "unknownAudience" {
+    if (audience.resellers_only === true) return "resellers";
+    if ([audience.resellers_only, audience.buyers_only].some(v => v != null && typeof v !== "boolean"))
+        return "unknownAudience";
+    const kind = audience.kind == null || audience.kind === "" ? "all" : audience.kind;
+    if (kind === "all" && audience.buyers_only === true) return "buyers";
+    return typeof kind === "string" && (AUDIENCE_KINDS as readonly string[]).includes(kind)
+        ? kind as AudienceKind : "unknownAudience";
 }
+export function audiencePreviewPath(draft: Pick<Draft, "audience" | "locale">): string {
+    const query = new URLSearchParams({ kind: draft.audience });
+    if (draft.locale) query.set("locale", draft.locale);
+    return `/api/admin/broadcasts/targeted/audience?${query}`;
+}
+export function previewReady(path: string, dataPath: string | null, loading: boolean, error: boolean, data: number | null): boolean {
+    return path === dataPath && !loading && !error && data !== null;
+}
+export const submitPath = (kind: "test" | "create"): string => `/api/admin/broadcasts/${kind === "test" ? "test" : "targeted"}`;
