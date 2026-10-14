@@ -33,7 +33,7 @@ export function CapabilitySheet({ panel, onClose }: { panel: PanelRow; onClose: 
       if (!dialog) return;
       const controls = [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), a[href], select:not(:disabled), textarea:not(:disabled), [tabindex="0"]')].filter(el => el.getClientRects().length);
       const first = controls[0], last = controls[controls.length - 1];
-      if (!first) { event.preventDefault(); return; }
+      if (!first || !last) { event.preventDefault(); return; }
       const active = document.activeElement;
       if (!dialog.contains(active) || active === dialog || (!event.shiftKey && active === last) || (event.shiftKey && active === first)) {
         event.preventDefault(); (event.shiftKey ? last : first).focus();
