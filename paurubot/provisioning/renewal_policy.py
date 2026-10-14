@@ -246,6 +246,20 @@ def can_confirm(info: PanelUser) -> bool:
     return bool(info.limits_known)
 
 
+def reset_untracked(target: dict[str, Any], params: dict[str, Any]) -> bool:
+    """An old destructive target has no evidence of whether its reset already ran.
+
+    New targets store protocol=1 atomically with the target BEFORE any panel call. A legacy
+    absence is not permission to reset, auto-complete or refund; staff must resolve it.
+    """
+    return bool(
+        target.get("reset")
+        and not params.get("reset_done")
+        and not params.get("reset_attempted")
+        and params.get("reset_protocol") != 1
+    )
+
+
 def reset_pending(params: dict[str, Any]) -> bool:
     """A reset was reserved durably, but its response was never recorded."""
     return bool(params.get("reset_attempted") and not params.get("reset_done"))

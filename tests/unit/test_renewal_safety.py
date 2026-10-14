@@ -85,7 +85,7 @@ def test_pending_reset_requires_observable_evidence(before, used, known, confirm
 
 def _objects(*, used: int = 10 * GB, params: dict | None = None):
     target = _target(used=used)
-    order = SimpleNamespace(id=1, params=params or {})
+    order = SimpleNamespace(id=1, params={"reset_protocol": 1, **(params or {})})
     service = SimpleNamespace(
         panel_username="safety-user",
         panel_data={},
@@ -198,3 +198,37 @@ async def test_recorded_reset_is_never_repeated_after_usage_verification_error()
     objects = _objects(params={"reset_done": True, "verification": {"problems": ["usage_not_reset"]}})
     await _apply(objects)
     objects[3].reset_usage.assert_not_awaited()
+
+
+@pytest.mark.parametrize("state", [None, "pending", "running", "uncertain"])
+def test_legacy_destructive_target_is_not_refundable(state) -> None:
+    from paurubot.db.models import Order, OrderKind
+    from paurubot.provisioning import renewal_state
+
+    order = Order(kind=OrderKind.RENEW, params={"target": _target(), "renewal": {"state": state}})
+    assert not renewal_state.refundable(order)
+
+
+async def test_untracked_legacy_reset_never_calls_panel() -> None:
+    objects = _objects()
+    objects[1].params.pop("reset_protocol")
+    for _ in range(2):
+        with pytest.raises(rp.NotConfirmed, match="legacy_reset_uncertain"):
+            await _apply(objects)
+    objects[3].reset_usage.assert_not_awaited()
+    objects[3].get_user.assert_not_awaited()
+    objects[3].update_user.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("params", "unknown"),
+    [
+        ({}, True),
+        ({"reset_protocol": 1}, False),
+        ({"reset_done": True}, False),
+        ({"reset_attempted": NOW.isoformat()}, False),
+    ],
+)
+def test_legacy_marker_is_not_inferred_from_absence(params, unknown) -> None:
+    assert rp.reset_untracked(_target(), params) is unknown
+    assert not rp.reset_untracked({"reset": False}, params)

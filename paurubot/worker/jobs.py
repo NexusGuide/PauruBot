@@ -9,13 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core import orders
 from paurubot.db.base import utcnow
-from paurubot.db.models import Job, JobStatus, Panel, Service, Shop
+from paurubot.db.models import Job, JobStatus, Order, Panel, Service, Shop
 from paurubot.db.session import session_scope
 from paurubot.panels import PanelError, PanelUnavailable
 from paurubot.payments import engine as payments
 from paurubot.provisioning import lifecycle, sync
 from paurubot.worker import queue
-from paurubot.worker.runner import Permanent, QueueSpec, Retry, every, register_queue
+from paurubot.worker.runner import Defer, Permanent, QueueSpec, Retry, every, register_queue
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +27,8 @@ async def provision_order(session: AsyncSession, job: queue.Claimed) -> None:
     order_id = int(job.payload["order_id"])
     try:
         await lifecycle.fulfill(session, order_id)
+    except lifecycle.ServiceBusy as exc:
+        raise Defer(str(exc)) from exc
     except lifecycle.ProvisionError as exc:
         raise Permanent(str(exc)) from exc
     except PanelUnavailable as exc:
@@ -228,17 +230,26 @@ async def reconcile_ledger() -> None:
 @every(600, "renewals.reconcile")
 async def reconcile_renewals() -> None:
     """Settle renewals parked as uncertain by reading the panel, never by a blind retry."""
+    cursor = 0
     async with session_scope() as session:
-        order_ids = await lifecycle.parked_renewals(session)
-    for order_id in order_ids:
-        try:
-            async with session_scope() as session:
-                outcome = await lifecycle.reconcile_renewal(session, order_id)
-        except Exception:
-            log.exception("reconciling renewal order %s failed", order_id)
-            continue
-        if outcome != "uncertain":
-            log.info("renewal order %s reconciled: %s", order_id, outcome)
+        through_id = int(await session.scalar(select(func.max(Order.id))) or 0)
+    while cursor < through_id:
+        async with session_scope() as session:
+            order_ids = await lifecycle.parked_renewals(session, after_id=cursor, through_id=through_id)
+        if not order_ids:
+            break
+        cursor = order_ids[-1]
+        for order_id in order_ids:
+            try:
+                async with session_scope() as session:
+                    outcome = await lifecycle.reconcile_renewal(session, order_id)
+            except lifecycle.ServiceBusy:
+                continue  # a live worker owns it; look again in the next bounded pass
+            except Exception:
+                log.exception("reconciling renewal order %s failed", order_id)
+                continue
+            if outcome != "uncertain":
+                log.info("renewal order %s reconciled: %s", order_id, outcome)
 
 
 @every(60, "services.auto_renew")
