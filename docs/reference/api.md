@@ -222,6 +222,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/payments/{payment_id}` | Mini App initData | Payment status |
 | GET | `/api/webapp/reseller/desk` | Mini App initData | Reseller desk view |
 | POST | `/api/webapp/reseller/renew` | Mini App initData | Reseller renew |
+| GET | `/api/webapp/services/{service_id}/auto-renew` | Mini App initData | Get auto renew |
+| POST | `/api/webapp/services/{service_id}/auto-renew` | Mini App initData | Set auto renew |
 | GET | `/api/webapp/services/{service_id}/links` | Mini App initData | Service links |
 | POST | `/api/webapp/services/{service_id}/rename` | Mini App initData | Service rename |
 | POST | `/api/webapp/services/{service_id}/revoke` | Mini App initData | Service revoke |
