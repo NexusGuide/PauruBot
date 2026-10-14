@@ -284,3 +284,145 @@ async def test_profile_alert_settings_are_strict_self_only_and_independent(sessi
             "/api/webapp/me/locale", headers=h(81701), json={"locale": "fa", "customer_id": other["id"]}
         )
     ).status_code == 422
+
+
+async def test_miniapp_tickets_auth_validation_ownership_and_closed_rules(session, app_env) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import Ticket, TicketDepartment
+
+    client, shop = app_env["client"], app_env["shop"]
+    valid = {"subject": "Connection", "text": "Please help", "department_id": None}
+    for method, path, body in (
+        ("GET", "/api/webapp/tickets", None),
+        ("POST", "/api/webapp/tickets", valid),
+        ("GET", "/api/webapp/tickets/1", None),
+        ("POST", "/api/webapp/tickets/1/reply", {"text": "hello"}),
+        ("POST", "/api/webapp/tickets/1/close", {}),
+    ):
+        assert (await client.request(method, path, json=body)).status_code == 401
+    owner = (await client.get("/api/webapp/me", headers=h(81801))).json()
+    foreign = await factories.shop(session)
+    foreign_department = TicketDepartment(shop_id=foreign.id, title="Foreign")
+    inactive = TicketDepartment(shop_id=shop.id, title="Inactive", is_active=False)
+    own_department = TicketDepartment(shop_id=shop.id, title="Technical")
+    session.add_all([foreign_department, inactive, own_department])
+    await session.commit()
+    listing = (await client.get("/api/webapp/tickets", headers=h(81801))).json()
+    assert listing["departments"] == [{"id": own_department.id, "title": "Technical"}]
+    for bad in (
+        {"subject": "   "},
+        {"text": "\n "},
+        {"text": "x" * 4001},
+        {"subject": "x" * 129},
+        {"customer_id": owner["id"]},
+        {"internal": True},
+        {"department_id": True},
+    ):
+        response = await client.post("/api/webapp/tickets", headers=h(81801), json={**valid, **bad})
+        assert response.status_code == 422, response.text
+    for department_id in (foreign_department.id, inactive.id):
+        response = await client.post(
+            "/api/webapp/tickets", headers=h(81801), json={**valid, "department_id": department_id}
+        )
+        assert response.status_code == 400 and response.json()["error"] == "ticket_department_unknown"
+    response = await client.post(
+        "/api/webapp/tickets", headers=h(81801), json={**valid, "department_id": own_department.id}
+    )
+    assert response.status_code == 200, response.text
+    ticket_id = response.json()["ticket"]["id"]
+    detail_path = f"/api/webapp/tickets/{ticket_id}"
+    for suffix, method, body in (
+        ("", "GET", None),
+        ("/reply", "POST", {"text": "intrusion"}),
+        ("/close", "POST", {}),
+    ):
+        assert (
+            await client.request(method, detail_path + suffix, headers=h(81802), json=body)
+        ).status_code == 404
+    for body in ({"text": "   "}, {"text": "x", "internal": True}, {"text": "x", "author_type": "staff"}):
+        assert (await client.post(detail_path + "/reply", headers=h(81801), json=body)).status_code == 422
+    reply = await client.post(detail_path + "/reply", headers=h(81801), json={"text": "  More details  "})
+    assert reply.status_code == 200
+    thread = (await client.get(detail_path, headers=h(81801))).json()
+    assert [m["text"] for m in thread["messages"]] == ["Please help", "More details"]
+    assert all(m["from"] == "me" for m in thread["messages"])
+    for _ in range(2):
+        assert (await client.post(detail_path + "/close", headers=h(81801))).json()["ticket"][
+            "status"
+        ] == "closed"
+    rejected = await client.post(detail_path + "/reply", headers=h(81801), json={"text": "Too late"})
+    assert rejected.status_code == 409 and rejected.json()["error"] == "ticket_closed"
+    # Defense in depth: even an inconsistent historical row with the same customer must match shop.
+    inconsistent = Ticket(shop_id=foreign.id, customer_id=owner["id"], subject="Must stay private")
+    session.add(inconsistent)
+    await session.commit()
+    assert (await client.get(f"/api/webapp/tickets/{inconsistent.id}", headers=h(81801))).status_code == 404
+    assert inconsistent.id not in [
+        t["id"] for t in (await client.get("/api/webapp/tickets", headers=h(81801))).json()["items"]
+    ]
+
+
+async def test_miniapp_ticket_cursor_pages_never_expose_internal_notes_or_file_ids(session, app_env) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import Ticket, TicketMessage, TicketStatus
+
+    client, shop = app_env["client"], app_env["shop"]
+    own = (await client.get("/api/webapp/me", headers=h(81811))).json()
+    rows = [
+        Ticket(shop_id=shop.id, customer_id=own["id"], subject=f"Ticket {i}", status=TicketStatus.CLOSED)
+        for i in range(22)
+    ]
+    session.add_all(rows)
+    await session.flush()
+    ticket = rows[-1]
+    messages = [
+        TicketMessage(ticket_id=ticket.id, author_type="staff", text=f"Visible {i}") for i in range(105)
+    ]
+    internal = TicketMessage(
+        ticket_id=ticket.id,
+        author_type="staff",
+        text="PRIVATE STAFF NOTE",
+        is_internal=True,
+        attachment_file_id="SECRET_FILE_ID",
+    )
+    attachment = TicketMessage(
+        ticket_id=ticket.id, author_type="staff", text=None, attachment_file_id="PUBLIC_FILE_TOKEN"
+    )
+    session.add_all([*messages, internal, attachment])
+    await session.commit()
+    listing = (await client.get("/api/webapp/tickets", headers=h(81811))).json()
+    assert len(listing["items"]) == 20 and listing["next_before"] == rows[2].id
+    second = (
+        await client.get("/api/webapp/tickets", headers=h(81811), params={"before": listing["next_before"]})
+    ).json()
+    assert [t["id"] for t in second["items"]] == [rows[1].id, rows[0].id] and second["next_before"] is None
+    path = f"/api/webapp/tickets/{ticket.id}"
+    latest = (await client.get(path, headers=h(81811))).json()
+    older = (await client.get(path, headers=h(81811), params={"before": latest["next_before"]})).json()
+    visible = older["messages"] + latest["messages"]
+    assert len(latest["messages"]) == 100 and len(older["messages"]) == 6 and older["next_before"] is None
+    assert [m["id"] for m in visible] == [m.id for m in messages] + [attachment.id]
+    assert latest["messages"][-1]["has_attachment"] is True
+    assert all(m["from"] == "support" for m in visible)
+    assert all(set(m) == {"id", "from", "text", "has_attachment", "created_at"} for m in visible)
+    assert (
+        "PRIVATE STAFF NOTE" not in str(visible)
+        and "SECRET_FILE_ID" not in str(visible)
+        and "PUBLIC_FILE_TOKEN" not in str(visible)
+    )
+    for invalid_cursor_path in ("/api/webapp/tickets", path):
+        assert (
+            await client.get(invalid_cursor_path, headers=h(81811), params={"before": 0})
+        ).status_code == 422
+
+
+async def test_miniapp_open_ticket_limit_is_preserved(app_env) -> None:  # type: ignore[no-untyped-def]
+    client = app_env["client"]
+    for _ in range(3):
+        assert (
+            await client.post(
+                "/api/webapp/tickets", headers=h(81821), json={"subject": "Help", "text": "Question"}
+            )
+        ).status_code == 200
+    response = await client.post(
+        "/api/webapp/tickets", headers=h(81821), json={"subject": "Help", "text": "Question"}
+    )
+    assert response.status_code == 400 and response.json()["error"] == "ticket_limit"

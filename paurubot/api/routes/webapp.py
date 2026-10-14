@@ -36,6 +36,7 @@ from paurubot.db.models import (
     Service,
     ServiceStatus,
     Ticket,
+    TicketMessage,
 )
 from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
@@ -588,7 +589,7 @@ async def trial(ctx: WebApp) -> dict[str, Any]:
     return {"order": order_view(order)}
 
 
-# --- support tickets in the Mini App (F-14) -----------------------------------------------
+# --- support tickets in the Mini App (F-08 / F-14) -----------------------------------------------
 
 
 def _ticket_view(ticket: Ticket) -> dict[str, Any]:
@@ -602,31 +603,45 @@ def _ticket_view(ticket: Ticket) -> dict[str, Any]:
     }
 
 
-async def _own_ticket(ctx: WebApp, ticket_id: int) -> Ticket:
-    ticket = await ctx.session.get(Ticket, ticket_id)
-    if ticket is None or ticket.customer_id != ctx.customer.id:
+async def _own_ticket(ctx: WebApp, ticket_id: int, *, lock: bool = False) -> Ticket:
+    stmt = select(Ticket).where(
+        Ticket.id == ticket_id, Ticket.customer_id == ctx.customer.id, Ticket.shop_id == ctx.shop.id
+    )
+    if lock:
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
+    ticket = await ctx.session.scalar(stmt)
+    if ticket is None:
         raise HTTPException(status_code=404, detail="ticket_not_found")
     return ticket
 
 
 @router.get("/tickets")
-async def my_tickets(ctx: WebApp) -> dict[str, Any]:
-    rows = await tickets.for_customer(ctx.session, ctx.customer, limit=20)
+async def my_tickets(ctx: WebApp, before: int | None = Query(None, ge=1)) -> dict[str, Any]:
+    # Stable ID cursor: updates/replies cannot move a row between pages.
+    stmt = select(Ticket).where(Ticket.customer_id == ctx.customer.id, Ticket.shop_id == ctx.shop.id)
+    if before is not None:
+        stmt = stmt.where(Ticket.id < before)
+    rows = list(await ctx.session.scalars(stmt.order_by(Ticket.id.desc()).limit(21)))
+    page = rows[:20]
     desks = await tickets.departments(ctx.session, ctx.shop.id)
     return {
-        "items": [_ticket_view(row) for row in rows],
+        "items": [_ticket_view(row) for row in page],
+        "next_before": page[-1].id if len(rows) > 20 else None,
         "departments": [{"id": desk.id, "title": desk.title} for desk in desks],
     }
 
 
 class TicketBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     subject: str = Field(min_length=1, max_length=128)
     text: str = Field(min_length=1, max_length=4000)
-    department_id: int | None = None
+    department_id: int | None = Field(None, ge=1, strict=True)
 
 
 @router.post("/tickets")
 async def new_ticket(body: TicketBody, ctx: WebApp) -> dict[str, Any]:
+    # Serializes Mini App opens by this customer before checking the open-ticket limit.
+    await ctx.session.refresh(ctx.customer, ["id"], with_for_update=True)
     try:
         ticket = await tickets.open_ticket(
             ctx.session, ctx.customer, body.subject, source="webapp", department_id=body.department_id
@@ -643,11 +658,20 @@ async def new_ticket(body: TicketBody, ctx: WebApp) -> dict[str, Any]:
 
 
 @router.get("/tickets/{ticket_id}")
-async def ticket_thread(ticket_id: int, ctx: WebApp) -> dict[str, Any]:
+async def ticket_thread(
+    ticket_id: int, ctx: WebApp, before: int | None = Query(None, ge=1)
+) -> dict[str, Any]:
     ticket = await _own_ticket(ctx, ticket_id)
-    rows = await tickets.messages(ctx.session, ticket.id, limit=100)  # staff notes never come back
+    stmt = select(TicketMessage).where(
+        TicketMessage.ticket_id == ticket.id, TicketMessage.is_internal.is_(False)
+    )
+    if before is not None:
+        stmt = stmt.where(TicketMessage.id < before)
+    rows = list(await ctx.session.scalars(stmt.order_by(TicketMessage.id.desc()).limit(101)))
+    page = rows[:100]
     return {
         "ticket": _ticket_view(ticket),
+        "next_before": page[-1].id if len(rows) > 100 else None,
         "messages": [
             {
                 "id": row.id,
@@ -656,18 +680,19 @@ async def ticket_thread(ticket_id: int, ctx: WebApp) -> dict[str, Any]:
                 "has_attachment": bool(row.attachment_file_id),
                 "created_at": _iso(row.created_at),
             }
-            for row in rows
+            for row in reversed(page)
         ],
     }
 
 
 class TicketReplyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     text: str = Field(min_length=1, max_length=4000)
 
 
 @router.post("/tickets/{ticket_id}/reply")
 async def ticket_answer(ticket_id: int, body: TicketReplyBody, ctx: WebApp) -> dict[str, Any]:
-    ticket = await _own_ticket(ctx, ticket_id)
+    ticket = await _own_ticket(ctx, ticket_id, lock=True)
     try:
         await tickets.add_message(
             ctx.session, ticket, author_type="customer", author_id=ctx.customer.id, text=body.text
@@ -682,7 +707,7 @@ async def ticket_answer(ticket_id: int, body: TicketReplyBody, ctx: WebApp) -> d
 
 @router.post("/tickets/{ticket_id}/close")
 async def ticket_close(ticket_id: int, ctx: WebApp) -> dict[str, Any]:
-    ticket = await _own_ticket(ctx, ticket_id)
+    ticket = await _own_ticket(ctx, ticket_id, lock=True)
     await tickets.close(ctx.session, ticket)
     return {"ticket": _ticket_view(ticket)}
 
