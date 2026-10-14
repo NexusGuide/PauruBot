@@ -174,7 +174,9 @@ async def set_auto_renew(service_id: int, body: AutoRenewBody, ctx: WebApp) -> d
                 )
                 # A changed enabled rule is not permission to bypass the recent-order cooldown.
                 # An explicit restart of a stopped rule clears its failed-order marker, as the bot does.
-                markers = {k: previous[k] for k in ("last_at", "last_order_id") if k in previous}
+                markers: dict[str, Any] = {
+                    k: previous[k] for k in ("last_at", "last_order_id") if k in previous
+                }
                 if previous.get("stopped"):
                     markers.pop("last_order_id", None)
                 service.auto_renew = {**(service.auto_renew or {}), **markers}

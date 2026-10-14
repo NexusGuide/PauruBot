@@ -71,3 +71,14 @@ rule on an ineligible service.
   paid/queued orders, opt-in near thresholds, short balance/refill, stopped restart, concurrent worker/
   preference updates and off behavior. Backups/rollback and real CSS/keyboard/mobile remain gates.
   This PR does not merge, deploy, migrate or activate server flags.
+
+
+### Type-contract correction
+
+The first F-02 head's frontend CI passed, but Python CI failed. A narrower type-contract probe
+using the original SQLAlchemy Service annotations, original auto-renew protocol/signatures,
+real enum definitions and typed API/domain interfaces independently reproduced a dict-key
+invariance error when assigning inferred Literal-key cooldown markers to the service JSON field.
+An explicit `dict[str, Any]` marker annotation fixes that error; the probe and all 29 injected API
+cases pass after correction. This is not a full repository type/import check or a claim that no
+other CI failure exists. Await the fresh full CI head; no checks were disabled or relaxed.
