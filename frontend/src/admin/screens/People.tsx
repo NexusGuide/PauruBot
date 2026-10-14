@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ResellerHub, StaffHubButton } from "../reseller-hub/ResellerHub";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { money } from "@shared/format";
 import {
@@ -525,6 +526,7 @@ export function Resellers() {
                         <Money amount={p.balance} />
                       </span>
                     </button>
+                    <StaffHubButton profileId={p.id} name={p.customer} />
                   </li>
                 ))}
               </ul>
@@ -1127,12 +1129,14 @@ export function SubResellers() {
 }
 
 export function MyBilling() {
-  const { t } = useSession();
+  const { t, me, can } = useSession();
+  const allowed = me?.role === "reseller" && can("dashboard.view");
   return (
-    <Page title={t("billing_history")}>
-      <Section>
+    <Page title={t("nav_reseller_hub")}>
+      <ResellerHub mode="own" />
+      {allowed && <Section title={t("billing_history")}>
         <BillingHistory path="/api/admin/my/billing" />
-      </Section>
+      </Section>}
     </Page>
   );
 }
