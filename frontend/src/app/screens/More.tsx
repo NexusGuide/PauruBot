@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { money } from "@shared/format";
 import { errorText, useApp } from "../state";
 import { haptic, tg } from "../telegram";
+import { translator } from "../receipts/copy";
 import { Panel, Row, Screen } from "../ui";
 
 export function More() {
@@ -33,6 +34,7 @@ export function More() {
 
   return (
     <Screen title={t("more")}>
+      <section className="mb-4 rounded-3xl bg-[var(--surface)]"><Row onClick={() => navigate("/receipts")}>{translator(locale)("title")}</Row></section>
       {me.staff && (me.staff.dashboard || me.staff.review) && (
         <section className="mb-4 overflow-hidden rounded-3xl bg-[var(--surface)]">
           <Row onClick={() => navigate("/manage")}>

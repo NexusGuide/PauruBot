@@ -10,7 +10,7 @@ from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from paurubot.api.routes import webapp_staff
+from paurubot.api.routes import webapp_receipts, webapp_staff
 from paurubot.api.webapp_auth import WebApp
 from paurubot.core import catalog, customers, orders, pricing, reseller_desk, tickets, trials
 from paurubot.db.models import (
@@ -39,6 +39,7 @@ from paurubot.worker import queue
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/webapp", tags=["webapp"])
+router.include_router(webapp_receipts.router)
 MAX_RECEIPT = 8 * 1024 * 1024
 
 
@@ -406,7 +407,7 @@ async def redeem_gift(body: GiftBody, ctx: WebApp) -> dict[str, Any]:
 @router.post("/payments/{payment_id}/receipt")
 async def upload_receipt(payment_id: int, ctx: WebApp, file: UploadFile = File(...)) -> dict[str, Any]:
     payment = await ctx.session.get(Payment, payment_id)
-    if payment is None or payment.customer_id != ctx.customer.id:
+    if payment is None or payment.customer_id != ctx.customer.id or payment.shop_id != ctx.shop.id:
         raise HTTPException(status_code=404, detail="payment_not_found")
     if not (file.content_type or "").startswith("image/"):
         raise HTTPException(status_code=400, detail="receipt_expected")
@@ -450,13 +451,15 @@ async def _store_receipt(ctx: WebApp, data: bytes) -> str | None:
 @router.get("/payments/{payment_id}")
 async def payment_status(payment_id: int, ctx: WebApp) -> dict[str, Any]:
     payment = await ctx.session.get(Payment, payment_id)
-    if payment is None or payment.customer_id != ctx.customer.id:
+    if payment is None or payment.customer_id != ctx.customer.id or payment.shop_id != ctx.shop.id:
         raise HTTPException(status_code=404, detail="payment_not_found")
     return {
         "id": payment.id,
         "status": payment.status.value,
         "amount": payment.amount,
         "fulfilled": payment.fulfilled_at is not None,
+        "provider": payment.provider,
+        "order_id": payment.order_id,
     }
 
 
