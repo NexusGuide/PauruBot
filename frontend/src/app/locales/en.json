@@ -381,5 +381,10 @@
   "help_trouble": "Still unable to connect?",
   "help_trouble_hint": "Check the service status, remaining data and expiry; update the client’s subscription and note the error message. Open a ticket with your device/client name and error, but never send passwords, private configuration links or payment-card details.",
   "help_tickets": "Open support tickets",
-  "err_help_invalid": "The help response could not be read. Try refreshing."
+  "err_help_invalid": "The help response could not be read. Try refreshing.",
+  "ui_back": "Back to parent page",
+  "ui_navigation": "Main navigation",
+  "ui_skip": "Skip to content",
+  "ui_loading": "Loading…",
+  "ui_retry": "Try again"
 }

@@ -29,7 +29,7 @@ export function CustomerSettings() {
   return <section className="mb-4 rounded-3xl bg-[var(--surface)] p-4" aria-label={t("profile_settings")} aria-busy={pending}>
     <h2 className="mb-3 font-bold">{t("profile_settings")}</h2>
     <label className="block text-sm font-semibold">{t("language")}
-      <select value={locale} disabled={pending} className="mt-2 w-full rounded-xl bg-[var(--bg)] p-3"
+      <select aria-label={t("language")} value={locale} disabled={pending} className="mt-2 w-full rounded-xl bg-[var(--bg)] p-3"
         onChange={event => { const code = event.target.value; if (code !== locale) void save(() => setLocale(code)); }}>
         {!languageCodes.includes(locale) && <option value={locale} disabled>{t(`lang_${locale}`)}</option>}
         {languageCodes.map(code => <option key={code} value={code}>{t(`lang_${code}`)}</option>)}

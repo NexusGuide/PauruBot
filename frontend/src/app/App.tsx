@@ -14,6 +14,7 @@ import { NewTicket, TicketThread, Tickets } from "./screens/Tickets";
 import { Wallet } from "./screens/Wallet";
 import { AppProvider, useApp } from "./state";
 import { tg } from "./telegram";
+import { parentForPath } from "./navigation";
 import { Loading, Screen, TabBar, Toast } from "./ui";
 
 const ROOTS = new Set(["/", "/buy", "/services", "/wallet", "/more"]);
@@ -23,7 +24,10 @@ function BackButton() {
   const navigate = useNavigate();
   useEffect(() => {
     if (!tg) return;
-    const back = () => navigate(-1);
+    const back = () => {
+      if (typeof window.history.state?.idx === "number" && window.history.state.idx > 0) navigate(-1);
+      else navigate(parentForPath(location.pathname) ?? "/");
+    };
     if (ROOTS.has(location.pathname)) {
       tg.BackButton.hide();
     } else {
@@ -32,6 +36,24 @@ function BackButton() {
     }
     return () => tg?.BackButton.offClick(back);
   }, [location.pathname, navigate]);
+  return null;
+}
+
+function RouteFocus() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+    const focus = () => {
+      const content = document.getElementById("app-content");
+      if (!content) return false;
+      content.focus({ preventScroll: true });
+      return true;
+    };
+    if (focus()) return;
+    const observer = new MutationObserver(() => { if (focus()) observer.disconnect(); });
+    observer.observe(document.getElementById("root") ?? document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [pathname]);
   return null;
 }
 
@@ -50,7 +72,9 @@ function Shell() {
   if (!me) return <Loading />;
   return (
     <>
+      <a className="app-skip" href="#app-content">{t("ui_skip")}</a>
       <BackButton />
+      <RouteFocus />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/buy" element={<Buy />} />
