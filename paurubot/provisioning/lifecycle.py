@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from paurubot import kv
 from paurubot.core import catalog, usernames
@@ -734,7 +735,10 @@ async def _modification_predecessor(session: AsyncSession, order: Order) -> int 
     This also quarantines pre-deploy overlapping targets: they need staff resolution, not an
     arbitrary winner. FIFO by ID applies only when the current order has never stored a target.
     """
-    conflicts = [Order.params["target"].is_not(None), Order.params["move"].is_not(None)]
+    conflicts: list[ColumnElement[bool]] = [
+        Order.params["target"].is_not(None),
+        Order.params["move"].is_not(None),
+    ]
     params = order.params or {}
     if not params.get("target") and not params.get("move"):
         conflicts.append(Order.id < order.id)
