@@ -617,6 +617,11 @@ async def simple_customer(session: AsyncSession, job: queue.Claimed) -> None:
     customer = await session.get(Customer, int(job.payload["customer_id"]))
     if customer is None:
         return
+    if job.kind == "private_code":
+        from paurubot.core import marketing
+
+        if not await marketing.allowed(session, customer):
+            return
     t = await _texts(session, customer)
     if job.kind == "referral_joined":
         text = t("referral_joined", name=esc(str(job.payload.get("name", ""))))
@@ -1206,6 +1211,15 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
         if broadcasts.should_stop(row, run):
             return
         for customer in batch:
+            # Re-evaluate the full campaign audience immediately before each delivery. Scalar
+            # reads bypass the identity map, including opt-outs committed after batch loading.
+            eligible = await session.scalar(
+                select(Customer.id).where(Customer.id == customer.id, *_audience(row))
+            )
+            if eligible is None:
+                row.skipped = (row.skipped or 0) + 1
+                row.cursor = customer.id
+                continue
             chat_id = customer.telegram_id
             try:
                 sent = await telegram.deliver(copier(chat_id))
@@ -1290,6 +1304,8 @@ def _audience(row: Broadcast) -> list[Any]:
     elif audience.get("buyers_only") and kind == "all":
         kind = "buyers"
     conditions = audience_conditions(row.shop_id, kind)
+    # Do not put this in audience_conditions: wallet gifts are ledger operations, not ads.
+    conditions.append(Customer.marketing_opt_out.is_(False))
     if audience.get("locale"):
         conditions.append(or_(Customer.locale == audience["locale"], Customer.locale.is_(None)))
     return conditions
