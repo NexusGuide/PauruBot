@@ -1,0 +1,13 @@
+{
+  "rb_btn_discounts": "🏷 کدهای تخفیف",
+  "rb_discounts_title": "🏷 <b>کدهای تخفیف شما</b>",
+  "rb_discounts_empty": "کد تخفیف فعالی وجود ندارد.",
+  "rb_btn_discount_new": "➕ کد تخفیف جدید",
+  "rb_btn_discount_delete": "غیرفعال‌کردن {code}",
+  "rb_discount_new_ask": "به این شکل بفرست:\nCODE PERCENT [MAX_USES] [DAYS]\nمثال: VIP20 20 100 30\nبرای تعداد یا انقضای نامحدود از - استفاده کن.",
+  "rb_discount_invalid": "فرمت نامعتبر است. شکل درست: CODE PERCENT [MAX_USES] [DAYS]؛ درصد بین ۱ تا ۱۰۰.",
+  "rb_discount_exists": "این کد از قبل وجود دارد.",
+  "rb_discount_created": "✅ کد {code} با {percent}% تخفیف ساخته شد.",
+  "rb_discount_deleted": "کد تخفیف غیرفعال شد.",
+  "rb_discount_unlimited": "نامحدود"
+}

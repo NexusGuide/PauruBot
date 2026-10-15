@@ -146,11 +146,41 @@ async def tickets_list(call: CallbackQuery, session: AsyncSession, customer: Cus
 
 
 @router.callback_query(TicketCb.filter(F.action == "new"))
-async def ticket_new(call: CallbackQuery, t: Texts, state: FSMContext) -> None:
+async def ticket_new(
+    call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts, state: FSMContext
+) -> None:
     await call.answer()
+    await state.clear()
+    desks = await tickets.departments(session, customer.shop_id)
+    if desks:  # the customer picks who the ticket is for (F-14)
+        await show(call, t("ticket_ask_department"), keyboards.departments_kb(t, desks))
+        return
+    await _ask_subject(call, t, state)
+
+
+async def _ask_subject(call: CallbackQuery, t: Texts, state: FSMContext) -> None:
     await state.set_state(TicketStates.subject)
     if isinstance(call.message, Message):
         await call.message.answer(t("ticket_ask_subject"), reply_markup=keyboards.cancel(t))
+
+
+@router.callback_query(TicketCb.filter(F.action == "dept"))
+async def ticket_department(
+    call: CallbackQuery,
+    callback_data: TicketCb,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    state: FSMContext,
+) -> None:
+    desk = await tickets.department(session, customer.shop_id, callback_data.id)
+    if desk is None:
+        await call.answer(t("ticket_department_unknown"), show_alert=True)
+        return
+    await call.answer()
+    await state.clear()
+    await state.update_data(department_id=desk.id)
+    await _ask_subject(call, t, state)
 
 
 @router.message(TicketStates.subject, F.text)
@@ -196,7 +226,12 @@ async def ticket_message(
             if ticket is None:
                 raise tickets.TicketError("ticket_not_found")
         else:
-            ticket = await tickets.open_ticket(session, customer, data.get("subject") or "-")
+            ticket = await tickets.open_ticket(
+                session,
+                customer,
+                data.get("subject") or "-",
+                department_id=int(data["department_id"]) if data.get("department_id") else None,
+            )
         await tickets.add_message(
             session,
             ticket,

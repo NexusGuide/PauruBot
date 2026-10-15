@@ -29,7 +29,7 @@ from paurubot.bot.routers.admin import actor, back_home, customer_card
 from paurubot.bot.routers.admin_navigation import menu
 from paurubot.bot.states import AdminStates
 from paurubot.bot.utils import StaffOnly, clear_customer_input, show
-from paurubot.core import catalog, customers, finance, pricing
+from paurubot.core import catalog, confirm, customers, finance, pricing
 from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import esc, jdate, money, parse_int
 from paurubot.db.models import (
@@ -101,6 +101,7 @@ SETTINGS: dict[str, list[str]] = {
         "bulk_buy_enabled",
         "panel_accounts_enabled",
         "reseller_bot_open",
+        "resale_trial_fee",
     ],
     "timing": [
         "order_expire_minutes",
@@ -123,6 +124,7 @@ BOUNDS: dict[str, tuple[int, int]] = {
     "trial_days": (1, 365),
     "trial_gb": (1, 10_000),
     "card_auto_min_history": (0, 1_000),
+    "resale_trial_fee": (0, 10_000_000),
 }
 AUDIENCES = ("all", "buyers", "active", "inactive", "never_bought", "resellers")
 PIN_CYCLE = (None, 0, 24, 48)  # off, until unpinned, 24 h, 48 h
@@ -311,16 +313,24 @@ async def service_action(
         return
     action = callback_data.action
     if action == "del" and not callback_data.page:
+        # Two steps (F-22): the confirm button carries a one-time number tied to this staff member
+        # and service, so an old or forwarded button can't delete anything.
+        nonce = await confirm.issue_nonce(f"tg:{staff.id}", "service.delete", service.id)
         await call.answer()
         await show(
             call,
             t("adm_svc_delete_confirm", name=esc(service.label or service.panel_username)),
             keyboards.confirm(
                 t,
-                Admin(section="svcact", action="del", id=service.id, page=1).pack(),
+                Admin(section="svcact", action="del", id=service.id, page=nonce).pack(),
                 Admin(section="svc", id=service.id).pack(),
             ),
         )
+        return
+    if action == "del" and not await confirm.consume_nonce(
+        f"tg:{staff.id}", "service.delete", service.id, callback_data.page
+    ):
+        await call.answer(t("button_expired"), show_alert=True)
         return
     try:
         if action in {"on", "off"}:
@@ -606,6 +616,84 @@ async def reseller_group(
     kb.button(text=t("btn_back"), callback_data=Admin(section="user", id=customer.id))
     kb.adjust(1)
     await show(call, t("adm_choose_group") if groups else t("adm_no_groups"), kb.as_markup())
+
+
+# --- reseller sales cap -------------------------------------------------------------------
+
+
+@router.callback_query(Admin.filter(F.section == "ulimit"), StaffOnly("resellers.manage"))
+async def reseller_limit_ask(
+    call: CallbackQuery,
+    callback_data: Admin,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    state: FSMContext,
+) -> None:
+    customer = await _customer(session, shop, callback_data.id)
+    profile = (
+        await session.scalar(select(ResellerProfile).where(ResellerProfile.customer_id == customer.id))
+        if customer
+        else None
+    )
+    if customer is None or profile is None:
+        await call.answer(t("adm_not_reseller"), show_alert=True)
+        return
+    await call.answer()
+    await state.set_state(AdminStates.reseller_limit)
+    await state.update_data(customer_id=customer.id)
+    if isinstance(call.message, Message):
+        await call.message.answer(
+            t(
+                "adm_reseller_limit_ask",
+                current=profile.max_purchases_per_day or t("adm_reseller_limit_unlimited"),
+            ),
+            reply_markup=keyboards.cancel(t),
+        )
+
+
+@router.message(AdminStates.reseller_limit, F.text, StaffOnly("resellers.manage"))
+async def reseller_limit_save(
+    message: Message,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    value = parse_int(message.text)
+    if value is None or value < 0 or value > 100_000:
+        await message.answer(t("adm_reseller_limit_invalid"))
+        return
+    data = await state.get_data()
+    customer = await _customer(session, shop, int(data.get("customer_id") or 0))
+    profile = (
+        await session.scalar(select(ResellerProfile).where(ResellerProfile.customer_id == customer.id))
+        if customer
+        else None
+    )
+    if customer is None or profile is None:
+        await state.clear()
+        await message.answer(t("adm_not_reseller"), reply_markup=menu(t, cfg, staff))
+        return
+    before = profile.max_purchases_per_day
+    profile.max_purchases_per_day = value or None
+    await record(
+        session,
+        shop_id=shop.id,
+        actor=actor(staff),
+        action="reseller.daily_limit",
+        entity="reseller_profile",
+        entity_id=profile.id,
+        before={"max_purchases_per_day": before},
+        after={"max_purchases_per_day": profile.max_purchases_per_day},
+    )
+    await session.commit()
+    await state.clear()
+    await message.answer(t("adm_saved"), reply_markup=menu(t, cfg, staff))
+    text, kb = await customer_card(session, t, customer, staff)
+    await message.answer(text, reply_markup=kb)
 
 
 # --- plans and prices ----------------------------------------------------------------------
@@ -1312,6 +1400,7 @@ def broadcast_kb(t: Texts, row: Broadcast) -> InlineKeyboardMarkup:
         else t("adm_bc_button_add"),
         callback_data=Admin(section="bc", action="button", id=row.id),
     )
+    kb.button(text=t("adm_bc_test"), callback_data=Admin(section="bc", action="test", id=row.id))
     kb.button(text=t("adm_bc_send"), callback_data=Admin(section="bc", action="send", id=row.id))
     kb.button(text=t("btn_cancel"), callback_data=Admin(section="home"))
     kb.adjust(1)
@@ -1357,16 +1446,24 @@ async def broadcast_options(
         if isinstance(call.message, Message):
             await call.message.answer(t("adm_bc_button_ask"), reply_markup=keyboards.cancel(t))
         return
+    elif action == "test":
+        # F-16: the staff member sees exactly what customers will get before sending to everyone.
+        from paurubot.notifications import handlers, telegram
+
+        try:
+            bot = await telegram.bot_for(shop.id)
+            if bot is None:
+                raise telegram.Undeliverable("bot stopped")
+            await telegram.deliver(handlers.broadcast_copier(bot, row)(call.from_user.id))
+        except Exception:
+            await call.answer(t("adm_bc_test_failed"), show_alert=True)
+            return
+        await call.answer(t("adm_bc_test_sent"))
+        return
     elif action == "send":
-        row.status = JobStatus.QUEUED
-        await queue.enqueue(
-            session,
-            "broadcast",
-            "run",
-            {"broadcast_id": row.id},
-            shop_id=shop.id,
-            dedupe_key=f"broadcast:{row.id}",
-        )
+        from paurubot.core import broadcasts
+
+        await broadcasts.start(session, row)
         await record(
             session,
             shop_id=shop.id,
@@ -1378,11 +1475,77 @@ async def broadcast_options(
         )
         await session.commit()
         await call.answer(t("adm_broadcast_queued"))
-        await show(call, t("adm_broadcast_queued"), back_home(t))
+        await show(call, broadcast_status_text(t, row), broadcast_status_kb(t, row))
         return
     await session.commit()
     await call.answer()
     await show(call, await broadcast_options_text(session, t, row), broadcast_kb(t, row))
+
+
+# --- a running broadcast: progress, pause, resume, cancel (F-16) ------------------------------
+
+
+def broadcast_status_text(t: Texts, row: Broadcast) -> str:
+    from paurubot.core import broadcasts
+
+    figures = broadcasts.progress(row)
+    return t("adm_bc_status", id=row.id, **{**figures, "status": t(f"adm_bc_state_{figures['status']}")})
+
+
+def broadcast_status_kb(t: Texts, row: Broadcast) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=t("adm_bc_refresh"), callback_data=Admin(section="bcc", action="view", id=row.id))
+    if row.status in (JobStatus.QUEUED, JobStatus.RUNNING):
+        kb.button(text=t("adm_bc_pause"), callback_data=Admin(section="bcc", action="pause", id=row.id))
+    if row.status == JobStatus.PAUSED:
+        kb.button(text=t("adm_bc_resume"), callback_data=Admin(section="bcc", action="resume", id=row.id))
+    if row.status not in (JobStatus.DONE, JobStatus.CANCELED):
+        kb.button(text=t("adm_bc_cancel"), callback_data=Admin(section="bcc", action="cancel", id=row.id))
+    kb.button(text=t("btn_back"), callback_data=Admin(section="home"))
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+@router.callback_query(Admin.filter(F.section == "bcc"), StaffOnly("broadcast.send"))
+async def broadcast_control(
+    call: CallbackQuery,
+    callback_data: Admin,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+) -> None:
+    from paurubot.core import broadcasts
+
+    row = await session.get(Broadcast, callback_data.id)
+    if row is None or row.shop_id != shop.id:
+        await call.answer(t("button_expired"), show_alert=True)
+        return
+    action = callback_data.action
+    steps = {
+        "pause": (broadcasts.pause, "adm_bc_paused"),
+        "resume": (broadcasts.resume, "adm_bc_resumed"),
+        "cancel": (broadcasts.cancel, "adm_bc_canceled"),
+    }
+    if action in steps:
+        step, done_key = steps[action]
+        if not await step(session, row):
+            await call.answer(t("adm_application_done"), show_alert=True)
+        else:
+            await record(
+                session,
+                shop_id=shop.id,
+                actor=actor(staff),
+                action=f"broadcast.{action}",
+                entity="broadcast",
+                entity_id=row.id,
+            )
+            await session.commit()
+            await call.answer(t(done_key))
+    else:
+        await session.refresh(row)
+        await call.answer()
+    await show(call, broadcast_status_text(t, row), broadcast_status_kb(t, row))
 
 
 @router.message(AdminStates.broadcast_button, F.text)
