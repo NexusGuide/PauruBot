@@ -81,6 +81,9 @@ async def claim(
             .order_by(Job.run_at, Job.id)
             .limit(limit)
             .with_for_update(skip_locked=True)
+            # Reused sessions may hold a pre-requeue copy of the row: force a refresh so the
+            # queued -> running transition is always persisted for the lease fences.
+            .execution_options(populate_existing=True)
         )
     ).all()
     claimed: list[Claimed] = []
