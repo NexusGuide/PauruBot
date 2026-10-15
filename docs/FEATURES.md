@@ -58,6 +58,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | TEN-15 | Reseller web panel and Mini App: sign-in by Telegram code made on approval, selling desk with customer names, expiring list with bulk renewal | v1.1* | done |
 | TEN-16 | Paid reseller membership with renewal | v1.1* | done |
 | TEN-17 | Reseller sales bot built and run from Telegram: token, markup, plan prices, cards, support, on/off; staff build, stop or allow it from the reseller card | v1.1* | done |
+| TEN-18 | Reseller bot features allowed per reseller by staff (trial, extra data/days, upgrade, referrals) and switched by the reseller; the reseller pays a trial fee and its own price for extras and upgrades | v1.1* | done |
 
 ## VPN Panel Integrations
 

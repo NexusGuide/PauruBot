@@ -7,7 +7,10 @@ plus the reseller's markup, or a fixed price the reseller sets, never below its 
 
 When a sale is provisioned, the reseller pays its own price from its wallet in the parent shop
 first. Without enough balance the sale fails and the buyer is refunded, so a reseller bot can
-never hand out services the reseller has not paid for. Only purchases and renewals are sold there.
+never hand out services the reseller has not paid for. Purchases and renewals are always sold
+there; trials, extra data and days, upgrades and referrals only when the shop's staff allow that
+reseller to offer them and the reseller turns them on (TEN-18). Each of them is paid the same way:
+the reseller's own price comes out of its wallet before anything is delivered.
 """
 
 from __future__ import annotations
@@ -41,6 +44,11 @@ class Resale:
     reseller: Customer
     markup: int
     prices: dict[str, int] = field(default_factory=dict)
+    cfg: dict[str, Any] = field(default_factory=dict)
+
+    def offers(self, feature: str) -> bool:
+        """Staff allow this reseller to offer `feature` and the reseller turned it on (TEN-18)."""
+        return feature in allowed_features(self.profile) and bool(self.cfg.get(FEATURES[feature]))
 
     @property
     def open(self) -> bool:
@@ -76,7 +84,7 @@ async def for_shop(session: AsyncSession, shop_id: int) -> Resale | None:
     cfg = await shop_settings.load(session, shop.id)
     prices = {str(k): int(v) for k, v in (cfg.get("resale_prices") or {}).items() if str(v).isdigit()}
     markup = max(0, min(MAX_MARKUP, int(cfg.get("resale_markup_percent") or 0)))
-    return Resale(shop, shop.parent_id, profile, reseller, markup, prices)
+    return Resale(shop, shop.parent_id, profile, reseller, markup, prices, cfg)
 
 
 async def wholesale(session: AsyncSession, resale: Resale, plan_id: int | None, base_price: int) -> int:
@@ -90,6 +98,94 @@ def retail(resale: Resale, plan_id: int | None, cost: int) -> int:
     if fixed:
         return max(int(fixed), cost)
     return max(cost, pricing.round_price(cost * (100 + resale.markup) / 100))
+
+
+# --- extra features (TEN-18) ------------------------------------------------------------------
+
+# What staff can let one reseller offer in its bot, and the bot setting that turns each one on.
+FEATURES: dict[str, str] = {
+    "trial": "trial_enabled",
+    "extras": "extras_enabled",
+    "upgrade": "upgrade_enabled",
+    "referral": "referral_enabled",
+}
+FEATURE_RIGHT = "resale."
+
+
+def allowed_features(profile: ResellerProfile) -> set[str]:
+    rights = set(profile.permissions or [])
+    return {name for name in FEATURES if FEATURE_RIGHT + name in rights}
+
+
+def set_feature_right(profile: ResellerProfile, feature: str, on: bool) -> None:
+    if feature not in FEATURES:
+        raise ResaleError("resale_feature_unknown")
+    right = FEATURE_RIGHT + feature
+    rights = set(profile.permissions or [])
+    profile.permissions = sorted(rights | {right} if on else rights - {right})
+
+
+async def allow_feature(session: AsyncSession, profile: ResellerProfile, feature: str, on: bool) -> None:
+    """Staff allow or take back one feature. Taking it back also turns it off in the bot at once."""
+    set_feature_right(profile, feature, on)
+    if not on:
+        shop = await shop_of(session, profile)
+        if shop is not None:
+            await shop_settings.set_many(session, shop.id, {FEATURES[feature]: False})
+    await session.flush()
+
+
+def _fraction_left(service: Any) -> float:
+    """Unused share of a service's current period, as upgrades credit it."""
+    from datetime import UTC, datetime
+
+    plan = service.plan
+    if plan is None or not plan.days or service.expire_at is None:
+        return 0.0
+    seconds = (service.expire_at - datetime.now(UTC)).total_seconds()
+    return 0.0 if seconds <= 0 else min(1.0, seconds / (plan.days * 86400))
+
+
+async def extra_units(session: AsyncSession, resale: Resale, service: Any) -> tuple[int | None, int | None]:
+    """(reseller's cost, listed price) of one extra GB and one extra day, from the parent shop's
+    own extra prices. Prices are None where extras are not sold for this service."""
+    from paurubot.core.orders import service_extras
+
+    if not resale.offers("extras"):
+        return None, None
+    parent_cfg = await shop_settings.load(session, resale.parent_id)
+    out: list[int | None] = []
+    for unit in service_extras(parent_cfg, service):
+        out.append(None if unit is None else await wholesale(session, resale, None, int(unit)))
+    return out[0], out[1]
+
+
+async def listed_extras(
+    session: AsyncSession, service: Any, shop_id: int, cfg: dict[str, Any]
+) -> tuple[int | None, int | None]:
+    """Unit prices of extra data and days as `shop_id` lists them to its customers."""
+    from paurubot.core.orders import service_extras
+
+    found = await for_shop(session, shop_id)
+    if found is None:
+        return service_extras(cfg, service)
+    costs = await extra_units(session, found, service)
+    return tuple(None if c is None else retail(found, None, c) for c in costs)  # type: ignore[return-value]
+
+
+async def upgrade_prices(session: AsyncSession, resale: Resale, service: Any, plan: Plan) -> tuple[int, int]:
+    """(reseller's cost, listed price) of moving `service` to `plan`. The unused share of the
+    current plan is credited on both sides, so the reseller's margin stays its own."""
+    left = _fraction_left(service)
+    new_cost = await wholesale(session, resale, plan.id, int(plan.price))
+    new_list = retail(resale, plan.id, new_cost)
+    old_cost = old_list = 0
+    if service.plan is not None and left > 0 and not service.is_trial:
+        old_cost = await wholesale(session, resale, service.plan.id, int(service.plan.price))
+        old_list = retail(resale, service.plan.id, old_cost)
+    cost = max(0, new_cost - int(old_cost * left))
+    listed = max(cost, pricing.round_price(new_list - old_list * left))
+    return cost, listed
 
 
 async def list_price(session: AsyncSession, plan: Plan, shop_id: int) -> int:
@@ -193,6 +289,7 @@ EDITABLE = {
     "resale_prices",
     "bot_enabled",
     "receipt_duplicate_block",
+    *FEATURES.values(),
 }
 # A new reseller bot starts with only what works there: plain purchases and renewals.
 STARTING_SETTINGS: dict[str, Any] = {
@@ -321,6 +418,11 @@ async def update(session: AsyncSession, shop: Shop, values: dict[str, Any]) -> d
     if unknown:
         raise ResaleError("resale_setting_unknown")
     clean = dict(values)
+    switched_on = {name for name, key in FEATURES.items() if clean.get(key)}
+    if switched_on:
+        profile = await session.get(ResellerProfile, shop.reseller_profile_id or 0)
+        if profile is None or not switched_on <= allowed_features(profile):
+            raise ResaleError("resale_feature_not_allowed")
     if "resale_prices" in clean:
         clean["resale_prices"] = validate_prices(clean["resale_prices"])
     markup = clean.get("resale_markup_percent")

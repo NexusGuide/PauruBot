@@ -41,11 +41,13 @@ class ResellerStates(StatesGroup):
 
 
 class ResaleBotStates(StatesGroup):
+    broadcast = State()
     token = State()
     markup = State()
     support = State()
     card = State()
     plan_price = State()
+    discount_code = State()
 
 
 class AdminStates(StatesGroup):
@@ -69,6 +71,7 @@ class AdminStates(StatesGroup):
     rbot_token = State()
     service_note = State()
     config_value = State()
+    reseller_limit = State()
     card_account = State()
     code_new = State()
     panel_value = State()
@@ -76,3 +79,6 @@ class AdminStates(StatesGroup):
     prize_new = State()
     lottery_new = State()
     extra_value = State()
+    account_move = State()
+    reseller_price = State()
+    reseller_expiry = State()

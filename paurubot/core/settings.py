@@ -109,6 +109,8 @@ SPECS: dict[str, Spec] = {
     "resale_markup_percent": Spec(int, 20, "resale"),
     "resale_prices": Spec(dict, {}, "resale"),
     "resale_blocked": Spec(bool, False, "resale"),  # stopped by the shop's staff: only they restart it
+    # Set in the main shop: what a reseller pays from its wallet per trial its own bot gives (TEN-18).
+    "resale_trial_fee": Spec(int, 2_000, "resale"),
     "miniapp_enabled": Spec(bool, True, "appearance"),
     # guest purchase on the web (CAT-08)
     "guest_buy_enabled": Spec(bool, False, "guest"),

@@ -1,0 +1,18 @@
+{
+  "rb_btn_features": "🧩 Bot features",
+  "rb_features_title": "🧩 <b>Sales bot features</b>\n\nThe shop decides which features you may offer; turn any of those on or off.",
+  "rb_features_hint": "🔒 means the shop hasn't allowed it yet.\n💰 Each free trial ({fee}) and your price for extra data, extra days and upgrades come out of your wallet, just like sales.",
+  "rb_features_none": "No extra features are allowed for you yet. Ask support to turn some on.",
+  "rb_feature_trial": "🎁 Free trial",
+  "rb_feature_extras": "➕ Extra data and days",
+  "rb_feature_upgrade": "⬆️ Service upgrade",
+  "rb_feature_referral": "👥 Referrals",
+  "rb_btn_feature": "{name}: {state}",
+  "rb_feature_locked": "The shop hasn't allowed this feature for you.",
+  "rb_err_resale_feature_not_allowed": "This feature isn't allowed for your bot.",
+  "adm_rbot_btn_features": "🧩 Allowed bot features ({count})",
+  "adm_rbot_features_title": "🧩 <b>Allowed sales bot features</b> for {name}",
+  "adm_rbot_features_hint": "The reseller can only turn on allowed features. Taking one back turns it off in their bot at once.\n💰 Fee per free trial: {fee} (change it in reseller settings)",
+  "adm_rbot_btn_feature": "{name}: {state}",
+  "adm_set_resale_trial_fee": "Free trial fee in reseller bots"
+}
