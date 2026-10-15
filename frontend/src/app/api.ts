@@ -1,4 +1,5 @@
 import { request } from "@shared/http";
+import type { Body as AutoRenewBody } from "./autoRenew/model";
 import { initData } from "./telegram";
 
 export interface Me {
@@ -259,6 +260,8 @@ export const api = {
   service: (id: number, refresh = false) => get<{ service: Service }>(`/services/${id}${refresh ? "?refresh=true" : ""}`),
   usage: (id: number, days: 7 | 30, signal?: AbortSignal) =>
     request<UsageHistory>(`/api/webapp/services/${id}/usage?days=${days}`, { headers: auth(), signal }),
+  autoRenew: (id: number) => get<unknown>(`/services/${id}/auto-renew`),
+  setAutoRenew: (id: number, body: AutoRenewBody) => post<unknown>(`/services/${id}/auto-renew`, body),
   links: (id: number) => get<{ links: string[] }>(`/services/${id}/links`),
   revoke: (id: number) => post<{ service: Service }>(`/services/${id}/revoke`),
   rename: (id: number, label: string) => post<{ service: Service }>(`/services/${id}/rename`, { label }),
