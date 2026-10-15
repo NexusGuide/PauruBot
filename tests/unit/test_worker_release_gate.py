@@ -157,6 +157,36 @@ async def test_redis_lease_loss_stops_cooperative_work(monkeypatch, unavailable)
     fake.eval.assert_awaited_once_with(kv._RENEW, 1, "lock:release-gate", "owner", 3)
 
 
+@pytest.mark.parametrize("unavailable", [False, True])
+async def test_redis_lease_loss_cannot_succeed_when_body_swallows_cancellation(
+    monkeypatch, unavailable
+) -> None:
+    @asynccontextmanager
+    async def locked(name, ttl):
+        yield "owner"
+
+    fake = SimpleNamespace(
+        eval=AsyncMock(side_effect=RuntimeError("redis down")) if unavailable else AsyncMock(return_value=0)
+    )
+    monkeypatch.setattr(kv, "lock", locked)
+    monkeypatch.setattr(kv, "get_redis", lambda: fake)
+    canceled, completed = asyncio.Event(), asyncio.Event()
+
+    async def work():
+        async with kv.lease("release-gate", ttl=3):
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                canceled.set()  # remote cleanup can consume cancellation
+        completed.set()
+
+    with pytest.raises(kv.LockLost):
+        await asyncio.wait_for(work(), 3)
+    assert canceled.is_set()
+    assert not completed.is_set()
+    fake.eval.assert_awaited_once_with(kv._RENEW, 1, "lock:release-gate", "owner", 3)
+
+
 async def test_redis_lease_remains_exclusive() -> None:
     async with kv.lease("test-release-gate", ttl=3):
         with pytest.raises(kv.LockNotAcquired):

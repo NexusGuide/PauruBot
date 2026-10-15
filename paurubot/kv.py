@@ -106,6 +106,10 @@ async def lease(name: str, ttl: int = 60) -> AsyncIterator[str]:
         keeper = asyncio.create_task(keep())
         try:
             yield token
+            # A callee may consume cancellation while cleaning up a remote request.
+            # That must never turn a lost lease into successful completion.
+            if lost:
+                raise LockLost(name)
         except asyncio.CancelledError as exc:
             if lost:
                 raise LockLost(name) from exc
