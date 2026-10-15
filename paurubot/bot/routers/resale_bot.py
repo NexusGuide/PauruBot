@@ -117,11 +117,14 @@ def home_kb(
 ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if running:
+        kb.button(text=t("rb_btn_discounts"), callback_data=Rb(action="discounts"))
         kb.button(text=t("rb_btn_markup"), callback_data=Rb(action="markup"))
         kb.button(text=t("rb_btn_prices"), callback_data=Rb(action="prices"))
         kb.button(text=t("rb_btn_cards"), callback_data=Rb(action="cards"))
         kb.button(text=t("rb_btn_support"), callback_data=Rb(action="support"))
+        kb.button(text=t("rb_btn_features"), callback_data=Rb(action="features"))
         kb.button(text=t("rb_btn_toggle"), callback_data=Rb(action="toggle"))
+        kb.button(text=t("rb_btn_broadcast"), callback_data=Rb(action="broadcast"))
         kb.button(text=t("rb_btn_token_swap"), callback_data=Rb(action="token"))
         kb.button(text=t("rb_btn_delete"), callback_data=Rb(action="delete"))
     elif can_connect:
@@ -355,7 +358,12 @@ async def _state_target(
 ) -> tuple[ResellerProfile, ShopRow] | None:
     profile = await _profile(session, shop, customer, staff)
     child = await resale.shop_of(session, profile) if profile is not None else None
-    if profile is None or child is None or child.bot_token_enc is None:
+    if (
+        profile is None
+        or child is None
+        or child.bot_token_enc is None
+        or not await _allowed(session, shop, profile)
+    ):
         await state.clear()
         return None
     return profile, child
@@ -424,6 +432,86 @@ async def support_got(
         return
     await _save(session, found[1], found[0], customer, staff, {"support_username": value})
     await _done(message, session, shop, found[0], t, cfg, staff, state)
+
+
+# --- extra features (TEN-18) ----------------------------------------------------------------
+
+FEATURE_ORDER = tuple(resale.FEATURES)
+FEATURE_LABELS = {
+    "trial": "rb_feature_trial",
+    "extras": "rb_feature_extras",
+    "upgrade": "rb_feature_upgrade",
+    "referral": "rb_feature_referral",
+}
+
+
+def _feature_lines(t: Texts, allowed: set[str], cfg: dict[str, Any]) -> list[str]:
+    lines = []
+    for name in FEATURE_ORDER:
+        if name not in allowed:
+            mark = "🔒"
+        else:
+            mark = "✅" if cfg.get(resale.FEATURES[name]) else "⬜️"
+        lines.append(f"{mark} {t(FEATURE_LABELS[name])}")
+    return lines
+
+
+@router.callback_query(Rb.filter(F.action.in_({"features", "feature"})))
+async def features(
+    call: CallbackQuery,
+    callback_data: Rb,
+    session: AsyncSession,
+    shop: ShopRow,
+    customer: Customer,
+    staff: StaffIdentity | None,
+    t: Texts,
+) -> None:
+    """The reseller turns on or off what staff allow it to offer in its bot."""
+    found = await _running(call, session, shop, customer, staff, t)
+    if found is None:
+        return
+    profile, child = found
+    allowed = resale.allowed_features(profile)
+    cfg = await shop_settings.load(session, child.id, fresh=True)
+    if callback_data.action == "feature":
+        if not 0 <= callback_data.id < len(FEATURE_ORDER):
+            await call.answer(t("button_expired"), show_alert=True)
+            return
+        name = FEATURE_ORDER[callback_data.id]
+        if name not in allowed:
+            await call.answer(t("rb_feature_locked"), show_alert=True)
+            return
+        key = resale.FEATURES[name]
+        await _save(session, child, profile, customer, staff, {key: not cfg.get(key)})
+        cfg = await shop_settings.load(session, child.id, fresh=True)
+        await call.answer(t("adm_saved"))
+    else:
+        await call.answer()
+    fee = int((await shop_settings.load(session, profile.shop_id))["resale_trial_fee"] or 0)
+    text = "\n".join(
+        [
+            t("rb_features_title"),
+            "",
+            *_feature_lines(t, allowed, cfg),
+            "",
+            t("rb_features_hint", fee=money(fee)),
+        ]
+    )
+    if not allowed:
+        text += "\n\n" + t("rb_features_none")
+    kb = InlineKeyboardBuilder()
+    for index, name in enumerate(FEATURE_ORDER):
+        if name in allowed:
+            on = bool(cfg.get(resale.FEATURES[name]))
+            kb.button(
+                text=t(
+                    "rb_btn_feature", name=t(FEATURE_LABELS[name]), state=t("rb_on") if on else t("rb_off")
+                ),
+                callback_data=Rb(action="feature", id=index),
+            )
+    kb.button(text=t("btn_back"), callback_data=Rb(action="home"))
+    kb.adjust(1)
+    await show(call, text, kb.as_markup())
 
 
 # --- cards ----------------------------------------------------------------------------------
@@ -711,6 +799,10 @@ async def staff_view(
         text=t("adm_rbot_btn_right", state=t("yes") if right else t("no")),
         callback_data=Admin(section="rbot", action="right", id=profile.customer_id),
     )
+    kb.button(
+        text=t("adm_rbot_btn_features", count=len(resale.allowed_features(profile))),
+        callback_data=Admin(section="rbot", action="features", id=profile.customer_id),
+    )
     kb.button(text=t("btn_back"), callback_data=Admin(section="user", id=profile.customer_id))
     kb.adjust(1)
     await show(event, head + "\n\n" + text, kb.as_markup())
@@ -731,6 +823,9 @@ async def staff_bot(
         await call.answer(t("adm_not_reseller"), show_alert=True)
         return
     action = callback_data.action
+    if action in {"features", "feature"}:
+        await staff_features(call, callback_data, session, shop, t, staff, profile)
+        return
     if action == "token":
         if profile.is_metered:
             await call.answer(t("rb_needs_prepaid"), show_alert=True)
@@ -766,6 +861,68 @@ async def staff_bot(
     else:
         await call.answer()
     await staff_view(call, session, shop, t, profile)
+
+
+async def staff_features(
+    call: CallbackQuery,
+    callback_data: Admin,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+    profile: ResellerProfile,
+) -> None:
+    """Staff choose what one reseller may offer in its own bot (TEN-18)."""
+    if callback_data.action == "feature":
+        if not 0 <= callback_data.page < len(FEATURE_ORDER):
+            await call.answer(t("button_expired"), show_alert=True)
+            return
+        name = FEATURE_ORDER[callback_data.page]
+        on = name not in resale.allowed_features(profile)
+        await resale.allow_feature(session, profile, name, on)
+        await record(
+            session,
+            shop_id=shop.id,
+            actor=Actor("staff", staff.id),
+            action="reseller_bot.feature_allowed" if on else "reseller_bot.feature_revoked",
+            entity="reseller_profile",
+            entity_id=profile.id,
+            after={"feature": name},
+        )
+        await session.commit()
+        child = await resale.shop_of(session, profile)
+        if child is not None:
+            shop_settings.invalidate(child.id)
+        await call.answer(t("adm_saved"))
+    else:
+        await call.answer()
+    allowed = resale.allowed_features(profile)
+    child = await resale.shop_of(session, profile)
+    cfg = await shop_settings.load(session, child.id, fresh=True) if child is not None else {}
+    who = await session.get(Customer, profile.customer_id)
+    fee = int((await shop_settings.load(session, shop.id))["resale_trial_fee"] or 0)
+    text = "\n".join(
+        [
+            t("adm_rbot_features_title", name=esc(who.display_name if who else "-")),
+            "",
+            *_feature_lines(t, allowed, cfg),
+            "",
+            t("adm_rbot_features_hint", fee=money(fee)),
+        ]
+    )
+    kb = InlineKeyboardBuilder()
+    for index, name in enumerate(FEATURE_ORDER):
+        kb.button(
+            text=t(
+                "adm_rbot_btn_feature",
+                name=t(FEATURE_LABELS[name]),
+                state=t("yes") if name in allowed else t("no"),
+            ),
+            callback_data=Admin(section="rbot", action="feature", id=profile.customer_id, page=index),
+        )
+    kb.button(text=t("btn_back"), callback_data=Admin(section="rbot", id=profile.customer_id))
+    kb.adjust(1)
+    await show(call, text, kb.as_markup())
 
 
 @router.message(AdminStates.rbot_token, F.text, StaffOnly("resellers.manage"))

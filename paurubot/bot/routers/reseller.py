@@ -54,6 +54,9 @@ async def hub_text(session: AsyncSession, customer: Customer, profile: ResellerP
         lines.append(t("reseller_debt_line", debt=money(profile.billing_debt)))
     if profile.suspended_at is not None:
         lines.append(t("reseller_suspended_line"))
+    runway = await resellers.estimate_runway(session, profile, balance=balance)
+    if runway.days is not None:  # F-21
+        lines.append(resellers.runway_line(t, runway.days))
     figures = await reseller_desk.figures(session, customer)
     lines.append(
         t(

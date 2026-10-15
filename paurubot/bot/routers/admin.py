@@ -22,10 +22,11 @@ from paurubot.bot.states import AdminStates
 from paurubot.bot.utils import Btn, StaffOnly, clear_customer_input, show
 from paurubot.core import customers, tickets
 from paurubot.core import settings as shop_settings
-from paurubot.core.formatting import esc, money, parse_int
+from paurubot.core.formatting import esc, jdate, money, parse_int
 from paurubot.db.models import (
     ApplicationStatus,
     Broadcast,
+    CannedReply,
     Customer,
     JobStatus,
     Order,
@@ -37,6 +38,7 @@ from paurubot.db.models import (
     ResellerProfile,
     Service,
     ServiceStatus,
+    Staff,
     Ticket,
     TicketStatus,
 )
@@ -44,12 +46,16 @@ from paurubot.db.models import Shop as ShopRow
 from paurubot.i18n import Texts
 from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
+from paurubot.notifications import review_sync
 from paurubot.payments import engine as payments
 from paurubot.worker import queue
 
 router = Router(name="admin")
 router.message.filter(StaffOnly())
 router.callback_query.filter(StaffOnly())
+
+
+VERIFIED_TAG = "verified"  # staff-set identity mark, kept in Customer.tags
 
 
 def actor(staff: StaffIdentity) -> Actor:
@@ -129,19 +135,33 @@ async def stats(call: CallbackQuery, session: AsyncSession, shop: ShopRow, t: Te
 # --- payments -------------------------------------------------------------------
 
 
-def review_kb(t: Texts, payment_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+# Review button action -> what the customer is asked to fix (F-23).
+FIXES = {"fixa": "amount", "fixc": "card"}
+
+
+def review_kb(t: Texts, payment_id: int, *, fixable: bool = False) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=t("btn_approve"), callback_data=Review(action="ok", id=payment_id).pack()
+            ),
+            InlineKeyboardButton(
+                text=t("btn_reject"), callback_data=Review(action="no", id=payment_id).pack()
+            ),
+        ]
+    ]
+    if fixable:  # card receipts can be sent back instead of rejected (F-23)
+        rows.append(
             [
                 InlineKeyboardButton(
-                    text=t("btn_approve"), callback_data=Review(action="ok", id=payment_id).pack()
+                    text=t("btn_fix_amount"), callback_data=Review(action="fixa", id=payment_id).pack()
                 ),
                 InlineKeyboardButton(
-                    text=t("btn_reject"), callback_data=Review(action="no", id=payment_id).pack()
+                    text=t("btn_fix_card"), callback_data=Review(action="fixc", id=payment_id).pack()
                 ),
             ]
-        ]
-    )
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 @router.callback_query(Admin.filter(F.section == "payments"), StaffOnly("payments.review"))
@@ -164,11 +184,16 @@ async def pending_payments(call: CallbackQuery, session: AsyncSession, shop: Sho
     for payment in rows:
         caption = receipt_caption(t, payment, payment.customer)
         if payment.receipt_file_id:
-            await call.message.answer_photo(
-                payment.receipt_file_id, caption=caption, reply_markup=review_kb(t, payment.id)
+            sent = await call.message.answer_photo(
+                payment.receipt_file_id,
+                caption=caption[:1024],
+                reply_markup=review_kb(t, payment.id, fixable=payment.provider == "card"),
             )
         else:
-            await call.message.answer(caption, reply_markup=review_kb(t, payment.id))
+            sent = await call.message.answer(
+                caption, reply_markup=review_kb(t, payment.id, fixable=payment.provider == "card")
+            )
+        await review_sync.remember(payment.id, sent)  # so a decision elsewhere updates it (F-24)
 
 
 def receipt_caption(t: Texts, payment: Payment, customer: Customer, duplicate_of: int | None = None) -> str:
@@ -230,11 +255,55 @@ async def approve(
         entity="payment",
         entity_id=payment.id,
     )
+    here = (call.message.chat.id, call.message.message_id) if call.message else None
+    await review_sync.announce(session, payment.id, shop.id, "approved", call.from_user.full_name, skip=here)
     await session.commit()
     await payments.fulfill_one(session, payment.id)
     await call.answer(t("approved_short"))
     who = esc(call.from_user.full_name)
     await _mark(call, t("adm_approved_by", admin=who))
+
+
+@router.callback_query(Review.filter(F.action.in_(set(FIXES))), StaffOnly("payments.review"))
+async def request_fix(
+    call: CallbackQuery,
+    callback_data: Review,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+) -> None:
+    """Send a card receipt back to the customer instead of rejecting it (F-23)."""
+    kind = FIXES[callback_data.action]
+    payment = await session.get(Payment, callback_data.id)
+    if payment is None or payment.shop_id != shop.id:
+        await call.answer(t("payment_not_found"), show_alert=True)
+        return
+    if not await payments.request_fix(session, payment.id, staff_id=staff.id, kind=kind):
+        await call.answer(t("payment_already_reviewed"), show_alert=True)
+        return
+    await record(
+        session,
+        shop_id=shop.id,
+        actor=actor(staff),
+        action="payment.fix_requested",
+        entity="payment",
+        entity_id=payment.id,
+        after={"kind": kind},
+    )
+    await queue.enqueue(
+        session, "notify", "payment_fix_requested", {"payment_id": payment.id, "kind": kind}, shop_id=shop.id
+    )
+    outcome = f"fix_{kind}"
+    here = (call.message.chat.id, call.message.message_id) if call.message else None
+    # Taken now: the corrected receipt's new review messages must not be swept into this sync.
+    refs = await review_sync.take_now(payment.id)
+    await review_sync.announce(
+        session, payment.id, shop.id, outcome, call.from_user.full_name, skip=here, refs=refs
+    )
+    await session.commit()
+    await call.answer(t("adm_fix_sent"))
+    await _mark(call, t(review_sync.OUTCOMES[outcome], admin=esc(call.from_user.full_name)))
 
 
 @router.callback_query(Review.filter(F.action == "no"), StaffOnly("payments.review"))
@@ -283,6 +352,9 @@ async def reject(
     await queue.enqueue(
         session, "notify", "payment_rejected", {"payment_id": payment.id, "reason": reason}, shop_id=shop.id
     )
+    # Every copy, the one this reviewer tapped included, now says who rejected it (F-24).
+    name = message.from_user.full_name if message.from_user else "-"
+    await review_sync.announce(session, payment.id, shop.id, "rejected", name)
     await message.answer(t("rejected_short"), reply_markup=menu(t, cfg, staff))
 
 
@@ -297,19 +369,74 @@ async def open_tickets(call: CallbackQuery, session: AsyncSession, shop: ShopRow
             select(Ticket)
             .where(Ticket.shop_id == shop.id, Ticket.status == TicketStatus.OPEN)
             .order_by(Ticket.updated_at)
-            .limit(15)
+            .limit(100)
         )
     )
+    # The most urgent first, then the longest waiting (F-14).
+    rank = {name: index for index, name in enumerate(reversed(tickets.PRIORITIES))}
+    rows = sorted(rows, key=lambda row: rank.get(row.priority, len(rank)))[:15]
     kb = InlineKeyboardBuilder()
     for ticket in rows:
+        icon = tickets.PRIORITY_ICON.get(ticket.priority, "")
         kb.row(
             InlineKeyboardButton(
-                text=f"#{ticket.id} · {ticket.subject[:40]}",
+                text=f"{icon} #{ticket.id} · {ticket.subject[:40]}",
                 callback_data=Admin(section="ticket", id=ticket.id).pack(),
             )
         )
     kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Admin(section="home").pack()))
     await show(call, t("adm_open_tickets", count=len(rows)), kb.as_markup())
+
+
+async def _ticket_view(
+    session: AsyncSession, t: Texts, ticket: Ticket, staff: StaffIdentity
+) -> tuple[str, InlineKeyboardMarkup]:
+    customer = await session.get(Customer, ticket.customer_id)
+    lines = [
+        t(
+            "adm_ticket_title",
+            id=ticket.id,
+            subject=esc(ticket.subject),
+            customer=esc(customer.display_name if customer else "-"),
+        )
+    ]
+    details = [f"{tickets.PRIORITY_ICON.get(ticket.priority, '')} {t(f'ticket_priority_{ticket.priority}')}"]
+    desk = await tickets.department(session, ticket.shop_id, ticket.department_id, active_only=False)
+    if desk is not None:
+        details.insert(0, t("adm_ticket_department", department=esc(desk.title)))
+    if ticket.assigned_staff_id:
+        assignee = await session.get(Staff, ticket.assigned_staff_id)
+        name = (assignee.display_name or assignee.username) if assignee else "?"
+        details.append(t("adm_ticket_assignee", staff=esc(name or "?")))
+    lines.append(" · ".join(details))
+    for item in await tickets.messages(session, ticket.id, include_internal=True):
+        if item.is_internal:
+            who = t("adm_ticket_note_label")
+        elif item.author_type == "staff":
+            who = t("ticket_support")
+        else:
+            who = esc(customer.display_name if customer else "?")
+        lines.append(f"<b>{who}</b>\n{esc(item.text or '')}{' 📎' if item.attachment_file_id else ''}")
+    tid = ticket.id
+    kb = InlineKeyboardBuilder()
+    kb.button(text=t("btn_ticket_reply"), callback_data=Admin(section="ticket", action="reply", id=tid))
+    kb.button(text=t("btn_ticket_note"), callback_data=Admin(section="ticket", action="note", id=tid))
+    if await tickets.canned_replies(session, ticket.shop_id, ticket.department_id):
+        kb.button(text=t("btn_ticket_canned"), callback_data=Admin(section="ticket", action="canned", id=tid))
+    upcoming = t(f"ticket_priority_{tickets.next_priority(ticket.priority)}")
+    kb.button(
+        text=t("btn_ticket_priority", priority=upcoming),
+        callback_data=Admin(section="ticket", action="prio", id=tid),
+    )
+    mine = staff.id is not None and ticket.assigned_staff_id == staff.id
+    kb.button(
+        text=t("btn_ticket_unassign" if mine else "btn_ticket_take"),
+        callback_data=Admin(section="ticket", action="take", id=tid),
+    )
+    kb.button(text=t("btn_ticket_close"), callback_data=Admin(section="ticket", action="close", id=tid))
+    kb.adjust(2)
+    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Admin(section="tickets").pack()))
+    return "\n\n".join(lines)[-3900:], kb.as_markup()
 
 
 @router.callback_query(Admin.filter(F.section == "ticket"), StaffOnly("tickets.reply"))
@@ -319,6 +446,7 @@ async def ticket_detail(
     session: AsyncSession,
     shop: ShopRow,
     t: Texts,
+    staff: StaffIdentity,
     state: FSMContext,
 ) -> None:
     ticket = await session.get(Ticket, callback_data.id)
@@ -329,40 +457,93 @@ async def ticket_detail(
         await tickets.close(session, ticket)
         await call.answer(t("ticket_closed_ok"))
         return
-    if callback_data.action == "reply":
+    if callback_data.action in {"reply", "note"}:
         await call.answer()
-        await state.set_state(AdminStates.ticket_reply)
+        note = callback_data.action == "note"
+        await state.set_state(AdminStates.ticket_note if note else AdminStates.ticket_reply)
         await state.update_data(ticket_id=ticket.id)
         if isinstance(call.message, Message):
             await call.message.answer(
-                t("adm_ticket_reply_ask", id=ticket.id), reply_markup=keyboards.cancel(t)
+                t("adm_ticket_note_ask" if note else "adm_ticket_reply_ask", id=ticket.id),
+                reply_markup=keyboards.cancel(t),
             )
         return
-    await call.answer()
+    if callback_data.action == "canned":
+        await call.answer()
+        picker = InlineKeyboardBuilder()
+        for row in await tickets.canned_replies(session, shop.id, ticket.department_id):
+            picker.button(
+                text=row.title[:60], callback_data=Admin(section="tcanned", id=ticket.id, page=row.id)
+            )
+        picker.adjust(1)
+        picker.row(
+            InlineKeyboardButton(
+                text=t("btn_back"), callback_data=Admin(section="ticket", id=ticket.id).pack()
+            )
+        )
+        await show(call, t("adm_ticket_canned_pick", id=ticket.id), picker.as_markup())
+        return
+    if callback_data.action in {"prio", "take"}:
+        if callback_data.action == "prio":
+            changed = await tickets.update(session, ticket, priority=tickets.next_priority(ticket.priority))
+        elif staff.id is None:
+            await call.answer(t("adm_ticket_take_no_account"), show_alert=True)
+            return
+        elif ticket.assigned_staff_id == staff.id:
+            changed = await tickets.update(session, ticket, unassign=True)
+        else:
+            changed = await tickets.update(session, ticket, assigned_staff_id=staff.id)
+        if changed:
+            await record(
+                session,
+                shop_id=shop.id,
+                actor=actor(staff),
+                action="ticket.update",
+                entity="ticket",
+                entity_id=ticket.id,
+                after=changed,
+            )
+        await call.answer(t("adm_saved"))
+    else:
+        await call.answer()
+    text, kb = await _ticket_view(session, t, ticket, staff)
+    await show(call, text, kb)
+
+
+@router.callback_query(Admin.filter(F.section == "tcanned"), StaffOnly("tickets.reply"))
+async def ticket_canned(
+    call: CallbackQuery,
+    callback_data: Admin,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+) -> None:
+    ticket = await session.get(Ticket, callback_data.id)
+    reply = await session.get(CannedReply, callback_data.page)
+    if ticket is None or ticket.shop_id != shop.id or reply is None or reply.shop_id != shop.id:
+        await call.answer(t("ticket_not_found"), show_alert=True)
+        return
     customer = await session.get(Customer, ticket.customer_id)
-    lines = [
-        t(
-            "adm_ticket_title",
-            id=ticket.id,
-            subject=esc(ticket.subject),
-            customer=esc(customer.display_name if customer else "-"),
+    try:
+        await tickets.add_message(
+            session,
+            ticket,
+            author_type="staff",
+            author_id=staff.id,
+            text=tickets.render_canned(reply.text, customer=customer, ticket=ticket),
         )
-    ]
-    for item in await tickets.messages(session, ticket.id):
-        who = (
-            t("ticket_support")
-            if item.author_type == "staff"
-            else esc(customer.display_name if customer else "?")
-        )
-        lines.append(f"<b>{who}</b>\n{esc(item.text or '')}{' 📎' if item.attachment_file_id else ''}")
-    kb = InlineKeyboardBuilder()
-    kb.button(text=t("btn_ticket_reply"), callback_data=Admin(section="ticket", action="reply", id=ticket.id))
-    kb.button(text=t("btn_ticket_close"), callback_data=Admin(section="ticket", action="close", id=ticket.id))
-    kb.adjust(2)
-    await show(call, "\n\n".join(lines)[-3900:], kb.as_markup())
+    except tickets.TicketError as exc:
+        await call.answer(t(exc.key), show_alert=True)
+        return
+    await queue.enqueue(session, "notify", "ticket_reply", {"ticket_id": ticket.id}, shop_id=shop.id)
+    await call.answer(t("adm_ticket_replied"))
+    text, kb = await _ticket_view(session, t, ticket, staff)
+    await show(call, text, kb)
 
 
 @router.message(AdminStates.ticket_reply)
+@router.message(AdminStates.ticket_note)
 async def ticket_reply(
     message: Message,
     session: AsyncSession,
@@ -373,6 +554,7 @@ async def ticket_reply(
     state: FSMContext,
 ) -> None:
     data = await state.get_data()
+    note = await state.get_state() == AdminStates.ticket_note.state
     ticket = await session.get(Ticket, int(data.get("ticket_id") or 0))
     await state.clear()
     if ticket is None or ticket.shop_id != shop.id:
@@ -392,9 +574,13 @@ async def ticket_reply(
             text=message.text or message.caption,
             attachment_file_id=file_id,
             attachment_kind="photo" if message.photo else ("document" if file_id else None),
+            internal=note,
         )
     except tickets.TicketError as exc:
         await message.answer(t(exc.key), reply_markup=menu(t, cfg, staff))
+        return
+    if note:  # staff-only: the customer is not told
+        await message.answer(t("adm_ticket_noted"), reply_markup=menu(t, cfg, staff))
         return
     await queue.enqueue(session, "notify", "ticket_reply", {"ticket_id": ticket.id}, shop_id=shop.id)
     await message.answer(t("adm_ticket_replied"), reply_markup=menu(t, cfg, staff))
@@ -553,6 +739,7 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
         )
         or 0
     )
+    profile = customer.reseller_profile
     text = t(
         "adm_customer",
         name=esc(customer.display_name),
@@ -563,11 +750,25 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
         banned=t("yes") if customer.is_banned else t("no"),
         reseller=t("yes") if customer.is_reseller else t("no"),
     )
+    text += "\n" + t(
+        "adm_ua_status",
+        kyc=t("adm_ua_kyc_yes") if VERIFIED_TAG in (customer.tags or []) else t("adm_ua_kyc_no"),
+        card=t(f"adm_trust_{customer.card_trust}"),
+        cron=t("adm_ua_off") if customer.alerts_muted else t("adm_ua_on"),
+    )
+    if profile is not None and profile.is_active:
+        text += "\n" + t(
+            "adm_ua_reseller_status",
+            expires=jdate(profile.expires_at) if profile.expires_at else t("unlimited"),
+            gb=money(profile.gb_price),
+            hour=money(profile.hourly_price),
+        )
     kb = InlineKeyboardBuilder()
 
-    def button(key: str, section: str, **params: Any) -> InlineKeyboardButton:
+    def button(key: str, section: str, action: str = "show", **params: Any) -> InlineKeyboardButton:
         return InlineKeyboardButton(
-            text=t(key, **params), callback_data=Admin(section=section, id=customer.id).pack()
+            text=t(key, **params),
+            callback_data=Admin(section=section, action=action, id=customer.id).pack(),
         )
 
     def pair(*buttons: InlineKeyboardButton | None) -> None:
@@ -575,30 +776,69 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
         if available:
             kb.row(*available)
 
+    write = staff.can("customers.write")
+    card = staff.can("payments.review")
+    # Rows follow the requested layout; each pair is (left, right) as Telegram draws it.
     pair(button("adm_user_btn_referrals", "uref"))
-    pair(button("adm_user_btn_transfer", "utransfer") if staff.can("resellers.manage") else None)
+    if staff.can("resellers.manage"):
+        pair(button("adm_user_btn_transfer", "utransfer"))
+    if write:
+        pair(
+            button("adm_ua_btn_unref", "urefx", "unref") if customer.referrer_id else None,
+            button("adm_ua_btn_clear_refs", "urefx", "clear"),
+        )
+    if card:
+        pair(button("adm_ua_btn_card_on", "ucard", "on"))
+    if write:
+        pair(button("adm_ua_btn_kyc_on", "ukyc", "on"), button("adm_ua_btn_kyc_off", "ukyc", "off"))
+    if card:
+        pair(button("adm_ua_btn_card_off", "ucard", "off"))
+    pair(
+        button("adm_user_btn_give", "ugive") if staff.can("services.create") else None,
+        button("adm_user_btn_trial", "utrial") if write else None,
+    )
+    can_move = write and staff.can("services.write") and staff.can("wallet.adjust")
+    pair(
+        button("adm_ud_payments", "upay") if staff.can("payments.read") else None,
+        button("adm_ua_btn_move", "umove") if can_move and profile is None else None,
+    )
+    if staff.can("services.write"):
+        pair(button("adm_ua_btn_power_off", "upower", "off"), button("adm_ua_btn_power_on", "upower", "on"))
+    pair(
+        button("adm_ua_btn_channels", "uchan"),
+        button("adm_ua_btn_zero", "uzero") if staff.can("wallet.adjust") else None,
+    )
+    if write:
+        pair(
+            button(
+                "adm_ua_btn_cron", "ucron", state=t("adm_ua_off") if customer.alerts_muted else t("adm_ua_on")
+            )
+        )
+    reseller = profile is not None and profile.is_active and staff.can("resellers.manage")
+    if reseller:
+        pair(button("adm_user_btn_rbot", "rbot"), button("adm_ua_btn_rbot_del", "urbotdel"))
+        pair(button("adm_ua_btn_base_gb", "ubase", "gb"), button("adm_ua_btn_base_hour", "ubase", "hour"))
+    if write:
+        pair(button("adm_ua_btn_hide_reseller" if reseller else "adm_user_btn_hide", "uhide"))
+        pair(button("adm_ua_btn_hidden", "uhidden"))
+    if reseller:
+        pair(button("adm_ua_btn_expiry", "uexp"))
+        pair(button("adm_ua_btn_demote", "udemote"))
+        pair(button("adm_user_btn_group", "ugroup"))
+        pair(button("adm_user_btn_limit", "ulimit"))
+    # The rest of the existing controls.
     pair(
         button("adm_user_btn_services", "usvc") if staff.can("services.read") else None,
-        button("adm_user_btn_give", "ugive") if staff.can("services.create") else None,
-    )
-    pair(
         button("btn_adjust_balance", "adjust") if staff.can("wallet.adjust") else None,
-        button("adm_ud_payments", "upay") if staff.can("payments.read") else None,
     )
-    if staff.can("payments.review"):
-        pair(button("adm_user_btn_trust", "utrust", state=t(f"adm_trust_{customer.card_trust}")))
     pair(
-        button("adm_user_btn_message", "umsg") if staff.can("customers.write") else None,
+        button("adm_user_btn_message", "umsg") if write else None,
         button("btn_unban" if customer.is_banned else "btn_ban", "ban")
         if staff.can("customers.ban")
         else None,
     )
-    pair(
-        button("adm_user_btn_hide", "uhide") if staff.can("customers.write") else None,
-        button("adm_user_btn_trial", "utrial") if staff.can("customers.write") else None,
-    )
-    if customer.is_reseller and staff.can("resellers.manage"):
-        pair(button("adm_user_btn_group", "ugroup"), button("adm_user_btn_rbot", "rbot"))
+    if card:
+        pair(button("adm_user_btn_trust", "utrust", state=t(f"adm_trust_{customer.card_trust}")))
     pair(button("adm_ud_back_list", "uprofile"), button("adm_ud_admin", "home"))
     pair(button("adm_ud_close", "uprofile_close"))
     return text, kb.as_markup()

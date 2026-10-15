@@ -14,11 +14,12 @@ from paurubot.bot.callbacks import Svc
 from paurubot.bot.keyboards import STATUS_ICON
 from paurubot.bot.routers.start import menu
 from paurubot.bot.states import ServiceStates
-from paurubot.bot.utils import Btn, show
+from paurubot.bot.utils import Btn, error_text, show
 from paurubot.bot.views import qr_png, service_card
+from paurubot.core import auto_renew
 from paurubot.core.formatting import esc
-from paurubot.core.orders import MOVABLE, service_extras
-from paurubot.db.models import Customer, Service, ServiceStatus
+from paurubot.core.orders import MOVABLE, OrderError, can_change, service_extras
+from paurubot.db.models import Customer, Plan, Service, ServiceStatus
 from paurubot.i18n import Texts
 from paurubot.panels import PanelError
 from paurubot.panels.registry import delivery_of
@@ -37,6 +38,21 @@ async def owned(session: AsyncSession, customer: Customer, service_id: int) -> S
     return service
 
 
+def _renewable(service: Service) -> bool:
+    return can_change(service, "renew") and (
+        service.panel is None or (service.panel.options or {}).get("allow_renewals") is not False
+    )
+
+
+def _auto_offer(service: Service, cfg: dict[str, Any]) -> bool | None:
+    """Whether auto-renewal is on, or None where the service has nothing it could buy (F-02)."""
+    if service.is_trial:
+        return None
+    if not _renewable(service) and service_extras(cfg, service) == (None, None):
+        return None if auto_renew.rule(service) is None else False
+    return auto_renew.is_on(service)
+
+
 def _service_markup(t: Texts, service: Service, cfg: dict[str, Any]):  # type: ignore[no-untyped-def]
     return keyboards.service_kb(
         t,
@@ -47,6 +63,7 @@ def _service_markup(t: Texts, service: Service, cfg: dict[str, Any]):  # type: i
         card=bool(cfg["info_card_enabled"]),
         cancel=bool(cfg["self_delete_enabled"]),
         link=customer_link(service, cfg),
+        auto=_auto_offer(service, cfg),
     )
 
 
@@ -133,7 +150,11 @@ async def view(
     if service.status == ServiceStatus.DELETED:
         await show(call, t("service_removed_from_panel"))
         return
-    await show(call, service_card(t, service, customer_link(service, cfg)), _service_markup(t, service, cfg))
+    await show(
+        call,
+        service_card(t, service, customer_link(service, cfg)),
+        await _resale_service_markup(session, t, service, cfg),
+    )
 
 
 @router.callback_query(Svc.filter(F.action == "mute"))
@@ -268,6 +289,22 @@ async def report_problem(
     await show(call, t("report_known_outage" if down else "report_sent", id=ticket.id))
 
 
+async def _resale_service_markup(session: AsyncSession, t: Texts, service: Service, cfg: dict[str, Any]):  # type: ignore[no-untyped-def]
+    from paurubot.core import resale
+
+    return keyboards.service_kb(
+        t,
+        service,
+        extras=await resale.listed_extras(session, service, service.shop_id, cfg),
+        upgrade=bool(cfg["upgrade_enabled"]),
+        move=bool(cfg["move_enabled"]) and service.status in MOVABLE,
+        card=bool(cfg["info_card_enabled"]),
+        cancel=bool(cfg["self_delete_enabled"]),
+        link=customer_link(service, cfg),
+        auto=_auto_offer(service, cfg),
+    )
+
+
 async def _send_wireguard(message: Message, t: Texts, service: Service, config: str | None) -> None:
     """A WireGuard service is a .conf file and its QR, not a link (PNL-08)."""
     if not config:
@@ -301,7 +338,9 @@ async def links(
         return
     kind = delivery_of(service.panel.kind if service.panel else None)
     if kind == "account":
-        await show(call, service_card(t, service, None), _service_markup(t, service, cfg))
+        await show(
+            call, service_card(t, service, None), await _resale_service_markup(session, t, service, cfg)
+        )
         return
     items = await lifecycle.links(session, service)
     if kind == "wireguard":
@@ -504,7 +543,11 @@ async def revoke(
         return
     await session.commit()
     await call.answer(t("revoked"))
-    await show(call, service_card(t, service, customer_link(service, cfg)), _service_markup(t, service, cfg))
+    await show(
+        call,
+        service_card(t, service, customer_link(service, cfg)),
+        await _resale_service_markup(session, t, service, cfg),
+    )
 
 
 @router.callback_query(Svc.filter(F.action == "rename"))
@@ -547,6 +590,116 @@ async def rename(
     await message.answer(t("label_saved"), reply_markup=menu(t, cfg, staff))
     await message.answer(
         service_card(t, service, customer_link(service, cfg)),
-        reply_markup=_service_markup(t, service, cfg),
+        reply_markup=await _resale_service_markup(session, t, service, cfg),
         disable_web_page_preview=True,
     )
+
+
+# --- auto-renewal (F-02) ---------------------------------------------------------
+
+
+async def _auto_menu(
+    call: CallbackQuery,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    service: Service,
+) -> None:
+    from paurubot.bot.routers.shop import priced
+    from paurubot.core import catalog
+
+    plans: list[tuple[Plan, int]] = []
+    if _renewable(service):
+        offered = await catalog.plans(session, customer.shop_id, customer, panel_id=service.panel_id)
+        usable = [p for p in offered if p.renewable and p.delivery != "stock"][:8]
+        plans = await priced(session, usable, customer)
+    gb_price, day_price = service_extras(cfg, service)
+    found = auto_renew.rule(service)
+    stopped = bool(found and found.get("stopped"))
+    lines = [t("auto_renew_title", name=esc(service.label or service.panel_username)), t("auto_renew_help")]
+    if found is None:
+        lines.append(t("auto_renew_state_off"))
+    elif stopped:
+        lines.append(t("auto_renew_state_stopped"))
+    else:
+        if found["mode"] == "renew":
+            plan = await session.get(Plan, int(found["plan_id"]))
+            lines.append(t("auto_renew_state_plan", plan=esc(plan.title if plan else f"#{found['plan_id']}")))
+        else:
+            if found.get("gb"):
+                lines.append(t("auto_renew_state_gb", value=int(found["gb"])))
+            if found.get("days"):
+                lines.append(t("auto_renew_state_days", value=int(found["days"])))
+        if found.get("short"):
+            lines.append(t("auto_renew_state_short"))
+    if not plans and gb_price is None and day_price is None:
+        lines.append(t("auto_renew_nothing"))
+    await show(
+        call,
+        "\n\n".join(lines),
+        keyboards.auto_renew_kb(
+            t,
+            service.id,
+            plans,
+            gb_options=auto_renew.GB_OPTIONS if gb_price is not None else (),
+            day_options=auto_renew.DAY_OPTIONS if day_price is not None else (),
+            chosen=None if stopped else found,
+            removable=found is not None,
+        ),
+    )
+
+
+@router.callback_query(Svc.filter(F.action == "auto"))
+async def auto_view(
+    call: CallbackQuery,
+    callback_data: Svc,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+) -> None:
+    service = await owned(session, customer, callback_data.id)
+    if service is None or service.is_trial:
+        await call.answer(t("service_not_found"), show_alert=True)
+        return
+    await call.answer()
+    await _auto_menu(call, session, customer, t, cfg, service)
+
+
+@router.callback_query(Svc.filter(F.action.in_({"auto_plan", "auto_gb", "auto_days", "auto_off"})))
+async def auto_set(
+    call: CallbackQuery,
+    callback_data: Svc,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+) -> None:
+    service = await owned(session, customer, callback_data.id)
+    if service is None or service.is_trial:
+        await call.answer(t("service_not_found"), show_alert=True)
+        return
+    action, value = callback_data.action, max(0, callback_data.value)
+    note = "auto_renew_saved"
+    try:
+        if action == "auto_off":
+            await auto_renew.disable(session, service)
+            note = "auto_renew_disabled"
+        elif action == "auto_plan":
+            await auto_renew.enable(session, service, plan_id=value)
+        elif value == 0:
+            await auto_renew.drop_part(session, service, "gb" if action == "auto_gb" else "days")
+        elif action == "auto_gb":
+            await auto_renew.enable(session, service, gb=value)
+        else:
+            await auto_renew.enable(session, service, days=value)
+    except OrderError as exc:
+        await session.rollback()
+        await call.answer(error_text(t, exc.key, exc.params), show_alert=True)
+        return
+    await session.commit()
+    if auto_renew.rule(service) is None:
+        note = "auto_renew_disabled"
+    await call.answer(t(note))
+    await _auto_menu(call, session, customer, t, cfg, service)

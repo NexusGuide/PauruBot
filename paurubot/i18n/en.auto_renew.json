@@ -1,0 +1,22 @@
+{
+  "btn_auto_renew": "🔁 Auto-renew",
+  "btn_auto_renew_on": "🔁 Auto-renew: on",
+  "btn_auto_renew_off": "🔁 Auto-renew: off",
+  "btn_auto_renew_disable": "⛔️ Turn auto-renew off",
+  "auto_renew_plan_option": "Renew with {plan} — {price}",
+  "auto_renew_gb_option": "+{value} GB",
+  "auto_renew_days_option": "+{value} days",
+  "auto_renew_title": "🔁 <b>Auto-renew for {name}</b>",
+  "auto_renew_help": "When this service is running out of data or time, the bot pays from your wallet and renews it or buys extra data/days on its own.\nPick a plan to renew with, or how much extra data and how many extra days to add.",
+  "auto_renew_state_off": "Status: off",
+  "auto_renew_state_stopped": "⚠️ Auto-renew has stopped. Pick an option to turn it on again.",
+  "auto_renew_state_plan": "✅ Status: on — renews with {plan}",
+  "auto_renew_state_gb": "✅ When data runs low: +{value} GB",
+  "auto_renew_state_days": "✅ When time runs low: +{value} days",
+  "auto_renew_state_short": "💳 Your wallet balance is too low; top it up and the renewal goes through on its own.",
+  "auto_renew_nothing": "This service has nothing auto-renew could buy.",
+  "auto_renew_saved": "✅ Auto-renew saved",
+  "auto_renew_disabled": "Auto-renew is off",
+  "auto_renew_short": "💳 Auto-renew for <b>{name}</b> could not run: your wallet balance is too low.\nNeeded: {required}\nYour balance: {balance}\n\nTop up your wallet and it renews on its own.",
+  "auto_renew_stopped": "⚠️ Auto-renew for <b>{name}</b> has stopped because the chosen option is no longer available. Please set it up again."
+}
