@@ -1308,7 +1308,7 @@
   "setting_lottery_enabled": "Lottery button",
   "setting_lottery_enabled_hint": "Shows the Lottery button in the bot. Lotteries themselves are set up on the Lotteries page.",
   "setting_trust_channel_id": "Trust channel",
-  "setting_trust_channel_id_hint": "ID of a public channel where the bot is an admin. Each purchase is announced there with only a masked first name.",
+  "setting_trust_channel_id_hint": "ID of a public channel where the bot is an admin. Every paid purchase and renewal is posted there as a report with the buyer's id masked (for example 56943******), the plan, category, service and amount, plus a buy button. At most 20 posts go out per hour.",
   "tier_title": "Level name",
   "tier_min_spent": "Spent from (Toman)",
   "add_tier": "Add level",

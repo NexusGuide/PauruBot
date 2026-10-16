@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.auth import rbac
 from paurubot.config import get_settings
-from paurubot.core.formatting import esc, money, processing_key
+from paurubot.core.formatting import esc, jdate, local, money, processing_key
 from paurubot.db.base import utcnow
 from paurubot.db.models import (
     Broadcast,
@@ -894,7 +894,7 @@ async def tier_up(session: AsyncSession, job: queue.Claimed) -> None:
 
 
 async def trust_post(session: AsyncSession, job: queue.Claimed) -> None:
-    """Anonymous 'someone just bought' post in the shop's public channel (GRW-08)."""
+    """Order report in the shop's public channel, with the buyer id masked (GRW-08)."""
     from paurubot import kv
     from paurubot.core import growth
     from paurubot.core import settings as shop_settings
@@ -912,6 +912,7 @@ async def trust_post(session: AsyncSession, job: queue.Claimed) -> None:
         return  # keep the channel readable on busy hours
     customer = await session.get(Customer, order.customer_id)
     plan = await session.get(Plan, order.plan_id) if order.plan_id else None
+    service = await session.get(Service, order.service_id) if order.service_id else None
     shop = await session.get(Shop, order.shop_id)
     t = await texts_for(
         session,
@@ -919,14 +920,31 @@ async def trust_post(session: AsyncSession, job: queue.Claimed) -> None:
         shop.default_locale if shop else None,
         {"shop": esc(shop.title if shop else "")},
     )
+    when = order.completed_at or order.paid_at or order.created_at or utcnow()
     key = "trust_renew" if order.kind == OrderKind.RENEW else "trust_purchase"
+    # The panel username can contain the buyer's id, so the public channel only ever sees the
+    # service's own label (or the plan name when it has none).
+    service_name = (service.label if service else None) or (plan.title if plan else None)
     text = t(
         key,
+        buyer=growth.masked_id(customer.telegram_id if customer else None),
         name=esc(growth.masked(customer.first_name if customer else None)),
-        plan=esc(plan.title if plan else t("order_kind_purchase")),
+        plan=esc(plan.title) if plan else "—",
+        category=esc(plan.category.title) if plan and plan.category else "—",
+        service=esc(service_name) if service_name else "—",
+        amount=money(order.amount),
+        date=jdate(when),
+        time=local(when).strftime("%H:%M:%S"),
     )
+    markup: InlineKeyboardMarkup | None = None
+    if shop and shop.bot_username:
+        markup = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=t("btn_trust_buy"), url=f"https://t.me/{shop.bot_username}")]
+            ]
+        )
     try:
-        await telegram.send_text(int(chat), text, shop_id=order.shop_id)
+        await telegram.send_text(int(chat), text, shop_id=order.shop_id, reply_markup=markup)
     except telegram.Undeliverable:
         log.warning("trust channel post failed for shop %s", order.shop_id)
 

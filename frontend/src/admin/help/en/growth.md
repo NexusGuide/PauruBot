@@ -49,7 +49,7 @@ At the draw time winners are picked by fair chance, wallet prizes are paid and t
 
 ## Trust channel
 
-If you run a public channel, put its ID in **Trust channel** and make the bot an admin there. Every purchase and renewal is announced there with a masked first name (for example S***a) and the plan name, so new customers can see the shop is active. Usernames and IDs are never shown, and at most 20 posts go out per hour on busy hours.
+If you run a public channel, put its ID in **Trust channel** and make the bot an admin there. Every paid purchase and renewal is announced there as a report: only the first digits of the buyer's id are shown, with the plan, category, service and amount paid, plus a buy button. Full usernames and ids are never shown, and at most 20 posts go out per hour on busy hours.
 
 ## Referrals
 
