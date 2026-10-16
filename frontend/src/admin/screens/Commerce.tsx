@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { call, type Order, type Payment } from "../api";
+import { ApiError, call, type Order, type Payment } from "../api";
 import { PAGE_SIZE, useAction, useList } from "../hooks";
 import { useSession } from "../session";
 import {
@@ -20,7 +20,7 @@ import {
   Textarea,
   Toolbar,
   When,
-  useConfirm,
+  useTypedConfirm,
   type Column,
 } from "../ui";
 
@@ -30,21 +30,24 @@ const PROVIDERS = ["card", "zarinpal", "stars", "usdt_trc20", "trx", "ton", "now
 
 export function Orders() {
   const { t, can, toast, errorText } = useSession();
-  const confirm = useConfirm();
+  const typedConfirm = useTypedConfirm();
   const list = useList<Order>("/api/admin/orders", ["status", "customer_id", "id"]);
   const [open, setOpen] = useState<Order | null>(null);
   const [busy, run] = useAction();
 
   const refund = async (order: Order) => {
-    const ok = await confirm({
-      title: t("refund_title"),
-      body: t("refund_body", { id: order.id }),
-      confirm: t("refund"),
-      danger: true,
-    });
-    if (!ok) return;
     try {
-      const result = await run(() => call<{ order: Order }>(`/api/admin/orders/${order.id}/refund`, { method: "POST" }));
+      const result = await run(async () => {
+        const fields = await typedConfirm({
+          title: t("refund_title"),
+          body: t("refund_body", { id: order.id }),
+          confirm: t("refund"),
+          target: { action: "order.refund", id: order.id },
+        });
+        if (fields === null) return null;
+        return call<{ order: Order }>(`/api/admin/orders/${order.id}/refund`, { method: "POST", body: fields });
+      });
+      if (!result) return;
       if (result) {
         const updated = { ...order, ...result.order };
         setOpen(updated);
@@ -54,7 +57,7 @@ export function Orders() {
       }
       toast(t("refunded_toast"));
     } catch (err) {
-      toast(errorText(err), "error");
+      toast(err instanceof ApiError && err.status === 428 ? t("err_confirmation_required") : errorText(err), "error");
     }
   };
 

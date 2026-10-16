@@ -1,0 +1,24 @@
+.rh { color:var(--text);font-size:16px;line-height:1.7;min-width:0;overflow-wrap:anywhere; }
+.rh h2 { font-size:1.5rem;font-weight:750; } .rh h3 { font-size:1.15rem;font-weight:700; } .rh h4 { font-weight:700; }
+.rh p { margin-block:10px; } .rh-muted,.rh time { color:#536478;font-size:14px; } .rh time{display:block}
+.rh-toolbar { display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap; }
+.rh button,.rh select,.rh summary { min-height:44px;font:inherit; }
+.rh button,.rh select { border:1px solid #788695;border-radius:14px;background:var(--surface);color:var(--text);padding:9px 15px; }
+.rh button { cursor:pointer;font-weight:650; } .rh button:disabled { opacity:.6;cursor:wait; }
+.rh :is(button,select,summary):focus-visible { outline:3px solid #087785;outline-offset:3px; }
+.rh select { display:block;width:100%;margin-block:8px 16px; }
+.rh-card { background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:18px;margin-block:14px;min-width:0; }
+.rh-metrics { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px; } .rh-metrics strong { display:block;font-size:1.2rem; }
+.rh-runway { border-inline-start:4px solid #087785; } .rh-low { border-inline-start-color:#a65a00; } .rh-number { display:block;font-size:1.55rem;margin-block:10px; }
+.rh-error { border-inline-start:4px solid #c81744;border-radius:12px;padding:16px;background:var(--surface); }
+.rh-events { list-style:none;padding:0;margin:0; } .rh-tag { background:var(--bg);border-radius:8px;padding:3px 9px;display:inline-block;font-size:14px; }
+.rh dl { margin-top:12px; } .rh dt { font-size:14px;color:#536478;margin-top:8px; } .rh dd { white-space:pre-wrap;margin:0; }
+.rh summary { cursor:pointer;font-weight:600;padding-block:10px; } .rh details { margin-top:12px; } .rh-entry { padding:0 16px 16px; }
+@media(max-width:540px){.rh-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.rh-metrics .rh-card:last-child{grid-column:1/-1}.rh-card{padding:16px}.rh-metrics .rh-card{margin-block:6px}}
+@media(prefers-color-scheme:dark){.rh-muted,.rh time,.rh dt{color:#b1c0cd}.rh button,.rh select{border-color:#8197a7}.rh :is(button,select,summary):focus-visible{outline-color:#65d5df}.rh-runway{border-inline-start-color:#65d5df}.rh-low{border-inline-start-color:#e8b76c}}
+@media(prefers-reduced-motion:reduce){.rh *{animation:none!important;transition:none!important}}
+
+.rh-modal [role="dialog"] > header h2 { min-width:0;overflow-wrap:anywhere; }
+.rh-modal [role="dialog"] > header button { min-width:44px;min-height:44px;flex-shrink:0; }
+/* Keep stress-test names from consuming most of a small dialog; full name stays in its accessible label. */
+.rh-modal [role="dialog"] > header h2 { display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden; }

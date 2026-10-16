@@ -1,0 +1,42 @@
+/* Only the capability dialog; no global admin/Mini App restyling. */
+.panel-capabilities [role="dialog"] { background: #ffffff; color: #172b3a; --cap-muted: #526576; --cap-border: #748594; --cap-soft: #f4f7fa; --cap-brand: #087785; --cap-ink: #ffffff; --cap-error: #a72642; --cap-error-soft: #fcecf0; }
+.panel-capabilities [role="dialog"] > header { border-color: #d5dfe7; }
+.panel-capabilities [role="dialog"] > header button { color: #172b3a; min-width: 44px; min-height: 44px; }
+.panel-capabilities .cap-content { font-size: 16px; line-height: 1.65; overflow-wrap: anywhere; min-width: 0; }
+.panel-capabilities .cap-content > * + * { margin-block-start: 16px; }
+.panel-capabilities .cap-hint { color: var(--cap-muted); font-size: 14px; }
+.panel-capabilities .cap-identity { font-weight: 650; }
+.panel-capabilities .cap-button { display: block; width: 100%; min-height: 48px; border: 1px solid var(--cap-border); border-radius: 12px; padding: 10px 12px; font: inherit; font-weight: 650; text-align: center; background: #ffffff; color: #172b3a; }
+.panel-capabilities .cap-primary { background: var(--cap-brand); color: var(--cap-ink); border-color: var(--cap-brand); }
+.panel-capabilities .cap-danger { background: var(--cap-error-soft); color: var(--cap-error); border-color: var(--cap-error); }
+.panel-capabilities .cap-button:disabled { opacity: .5; cursor: not-allowed; }
+.panel-capabilities .cap-write { background: var(--cap-soft); border: 1px solid var(--cap-border); border-radius: 12px; padding: 12px; }
+.panel-capabilities .cap-write summary { min-height: 44px; cursor: pointer; font-weight: 650; }
+.panel-capabilities .cap-write p, .panel-capabilities .cap-write button { margin-block-start: 12px; }
+.panel-capabilities .cap-ack { display: flex; align-items: flex-start; gap: 12px; padding-block: 12px; min-height: 44px; cursor: pointer; }
+.panel-capabilities .cap-ack input { flex-shrink: 0; width: 24px; height: 24px; margin-top: 3px; accent-color: var(--cap-brand); }
+.panel-capabilities .cap-error { background: var(--cap-error-soft); color: var(--cap-error); border-inline-start: 3px solid var(--cap-error); padding: 12px; border-radius: 8px; }
+.panel-capabilities .cap-error p + p { margin-block-start: 8px; }
+.panel-capabilities .cap-result-title { font-weight: 750; scroll-margin-block: 16px; }
+.panel-capabilities .cap-checks { padding: 0; list-style: none; margin-block: 16px; }
+.panel-capabilities .cap-checks li { border: 1px solid var(--cap-border); border-radius: 12px; padding: 12px; margin-block-start: 12px; }
+.panel-capabilities .cap-check-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; align-items: baseline; }
+.panel-capabilities .cap-check-heading h4 { font-weight: 650; }
+.panel-capabilities .cap-status { display: inline-block; font-size: 14px; font-weight: 650; border-radius: 6px; padding: 2px 8px; }
+.panel-capabilities .cap-ok { color: #35622f; background: #e3f1e1; }
+.panel-capabilities .cap-warn { color: #875216; background: #fbefd9; }
+.panel-capabilities .cap-fail { color: var(--cap-error); background: var(--cap-error-soft); }
+.panel-capabilities .cap-skip { color: var(--cap-muted); background: var(--cap-soft); }
+.panel-capabilities .cap-detail { margin-block-start: 8px; white-space: pre-wrap; }
+.panel-capabilities :focus-visible { outline: 3px solid var(--cap-brand); outline-offset: 2px; }
+@media (prefers-color-scheme: dark) {
+  .panel-capabilities [role="dialog"] { background: #192a37; color: #edf5fa; --cap-muted: #b1c2cf; --cap-border: #8197a7; --cap-soft: #101c26; --cap-brand: #67d6df; --cap-ink: #0d3037; --cap-error: #ffabc0; --cap-error-soft: #432633; }
+  .panel-capabilities [role="dialog"] > header button { color: #edf5fa; }
+  .panel-capabilities .cap-button { background: #192a37; color: #edf5fa; }
+  .panel-capabilities .cap-primary { background: var(--cap-brand); color: var(--cap-ink); }
+  .panel-capabilities .cap-danger { background: var(--cap-error-soft); color: var(--cap-error); }
+  .panel-capabilities .cap-ok { color: #b2dfab; background: #183a2f; }
+  .panel-capabilities .cap-warn { color: #f3cc8e; background: #413523; }
+}
+.panel-capabilities [role="dialog"] > header h2 { min-width: 0; overflow-wrap: anywhere; }
+.panel-capabilities [role="dialog"] > header button { flex-shrink: 0; }
