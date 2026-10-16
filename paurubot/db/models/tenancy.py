@@ -76,6 +76,10 @@ class Customer(Base, TimestampMixin):
     # Card to card (PAY-17): "normal", "trusted" (receipts approved at once) or "blocked".
     card_trust: Mapped[str] = mapped_column(String(12), default="normal", server_default="normal")
     alerts_muted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Independent of essential service/payment notifications. Null time means no explicit choice yet.
+    marketing_opt_out: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    marketing_changed_at: Mapped[datetime | None] = mapped_column()
+    marketing_change_source: Mapped[str | None] = mapped_column(String(16))
     # Panels this one customer never sees, on top of its reseller group's (CAT-10).
     hidden_panel_ids: Mapped[list[int]] = mapped_column(JSON, default=list, server_default="[]")
     last_seen_at: Mapped[datetime | None] = mapped_column()

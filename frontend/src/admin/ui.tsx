@@ -14,7 +14,12 @@ import {
 } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { date, dateTime, money, size } from "@shared/format";
+import { call } from "./api";
 import { useSession } from "./session";
+import {
+  confirmationFields, confirmationSpec, needsTyping, validateChallenge,
+  type ConfirmationChallenge, type ConfirmationTarget, type ConfirmFields,
+} from "./typed-confirm";
 
 // ---------------------------------------------------------------- icons
 
@@ -190,8 +195,8 @@ export function Button({
     <button
       type="button"
       className={`inline-flex items-center justify-center gap-1.5 font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${sizing} ${BUTTON_TONES[tone]} ${className}`}
-      disabled={busy || rest.disabled}
       {...rest}
+      disabled={busy || rest.disabled}
     >
       {busy ? <Spinner small /> : icon ? <Icon name={icon} size={small ? 16 : 18} /> : null}
       {children}
@@ -565,6 +570,9 @@ export function CopyText({ text, short }: { text: string; short?: boolean }) {
 
 // ---------------------------------------------------------------- sheet and confirm
 
+const openSheets: string[] = [];
+let previousScrollLock = false;
+
 export function Sheet({
   open,
   onClose,
@@ -582,21 +590,44 @@ export function Sheet({
 }) {
   const { t } = useSession();
   const panel = useRef<HTMLDivElement>(null);
+  const sheetId = useId();
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
+    if (openSheets.length === 0) previousScrollLock = document.body.classList.contains("overflow-hidden");
+    openSheets.push(sheetId);
     panel.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (openSheets[openSheets.length - 1] !== sheetId) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeRef.current();
+      }
+      if (event.key === "Tab" && panel.current) {
+        const controls = [...panel.current.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]',
+        )].filter((el) => el.getClientRects().length > 0);
+        const first = controls[0], last = controls[controls.length - 1];
+        if (!first) { event.preventDefault(); panel.current.focus(); }
+        else if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) {
+          event.preventDefault(); last?.focus();
+        } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === panel.current)) {
+          event.preventDefault(); first.focus();
+        }
+      }
     };
     document.addEventListener("keydown", onKey);
     document.body.classList.add("overflow-hidden");
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.classList.remove("overflow-hidden");
-      previous?.focus();
+      const index = openSheets.indexOf(sheetId);
+      if (index >= 0) openSheets.splice(index, 1);
+      if (!openSheets.length && !previousScrollLock) document.body.classList.remove("overflow-hidden");
+      if (previous?.isConnected) previous.focus();
     };
-  }, [open, onClose]);
+  }, [open, sheetId]);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center md:items-stretch md:justify-end">
@@ -645,20 +676,80 @@ interface ConfirmRequest {
 
 const ConfirmCtx = createContext<(req: Omit<ConfirmRequest, "resolve">) => Promise<boolean>>(async () => false);
 
+interface TypedConfirmRequest {
+  title: string;
+  body?: string;
+  confirm: string;
+  target: ConfirmationTarget;
+}
+
+type PendingConfirm =
+  | { kind: "simple"; owner: string; request: ConfirmRequest }
+  | { kind: "typed"; id: number; owner: string; request: TypedConfirmRequest; resolve: (fields: ConfirmFields | null) => void };
+
+const TypedConfirmCtx = createContext<(req: TypedConfirmRequest) => Promise<ConfirmFields | null>>(async () => null);
+
+function cancelConfirmation(pending: PendingConfirm | null) {
+  if (pending?.kind === "simple") pending.request.resolve(false);
+  else pending?.resolve(null);
+}
+
 export function ConfirmProvider({ children }: { children: ReactNode }) {
-  const { t } = useSession();
-  const [request, setRequest] = useState<ConfirmRequest | null>(null);
+  const { t, me } = useSession();
+  const location = useLocation();
+  const owner = `${me?.id}:${me?.shop_id}:${location.key}`;
+  const ownerRef = useRef(owner);
+  ownerRef.current = owner;
+  const active = useRef<PendingConfirm | null>(null);
+  const nextId = useRef(0);
+  const [pending, setPending] = useState<PendingConfirm | null>(null);
+  const replace = useCallback((next: PendingConfirm) => {
+    cancelConfirmation(active.current);
+    active.current = next;
+    setPending(next);
+  }, []);
   const ask = useCallback(
     (req: Omit<ConfirmRequest, "resolve">) =>
-      new Promise<boolean>((resolve) => setRequest({ ...req, resolve })),
-    [],
+      new Promise<boolean>((resolve) => replace({
+        kind: "simple", owner: ownerRef.current, request: { ...req, resolve },
+      })),
+    [replace],
   );
+  const askTyped = useCallback(
+    (req: TypedConfirmRequest) => new Promise<ConfirmFields | null>((resolve) => {
+      // Clone the target before awaiting network/user input.
+      const target = JSON.parse(JSON.stringify(req.target)) as ConfirmationTarget;
+      replace({ kind: "typed", id: ++nextId.current, owner: ownerRef.current, request: { ...req, target }, resolve });
+    }),
+    [replace],
+  );
+  useEffect(() => {
+    if (active.current && active.current.owner !== owner) {
+      cancelConfirmation(active.current);
+      active.current = null;
+      setPending(null);
+    }
+  }, [owner]);
+  useEffect(() => () => {
+    cancelConfirmation(active.current);
+    active.current = null;
+  }, []);
+  const request = pending?.kind === "simple" ? pending.request : null;
   const finish = (ok: boolean) => {
-    request?.resolve(ok);
-    setRequest(null);
+    if (active.current?.kind !== "simple") return;
+    active.current.request.resolve(ok && active.current.owner === ownerRef.current);
+    active.current = null;
+    setPending(null);
+  };
+  const finishTyped = (fields: ConfirmFields | null) => {
+    if (!pending || pending.kind !== "typed" || active.current !== pending) return;
+    pending.resolve(pending.owner === ownerRef.current ? fields : null);
+    active.current = null;
+    setPending(null);
   };
   return (
     <ConfirmCtx.Provider value={ask}>
+      <TypedConfirmCtx.Provider value={askTyped}>
       {children}
       <Sheet
         open={request !== null}
@@ -675,12 +766,106 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       >
         {request?.body && <p className="leading-relaxed">{request.body}</p>}
       </Sheet>
+      {pending?.kind === "typed" && (
+        <TypedConfirmDialog key={pending.id} request={pending.request} finish={finishTyped} />
+      )}
+      </TypedConfirmCtx.Provider>
     </ConfirmCtx.Provider>
   );
 }
 
 export function useConfirm() {
   return useContext(ConfirmCtx);
+}
+
+export function useTypedConfirm() {
+  return useContext(TypedConfirmCtx);
+}
+
+function TypedConfirmDialog({
+  request, finish,
+}: { request: TypedConfirmRequest; finish: (fields: ConfirmFields | null) => void }) {
+  const { t, errorText } = useSession();
+  const [challenge, setChallenge] = useState<ConfirmationChallenge | null>(null);
+  const [typed, setTyped] = useState("");
+  const [error, setError] = useState<unknown>(null);
+  const [loading, setLoading] = useState(true);
+  const [generation, setGeneration] = useState(0);
+  const [deadline, setDeadline] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  const settled = useRef(false);
+  const formId = useId();
+  useEffect(() => {
+    const abort = new AbortController();
+    let alive = true;
+    const issuedAt = Date.now();
+    setChallenge(null); setTyped(""); setError(null); setLoading(true);
+    void (async () => {
+      try {
+        const spec = confirmationSpec(request.target);
+        const value = await call<unknown>(spec.path, { method: "POST", body: spec.body, signal: abort.signal });
+        const result = validateChallenge(value, spec.action);
+        if (alive) {
+          setChallenge(result);
+          setDeadline(issuedAt + result.expires_in * 1000);
+          setNow(Date.now());
+        }
+      } catch (err) {
+        if (alive) setError(err);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; abort.abort(); };
+  }, [request, generation]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, []);
+  const expired = challenge !== null && now >= deadline;
+  const fields = challenge ? confirmationFields(challenge, typed, deadline, now) : null;
+  const done = (value: ConfirmFields | null) => {
+    if (settled.current) return;
+    settled.current = true;
+    finish(value);
+  };
+  const submit = () => {
+    const fresh = challenge ? confirmationFields(challenge, typed, deadline) : null;
+    if (!loading && fresh) done(fresh);
+  };
+  return (
+    <Sheet open onClose={() => done(null)} title={request.title} footer={
+      <>
+        <Button onClick={() => done(null)}>{t("cancel")}</Button>
+        <Button tone="danger" type="submit" form={formId} disabled={loading || !fields}>
+          {request.confirm}
+        </Button>
+      </>
+    }>
+      <form id={formId} onSubmit={(event) => { event.preventDefault(); submit(); }} className="flex flex-col gap-4">
+        {request.body && <p className="leading-relaxed">{request.body}</p>}
+        {loading && <Spinner />}
+        {error !== null && <p role="alert" className="text-anar-700">{errorText(error)}</p>}
+        {challenge && (
+          <>
+            <p className="text-[0.85rem]">{t("typed_confirm_server_phrase")}</p>
+            <p className="break-all rounded-xl bg-[var(--bg)] p-3 font-mono" dir="auto">{challenge.phrase}</p>
+            {challenge.count !== undefined && <p>{t("typed_confirm_server_count", { n: challenge.count })}</p>}
+            {needsTyping(challenge) && (
+              <Field label={t("typed_confirm_input")} hint={t("typed_confirm_hint")}>
+                {(id) => <Input id={id} autoFocus autoComplete="off" spellCheck={false} maxLength={128}
+                  value={typed} onChange={(event) => setTyped(event.target.value)} disabled={expired || loading} />}
+              </Field>
+            )}
+            {expired && <p role="alert" className="text-anar-700">{t("typed_confirm_expired")}</p>}
+          </>
+        )}
+        {!loading && (error !== null || expired) && (
+          <Button icon="refresh" onClick={() => setGeneration((value) => value + 1)}>{t("typed_confirm_refresh")}</Button>
+        )}
+      </form>
+    </Sheet>
+  );
 }
 
 // ---------------------------------------------------------------- tables

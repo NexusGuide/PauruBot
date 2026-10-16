@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -81,6 +81,9 @@ async def claim(
             .order_by(Job.run_at, Job.id)
             .limit(limit)
             .with_for_update(skip_locked=True)
+            # Reused sessions may hold a pre-requeue copy of the row: force a refresh so the
+            # queued -> running transition is always persisted for the lease fences.
+            .execution_options(populate_existing=True)
         )
     ).all()
     claimed: list[Claimed] = []
@@ -99,10 +102,47 @@ async def claim(
     return claimed
 
 
+class LostClaim(Exception):
+    """A stale/expired worker must not finish, fail or record progress for this job."""
+
+
+def _owned(job: Claimed) -> tuple[Any, ...]:
+    return (
+        Job.id == job.id,
+        Job.claim_token == job.token,
+        Job.status == JobStatus.RUNNING,
+        Job.lease_until > utcnow(),
+    )
+
+
+async def renew(session: AsyncSession, job: Claimed, *, lease_seconds: int) -> bool:
+    """Extend a live claim, never resurrect an expired or replaced one."""
+    result = await session.execute(
+        update(Job).where(*_owned(job)).values(lease_until=utcnow() + timedelta(seconds=lease_seconds))
+    )
+    return bool(affected(result))
+
+
+async def defer(session: AsyncSession, job: Claimed, reason: str, *, seconds: int = 30) -> bool:
+    """Wait for a service predecessor without exhausting the job's failure budget."""
+    result = await session.execute(
+        update(Job)
+        .where(*_owned(job))
+        .values(
+            status=JobStatus.QUEUED,
+            lease_until=None,
+            run_at=utcnow() + timedelta(seconds=seconds),
+            last_error=reason[:2000],
+            attempts=func.greatest(0, Job.attempts - 1),
+        )
+    )
+    return bool(affected(result))
+
+
 async def complete(session: AsyncSession, job: Claimed) -> bool:
     result = await session.execute(
         update(Job)
-        .where(Job.id == job.id, Job.claim_token == job.token)
+        .where(*_owned(job))
         .values(status=JobStatus.DONE, finished_at=utcnow(), lease_until=None, last_error=None)
     )
     return bool(affected(result))
@@ -110,9 +150,9 @@ async def complete(session: AsyncSession, job: Claimed) -> bool:
 
 async def update_payload(session: AsyncSession, job: Claimed, payload: dict[str, Any]) -> None:
     """Save progress of a long job, so a retry continues where it stopped."""
-    await session.execute(
-        update(Job).where(Job.id == job.id, Job.claim_token == job.token).values(payload=payload)
-    )
+    result = await session.execute(update(Job).where(*_owned(job)).values(payload=payload))
+    if not affected(result):
+        raise LostClaim(f"job {job.id} no longer belongs to this worker")
 
 
 def backoff(attempt: int, base: float = 15.0, cap: float = 3600.0) -> float:
@@ -120,16 +160,16 @@ def backoff(attempt: int, base: float = 15.0, cap: float = 3600.0) -> float:
     return delay * random.uniform(0.8, 1.2)
 
 
-async def fail(session: AsyncSession, job: Claimed, error: str, *, retry: bool = True) -> bool:
-    """Record a failure. Returns True when the job is dead (no more retries)."""
+async def fail(session: AsyncSession, job: Claimed, error: str, *, retry: bool = True) -> bool | None:
+    """True=dead, False=retry, None=lost claim (no mutation and no dead-letter hooks)."""
     dead = not retry or job.attempts >= job.max_attempts
     values: dict[str, Any] = {"last_error": error[:2000], "lease_until": None}
     if dead:
         values.update(status=JobStatus.DEAD, finished_at=utcnow())
     else:
         values.update(status=JobStatus.QUEUED, run_at=utcnow() + timedelta(seconds=backoff(job.attempts)))
-    await session.execute(update(Job).where(Job.id == job.id, Job.claim_token == job.token).values(**values))
-    return dead
+    result = await session.execute(update(Job).where(*_owned(job)).values(**values))
+    return dead if affected(result) else None
 
 
 async def retry_dead(session: AsyncSession, job_id: int) -> bool:

@@ -110,5 +110,10 @@ def progress(row: Broadcast) -> dict[str, Any]:
         "failed": row.failed or 0,
         "blocked": row.blocked or 0,
         "deleted": row.deleted or 0,
-        "left": max(0, (row.total or 0) - (row.sent or 0) - (row.failed or 0)),
+        "skipped": getattr(row, "skipped", 0) or 0,
+        "left": 0
+        if row.status in FINISHED
+        else max(
+            0, (row.total or 0) - (row.sent or 0) - (row.failed or 0) - (getattr(row, "skipped", 0) or 0)
+        ),
     }
