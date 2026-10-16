@@ -65,6 +65,23 @@ ask() {
   fi
 }
 
+# Strip invisible formatting characters (zero-width joiners, bidi marks, BOM)
+# and normalise dash look-alikes, so copy-pasted values survive validation.
+clean_input() {
+  local s=$1 c
+  for c in $'\u200b' $'\u200c' $'\u200d' $'\u200e' $'\u200f' $'\u2060' \
+    $'\u202a' $'\u202b' $'\u202c' $'\u202d' $'\u202e' $'\u2066' $'\u2067' $'\u2068' $'\u2069' $'\ufeff'; do
+    s=${s//"$c"/}
+  done
+  for c in $'\u2010' $'\u2011' $'\u2012' $'\u2013' $'\u2014' $'\u2015' $'\u2212'; do
+    s=${s//"$c"/-}
+  done
+  s=${s//$'\u00a0'/ }
+  s=${s#"${s%%[![:space:]]*}"}
+  s=${s%"${s##*[![:space:]]}"}
+  printf '%s' "$s"
+}
+
 confirm() {
   local reply default=${2:-n}
   if [[ $default == y ]]; then
@@ -252,11 +269,15 @@ cmd_install() {
   [[ -n $domain ]] || domain=$(ask "Domain for the panel (e.g. bot.example.com)")
   [[ -n $token ]] || token=$(ask "Telegram bot token from @BotFather")
   [[ -n $owner ]] || owner=$(ask "Your numeric Telegram user ID")
+  # Copy-pasted values often carry invisible characters or dash look-alikes.
+  domain=$(clean_input "$domain")
+  token=$(clean_input "$token")
+  owner=$(clean_input "$owner")
   [[ $token =~ ^[0-9]+:[A-Za-z0-9_-]{30,}$ ]] || die "that does not look like a bot token"
   [[ $owner =~ ^[0-9]+$ ]] || die "the Telegram user ID must be a number"
   # The domain lands in .env and the Caddyfile: a plain host name only.
   [[ $domain =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]] ||
-    die "that does not look like a domain name (e.g. bot.example.com)"
+    die "that does not look like a domain name (e.g. bot.example.com): $(printf '%q' "$domain")"
 
   resolve_target "$channel" "$version"
   fetch_source "$TARGET_REF"
