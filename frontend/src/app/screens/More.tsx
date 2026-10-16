@@ -8,25 +8,12 @@ import { Panel, Row, Screen } from "../ui";
 import { CustomerSettings } from "../CustomerSettings";
 
 export function More() {
-  const { me, t, locale, setLocale, setMarketing, toast } = useApp();
-  const [switching, setSwitching] = useState(false);
+  const { me, t, locale, setMarketing, toast } = useApp();
   const [savingMarketing, setSavingMarketing] = useState(false);
   const marketingBusy = useRef(false);
   const navigate = useNavigate();
   if (!me) return null;
   const referral = me.shop.bot_username ? `https://t.me/${me.shop.bot_username}?start=ref_${me.telegram_id}` : null;
-
-  const changeLocale = async (code: string) => {
-    setSwitching(true);
-    try {
-      await setLocale(code);
-      haptic("success");
-    } catch (err) {
-      toast(errorText(t, err), "error");
-    } finally {
-      setSwitching(false);
-    }
-  };
 
   const changeMarketing = async () => {
     if (marketingBusy.current || !me.preferences) return;
