@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select
 
-from paurubot.api.routes import webapp_auto_renew, webapp_staff
+from paurubot.api.routes import webapp_auto_renew, webapp_receipts, webapp_staff
 from paurubot.api.webapp_auth import WebApp
 from paurubot.core import (
     catalog,
@@ -31,7 +31,6 @@ from paurubot.db.models import (
     OrderKind,
     OrderStatus,
     Payment,
-    PaymentStatus,
     Plan,
     Service,
     ServiceStatus,
@@ -50,6 +49,7 @@ from paurubot.worker import queue
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/webapp", tags=["webapp"])
+router.include_router(webapp_receipts.router)
 MAX_RECEIPT = 8 * 1024 * 1024
 
 
@@ -441,59 +441,50 @@ async def redeem_gift(body: GiftBody, ctx: WebApp) -> dict[str, Any]:
 
 
 @router.post("/payments/{payment_id}/receipt")
-async def upload_receipt(payment_id: int, ctx: WebApp, file: UploadFile = File(...)) -> dict[str, Any]:
-    payment = await ctx.session.get(Payment, payment_id)
-    if payment is None or payment.customer_id != ctx.customer.id:
-        raise HTTPException(status_code=404, detail="payment_not_found")
-    if not (file.content_type or "").startswith("image/"):
-        raise HTTPException(status_code=400, detail="receipt_expected")
-    data = await file.read(MAX_RECEIPT + 1)
-    if len(data) > MAX_RECEIPT:
-        raise HTTPException(status_code=413, detail="receipt_too_large")
-    file_id = await _store_receipt(ctx, data)
-    try:
-        duplicate = await payments.attach_receipt(
-            ctx.session, payment, file_id=file_id, text=None, image=data
-        )
-    except PaymentError as exc:
-        raise HTTPException(status_code=409, detail=exc.key) from exc
-    await queue.enqueue(
-        ctx.session,
-        "notify",
-        "receipt_review",
-        {"payment_id": payment.id, "duplicate_of": duplicate.id if duplicate else None},
-        shop_id=ctx.shop.id,
-        dedupe_key=f"payment:{payment.id}:review",
+async def upload_receipt(
+    payment_id: int,
+    ctx: WebApp,
+    file: UploadFile = File(...),
+    expected_revision: Annotated[str | None, Form(pattern=r"^[a-f0-9]{64}$")] = None,
+) -> dict[str, Any]:
+    # Preserve initial legacy uploads, but a correction requires the revision of its instruction.
+    result = await webapp_receipts.submit_upload(
+        payment_id, ctx, file, expected_revision=expected_revision, allow_legacy_initial=True
     )
-    return {"status": PaymentStatus.VERIFYING.value}
+    return {"status": result["status"]}
 
 
 async def _store_receipt(ctx: WebApp, data: bytes) -> str | None:
-    """Upload the image to the customer's own chat so staff can see it as a Telegram photo."""
+    """Store with the same shop bot used to deliver the photo to its staff reviewers."""
     from aiogram.types import BufferedInputFile
 
-    from paurubot.notifications.telegram import get_bot
+    from paurubot.notifications import telegram
 
     try:
-        message = await get_bot().send_photo(
-            ctx.customer.telegram_id, BufferedInputFile(data, "receipt.jpg"), disable_notification=True
+        message = await telegram.send_photo(
+            ctx.customer.telegram_id,
+            BufferedInputFile(data, "receipt.jpg"),
+            shop_id=ctx.shop.id,
+            disable_notification=True,
         )
-    except Exception:  # the receipt still reaches review with its hashes, just without a preview
+    except Exception:
         log.warning("could not store receipt image for customer %s", ctx.customer.id)
         return None
-    return message.photo[-1].file_id if message.photo else None
+    return message.photo[-1].file_id if message is not None and message.photo else None
 
 
 @router.get("/payments/{payment_id}")
 async def payment_status(payment_id: int, ctx: WebApp) -> dict[str, Any]:
     payment = await ctx.session.get(Payment, payment_id)
-    if payment is None or payment.customer_id != ctx.customer.id:
+    if payment is None or payment.customer_id != ctx.customer.id or payment.shop_id != ctx.shop.id:
         raise HTTPException(status_code=404, detail="payment_not_found")
     return {
         "id": payment.id,
         "status": payment.status.value,
         "amount": payment.amount,
         "fulfilled": payment.fulfilled_at is not None,
+        "provider": payment.provider,
+        "order_id": payment.order_id,
     }
 
 
