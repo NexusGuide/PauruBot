@@ -1,0 +1,39 @@
+:root{--td-accent:#087785;--td-on-accent:#fff}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--td-accent:#65d5df;--td-on-accent:#07343c}}
+:root[data-theme="dark"]{--td-accent:#65d5df;--td-on-accent:#07343c}
+.td {max-width:72rem;margin:auto;padding:1.25rem;color:var(--text);font-size:1rem;line-height:1.7}
+.td *, .td-modal * {box-sizing:border-box;min-width:0}
+.td h1{font-size:1.65rem;font-weight:800}.td h2,.td-modal h2{font-size:1.2rem;font-weight:800}
+.td-top,.td-actions{display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap}
+.td button:not(.absolute),.td-modal button{min-height:44px;border:1px solid var(--line);border-radius:14px;padding:.55rem 1rem;background:var(--surface);color:var(--text);font-weight:700;cursor:pointer}
+.td button:not(.absolute):disabled,.td-modal button:disabled{opacity:.55;cursor:not-allowed}.td button.td-primary,.td-modal button.td-primary{background:var(--td-accent);color:var(--td-on-accent);border-color:var(--td-accent)}
+.td button:not(.absolute):focus-visible,.td-modal :is(button,input,textarea,select):focus-visible{outline:3px solid var(--td-accent);outline-offset:3px}
+.td-card{padding:1.1rem;border:1px solid var(--line);background:var(--surface);border-radius:20px;margin:1rem 0;overflow-wrap:anywhere}
+.td-muted{color:var(--hint);font-size:.875rem}.td pre,.td-modal pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;margin:.75rem 0;max-height:15rem;overflow:auto}
+.td-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(8rem,1fr));gap:.6rem;margin:.8rem 0}
+.td-grid>div{background:var(--bg);padding:.65rem;border-radius:12px}.td-grid dt{font-size:.875rem;color:var(--hint)}.td-grid dd{font-weight:700}
+.td-badge{display:inline-block;padding:.2rem .7rem;border-radius:9px;background:var(--bg);font-size:.875rem;font-weight:700}
+.td-note{padding:.85rem;border-inline-start:3px solid var(--td-accent);background:var(--bg);border-radius:10px;margin:.8rem 0;overflow-wrap:anywhere}
+.td-error{border-inline-start-color:#c3264c}.td-modal{font-size:1rem;line-height:1.7;color:var(--text)}
+.td-modal label{display:block;font-weight:700;margin:.8rem 0 .25rem}.td-modal input:not([type=checkbox]),.td-modal textarea,.td-modal select{width:100%;min-height:48px;padding:.65rem .8rem;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text);font:inherit}
+.td-modal textarea{min-height:180px;resize:vertical}.td-modal input[type=checkbox]{width:24px;height:24px;flex:none;accent-color:var(--td-accent)}
+.td-modal .td-check{display:flex;gap:.75rem;align-items:flex-start;font-weight:400;padding:.75rem 0;min-height:44px}.td-modal fieldset{border:1px solid var(--line);border-radius:14px;padding:.75rem;margin:.9rem 0}.td-modal legend{font-weight:700;padding:0 .3rem}
+.td-modal .td-link{padding:.6rem 0;border-bottom:1px solid var(--line)}.td-modal .td-link:last-of-type{border-bottom:0}.td-modal dl{display:grid;grid-template-columns:1fr;gap:.25rem}.td-modal dd{font-weight:700;margin-bottom:.6rem;overflow-wrap:anywhere}
+.td-modal details summary{min-height:44px;cursor:pointer}.td-modal :is(p,li){overflow-wrap:anywhere}
+.td-modal [tabindex='-1']:focus{outline:none}.td-modal [role=alert]:focus,.td-modal [role=status]:focus{outline:2px solid var(--td-accent);outline-offset:3px}
+@media(min-width:768px){.td{padding:2rem}.td-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.td-list>.td-card{margin:0}.td-list{margin:1rem 0}}
+
+.td-layer [role="dialog"]>header button{min-width:44px;min-height:44px}
+.td-modal input:not([type=checkbox]),.td-modal textarea,.td-modal select{border-color:#788695}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .td-modal input:not([type=checkbox]),:root:not([data-theme="light"]) .td-modal textarea,:root:not([data-theme="light"]) .td-modal select{border-color:#8197a7}}
+:root[data-theme="dark"] .td-modal input:not([type=checkbox]),:root[data-theme="dark"] .td-modal textarea,:root[data-theme="dark"] .td-modal select{border-color:#8197a7}
+
+.td a{color:var(--td-accent);font-weight:700;text-decoration:underline;text-underline-offset:4px}.td-grid{display:grid;gap:.75rem;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr))}.td label{font-weight:700;display:block}.td input:not([type=checkbox]),.td textarea,.td select{width:100%;min-height:48px;padding:.65rem .8rem;border:1px solid #788695;border-radius:12px;background:var(--surface);color:var(--text);font:inherit}.td textarea{min-height:160px;resize:vertical}.td label.td-check,.td-modal label.td-check{display:flex;gap:.75rem;align-items:flex-start;min-height:44px}.td input[type=checkbox]{width:24px;height:24px;accent-color:var(--td-accent);flex:none}.td ol{display:grid;gap:1rem}.td-message{border:1px solid var(--line);border-radius:16px;padding:1rem;background:var(--surface);overflow-wrap:anywhere}.td-internal{border-inline-start:4px solid var(--td-accent);background:var(--bg)}.td :is(button,a,input,select,textarea):focus-visible{outline:3px solid var(--td-accent);outline-offset:3px}.td-internal h3{font-weight:800}.td a.td-link{display:block;padding:.5rem 0;min-height:44px}.td fieldset:disabled{opacity:.7}.td-settings{border-top:1px solid var(--line);margin-top:1.5rem;padding-top:1rem}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .td :is(input,textarea,select){border-color:#8197a7}}:root[data-theme="dark"] .td :is(input,textarea,select){border-color:#8197a7}
+
+.td,.td-modal{overflow-wrap:anywhere}.td h1,.td-modal h2{max-width:100%}
+
+.td fieldset>label:not(.td-check),.td-card>label:not(.td-check){margin-top:.75rem}.td :is(input,textarea,select)+button{margin-top:.5rem}.td p.td-muted{margin-block:.4rem}
+.td button.td-danger,.td-modal button.td-danger{background:#f9e1e5;color:#96203a;border-color:#c8344c}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .td button.td-danger,:root:not([data-theme="light"]) .td-modal button.td-danger{background:#432633;color:#ffabc0;border-color:#ffabc0}}
+:root[data-theme="dark"] .td button.td-danger,:root[data-theme="dark"] .td-modal button.td-danger{background:#432633;color:#ffabc0;border-color:#ffabc0}

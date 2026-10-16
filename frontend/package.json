@@ -8,6 +8,12 @@
     "build": "tsc --noEmit && vite build",
     "lint": "tsc --noEmit",
     "preview": "vite preview",
+    "test:broadcasts": "node --test tests/broadcasts.test.mjs",
+    "test:capabilities": "node --test tests/capabilities.test.mjs",
+    "test:confirm": "node --test tests/typed-confirm.test.mjs",
+    "test:receipts": "node --test tests/receipts.test.mjs",
+    "test:reseller-hub": "node --test tests/reseller-hub.test.mjs",
+    "test:tickets": "node --test tests/ticket-desk.test.mjs",
     "test:usage": "node --test tests/usage-data.test.mjs"
   },
   "dependencies": {

@@ -24,7 +24,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core import orders
 from paurubot.db.base import utcnow
-from paurubot.db.models import Customer, Order, OrderKind, OrderStatus, Plan, Service, ServiceStatus
+from paurubot.db.models import (
+    Customer,
+    Order,
+    OrderKind,
+    OrderStatus,
+    Plan,
+    Service,
+    ServiceStatus,
+)
 from paurubot.worker import queue
 
 log = logging.getLogger(__name__)
@@ -160,28 +168,48 @@ async def disable(session: AsyncSession, service: Service) -> None:
 # --- the worker ------------------------------------------------------------------
 
 
-async def due(session: AsyncSession, now: datetime | None = None) -> list[int]:
-    """Services whose rule asks for an order now (cheap: no relationships are loaded)."""
+async def due(
+    session: AsyncSession,
+    now: datetime | None = None,
+    *,
+    after_id: int = 0,
+    through_id: int | None = None,
+) -> list[int]:
+    """One due batch, keyset-paging candidates instead of truncating the scan.
+
+    The caller advances after the last returned ID, including busy/short-wallet services.
+    ``through_id`` bounds a worker pass to the services present when it started.
+    """
     now = now or utcnow()
-    rows = await session.execute(
-        select(
-            Service.id,
-            Service.auto_renew,
-            Service.status,
-            Service.is_trial,
-            Service.data_limit,
-            Service.used_bytes,
-            Service.expire_at,
+    cursor = after_id
+    out: list[int] = []
+    while len(out) < BATCH:
+        query = (
+            select(
+                Service.id,
+                Service.auto_renew,
+                Service.status,
+                Service.is_trial,
+                Service.data_limit,
+                Service.used_bytes,
+                Service.expire_at,
+            )
+            .where(
+                Service.id > cursor,
+                Service.auto_renew.is_not(None),
+                Service.status.in_(ELIGIBLE),
+                Service.is_trial.is_(False),
+            )
+            .order_by(Service.id)
+            .limit(BATCH)
         )
-        .where(
-            Service.auto_renew.is_not(None),
-            Service.status.in_(ELIGIBLE),
-            Service.is_trial.is_(False),
-        )
-        .order_by(Service.id)
-        .limit(BATCH * 4)
-    )
-    out = [row.id for row in rows if wanted(row, now)]  # type: ignore[arg-type]
+        if through_id is not None:
+            query = query.where(Service.id <= through_id)
+        rows = list(await session.execute(query))
+        if not rows:
+            break
+        out.extend(row.id for row in rows if wanted(row, now))  # type: ignore[arg-type]
+        cursor = rows[-1].id
     return out[:BATCH]
 
 
