@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
 import test from 'node:test';
-import ts from 'typescript';
-const load=async name=>{const source=readFileSync(new URL(`../src/admin/tickets/${name}.ts`,import.meta.url),'utf8');const {outputText}=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}});return import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)};
+const load=async name=>import(new URL(`../src/admin/tickets/${name}.ts`,import.meta.url));
 const m=await load('model');
 const ticket=()=>({id:1,subject:'Subject <script>alert(1)</script>',status:'open',source:'bot',customer_id:2,department_id:3,priority:'normal',assigned_staff_id:4,last_customer_at:'2026-10-14T00:00Z',last_staff_at:null,created_at:'2026-10-14T00:00Z',updated_at:'2026-10-14T00:00Z',awaiting:true});
 const message=()=>({id:1,author_type:'staff',author_id:1,text:'<img src=x onerror=alert(1)>',attachment_kind:null,has_attachment:false,is_internal:true,created_at:'2026-10-14T00:00Z'});
