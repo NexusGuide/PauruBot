@@ -1,21 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import ts from "typescript";
 async function load(name) {
-  const s = readFileSync(
-    new URL(`../src/app/receipts/${name}.ts`, import.meta.url),
-    "utf8",
-  );
-  const { outputText } = ts.transpileModule(s, {
-    compilerOptions: {
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.ESNext,
-    },
-  });
-  return import(
-    `data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`
-  );
+  return import(new URL(`../src/app/receipts/${name}.ts`, import.meta.url));
 }
 const {
   parseReceipt,
