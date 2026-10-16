@@ -74,7 +74,15 @@ def is_settled(order: Order) -> bool:
 
 def refundable(order: Order) -> bool:
     """Whether refunding cannot give away a change the panel may hold."""
-    return order.kind not in KINDS or state(order) in REFUNDABLE
+    from paurubot.provisioning import renewal_policy
+
+    if order.kind not in KINDS:
+        return True
+    params = order.params or {}
+    target = params.get("target") or {}
+    if target and (state(order) is None or renewal_policy.reset_untracked(target, params)):
+        return False  # an old stored target is not proof that the panel was never touched
+    return state(order) in REFUNDABLE
 
 
 def parked(order: Order) -> bool:

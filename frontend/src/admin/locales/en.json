@@ -1666,5 +1666,12 @@
   "cap_check_revoke": "Revoke temporary-user link",
   "cap_check_delete": "Delete temporary user",
   "cap_declared_hint": "Some rows, including client IPs, webhooks, delivery and supported changes, are driver declarations; a passed row does not mean every operation was live-tested.",
-  "cap_cleanup_unconfirmed": "Temporary-user deletion is not confirmed; creation may also have failed. Check pbprobe_ users and panel logs before repeating the probe."
+  "cap_cleanup_unconfirmed": "Temporary-user deletion is not confirmed; creation may also have failed. Check pbprobe_ users and panel logs before repeating the probe.",
+  "typed_confirm_server_phrase": "Confirmation value from the server:",
+  "typed_confirm_server_count": "Services affected: {n}",
+  "typed_confirm_input": "Type the confirmation value",
+  "typed_confirm_hint": "Type the value above. Persian and Arabic digits are accepted.",
+  "typed_confirm_expired": "This confirmation expired. Request a new one; the action has not been submitted.",
+  "typed_confirm_refresh": "Request a new confirmation",
+  "typed_confirm_bulk_scope": "Review the server-confirmed selection count below. This confirmation applies only to this selection."
 }

@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from redis.asyncio import Redis
 
 from paurubot.config import get_settings
+
+_RENEW = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('expire', KEYS[1], ARGV[2])
+end
+return 0
+"""
 
 _client: Redis | None = None
 
@@ -62,6 +70,54 @@ async def lock(
         yield token
     finally:
         await redis.eval(_RELEASE, 1, key, token)
+
+
+class LockLost(LockNotAcquired):
+    """An in-flight operation no longer owns its renewable lock."""
+
+
+@asynccontextmanager
+async def lease(name: str, ttl: int = 60) -> AsyncIterator[str]:
+    """Renew an owner-checked lock; cancel cooperative work if ownership cannot be proved.
+
+    This is not fencing of a remote API. Callers must persist ambiguous operations and must
+    not refund or blindly repeat a remote mutation after cancellation/network failure.
+    """
+    if ttl < 3:
+        raise ValueError("lease ttl must be at least three seconds")
+    caller = asyncio.current_task()
+    assert caller is not None
+    lost = False
+    async with lock(name, ttl=ttl) as token:
+
+        async def keep() -> None:
+            nonlocal lost
+            try:
+                while True:
+                    await asyncio.sleep(ttl / 3)
+                    renewed = await get_redis().eval(_RENEW, 1, f"lock:{name}", token, ttl)
+                    if not renewed:
+                        raise LockLost(name)
+            except Exception:
+                # Fail closed on an expired/stolen key AND on an unavailable Redis server.
+                lost = True
+                caller.cancel()
+
+        keeper = asyncio.create_task(keep())
+        try:
+            yield token
+            # A callee may consume cancellation while cleaning up a remote request.
+            # That must never turn a lost lease into successful completion.
+            if lost:
+                raise LockLost(name)
+        except asyncio.CancelledError as exc:
+            if lost:
+                raise LockLost(name) from exc
+            raise
+        finally:
+            keeper.cancel()
+            with suppress(asyncio.CancelledError):
+                await keeper
 
 
 async def hit(key: str, limit: int, window: int) -> tuple[bool, int]:
