@@ -780,8 +780,6 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
     card = staff.can("payments.review")
     # Rows follow the requested layout; each pair is (left, right) as Telegram draws it.
     pair(button("adm_user_btn_referrals", "uref"))
-    if staff.can("resellers.manage"):
-        pair(button("adm_user_btn_transfer", "utransfer"))
     if write:
         pair(
             button("adm_ua_btn_unref", "urefx", "unref") if customer.referrer_id else None,
@@ -808,6 +806,8 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
         button("adm_ua_btn_channels", "uchan"),
         button("adm_ua_btn_zero", "uzero") if staff.can("wallet.adjust") else None,
     )
+    if staff.can("resellers.manage"):
+        pair(button("adm_user_btn_transfer", "utransfer"))
     if write:
         pair(
             button(
