@@ -29,7 +29,7 @@ try {
  writeFileSync(temp+'/ui.tsx',ui);
  execFileSync(process.execPath,[
   fileURLToPath(new URL('../node_modules/typescript/lib/tsc.js',import.meta.url)),
-  '--noCheck','--jsx','react-jsx','--module','esnext','--target','es2022','--outDir',temp,temp+'/ui.tsx',
+  '--ignoreConfig','--noCheck','--jsx','react-jsx','--module','esnext','--target','es2022','--outDir',temp,temp+'/ui.tsx',
  ],{stdio:'pipe'});
  const {Button}=await import(pathToFileURL(temp+'/ui.js'));
  const {createElement}=await import('react'); const {renderToStaticMarkup}=await import('react-dom/server');
