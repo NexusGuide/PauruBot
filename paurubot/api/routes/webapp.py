@@ -10,9 +10,19 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select
 
-from paurubot.api.routes import webapp_receipts, webapp_staff
+from paurubot.api.routes import webapp_auto_renew, webapp_receipts, webapp_staff
 from paurubot.api.webapp_auth import WebApp
-from paurubot.core import catalog, customers, marketing, orders, pricing, reseller_desk, tickets, trials
+from paurubot.core import (
+    catalog,
+    customer_preferences,
+    customers,
+    marketing,
+    orders,
+    pricing,
+    reseller_desk,
+    tickets,
+    trials,
+)
 from paurubot.db.models import (
     Category,
     DiscountCode,
@@ -185,6 +195,8 @@ async def me(ctx: WebApp) -> dict[str, Any]:
         "topup_bounds": list(await payments.topup_bounds(ctx.session, customer)),
         "staff": await webapp_staff.describe(ctx),
         "preferences": marketing.view(customer),
+        "profile": customer_preferences.profile_view(customer),
+        "alerts_muted": customer.alerts_muted,
     }
 
 
@@ -200,7 +212,18 @@ async def set_marketing(body: MarketingBody, ctx: WebApp) -> dict[str, Any]:
     )
 
 
+class AlertPreferencesBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    alerts_muted: StrictBool
+
+
+@router.post("/me/alerts")
+async def set_alert_preferences(body: AlertPreferencesBody, ctx: WebApp) -> dict[str, bool]:
+    return await customer_preferences.set_alerts(ctx.session, ctx.customer, muted=body.alerts_muted)
+
+
 class LocaleBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     locale: str = Field(max_length=8)
 
 
@@ -693,3 +716,6 @@ async def reseller_renew(body: RenewManyBody, ctx: WebApp) -> dict[str, Any]:
         "failed": [{"id": s.id, "error": key} for s, key in result.failed],
         "balance": await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id),
     }
+
+
+router.include_router(webapp_auto_renew.router)

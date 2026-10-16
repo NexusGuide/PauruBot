@@ -5,27 +5,15 @@ import { errorText, useApp } from "../state";
 import { haptic, tg } from "../telegram";
 import { translator } from "../receipts/copy";
 import { Panel, Row, Screen } from "../ui";
+import { CustomerSettings } from "../CustomerSettings";
 
 export function More() {
-  const { me, t, locale, setLocale, setMarketing, toast } = useApp();
-  const [switching, setSwitching] = useState(false);
+  const { me, t, locale, setMarketing, toast } = useApp();
   const [savingMarketing, setSavingMarketing] = useState(false);
   const marketingBusy = useRef(false);
   const navigate = useNavigate();
   if (!me) return null;
   const referral = me.shop.bot_username ? `https://t.me/${me.shop.bot_username}?start=ref_${me.telegram_id}` : null;
-
-  const changeLocale = async (code: string) => {
-    setSwitching(true);
-    try {
-      await setLocale(code);
-      haptic("success");
-    } catch (err) {
-      toast(errorText(t, err), "error");
-    } finally {
-      setSwitching(false);
-    }
-  };
 
   const changeMarketing = async () => {
     if (marketingBusy.current || !me.preferences) return;
@@ -52,6 +40,14 @@ export function More() {
 
   return (
     <Screen title={t("more")}>
+      <section className="mb-4 overflow-hidden rounded-3xl bg-[var(--surface)]">
+        <Row onClick={() => navigate("/profile")}>
+          <span className="flex-1 text-start">
+            <span className="block font-bold">{t("profile_title")}</span>
+            <span className="block text-sm text-[var(--hint)]">{t("profile_open_hint")}</span>
+          </span><span aria-hidden="true">›</span>
+        </Row>
+      </section>
       <section className="mb-4 rounded-3xl bg-[var(--surface)]"><Row onClick={() => navigate("/receipts")}>{translator(locale)("title")}</Row></section>
       {me.preferences && (
         <section className="mb-4 rounded-3xl bg-[var(--surface)] p-4" aria-busy={savingMarketing}>
@@ -101,15 +97,7 @@ export function More() {
         </Panel>
       )}
 
-      <section className="mb-4 overflow-hidden rounded-3xl bg-[var(--surface)]">
-        <p className="px-4 pt-4 text-sm font-bold">{t("language")}</p>
-        {me.shop.languages.map((code) => (
-          <Row key={code} onClick={() => !switching && code !== locale && changeLocale(code)}>
-            <span className="flex-1">{t(`lang_${code}`)}</span>
-            {code === locale && <span className="text-[var(--accent)]">✓</span>}
-          </Row>
-        ))}
-      </section>
+      <CustomerSettings />
 
       {me.shop.support && (
         <section className="overflow-hidden rounded-3xl bg-[var(--surface)]">

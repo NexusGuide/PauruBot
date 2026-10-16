@@ -212,6 +212,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | Method | Path | Access | What it does |
 |---|---|---|---|
 | GET | `/api/webapp/catalog` | Mini App initData | Catalog view |
+| POST | `/api/webapp/me/alerts` | Mini App initData | Set alert preferences |
 | POST | `/api/webapp/me/locale` | Mini App initData | Set locale |
 | POST | `/api/webapp/me/marketing` | Mini App initData | Set marketing |
 | GET | `/api/webapp/me` | Mini App initData | Me |
@@ -226,6 +227,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/receipts` | Mini App initData | Inbox |
 | GET | `/api/webapp/reseller/desk` | Mini App initData | Reseller desk view |
 | POST | `/api/webapp/reseller/renew` | Mini App initData | Reseller renew |
+| GET | `/api/webapp/services/{service_id}/auto-renew` | Mini App initData | Get auto renew |
+| POST | `/api/webapp/services/{service_id}/auto-renew` | Mini App initData | Set auto renew |
 | GET | `/api/webapp/services/{service_id}/links` | Mini App initData | Service links |
 | POST | `/api/webapp/services/{service_id}/rename` | Mini App initData | Service rename |
 | POST | `/api/webapp/services/{service_id}/revoke` | Mini App initData | Service revoke |

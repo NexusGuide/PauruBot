@@ -1,4 +1,5 @@
 import { request } from "@shared/http";
+import type { Body as AutoRenewBody } from "./autoRenew/model";
 import { initData } from "./telegram";
 
 export interface Me {
@@ -18,6 +19,8 @@ export interface Me {
   topup_bounds: [number, number];
   staff: StaffAccess | null;
   preferences: MarketingPreference;
+  alerts_muted: boolean;
+  profile: { phone_masked: string | null; member_since: string };
 }
 
 export interface MarketingPreference {
@@ -181,6 +184,7 @@ const post = <T>(path: string, body: unknown = {}) =>
 
 export const api = {
   me: () => get<Me>("/me"),
+  setAlerts: (muted: boolean) => post<{ alerts_muted: boolean }>("/me/alerts", { alerts_muted: muted }),
   setMarketing: (optOut: boolean) =>
     post<MarketingPreference>("/me/marketing", { marketing_opt_out: optOut }),
   setLocale: (locale: string) => post<{ locale: string }>("/me/locale", { locale }),
@@ -226,6 +230,8 @@ export const api = {
   service: (id: number, refresh = false) => get<{ service: Service }>(`/services/${id}${refresh ? "?refresh=true" : ""}`),
   usage: (id: number, days: 7 | 30, signal?: AbortSignal) =>
     request<UsageHistory>(`/api/webapp/services/${id}/usage?days=${days}`, { headers: auth(), signal }),
+  autoRenew: (id: number) => get<unknown>(`/services/${id}/auto-renew`),
+  setAutoRenew: (id: number, body: AutoRenewBody) => post<unknown>(`/services/${id}/auto-renew`, body),
   links: (id: number) => get<{ links: string[] }>(`/services/${id}/links`),
   revoke: (id: number) => post<{ service: Service }>(`/services/${id}/revoke`),
   rename: (id: number, label: string) => post<{ service: Service }>(`/services/${id}/rename`, { label }),
