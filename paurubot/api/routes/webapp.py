@@ -4,15 +4,26 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select
 
-from paurubot.api.routes import webapp_staff
+from paurubot.api.routes import webapp_auto_renew, webapp_receipts, webapp_staff
 from paurubot.api.webapp_auth import WebApp
-from paurubot.core import catalog, customers, orders, pricing, reseller_desk, tickets, trials
+from paurubot.core import (
+    catalog,
+    customer_help,
+    customer_preferences,
+    customers,
+    marketing,
+    orders,
+    pricing,
+    reseller_desk,
+    tickets,
+    trials,
+)
 from paurubot.db.models import (
     Category,
     DiscountCode,
@@ -21,11 +32,11 @@ from paurubot.db.models import (
     OrderKind,
     OrderStatus,
     Payment,
-    PaymentStatus,
     Plan,
     Service,
     ServiceStatus,
     Ticket,
+    TicketMessage,
 )
 from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
@@ -39,6 +50,7 @@ from paurubot.worker import queue
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/webapp", tags=["webapp"])
+router.include_router(webapp_receipts.router)
 MAX_RECEIPT = 8 * 1024 * 1024
 
 
@@ -184,10 +196,41 @@ async def me(ctx: WebApp) -> dict[str, Any]:
         "payment_methods": await payments.available(ctx.session, ctx.shop.id, customer),
         "topup_bounds": list(await payments.topup_bounds(ctx.session, customer)),
         "staff": await webapp_staff.describe(ctx),
+        "preferences": marketing.view(customer),
+        "profile": customer_preferences.profile_view(customer),
+        "alerts_muted": customer.alerts_muted,
     }
 
 
+@router.get("/help")
+async def customer_help_view(ctx: WebApp) -> dict[str, Any]:
+    return customer_help.view(ctx.cfg, bot_username=ctx.shop.bot_username)
+
+
+class MarketingBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    marketing_opt_out: StrictBool
+
+
+@router.post("/me/marketing")
+async def set_marketing(body: MarketingBody, ctx: WebApp) -> dict[str, Any]:
+    return await marketing.set_preference(
+        ctx.session, ctx.customer, opt_out=body.marketing_opt_out, source="miniapp"
+    )
+
+
+class AlertPreferencesBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    alerts_muted: StrictBool
+
+
+@router.post("/me/alerts")
+async def set_alert_preferences(body: AlertPreferencesBody, ctx: WebApp) -> dict[str, bool]:
+    return await customer_preferences.set_alerts(ctx.session, ctx.customer, muted=body.alerts_muted)
+
+
 class LocaleBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     locale: str = Field(max_length=8)
 
 
@@ -404,59 +447,50 @@ async def redeem_gift(body: GiftBody, ctx: WebApp) -> dict[str, Any]:
 
 
 @router.post("/payments/{payment_id}/receipt")
-async def upload_receipt(payment_id: int, ctx: WebApp, file: UploadFile = File(...)) -> dict[str, Any]:
-    payment = await ctx.session.get(Payment, payment_id)
-    if payment is None or payment.customer_id != ctx.customer.id:
-        raise HTTPException(status_code=404, detail="payment_not_found")
-    if not (file.content_type or "").startswith("image/"):
-        raise HTTPException(status_code=400, detail="receipt_expected")
-    data = await file.read(MAX_RECEIPT + 1)
-    if len(data) > MAX_RECEIPT:
-        raise HTTPException(status_code=413, detail="receipt_too_large")
-    file_id = await _store_receipt(ctx, data)
-    try:
-        duplicate = await payments.attach_receipt(
-            ctx.session, payment, file_id=file_id, text=None, image=data
-        )
-    except PaymentError as exc:
-        raise HTTPException(status_code=409, detail=exc.key) from exc
-    await queue.enqueue(
-        ctx.session,
-        "notify",
-        "receipt_review",
-        {"payment_id": payment.id, "duplicate_of": duplicate.id if duplicate else None},
-        shop_id=ctx.shop.id,
-        dedupe_key=f"payment:{payment.id}:review",
+async def upload_receipt(
+    payment_id: int,
+    ctx: WebApp,
+    file: UploadFile = File(...),
+    expected_revision: Annotated[str | None, Form(pattern=r"^[a-f0-9]{64}$")] = None,
+) -> dict[str, Any]:
+    # Preserve initial legacy uploads, but a correction requires the revision of its instruction.
+    result = await webapp_receipts.submit_upload(
+        payment_id, ctx, file, expected_revision=expected_revision, allow_legacy_initial=True
     )
-    return {"status": PaymentStatus.VERIFYING.value}
+    return {"status": result["status"]}
 
 
 async def _store_receipt(ctx: WebApp, data: bytes) -> str | None:
-    """Upload the image to the customer's own chat so staff can see it as a Telegram photo."""
+    """Store with the same shop bot used to deliver the photo to its staff reviewers."""
     from aiogram.types import BufferedInputFile
 
-    from paurubot.notifications.telegram import get_bot
+    from paurubot.notifications import telegram
 
     try:
-        message = await get_bot().send_photo(
-            ctx.customer.telegram_id, BufferedInputFile(data, "receipt.jpg"), disable_notification=True
+        message = await telegram.send_photo(
+            ctx.customer.telegram_id,
+            BufferedInputFile(data, "receipt.jpg"),
+            shop_id=ctx.shop.id,
+            disable_notification=True,
         )
-    except Exception:  # the receipt still reaches review with its hashes, just without a preview
+    except Exception:
         log.warning("could not store receipt image for customer %s", ctx.customer.id)
         return None
-    return message.photo[-1].file_id if message.photo else None
+    return message.photo[-1].file_id if message is not None and message.photo else None
 
 
 @router.get("/payments/{payment_id}")
 async def payment_status(payment_id: int, ctx: WebApp) -> dict[str, Any]:
     payment = await ctx.session.get(Payment, payment_id)
-    if payment is None or payment.customer_id != ctx.customer.id:
+    if payment is None or payment.customer_id != ctx.customer.id or payment.shop_id != ctx.shop.id:
         raise HTTPException(status_code=404, detail="payment_not_found")
     return {
         "id": payment.id,
         "status": payment.status.value,
         "amount": payment.amount,
         "fulfilled": payment.fulfilled_at is not None,
+        "provider": payment.provider,
+        "order_id": payment.order_id,
     }
 
 
@@ -499,6 +533,20 @@ async def service_detail(service_id: int, ctx: WebApp, refresh: bool = False) ->
     return {"service": service_view(service, ctx.cfg)}
 
 
+@router.get("/services/{service_id}/usage")
+async def service_usage(service_id: int, ctx: WebApp, days: int = Query(default=7)) -> dict[str, Any]:
+    from paurubot.core import usage_history
+
+    if days not in (7, 30):
+        raise HTTPException(status_code=422, detail="unsupported_usage_window")
+    service = await _owned_service(ctx, service_id)
+    assert service is not None
+    # Explicit shop guard in addition to customer ownership; history never queries the panel.
+    if service.shop_id != ctx.shop.id:
+        raise HTTPException(status_code=404, detail="service_not_found")
+    return await usage_history.series(ctx.session, service, days)
+
+
 @router.get("/services/{service_id}/links")
 async def service_links(service_id: int, ctx: WebApp) -> dict[str, Any]:
     service = await _owned_service(ctx, service_id)
@@ -538,7 +586,7 @@ async def trial(ctx: WebApp) -> dict[str, Any]:
     return {"order": order_view(order)}
 
 
-# --- support tickets in the Mini App (F-14) -----------------------------------------------
+# --- support tickets in the Mini App (F-08 / F-14) -----------------------------------------------
 
 
 def _ticket_view(ticket: Ticket) -> dict[str, Any]:
@@ -552,31 +600,45 @@ def _ticket_view(ticket: Ticket) -> dict[str, Any]:
     }
 
 
-async def _own_ticket(ctx: WebApp, ticket_id: int) -> Ticket:
-    ticket = await ctx.session.get(Ticket, ticket_id)
-    if ticket is None or ticket.customer_id != ctx.customer.id:
+async def _own_ticket(ctx: WebApp, ticket_id: int, *, lock: bool = False) -> Ticket:
+    stmt = select(Ticket).where(
+        Ticket.id == ticket_id, Ticket.customer_id == ctx.customer.id, Ticket.shop_id == ctx.shop.id
+    )
+    if lock:
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
+    ticket = await ctx.session.scalar(stmt)
+    if ticket is None:
         raise HTTPException(status_code=404, detail="ticket_not_found")
     return ticket
 
 
 @router.get("/tickets")
-async def my_tickets(ctx: WebApp) -> dict[str, Any]:
-    rows = await tickets.for_customer(ctx.session, ctx.customer, limit=20)
+async def my_tickets(ctx: WebApp, before: int | None = Query(None, ge=1)) -> dict[str, Any]:
+    # Stable ID cursor: updates/replies cannot move a row between pages.
+    stmt = select(Ticket).where(Ticket.customer_id == ctx.customer.id, Ticket.shop_id == ctx.shop.id)
+    if before is not None:
+        stmt = stmt.where(Ticket.id < before)
+    rows = list(await ctx.session.scalars(stmt.order_by(Ticket.id.desc()).limit(21)))
+    page = rows[:20]
     desks = await tickets.departments(ctx.session, ctx.shop.id)
     return {
-        "items": [_ticket_view(row) for row in rows],
+        "items": [_ticket_view(row) for row in page],
+        "next_before": page[-1].id if len(rows) > 20 else None,
         "departments": [{"id": desk.id, "title": desk.title} for desk in desks],
     }
 
 
 class TicketBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     subject: str = Field(min_length=1, max_length=128)
     text: str = Field(min_length=1, max_length=4000)
-    department_id: int | None = None
+    department_id: int | None = Field(None, ge=1, strict=True)
 
 
 @router.post("/tickets")
 async def new_ticket(body: TicketBody, ctx: WebApp) -> dict[str, Any]:
+    # Serializes Mini App opens by this customer before checking the open-ticket limit.
+    await ctx.session.refresh(ctx.customer, ["id"], with_for_update=True)
     try:
         ticket = await tickets.open_ticket(
             ctx.session, ctx.customer, body.subject, source="webapp", department_id=body.department_id
@@ -593,11 +655,20 @@ async def new_ticket(body: TicketBody, ctx: WebApp) -> dict[str, Any]:
 
 
 @router.get("/tickets/{ticket_id}")
-async def ticket_thread(ticket_id: int, ctx: WebApp) -> dict[str, Any]:
+async def ticket_thread(
+    ticket_id: int, ctx: WebApp, before: int | None = Query(None, ge=1)
+) -> dict[str, Any]:
     ticket = await _own_ticket(ctx, ticket_id)
-    rows = await tickets.messages(ctx.session, ticket.id, limit=100)  # staff notes never come back
+    stmt = select(TicketMessage).where(
+        TicketMessage.ticket_id == ticket.id, TicketMessage.is_internal.is_(False)
+    )
+    if before is not None:
+        stmt = stmt.where(TicketMessage.id < before)
+    rows = list(await ctx.session.scalars(stmt.order_by(TicketMessage.id.desc()).limit(101)))
+    page = rows[:100]
     return {
         "ticket": _ticket_view(ticket),
+        "next_before": page[-1].id if len(rows) > 100 else None,
         "messages": [
             {
                 "id": row.id,
@@ -606,18 +677,19 @@ async def ticket_thread(ticket_id: int, ctx: WebApp) -> dict[str, Any]:
                 "has_attachment": bool(row.attachment_file_id),
                 "created_at": _iso(row.created_at),
             }
-            for row in rows
+            for row in reversed(page)
         ],
     }
 
 
 class TicketReplyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     text: str = Field(min_length=1, max_length=4000)
 
 
 @router.post("/tickets/{ticket_id}/reply")
 async def ticket_answer(ticket_id: int, body: TicketReplyBody, ctx: WebApp) -> dict[str, Any]:
-    ticket = await _own_ticket(ctx, ticket_id)
+    ticket = await _own_ticket(ctx, ticket_id, lock=True)
     try:
         await tickets.add_message(
             ctx.session, ticket, author_type="customer", author_id=ctx.customer.id, text=body.text
@@ -632,7 +704,7 @@ async def ticket_answer(ticket_id: int, body: TicketReplyBody, ctx: WebApp) -> d
 
 @router.post("/tickets/{ticket_id}/close")
 async def ticket_close(ticket_id: int, ctx: WebApp) -> dict[str, Any]:
-    ticket = await _own_ticket(ctx, ticket_id)
+    ticket = await _own_ticket(ctx, ticket_id, lock=True)
     await tickets.close(ctx.session, ticket)
     return {"ticket": _ticket_view(ticket)}
 
@@ -675,3 +747,6 @@ async def reseller_renew(body: RenewManyBody, ctx: WebApp) -> dict[str, Any]:
         "failed": [{"id": s.id, "error": key} for s, key in result.failed],
         "balance": await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id),
     }
+
+
+router.include_router(webapp_auto_renew.router)

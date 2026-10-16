@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { money } from "@shared/format";
-import { call, type PanelRow, type Service } from "../api";
+import { ApiError, call, type PanelRow, type Service } from "../api";
 import { PAGE_SIZE, useAction, useList, useLoad, useSelection } from "../hooks";
 import { useSession } from "../session";
 import {
@@ -26,7 +26,7 @@ import {
   Toolbar,
   Usage,
   When,
-  useConfirm,
+  useTypedConfirm,
   type Column,
   Toggle,
 } from "../ui";
@@ -100,7 +100,7 @@ function ServiceSheet({
   onChange: (service: Service) => void;
 }) {
   const { t, can, me, toast, errorText } = useSession();
-  const confirm = useConfirm();
+  const typedConfirm = useTypedConfirm();
   const [busy, run] = useAction();
   const [days, setDays] = useState<number | null>(null);
   const [gb, setGb] = useState<number | null>(null);
@@ -124,16 +124,24 @@ function ServiceSheet({
 
   const act = async (action: string, extra: Record<string, unknown> = {}) => {
     try {
-      const result = await run(() =>
-        call<{ service: Service }>(`/api/admin/services/${service.id}/action`, {
+      const result = await run(async () => {
+        const fields = action === "delete" ? await typedConfirm({
+          title: t("delete_service_title"),
+          body: t("delete_service_body", { name: service.label || service.panel_username }),
+          confirm: t("delete"),
+          target: { action: "service.delete", id: service.id },
+        }) : {};
+        if (fields === null) return null;
+        return call<{ service: Service }>(`/api/admin/services/${service.id}/action`, {
           method: "POST",
-          body: { action, ...extra },
-        }),
-      );
+          body: { action, ...extra, ...fields },
+        });
+      });
+      if (!result) return;
       if (result) onChange(result.service);
       toast(t(`service_done_${action}`));
     } catch (err) {
-      toast(errorText(err), "error");
+      toast(err instanceof ApiError && err.status === 428 ? t("err_confirmation_required") : errorText(err), "error");
     }
   };
 
@@ -147,13 +155,7 @@ function ServiceSheet({
   };
 
   const remove = async () => {
-    const ok = await confirm({
-      title: t("delete_service_title"),
-      body: t("delete_service_body", { name: service.label || service.panel_username }),
-      confirm: t("delete"),
-      danger: true,
-    });
-    if (ok) await act("delete", { reason: reason.trim() || null, notify });
+    await act("delete", { reason: reason.trim() || null, notify });
   };
 
   return (
@@ -277,7 +279,7 @@ type BulkAction = "enable" | "disable" | "extend" | "delete" | "move";
 
 export function Services() {
   const { t, can, me, locale, toast, errorText } = useSession();
-  const confirm = useConfirm();
+  const typedConfirm = useTypedConfirm();
   const list = useList<Service>("/api/admin/services", ["q", "status", "panel_id", "plan_id", "customer_id"]);
   const [params] = useSearchParams();
   const panels = useLoad<{ items: PanelRow[] }>(can("panels.read") ? "/api/admin/panels" : null);
@@ -303,16 +305,6 @@ export function Services() {
   const runBulk = async () => {
     if (!bulkOpen) return;
     const { action, everything } = bulkOpen;
-    const count = everything ? list.data?.total ?? 0 : selection.selected.size;
-    if (action === "delete" || action === "disable") {
-      const ok = await confirm({
-        title: t(`bulk_${action}_title`),
-        body: t("bulk_confirm_body", { n: money(count, locale) }),
-        confirm: t(action === "delete" ? "delete" : "disable"),
-        danger: true,
-      });
-      if (!ok) return;
-    }
     try {
       const body: Record<string, unknown> = {
         action,
@@ -322,9 +314,19 @@ export function Services() {
         notify: bulkNotify,
       };
       if (action === "move") body.panel_id = Number(bulkPanel);
-      if (everything) body.filter = filter;
+      if (everything) body.filter = { ...filter };
       else body.ids = [...selection.selected];
-      const result = await run(() => call<{ queued: number }>("/api/admin/services/bulk", { method: "POST", body }));
+      const result = await run(async () => {
+        const fields = action === "delete" || action === "disable" ? await typedConfirm({
+          title: t(`bulk_${action}_title`),
+          body: t("typed_confirm_bulk_scope"),
+          confirm: t(action === "delete" ? "delete" : "disable"),
+          target: { action: action === "delete" ? "service.bulk_delete" : "service.bulk_disable", body },
+        }) : {};
+        if (fields === null) return null;
+        return call<{ queued: number }>("/api/admin/services/bulk", { method: "POST", body: { ...body, ...fields } });
+      });
+      if (!result) return;
       toast(t(action === "move" ? "svc_move_bulk_queued" : "bulk_queued", { n: money(result?.queued ?? 0, locale) }));
       setBulkPanel("");
       setBulkOpen(null);
@@ -333,7 +335,7 @@ export function Services() {
       selection.clear();
       window.setTimeout(() => void list.reload(), 2500);
     } catch (err) {
-      toast(errorText(err), "error");
+      toast(err instanceof ApiError && err.status === 428 ? t("err_confirmation_required") : errorText(err), "error");
     }
   };
 

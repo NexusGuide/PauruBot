@@ -1,14 +1,21 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { NavLink } from "react-router-dom";
-import { useApp } from "./state";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { parentForPath, tabForPath } from "./navigation";
+import { errorText, useApp } from "./state";
 
 export function Screen({ title, children, action }: { title?: string; children: ReactNode; action?: ReactNode }) {
+  const { t } = useApp();
+  const navigate = useNavigate();
+  const parent = parentForPath(useLocation().pathname);
   return (
-    <main className="mx-auto w-full max-w-md px-4 pb-28 pt-5">
-      {title && (
-        <header className="mb-5 flex items-center justify-between gap-3">
-          <h1 className="text-[1.65rem] font-extrabold leading-tight tracking-tight">{title}</h1>
-          {action}
+    <main id="app-content" tabIndex={-1} className="app-screen">
+      {(title || parent) && (
+        <header className="app-heading">
+          {parent && <button type="button" className="app-back" aria-label={t("ui_back")} onClick={() => navigate(parent)}>
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m14 6-6 6 6 6" /></svg>
+          </button>}
+          {title && <h1>{title}</h1>}
+          {action && <div className="app-heading-action">{action}</div>}
         </header>
       )}
       {children}
@@ -21,6 +28,7 @@ type Tone = "primary" | "quiet" | "danger";
 export function Button({
   tone = "primary",
   busy,
+  disabled,
   children,
   className = "",
   ...rest
@@ -32,26 +40,30 @@ export function Button({
   };
   return (
     <button
-      type="button"
-      className={`flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl px-4 text-[0.95rem] transition-opacity active:opacity-80 disabled:opacity-50 ${tones[tone]} ${className}`}
-      disabled={busy || rest.disabled}
       {...rest}
+      type={rest.type ?? "button"}
+      aria-busy={busy || undefined}
+      data-tone={tone}
+      className={`app-button flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl px-4 text-[0.95rem] transition-opacity active:opacity-80 disabled:opacity-50 ${tones[tone]} ${className}`}
+      disabled={busy || disabled}
     >
-      {busy ? <Spinner small /> : children}
+      {busy && <Spinner small decorative />}<span>{children}</span>
     </button>
   );
 }
 
 export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <section className={`rounded-3xl bg-[var(--surface)] p-4 ${className}`}>{children}</section>;
+  return <section className={`app-panel rounded-3xl bg-[var(--surface)] p-4 ${className}`}>{children}</section>;
 }
 
-export function Spinner({ small }: { small?: boolean }) {
+export function Spinner({ small, decorative = false }: { small?: boolean; decorative?: boolean }) {
+  const { t } = useApp();
   const size = small ? "h-4 w-4" : "h-7 w-7";
   return (
     <span
-      role="status"
-      aria-label="loading"
+      role={decorative ? undefined : "status"}
+      aria-hidden={decorative || undefined}
+      aria-label={decorative ? undefined : t("ui_loading")}
       className={`inline-block ${size} animate-spin rounded-full border-2 border-current border-t-transparent opacity-70`}
     />
   );
@@ -153,29 +165,24 @@ const tabs = [
 
 export function TabBar() {
   const { t } = useApp();
+  const path = useLocation().pathname;
+  const selected = tabForPath(path);
   return (
-    <nav
-      className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--line)] bg-[var(--bg)]/95 backdrop-blur"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+    <nav aria-label={t("ui_navigation")}
+      className="app-tabbar"
     >
-      <ul className="mx-auto flex max-w-md justify-between px-2">
+      <ul className="app-tabs">
         {tabs.map((tab) => (
           <li key={tab.to} className="flex-1">
-            <NavLink
-              to={tab.to}
-              end={tab.to === "/"}
-              className={({ isActive }) =>
-                `flex flex-col items-center gap-0.5 py-2 text-[0.7rem] font-semibold ${
-                  isActive ? "text-[var(--accent)]" : "text-[var(--hint)]"
-                }`
-              }
-            >
+            <Link to={tab.to}
+              aria-current={selected === tab.key.slice(4) ? (path === tab.to ? "page" : "location") : undefined}
+              className={`app-tab ${selected === tab.key.slice(4) ? "app-tab-active" : ""}`}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9"
                 strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d={tab.icon} />
               </svg>
               {t(tab.key)}
-            </NavLink>
+            </Link>
           </li>
         ))}
       </ul>
@@ -185,13 +192,10 @@ export function TabBar() {
 
 export function Toast() {
   const { toastMessage } = useApp();
-  if (!toastMessage) return null;
-  const tone = toastMessage.tone === "ok" ? "bg-ink text-white" : "bg-anar-500 text-white";
-  return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-24 z-30 flex justify-center px-4" aria-live="polite">
-      <p className={`rounded-full px-4 py-2 text-sm font-semibold shadow-lg ${tone}`}>{toastMessage.text}</p>
-    </div>
-  );
+  return <div className="app-toast" role={toastMessage?.tone === "error" ? "alert" : "status"}
+    aria-live={toastMessage?.tone === "error" ? "assertive" : "polite"} aria-atomic="true">
+    {toastMessage && <p data-tone={toastMessage.tone}>{toastMessage.text}</p>}
+  </div>;
 }
 
 export function Row({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
@@ -199,9 +203,15 @@ export function Row({ children, onClick }: { children: ReactNode; onClick?: () =
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-3 px-4 py-3.5 text-start transition-colors active:bg-[var(--line)]"
+      className="app-row flex w-full items-center gap-3 px-4 py-3.5 text-start transition-colors active:bg-[var(--line)]"
     >
       {children}
     </button>
   );
+}
+
+export function ReadFailure({ error, retry }: { error: unknown; retry: () => void }) {
+  const { t } = useApp();
+  return <Panel className="my-4"><div role="alert"><p className="mb-3">{errorText(t, error)}</p>
+    <Button tone="quiet" onClick={retry}>{t("ui_retry")}</Button></div></Panel>;
 }

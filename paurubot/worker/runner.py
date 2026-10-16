@@ -26,6 +26,10 @@ class Retry(Exception):
     """Raise from a handler to retry later without logging a traceback."""
 
 
+class Defer(Exception):
+    """A service is busy: requeue without using a failure attempt or running dead hooks."""
+
+
 class Permanent(Exception):
     """Raise from a handler when retrying cannot help."""
 
@@ -79,6 +83,38 @@ async def run_job(name: str, spec: QueueSpec, job: queue.Claimed) -> None:
         log_tags.reset(tags_token)
 
 
+async def _with_heartbeat(
+    handler: Handler, session: AsyncSession, spec: QueueSpec, job: queue.Claimed
+) -> None:
+    maker = get_sessionmaker()
+
+    async def keep() -> None:
+        while True:
+            await asyncio.sleep(max(0.05, min(30.0, spec.lease_seconds / 3)))
+            # Never use the handler's session concurrently; it may be in a remote call/transaction.
+            async with maker() as heartbeat_session:
+                alive = await queue.renew(heartbeat_session, job, lease_seconds=spec.lease_seconds)
+                await heartbeat_session.commit()
+            if not alive:
+                raise queue.LostClaim(f"job {job.id}: lease lost")
+
+    async def invoke() -> None:
+        await handler(session, job)
+
+    work = asyncio.create_task(invoke())
+    heartbeat = asyncio.create_task(keep())
+    try:
+        await asyncio.wait((work, heartbeat), return_when=asyncio.FIRST_COMPLETED)
+        if heartbeat.done():
+            raise queue.LostClaim(f"job {job.id}: heartbeat failed") from heartbeat.exception()
+        await work
+    finally:
+        # Cancellation leaves durable panel intents for reconciliation, not permission to repeat.
+        work.cancel()
+        heartbeat.cancel()
+        await asyncio.gather(work, heartbeat, return_exceptions=True)
+
+
 async def _run_job(name: str, spec: QueueSpec, job: queue.Claimed) -> None:
     from paurubot.ops import metrics
 
@@ -88,10 +124,25 @@ async def _run_job(name: str, spec: QueueSpec, job: queue.Claimed) -> None:
         try:
             if handler is None:
                 raise Permanent(f"no handler for {name}/{job.kind}")
-            await handler(session, job)
-            await queue.complete(session, job)
+            if not await queue.renew(session, job, lease_seconds=spec.lease_seconds):
+                raise queue.LostClaim(f"job {job.id}: claim expired before handler")
+            await session.commit()
+            await _with_heartbeat(handler, session, spec, job)
+            if not await queue.complete(session, job):
+                raise queue.LostClaim(f"job {job.id}: claim lost before completion")
             await session.commit()
             await metrics.count_job(name, "done")
+            return
+        except queue.LostClaim:
+            await session.rollback()
+            log.warning("job %s: lost claim; no completion/failure/dead hook", job.id)
+            return
+        except Defer as exc:
+            await session.rollback()
+            if await queue.defer(session, job, str(exc) or "service busy"):
+                await session.commit()
+            else:
+                await session.rollback()
             return
         except Retry as exc:
             error, retry = str(exc) or "retry", True
@@ -104,6 +155,10 @@ async def _run_job(name: str, spec: QueueSpec, job: queue.Claimed) -> None:
     error = redact(error)
     async with maker() as session:
         dead = await queue.fail(session, job, error, retry=retry)
+        if dead is None:
+            await session.rollback()
+            log.warning("job %s: stale failure discarded", job.id)
+            return
         await session.commit()
         await metrics.count_job(name, "dead" if dead else "retry")
         if dead and name != "notify":
@@ -133,7 +188,7 @@ async def drain(name: str, spec: QueueSpec) -> int:
 
 async def run_periodic(task: Periodic) -> None:
     try:
-        async with kv.lock(f"periodic:{task.name}", ttl=max(30, int(task.every))):
+        async with kv.lease(f"periodic:{task.name}", ttl=max(30, int(task.every))):
             await task.func()
     except kv.LockNotAcquired:
         return  # another worker is running it

@@ -180,3 +180,290 @@ async def test_staff_tools_follow_the_role(session, app_env) -> None:  # type: i
         select(AuditLog).where(AuditLog.action == "payment.approved", AuditLog.entity_id == payment_id)
     )
     assert entry is not None
+
+
+async def test_marketing_preferences_require_auth_and_only_modify_self(session, app_env) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import Customer
+
+    client = app_env["client"]
+    path = "/api/webapp/me/marketing"
+    assert (await client.post(path, json={"marketing_opt_out": True})).status_code == 401
+    own = (await client.get("/api/webapp/me", headers=h(81501))).json()
+    other = (await client.get("/api/webapp/me", headers=h(81502))).json()
+    assert own["preferences"] == {"marketing_opt_out": False, "changed_at": None}
+    for bad in ("false", 1, None):
+        assert (await client.post(path, headers=h(81501), json={"marketing_opt_out": bad})).status_code == 422
+    assert (
+        await client.post(
+            path, headers=h(81501), json={"marketing_opt_out": True, "customer_id": other["id"]}
+        )
+    ).status_code == 422
+    response = await client.post(path, headers=h(81501), json={"marketing_opt_out": True})
+    assert response.status_code == 200 and response.json()["marketing_opt_out"] is True
+    again = await client.post(path, headers=h(81501), json={"marketing_opt_out": True})
+    assert again.json() == response.json()
+    assert (await client.get("/api/webapp/me", headers=h(81501))).json()["preferences"] == response.json()
+    assert (await client.get("/api/webapp/me", headers=h(81502))).json()["preferences"][
+        "marketing_opt_out"
+    ] is False
+    customer = await session.get(Customer, own["id"])
+    await session.refresh(customer)
+    assert customer.marketing_opt_out is True and customer.alerts_muted is False
+    assert customer.marketing_change_source == "miniapp"
+
+
+async def test_usage_history_is_self_only_and_does_not_query_the_panel(session, app_env, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from unittest.mock import AsyncMock
+
+    from paurubot.core import usage_history
+    from paurubot.panels.base import PanelUser
+    from paurubot.provisioning import lifecycle
+
+    client, shop, panel = app_env["client"], app_env["shop"], app_env["panel"]
+    owner = await factories.customer(session, shop, telegram_id=81601)
+    service = Service(
+        shop_id=shop.id,
+        customer_id=owner.id,
+        panel_id=panel.id,
+        panel_username="history-owned",
+        status=ServiceStatus.ACTIVE,
+    )
+    session.add(service)
+    await session.flush()
+    await usage_history.observe(
+        session, service, PanelUser("history-owned", used_bytes=123, usage_known=True), source="poll"
+    )
+    await session.commit()
+    refresh = AsyncMock(side_effect=AssertionError("history GET must not contact the panel"))
+    monkeypatch.setattr(lifecycle, "refresh", refresh)
+    path = f"/api/webapp/services/{service.id}/usage"
+    assert (await client.get(path)).status_code == 401
+    assert (await client.get(path, headers=h(81602))).status_code == 404
+    for days in (7, 30):
+        response = await client.get(path, headers=h(81601), params={"days": days})
+        assert response.status_code == 200, response.text
+        assert response.json()["points"][0]["used_bytes"] == 123
+        assert response.json()["days"] == days
+    assert (await client.get(path, headers=h(81601), params={"days": 14})).status_code == 422
+    refresh.assert_not_awaited()
+    service.status = ServiceStatus.DELETED
+    await session.commit()
+    assert (await client.get(path, headers=h(81601))).status_code == 404
+
+
+async def test_profile_alert_settings_are_strict_self_only_and_independent(session, app_env) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import Customer
+
+    client = app_env["client"]
+    path = "/api/webapp/me/alerts"
+    assert (await client.post(path, json={"alerts_muted": True})).status_code == 401
+    own = (await client.get("/api/webapp/me", headers=h(81701))).json()
+    other = (await client.get("/api/webapp/me", headers=h(81702))).json()
+    customer = await session.get(Customer, own["id"])
+    customer.phone = "+989123456789"
+    await session.commit()
+    profile = (await client.get("/api/webapp/me", headers=h(81701))).json()
+    assert profile["profile"]["phone_masked"] == "••••89"
+    assert profile["profile"]["member_since"]
+    assert "+989123456789" not in str(profile)
+    for bad in ("false", 1, None):
+        assert (await client.post(path, headers=h(81701), json={"alerts_muted": bad})).status_code == 422
+    for extra in ({"customer_id": other["id"]}, {"name": "changed"}, {"phone": "123"}):
+        assert (
+            await client.post(path, headers=h(81701), json={"alerts_muted": True, **extra})
+        ).status_code == 422
+    for _ in range(2):
+        response = await client.post(path, headers=h(81701), json={"alerts_muted": True})
+        assert response.status_code == 200 and response.json() == {"alerts_muted": True}
+    updated = (await client.get("/api/webapp/me", headers=h(81701))).json()
+    assert updated["alerts_muted"] is True and updated["preferences"] == own["preferences"]
+    assert updated["name"] == own["name"] and updated["telegram_id"] == own["telegram_id"]
+    assert (await client.get("/api/webapp/me", headers=h(81702))).json()["alerts_muted"] is False
+    assert (
+        await client.post(
+            "/api/webapp/me/locale", headers=h(81701), json={"locale": "fa", "customer_id": other["id"]}
+        )
+    ).status_code == 422
+
+
+async def test_miniapp_tickets_auth_validation_ownership_and_closed_rules(session, app_env) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import Ticket, TicketDepartment
+
+    client, shop = app_env["client"], app_env["shop"]
+    valid = {"subject": "Connection", "text": "Please help", "department_id": None}
+    for method, path, body in (
+        ("GET", "/api/webapp/tickets", None),
+        ("POST", "/api/webapp/tickets", valid),
+        ("GET", "/api/webapp/tickets/1", None),
+        ("POST", "/api/webapp/tickets/1/reply", {"text": "hello"}),
+        ("POST", "/api/webapp/tickets/1/close", {}),
+    ):
+        assert (await client.request(method, path, json=body)).status_code == 401
+    owner = (await client.get("/api/webapp/me", headers=h(81801))).json()
+    foreign = await factories.shop(session)
+    foreign_department = TicketDepartment(shop_id=foreign.id, title="Foreign")
+    inactive = TicketDepartment(shop_id=shop.id, title="Inactive", is_active=False)
+    own_department = TicketDepartment(shop_id=shop.id, title="Technical")
+    session.add_all([foreign_department, inactive, own_department])
+    await session.commit()
+    listing = (await client.get("/api/webapp/tickets", headers=h(81801))).json()
+    assert listing["departments"] == [{"id": own_department.id, "title": "Technical"}]
+    for bad in (
+        {"subject": "   "},
+        {"text": "\n "},
+        {"text": "x" * 4001},
+        {"subject": "x" * 129},
+        {"customer_id": owner["id"]},
+        {"internal": True},
+        {"department_id": True},
+    ):
+        response = await client.post("/api/webapp/tickets", headers=h(81801), json={**valid, **bad})
+        assert response.status_code == 422, response.text
+    for department_id in (foreign_department.id, inactive.id):
+        response = await client.post(
+            "/api/webapp/tickets", headers=h(81801), json={**valid, "department_id": department_id}
+        )
+        assert response.status_code == 400 and response.json()["error"] == "ticket_department_unknown"
+    response = await client.post(
+        "/api/webapp/tickets", headers=h(81801), json={**valid, "department_id": own_department.id}
+    )
+    assert response.status_code == 200, response.text
+    ticket_id = response.json()["ticket"]["id"]
+    detail_path = f"/api/webapp/tickets/{ticket_id}"
+    for suffix, method, body in (
+        ("", "GET", None),
+        ("/reply", "POST", {"text": "intrusion"}),
+        ("/close", "POST", {}),
+    ):
+        assert (
+            await client.request(method, detail_path + suffix, headers=h(81802), json=body)
+        ).status_code == 404
+    for body in ({"text": "   "}, {"text": "x", "internal": True}, {"text": "x", "author_type": "staff"}):
+        assert (await client.post(detail_path + "/reply", headers=h(81801), json=body)).status_code == 422
+    reply = await client.post(detail_path + "/reply", headers=h(81801), json={"text": "  More details  "})
+    assert reply.status_code == 200
+    thread = (await client.get(detail_path, headers=h(81801))).json()
+    assert [m["text"] for m in thread["messages"]] == ["Please help", "More details"]
+    assert all(m["from"] == "me" for m in thread["messages"])
+    for _ in range(2):
+        assert (await client.post(detail_path + "/close", headers=h(81801))).json()["ticket"][
+            "status"
+        ] == "closed"
+    rejected = await client.post(detail_path + "/reply", headers=h(81801), json={"text": "Too late"})
+    assert rejected.status_code == 409 and rejected.json()["error"] == "ticket_closed"
+    # Defense in depth: even an inconsistent historical row with the same customer must match shop.
+    inconsistent = Ticket(shop_id=foreign.id, customer_id=owner["id"], subject="Must stay private")
+    session.add(inconsistent)
+    await session.commit()
+    assert (await client.get(f"/api/webapp/tickets/{inconsistent.id}", headers=h(81801))).status_code == 404
+    assert inconsistent.id not in [
+        t["id"] for t in (await client.get("/api/webapp/tickets", headers=h(81801))).json()["items"]
+    ]
+
+
+async def test_miniapp_ticket_cursor_pages_never_expose_internal_notes_or_file_ids(session, app_env) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import Ticket, TicketMessage, TicketStatus
+
+    client, shop = app_env["client"], app_env["shop"]
+    own = (await client.get("/api/webapp/me", headers=h(81811))).json()
+    rows = [
+        Ticket(shop_id=shop.id, customer_id=own["id"], subject=f"Ticket {i}", status=TicketStatus.CLOSED)
+        for i in range(22)
+    ]
+    session.add_all(rows)
+    await session.flush()
+    ticket = rows[-1]
+    messages = [
+        TicketMessage(ticket_id=ticket.id, author_type="staff", text=f"Visible {i}") for i in range(105)
+    ]
+    internal = TicketMessage(
+        ticket_id=ticket.id,
+        author_type="staff",
+        text="PRIVATE STAFF NOTE",
+        is_internal=True,
+        attachment_file_id="SECRET_FILE_ID",
+    )
+    attachment = TicketMessage(
+        ticket_id=ticket.id, author_type="staff", text=None, attachment_file_id="PUBLIC_FILE_TOKEN"
+    )
+    session.add_all([*messages, internal, attachment])
+    await session.commit()
+    listing = (await client.get("/api/webapp/tickets", headers=h(81811))).json()
+    assert len(listing["items"]) == 20 and listing["next_before"] == rows[2].id
+    second = (
+        await client.get("/api/webapp/tickets", headers=h(81811), params={"before": listing["next_before"]})
+    ).json()
+    assert [t["id"] for t in second["items"]] == [rows[1].id, rows[0].id] and second["next_before"] is None
+    path = f"/api/webapp/tickets/{ticket.id}"
+    latest = (await client.get(path, headers=h(81811))).json()
+    older = (await client.get(path, headers=h(81811), params={"before": latest["next_before"]})).json()
+    visible = older["messages"] + latest["messages"]
+    assert len(latest["messages"]) == 100 and len(older["messages"]) == 6 and older["next_before"] is None
+    assert [m["id"] for m in visible] == [m.id for m in messages] + [attachment.id]
+    assert latest["messages"][-1]["has_attachment"] is True
+    assert all(m["from"] == "support" for m in visible)
+    assert all(set(m) == {"id", "from", "text", "has_attachment", "created_at"} for m in visible)
+    assert (
+        "PRIVATE STAFF NOTE" not in str(visible)
+        and "SECRET_FILE_ID" not in str(visible)
+        and "PUBLIC_FILE_TOKEN" not in str(visible)
+    )
+    for invalid_cursor_path in ("/api/webapp/tickets", path):
+        assert (
+            await client.get(invalid_cursor_path, headers=h(81811), params={"before": 0})
+        ).status_code == 422
+
+
+async def test_miniapp_open_ticket_limit_is_preserved(app_env) -> None:  # type: ignore[no-untyped-def]
+    client = app_env["client"]
+    for _ in range(3):
+        assert (
+            await client.post(
+                "/api/webapp/tickets", headers=h(81821), json={"subject": "Help", "text": "Question"}
+            )
+        ).status_code == 200
+    response = await client.post(
+        "/api/webapp/tickets", headers=h(81821), json={"subject": "Help", "text": "Question"}
+    )
+    assert response.status_code == 400 and response.json()["error"] == "ticket_limit"
+
+
+async def test_miniapp_help_is_authenticated_shop_scoped_and_local_only(
+    session, app_env, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    from unittest.mock import AsyncMock
+
+    from paurubot.core import apps
+
+    client, shop = app_env["client"], app_env["shop"]
+    shop.bot_username = "MiniShop_bot"
+    other = await factories.shop(session)
+    await shop_settings.set_many(
+        session,
+        shop.id,
+        {
+            "help_items": [{"title": "Own guide", "text": "Steps", "url": "https://example.com/guide"}],
+            "download_apps": [
+                {"name": "Own app", "platform": "android", "repo": "Owner/App", "pattern": "*.apk"}
+            ],
+        },
+    )
+    await shop_settings.set_many(
+        session, other.id, {"help_items": [{"title": "OTHER SHOP PRIVATE", "text": "Must not leak"}]}
+    )
+    await session.commit()
+    no_network = AsyncMock(
+        side_effect=AssertionError("help GET must not fetch releases, files or Redis cache")
+    )
+    monkeypatch.setattr(apps, "latest", no_network)
+    monkeypatch.setattr(apps, "cached", no_network)
+    assert (await client.get("/api/webapp/help")).status_code == 401
+    response = await client.get("/api/webapp/help", headers=h(81901), params={"shop_id": other.id})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["articles"][0]["title"] == "Own guide" and "OTHER SHOP PRIVATE" not in response.text
+    assert body["apps"][0]["release_url"] == "https://github.com/Owner/App/releases"
+    assert body["bot_url"] == "https://t.me/MiniShop_bot"
+    assert set(body) == {"articles", "apps", "bot_url"}
+    assert "pattern" not in response.text and "file_id" not in response.text
+    no_network.assert_not_awaited()
