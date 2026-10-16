@@ -1,0 +1,12 @@
+{
+  "adm_user_btn_transfer": "↔️ Transfer customer",
+  "adm_transfer_choose": "Choose the destination shop for this customer.",
+  "adm_transfer_target": "Move to {title}",
+  "adm_transfer_no_targets": "There are no eligible reseller shops for this transfer.",
+  "adm_transfer_target_invalid": "This destination is no longer available.",
+  "adm_transfer_not_found": "Customer not found.",
+  "adm_transfer_target_not_allowed": "This destination is not allowed.",
+  "adm_transfer_reseller": "A reseller identity cannot be transferred.",
+  "adm_transfer_already_exists": "This customer already exists in the destination shop.",
+  "adm_transfer_done": "Customer and shop-owned records were transferred successfully."
+}
