@@ -4,10 +4,13 @@
 #   bash <(curl -fsSL https://raw.githubusercontent.com/NexusGuide/PauruBot/main/install.sh)
 #
 # Without arguments it opens a menu. Every action also works non-interactively:
-#   install.sh install --domain bot.example.com --token 123:ABC --owner 123456 [--channel stable|beta] [--version v1.2.3]
+#   install.sh install --domain bot.example.com --token 123:ABC --owner 123456 [--channel stable|beta] [--version v1.2.3] [--https-port 443]
 #   install.sh update [--channel stable|beta] [--version v1.2.3]
 #   install.sh rollback | status | logs [service] | restart | backup | restore FILE | setup-link | uninstall
 #   install.sh enable-agent | disable-agent   (let the admin panel request updates and rollbacks)
+#
+# --https-port publishes the web panel on another HTTPS port (e.g. 8443) when a
+# VPN panel already owns 443. Port 80 stays in use: Caddy solves the TLS challenge there.
 #
 # For a private repository, export PAURUBOT_GITHUB_TOKEN (read access to code and packages) first.
 
@@ -249,7 +252,7 @@ wait_healthy() {
 
 cmd_install() {
   need_root
-  local domain="" token="" owner="" channel=stable version=""
+  local domain="" token="" owner="" channel=stable version="" https_port=""
   while (($#)); do
     case $1 in
       --domain) domain=$2; shift 2 ;;
@@ -257,9 +260,16 @@ cmd_install() {
       --owner) owner=$2; shift 2 ;;
       --channel) channel=$2; shift 2 ;;
       --version) version=$2; shift 2 ;;
+      --https-port) https_port=$2; shift 2 ;;
       *) die "unknown option $1" ;;
     esac
   done
+  https_port=${https_port:-443}
+  if [[ ! $https_port =~ ^[0-9]{1,5}$ ]] || ((10#$https_port < 1 || 10#$https_port > 65535)); then
+    die "--https-port must be a port number between 1 and 65535"
+  fi
+  https_port=$((10#$https_port))
+  ((https_port != 80)) || die "port 80 stays reserved for the TLS challenge; choose another --https-port"
   [[ -f $ENV_FILE ]] && die "already installed in $DIR; use update"
   check_system
   install_docker
@@ -281,12 +291,18 @@ cmd_install() {
 
   resolve_target "$channel" "$version"
   fetch_source "$TARGET_REF"
-  local passphrase
+  local passphrase public_url
+  public_url="https://$domain"
+  if ((https_port != 443)); then
+    public_url="$public_url:$https_port"
+    say "${DIM}Serving the panel at $public_url; port 80 stays free for the TLS challenge.${RESET}"
+  fi
   passphrase=$(random_secret 36 40)
   umask 077
   cat >"$ENV_FILE" <<EOF
 DOMAIN=$domain
-PUBLIC_URL=https://$domain
+PUBLIC_URL=$public_url
+HTTPS_PORT=$https_port
 BOT_TOKEN=$token
 OWNER_TELEGRAM_IDS=$owner
 MASTER_KEY=$(random_secret 64 64)

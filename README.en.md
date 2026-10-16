@@ -47,6 +47,14 @@ The installer sets up Docker, writes `.env` and generates the keys. It then star
 install.sh install --domain bot.example.com --token 123:ABC --owner 123456789
 ```
 
+If another service already owns port 443 (for example xray on a VPN panel server), pick a different HTTPS port:
+
+```bash
+install.sh install --domain bot.example.com --token 123:ABC --owner 123456789 --https-port 8443
+```
+
+The panel and the Mini App are then served on `https://bot.example.com:8443`, and `PUBLIC_URL` follows automatically. Port 80 must stay free: Caddy solves the TLS challenge there. 8443 is also one of the ports Telegram accepts for webhooks.
+
 Afterwards, `pauru` with no arguments opens the server menu: status, logs, restart, backup, restore, update and rollback.
 
 ### Key `.env` settings
@@ -58,6 +66,7 @@ Afterwards, `pauru` with no arguments opens the server menu: status, logs, resta
 | `OWNER_TELEGRAM_IDS` | Owners' numeric Telegram ids, comma separated |
 | `MASTER_KEY` | Encrypts panel passwords and gateway keys. Losing it makes them unreadable. |
 | `BACKUP_PASSPHRASE` | Encrypts backups. Keep it somewhere off the server. |
+| `HTTPS_PORT` | The panel's HTTPS port. Defaults to 443; use e.g. 8443 next to a VPN panel. |
 | `BOT_MODE` | `polling` or `webhook` |
 
 Everything else (payments, plans, texts, the bot menu) is set in the admin panel. All settings are listed in [docs/reference/settings.md](docs/reference/settings.md).
