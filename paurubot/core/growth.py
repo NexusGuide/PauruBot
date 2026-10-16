@@ -316,3 +316,9 @@ def masked(name: str | None) -> str:
     if len(text) <= 2:
         return "***"
     return f"{text[0]}***{text[-1]}"
+
+
+def masked_id(telegram_id: int | None) -> str:
+    """Hide the tail of a Telegram id: 5694312345 -> '56943******'."""
+    text = str(abs(int(telegram_id))) if telegram_id is not None else ""
+    return f"{text[:5]}******" if len(text) > 5 else "******"

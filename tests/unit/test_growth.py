@@ -5,12 +5,14 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+from aiogram.methods import SendMessage
 from sqlalchemy import select, update
 
 from paurubot.core import growth, orders, pricing
 from paurubot.core import settings as shop_settings
+from paurubot.core.formatting import money
 from paurubot.db.base import utcnow
-from paurubot.db.models import DiscountCode, Job, JobStatus, Lottery, OrderKind, PanelKind, WheelSpin
+from paurubot.db.models import DiscountCode, Job, JobStatus, Lottery, OrderKind, PanelKind, Service, WheelSpin
 from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.notifications import handlers as _handlers  # noqa: F401  (registers the notify queue)
@@ -66,6 +68,8 @@ def test_tier_rules() -> None:
         with pytest.raises(growth.GrowthError):
             growth.validate_tiers(bad)
     assert growth.masked("Sara") == "S***a" and growth.masked("") == "***"
+    assert growth.masked_id(5694312345) == "56943******"
+    assert growth.masked_id(None) == "******" and growth.masked_id(42) == "******"
 
 
 async def test_spending_raises_the_level_and_the_discount(session, env) -> None:  # type: ignore[no-untyped-def]
@@ -144,17 +148,29 @@ def test_weighted_pick_never_repeats() -> None:
     assert sorted(winners) == [1, 2]
 
 
-async def test_trust_channel_posts_a_masked_name(session, env) -> None:  # type: ignore[no-untyped-def]
+async def test_trust_channel_posts_a_masked_report(session, env) -> None:  # type: ignore[no-untyped-def]
     shop, cust, plan = env["shop"], env["cust"], env["plan"]
+    shop.bot_username = "pauru_test_bot"
     await shop_settings.set_many(session, shop.id, {"trust_channel_id": -1001234})
     await session.commit()
     await _buy(session, cust, OrderKind.PURCHASE, plan=plan)
     await drain(session, "provision")
+    service = await session.scalar(select(Service).where(Service.customer_id == cust.id))
+    assert service is not None
+    service.label = "My monthly line"
+    await session.commit()
     await drain(session, "notify")
     posts = env["tg"].texts(-1001234)
-    assert (
-        len(posts) == 1
-        and "S***a" in posts[0]
-        and "Sara" not in posts[0]
-        and str(cust.telegram_id) not in posts[0]
+    assert len(posts) == 1
+    report = posts[0]
+    assert growth.masked_id(cust.telegram_id) in report
+    assert str(cust.telegram_id) not in report and "Sara" not in report and "S***a" not in report
+    assert service.panel_username not in report
+    assert plan.title in report and "My monthly line" in report and money(plan.price) in report
+    post = next(
+        call
+        for call in reversed(env["tg"].calls)
+        if isinstance(call, SendMessage) and call.chat_id == -1001234
     )
+    row = post.reply_markup.inline_keyboard
+    assert len(row) == 1 and row[0][0].url == "https://t.me/pauru_test_bot"

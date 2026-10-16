@@ -8,7 +8,8 @@ from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
 from sqlalchemy import select
 
 from paurubot.bot.app import build_dispatcher
-from paurubot.bot.callbacks import Pay, Review, Shop, Wallet
+from paurubot.bot.callbacks import Nav, Pay, Review, Shop, Wallet
+from paurubot.bot.context import forget_join_check
 from paurubot.config import get_settings
 from paurubot.core import customers
 from paurubot.core import settings as shop_settings
@@ -214,6 +215,33 @@ async def test_banned_and_forced_join(session, env) -> None:  # type: ignore[no-
     await session.commit()
     await send(message_update(UID, "/start"))
     assert fake.last(SendMessage).text == FA("banned")
+
+
+async def test_joined_verifies_membership(session, env) -> None:  # type: ignore[no-untyped-def]
+    send, fake = env["send"], env["fake"]
+    uid = 7002
+    await send(message_update(uid, "/start"))
+    session.add(
+        ForcedChannel(
+            shop_id=env["shop"].id, chat_id="@pauru_news", title="News", url="https://t.me/pauru_news"
+        )
+    )
+    await session.commit()
+    fake.non_members.add(("@pauru_news", uid))
+    joined = Nav(to="joined").pack()
+    fake.reset()
+    # Still not a member: the button must not bring a false confirmation (GRW-07).
+    await send(callback_update(uid, joined))
+    alert = next(c for c in fake.calls if isinstance(c, AnswerCallbackQuery))
+    assert alert.text == FA("join_required_alert") and alert.show_alert
+    assert fake.last(SendMessage).text == FA("join_required")
+    assert FA("join_ok") not in fake.texts(uid)
+    # Really joined this time: now the confirmation is right.
+    fake.non_members.discard(("@pauru_news", uid))
+    fake.reset()
+    await send(callback_update(uid, joined))
+    assert FA("join_ok") in fake.texts(uid)
+    forget_join_check(uid)
 
 
 async def test_trial_and_ticket(session, env) -> None:  # type: ignore[no-untyped-def]

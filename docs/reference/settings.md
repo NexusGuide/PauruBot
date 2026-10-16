@@ -50,7 +50,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `wheel_buyers_only` | bool | true | Wheel only for buyers |
 | `wheel_prizes` | list | [{"label": "5,000", "kind": "wallet", "value": 5000, "weight": 30}, {"label": "10%", "kind": "discount", "value": 10, "weight": 20}, {"label": "20,000", "kind": "wallet", "value": 20000, "weight": 5}, {"label": "-", "kind": "nothing", "value": 0, "weight": 45}] | Wheel prizes. The chance of each slice is its weight against the total. Discount prizes become a one-time code valid for 7 days |
 | `lottery_enabled` | bool | false | Lottery button. Shows the Lottery button in the bot. Lotteries themselves are set up on the Lotteries page |
-| `trust_channel_id` | int | — | Trust channel. ID of a public channel where the bot is an admin. Each purchase is announced there with only a masked first name |
+| `trust_channel_id` | int | — | Trust channel. ID of a public channel where the bot is an admin. Every paid purchase and renewal is posted there as a report with the buyer's id masked (for example 56943******), the plan, category, service and amount, plus a buy button. At most 20 posts go out per hour |
 
 ## Payments
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.bot import keyboards
 from paurubot.bot.callbacks import Lang, Menu, Nav
-from paurubot.bot.context import StaffIdentity, forget_join_check
+from paurubot.bot.context import StaffIdentity, forget_join_check, missing_channels
 from paurubot.bot.menu import BUTTONS, available, inline_menu, main_menu, menu_mode, miniapp_button
 from paurubot.bot.utils import Btn, show
 from paurubot.core import customers
@@ -182,9 +182,23 @@ async def cancel(
 
 @router.callback_query(Nav.filter(F.to == "joined"))
 async def joined(
-    call: CallbackQuery, customer: Customer, t: Texts, cfg: dict[str, Any], staff: StaffIdentity | None
+    call: CallbackQuery,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    staff: StaffIdentity | None,
+    bot: Bot,
+    session: AsyncSession,
 ) -> None:
+    # The button alone is not proof: without a fresh check the bot used to confirm users who had
+    # never joined (GRW-07). Check again and answer honestly.
     forget_join_check(customer.telegram_id)
+    missing = await missing_channels(bot, session, customer)
+    if missing:
+        await call.answer(t("join_required_alert"), show_alert=True)
+        if isinstance(call.message, Message):
+            await call.message.answer(t("join_required"), reply_markup=keyboards.join(t, missing))
+        return
     await call.answer(t("join_thanks"))
     if isinstance(call.message, Message):
         await call.message.answer(t("join_ok"), reply_markup=menu(t, cfg, staff))
