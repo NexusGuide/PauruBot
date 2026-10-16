@@ -1,5 +1,5 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import ts from 'typescript';
-const load=async(name)=>{const s=readFileSync(new URL(`../src/app/autoRenew/${name}.ts`,import.meta.url),'utf8');const {outputText}=ts.transpileModule(s,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}});return import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)};
+import test from 'node:test';import assert from 'node:assert/strict';
+const load=async(name)=>import(new URL(`../src/app/autoRenew/${name}.ts`,import.meta.url));
 const {parsePreference,choiceFrom,buildBody,matchesChoice,basePrices}=await load('model');const {translator}=await load('copy');
 const p=()=>({service_id:19,revision:'a'.repeat(64),status:'off',rule:null,reason:null,eligible:true,plans:[{id:3,title:'<script>literal</script>',base_price:100}],gb_options:[{value:5,base_price:50}],day_options:[{value:7,base_price:70}],balance:0,currency:'IRT'});
 const off=()=>({mode:'off',plan_id:0,gb:0,days:0});
