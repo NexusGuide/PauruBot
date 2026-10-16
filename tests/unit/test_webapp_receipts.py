@@ -168,7 +168,12 @@ async def test_missing_or_malformed_revision_rejected_by_schema(receipt_api):  #
 
 @pytest.mark.parametrize(
     "data,code",
-    [(b"", 400), (b"not an image", 400), (b"<svg></svg>", 400), (b"x" * (8 * 1024 * 1024 + 1), 413)],
+    [
+        (b"", 400),
+        (b"not an image", 400),
+        (b"<svg></svg>", 400),
+        pytest.param(b"x" * (8 * 1024 * 1024 + 1), 413, id="oversized"),
+    ],
 )
 async def test_invalid_images_never_reach_telegram(receipt_api, data, code):  # type: ignore[no-untyped-def]
     assert (await send(receipt_api, data=data)).status_code == code

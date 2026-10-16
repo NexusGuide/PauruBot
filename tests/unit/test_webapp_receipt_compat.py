@@ -122,7 +122,10 @@ async def test_expired_legacy_payment_rejected_before_storage(compat_api):  # ty
     compat_api[4].assert_not_awaited()
 
 
-@pytest.mark.parametrize("data,code", [(b"not an image", 400), (b"x" * (8 * 1024 * 1024 + 1), 413)])
+@pytest.mark.parametrize(
+    "data,code",
+    [(b"not an image", 400), pytest.param(b"x" * (8 * 1024 * 1024 + 1), 413, id="oversized")],
+)
 async def test_legacy_checks_image_bytes_and_size(compat_api, data, code):  # type: ignore[no-untyped-def]
     assert (await legacy(compat_api, data=data)).status_code == code
     compat_api[4].assert_not_awaited()
