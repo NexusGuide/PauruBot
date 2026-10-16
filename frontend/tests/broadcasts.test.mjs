@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
 import test from 'node:test';
-import ts from 'typescript';
 process.env.TZ='UTC';
-const load=async name=>{const source=readFileSync(new URL(`../src/admin/broadcasts/${name}.ts`,import.meta.url),'utf8');const {outputText}=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}});return import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)};
+const load=async name=>import(new URL(`../src/admin/broadcasts/${name}.ts`,import.meta.url));
 const {parseRow,parsePage,parseReachable,emptyDraft,codepoints,validUrl,scheduledIso,buildBody,actions,audienceKey,AUDIENCE_KINDS,audiencePreviewPath,previewReady,submitPath}=await load('model');
 const now=Date.parse('2026-10-14T00:00:00Z');
 const row=()=>({id:1,text:'<script>x</script>',audience:{},status:'queued',total:0,sent:0,failed:0,blocked:0,deleted:0,skipped:0,scheduled_at:null,created_at:'2026-10-14T00:00:00Z',finished_at:null});
