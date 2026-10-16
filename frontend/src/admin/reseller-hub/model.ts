@@ -50,7 +50,7 @@ function account(v: unknown): Record<string, string | number | boolean | null> {
         const x = v[k];
         if (x === null || typeof x === "boolean" || integer(x))
             out[k] = x;
-        else if (k === "billing_mode" && typeof x === "string" && ["prepaid", "postpaid", "metered"].includes(x))
+        else if (k === "billing_mode" && typeof x === "string" && ["prepaid", "usage", "hourly"].includes(x))
             out[k] = x;
     }
     return out;

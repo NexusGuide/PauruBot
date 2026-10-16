@@ -800,6 +800,7 @@ TICKET_FIELDS = [
     "customer_id",
     "department_id",
     "priority",
+    "is_complaint",
     "assigned_staff_id",
     "last_customer_at",
     "last_staff_at",
@@ -933,6 +934,7 @@ class TicketUpdateBody(BaseModel):
     department_id: int | None = None
     priority: Literal["low", "normal", "high", "urgent"] | None = None
     assigned_staff_id: int | None = None
+    is_complaint: bool | None = None
 
 
 @router.patch("/tickets/{ticket_id}")
@@ -958,6 +960,7 @@ async def update_ticket(ticket_id: int, body: TicketUpdateBody, ctx: Replier, db
             priority=body.priority,
             assigned_staff_id=body.assigned_staff_id,
             unassign="assigned_staff_id" in sent and body.assigned_staff_id is None,
+            complaint=body.is_complaint,
         )
     except tickets.TicketError as exc:
         raise HTTPException(status_code=422, detail=exc.key) from exc

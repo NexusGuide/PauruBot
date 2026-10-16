@@ -78,6 +78,9 @@ class Ticket(Base, UpdatedMixin):
         ForeignKey("ticket_departments.id", ondelete="SET NULL")
     )
     priority: Mapped[str] = mapped_column(String(8), default="normal", server_default="normal")
+    # A staff-confirmed complaint (F-21): the reseller ranking counts only these, never every
+    # ticket. An operator sets it after inspecting the thread.
+    is_complaint: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     last_customer_at: Mapped[datetime | None] = mapped_column()
     last_staff_at: Mapped[datetime | None] = mapped_column()
 
