@@ -8,7 +8,7 @@ The installer links itself as `/usr/local/bin/pauru`. Run it as root; without ar
 
 ```
 bash <(curl -fsSL https://raw.githubusercontent.com/NexusGuide/PauruBot/main/install.sh)
-install.sh install --domain bot.example.com --token 123:ABC --owner 123456 [--channel stable|beta] [--version v1.2.3]
+install.sh install --domain bot.example.com --token 123:ABC --owner 123456 [--channel stable|beta] [--version v1.2.3] [--https-port 443]
 install.sh update [--channel stable|beta] [--version v1.2.3]
 install.sh rollback | status | logs [service] | restart | backup | restore FILE | setup-link | uninstall
 install.sh enable-agent | disable-agent   (let the admin panel request updates and rollbacks)

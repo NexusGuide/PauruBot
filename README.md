@@ -47,6 +47,14 @@ bash <(curl -fsSL https://raw.githubusercontent.com/NexusGuide/PauruBot/main/ins
 install.sh install --domain bot.example.com --token 123:ABC --owner 123456789
 ```
 
+اگر پورت ۴۴۳ سرور را سرویس دیگری گرفته است (مثلاً xray روی سرور پنل VPN)، پورت HTTPS را عوض کنید:
+
+```bash
+install.sh install --domain bot.example.com --token 123:ABC --owner 123456789 --https-port 8443
+```
+
+در این حالت پنل و مینی‌اپ روی `https://bot.example.com:8443` سرو می‌شوند و `PUBLIC_URL` هم خودکار همین می‌شود. پورت ۸۰ باید آزاد بماند؛ Caddy گواهی TLS را از همان‌جا می‌گیرد. پورت ۸۴۴۳ یکی از پورت‌های مورد قبول تلگرام برای وب‌هوک هم است.
+
 پس از نصب، دستور `pauru` (بدون ورودی) منوی مدیریت سرور را باز می‌کند: وضعیت، لاگ‌ها، راه‌اندازی دوباره، پشتیبان، بازگردانی، به‌روزرسانی و بازگشت به نسخهٔ قبل.
 
 ### تنظیمات مهم `.env`
@@ -58,6 +66,7 @@ install.sh install --domain bot.example.com --token 123:ABC --owner 123456789
 | `OWNER_TELEGRAM_IDS` | آیدی عددی تلگرام مالک‌ها، با ویرگول جدا |
 | `MASTER_KEY` | رمزگذاری رمز پنل‌ها و کلیدهای درگاه. از دست دادنش یعنی خوانده نشدن آن‌ها. |
 | `BACKUP_PASSPHRASE` | رمز فایل‌های پشتیبان. جایی بیرون از سرور نگه دارید. |
+| `HTTPS_PORT` | پورت HTTPS پنل. پیش‌فرض 443؛ برای نصب کنار پنل‌های VPN مثلاً 8443. |
 | `BOT_MODE` | `polling` یا `webhook` |
 
 بقیهٔ تنظیمات، از جمله پرداخت، پلن‌ها، متن‌ها و منوی ربات، از داخل پنل مدیریت انجام می‌شود. فهرست کامل تنظیمات در [docs/reference/settings.md](docs/reference/settings.md) است.
