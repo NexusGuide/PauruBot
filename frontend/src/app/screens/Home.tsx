@@ -75,7 +75,7 @@ export function Home() {
           <div className="min-w-0 flex-1">
             <p className="truncate text-lg font-bold">{featured.label}</p>
             <p className="mt-1 text-sm text-[var(--hint)]">
-              {left === null ? t("never_expires") : t("days_left", { days: left })}
+              {left === null ? t("never_expires") : t("days_left", { days: money(left, locale) })}
             </p>
             {featured.location && <p className="mt-1 text-sm text-[var(--hint)]">{featured.location}</p>}
             <p className="mt-3 text-sm font-semibold text-[var(--accent)]">{t("manage_service")}</p>
