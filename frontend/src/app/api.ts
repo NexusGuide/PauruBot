@@ -65,6 +65,10 @@ export interface TicketThreadData {
   next_before: number | null;
 }
 
+export interface HelpArticle { id: number; title: string; text: string; url: string | null }
+export interface HelpApp { id: number; name: string; platform: string; store_url: string | null; release_url: string | null }
+export interface CustomerHelp { articles: HelpArticle[]; apps: HelpApp[]; bot_url: string | null }
+
 export interface StaffAccess {
   role: string;
   scoped: boolean;
@@ -214,6 +218,7 @@ export const api = {
   setMarketing: (optOut: boolean) =>
     post<MarketingPreference>("/me/marketing", { marketing_opt_out: optOut }),
   setLocale: (locale: string) => post<{ locale: string }>("/me/locale", { locale }),
+  help: (signal?: AbortSignal) => get<CustomerHelp>("/help", signal),
   tickets: (before?: number, signal?: AbortSignal) => get<TicketList>(`/tickets${before ? `?before=${before}` : ""}`, signal),
   ticket: (id: number, before?: number, signal?: AbortSignal) => get<TicketThreadData>(`/tickets/${id}${before ? `?before=${before}` : ""}`, signal),
   newTicket: (body: { subject: string; text: string; department_id: number | null }) => post<{ ticket: Ticket }>("/tickets", body),

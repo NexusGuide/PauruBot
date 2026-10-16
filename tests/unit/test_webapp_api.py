@@ -426,3 +426,44 @@ async def test_miniapp_open_ticket_limit_is_preserved(app_env) -> None:  # type:
         "/api/webapp/tickets", headers=h(81821), json={"subject": "Help", "text": "Question"}
     )
     assert response.status_code == 400 and response.json()["error"] == "ticket_limit"
+
+
+async def test_miniapp_help_is_authenticated_shop_scoped_and_local_only(
+    session, app_env, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    from unittest.mock import AsyncMock
+
+    from paurubot.core import apps
+
+    client, shop = app_env["client"], app_env["shop"]
+    shop.bot_username = "MiniShop_bot"
+    other = await factories.shop(session)
+    await shop_settings.set_many(
+        session,
+        shop.id,
+        {
+            "help_items": [{"title": "Own guide", "text": "Steps", "url": "https://example.com/guide"}],
+            "download_apps": [
+                {"name": "Own app", "platform": "android", "repo": "Owner/App", "pattern": "*.apk"}
+            ],
+        },
+    )
+    await shop_settings.set_many(
+        session, other.id, {"help_items": [{"title": "OTHER SHOP PRIVATE", "text": "Must not leak"}]}
+    )
+    await session.commit()
+    no_network = AsyncMock(
+        side_effect=AssertionError("help GET must not fetch releases, files or Redis cache")
+    )
+    monkeypatch.setattr(apps, "latest", no_network)
+    monkeypatch.setattr(apps, "cached", no_network)
+    assert (await client.get("/api/webapp/help")).status_code == 401
+    response = await client.get("/api/webapp/help", headers=h(81901), params={"shop_id": other.id})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["articles"][0]["title"] == "Own guide" and "OTHER SHOP PRIVATE" not in response.text
+    assert body["apps"][0]["release_url"] == "https://github.com/Owner/App/releases"
+    assert body["bot_url"] == "https://t.me/MiniShop_bot"
+    assert set(body) == {"articles", "apps", "bot_url"}
+    assert "pattern" not in response.text and "file_id" not in response.text
+    no_network.assert_not_awaited()
