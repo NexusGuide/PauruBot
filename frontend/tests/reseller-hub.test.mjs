@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
 import test from 'node:test';
-import ts from 'typescript';
-const source=readFileSync(new URL('../src/admin/reseller-hub/model.ts',import.meta.url),'utf8');
-const {outputText}=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}});
-const m=await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
+const m=await import(new URL('../src/admin/reseller-hub/model.ts',import.meta.url));
 const at='2026-10-14T00:00:00Z';
 const r=()=>({balance:30000,debt:0,daily_spend:10000,days:3,hours:72,low:false,window_days:7});
 const ledger=()=>({at,type:'ledger',kind:'charge',amount:-10000,balance_after:30000,memo:'<img src=x onerror=alert(1)>',reference_type:'order',reference_id:12});
