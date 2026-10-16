@@ -254,3 +254,46 @@ async def test_blind_panel_goes_to_staff_after_a_few_tries(session, env, monkeyp
     await session.refresh(renewal)
     assert renewal.status == OrderStatus.PROVISIONING and rs.parked(renewal)
     assert await wallet_balance(session, env["shop"].id, env["cust"].id) == charged  # no refund
+
+
+@pytest.mark.parametrize("used_before", [0, 10 * GB])
+async def test_lost_reset_response_never_resets_twice(session, env, used_before) -> None:  # type: ignore[no-untyped-def]
+    service = await _service(session, env)
+    fake, panel, name = env["fake"], env["panel"], service.panel_username
+    fake.users[name]["used_traffic"] = used_before
+    await sync.sync_panel(session, panel)
+    original, calls = fake.handler, {"reset": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path == f"/api/user/{name}/reset":
+            calls["reset"] += 1
+            original(request)  # the remote operation succeeds, but its response is lost
+            raise httpx.ReadTimeout("lost reset response", request=request)
+        return original(request)
+
+    registry.test_transports[panel.id] = httpx.MockTransport(handler)
+    registry._cache.clear()
+    renewal = await _buy(session, env["cust"], OrderKind.RENEW, plan=env["plan"], service=service)
+    charged = await wallet_balance(session, env["shop"].id, env["cust"].id)
+    await _drain(session)
+    await session.refresh(renewal)
+    assert renewal.params["reset_attempted"]
+    assert not renewal.params.get("reset_done")
+    assert rs.state(renewal) == rs.UNCERTAIN
+
+    # New customer traffic must not be erased by a retry.
+    fake.users[name]["used_traffic"] = 200 * 1024**2
+    await _run_until_dead(session, renewal.id)
+    await session.refresh(renewal)
+    assert calls["reset"] == 1
+    assert fake.users[name]["used_traffic"] == 200 * 1024**2
+    assert await wallet_balance(session, env["shop"].id, env["cust"].id) == charged
+    if used_before:
+        assert renewal.status == OrderStatus.COMPLETED
+    else:
+        # The old counter was too small to prove a reset: keep it for staff, never refund blindly.
+        assert renewal.status == OrderStatus.PROVISIONING and rs.parked(renewal)
+        assert await lifecycle.reconcile_renewal(session, renewal.id) == "uncertain"
+        await session.refresh(renewal)
+        assert renewal.status == OrderStatus.PROVISIONING
+        assert await wallet_balance(session, env["shop"].id, env["cust"].id) == charged

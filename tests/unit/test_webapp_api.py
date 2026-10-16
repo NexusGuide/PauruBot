@@ -180,3 +180,33 @@ async def test_staff_tools_follow_the_role(session, app_env) -> None:  # type: i
         select(AuditLog).where(AuditLog.action == "payment.approved", AuditLog.entity_id == payment_id)
     )
     assert entry is not None
+
+
+async def test_marketing_preferences_require_auth_and_only_modify_self(session, app_env) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import Customer
+
+    client = app_env["client"]
+    path = "/api/webapp/me/marketing"
+    assert (await client.post(path, json={"marketing_opt_out": True})).status_code == 401
+    own = (await client.get("/api/webapp/me", headers=h(81501))).json()
+    other = (await client.get("/api/webapp/me", headers=h(81502))).json()
+    assert own["preferences"] == {"marketing_opt_out": False, "changed_at": None}
+    for bad in ("false", 1, None):
+        assert (await client.post(path, headers=h(81501), json={"marketing_opt_out": bad})).status_code == 422
+    assert (
+        await client.post(
+            path, headers=h(81501), json={"marketing_opt_out": True, "customer_id": other["id"]}
+        )
+    ).status_code == 422
+    response = await client.post(path, headers=h(81501), json={"marketing_opt_out": True})
+    assert response.status_code == 200 and response.json()["marketing_opt_out"] is True
+    again = await client.post(path, headers=h(81501), json={"marketing_opt_out": True})
+    assert again.json() == response.json()
+    assert (await client.get("/api/webapp/me", headers=h(81501))).json()["preferences"] == response.json()
+    assert (await client.get("/api/webapp/me", headers=h(81502))).json()["preferences"][
+        "marketing_opt_out"
+    ] is False
+    customer = await session.get(Customer, own["id"])
+    await session.refresh(customer)
+    assert customer.marketing_opt_out is True and customer.alerts_muted is False
+    assert customer.marketing_change_source == "miniapp"

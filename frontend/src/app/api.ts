@@ -17,6 +17,12 @@ export interface Me {
   payment_methods: string[];
   topup_bounds: [number, number];
   staff: StaffAccess | null;
+  preferences: MarketingPreference;
+}
+
+export interface MarketingPreference {
+  marketing_opt_out: boolean;
+  changed_at: string | null;
 }
 
 export interface StaffAccess {
@@ -164,6 +170,8 @@ const post = <T>(path: string, body: unknown = {}) =>
 
 export const api = {
   me: () => get<Me>("/me"),
+  setMarketing: (optOut: boolean) =>
+    post<MarketingPreference>("/me/marketing", { marketing_opt_out: optOut }),
   setLocale: (locale: string) => post<{ locale: string }>("/me/locale", { locale }),
   catalog: () => get<Catalog>("/catalog"),
   createOrder: (body: {

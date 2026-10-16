@@ -18,6 +18,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/backups` | `backups.manage` | List backups |
 | POST | `/api/admin/backups` | `backups.manage` | Start backup |
 | GET | `/api/admin/broadcasts/audience` | `broadcast.send` | Audience size |
+| GET | `/api/admin/broadcasts/targeted/audience` | `broadcast.send` | Targeted audience size |
+| POST | `/api/admin/broadcasts/targeted` | `broadcast.send` | Create targeted broadcast |
 | POST | `/api/admin/broadcasts/test` | `broadcast.send` | Send test broadcast |
 | POST | `/api/admin/broadcasts/{broadcast_id}/cancel` | `broadcast.send` | Cancel broadcast |
 | POST | `/api/admin/broadcasts/{broadcast_id}/pause` | `broadcast.send` | Pause broadcast |
@@ -211,6 +213,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 |---|---|---|---|
 | GET | `/api/webapp/catalog` | Mini App initData | Catalog view |
 | POST | `/api/webapp/me/locale` | Mini App initData | Set locale |
+| POST | `/api/webapp/me/marketing` | Mini App initData | Set marketing |
 | GET | `/api/webapp/me` | Mini App initData | Me |
 | POST | `/api/webapp/orders/{order_id}/cancel` | Mini App initData | Cancel order |
 | POST | `/api/webapp/orders/{order_id}/pay` | Mini App initData | Pay order |
