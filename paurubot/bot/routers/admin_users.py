@@ -63,6 +63,12 @@ def home_kb(t: Texts, staff: StaffIdentity) -> InlineKeyboardMarkup:
                 buttons.append(InlineKeyboardButton(text=t(key), callback_data=item.target().pack()))
         if buttons:
             kb.row(*buttons)
+    if staff.can("resellers.manage"):
+        kb.row(
+            InlineKeyboardButton(
+                text=t("adm_users_reseller_ranking"), callback_data=Admin(section="rrank").pack()
+            )
+        )
     kb.row(
         InlineKeyboardButton(text=t("adm_nav_home"), callback_data=Admin(section="home").pack()),
         InlineKeyboardButton(
@@ -77,6 +83,32 @@ async def users_home(call: CallbackQuery, t: Texts, staff: StaffIdentity, state:
     await state.clear()
     await call.answer()
     await show(call, t("adm_users_home"), home_kb(t, staff))
+
+
+@router.callback_query(Admin.filter(F.section == "rrank"), StaffOnly("resellers.manage"))
+async def reseller_ranking(call: CallbackQuery, session: AsyncSession, shop: ShopRow, t: Texts) -> None:
+    from paurubot.core.reseller_ranking import rankings
+
+    rows = await rankings(session, shop.id)
+    await call.answer()
+    lines = [t("adm_reseller_ranking_title")]
+    if not rows:
+        lines.append(t("adm_reseller_ranking_empty"))
+    for row in rows:
+        lines.append(
+            t(
+                "adm_reseller_ranking_line",
+                rank=row.rank,
+                name=row.name,
+                score=row.score,
+                sales=row.sales,
+                revenue=row.revenue,
+                complaints=row.complaints,
+            )
+        )
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Admin(section="users").pack()))
+    await show(call, "\n\n".join(lines), kb.as_markup())
 
 
 def order_query(raw: str) -> str | None:

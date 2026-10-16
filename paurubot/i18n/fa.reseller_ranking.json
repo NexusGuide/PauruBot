@@ -1,0 +1,6 @@
+{
+  "adm_users_reseller_ranking": "🏆 رتبه‌بندی نماینده‌ها",
+  "adm_reseller_ranking_title": "🏆 <b>رتبه‌بندی نماینده‌ها</b>\nامتیاز = ۱۰ امتیاز برای هر فروش + ۱ امتیاز به‌ازای هر ۱۰۰۰۰۰ فروش − ۲۰ امتیاز برای هر شکایت.",
+  "adm_reseller_ranking_empty": "هنوز نماینده فعالی وجود ندارد.",
+  "adm_reseller_ranking_line": "#{rank} · <b>{name}</b>\n⭐ امتیاز: {score} · 🛒 فروش: {sales} · 💰 مبلغ: {revenue}\n🎧 شکایت‌ها: {complaints}"
+}

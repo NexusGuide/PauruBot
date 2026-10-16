@@ -1,0 +1,6 @@
+{
+  "adm_users_reseller_ranking": "🏆 Reseller ranking",
+  "adm_reseller_ranking_title": "🏆 <b>Reseller ranking</b>\nScore = 10 points per sale + 1 point per 100,000 revenue − 20 per complaint.",
+  "adm_reseller_ranking_empty": "No active resellers yet.",
+  "adm_reseller_ranking_line": "#{rank} · <b>{name}</b>\n⭐ Score: {score} · 🛒 Sales: {sales} · 💰 Revenue: {revenue}\n🎧 Complaints: {complaints}"
+}
