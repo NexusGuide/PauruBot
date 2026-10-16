@@ -1,0 +1,9 @@
+{
+  "marketing_on": "Advertising from this shop is enabled.",
+  "marketing_off": "Advertising from this shop is disabled.",
+  "marketing_hint": "This only affects advertising and discount offers from this shop. Payment, service and support messages are unchanged. Use /marketing to change this later.",
+  "marketing_enable": "Enable advertising",
+  "marketing_disable": "Stop advertising",
+  "marketing_saved": "Advertising preference saved.",
+  "cmd_marketing": "Advertising preference"
+}
