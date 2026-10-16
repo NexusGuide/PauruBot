@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CapabilitySheet } from "../capabilities/CapabilitySheet";
 import { money, size } from "@shared/format";
 import { call, type CatalogData, type PanelRow } from "../api";
 import { useAction, useLoad, useSelection } from "../hooks";
@@ -927,6 +928,7 @@ export function Panels() {
   const { t, can, locale, toast, errorText } = useSession();
   const panels = useLoad<{ items: PanelRow[] }>("/api/admin/panels");
   const catalog = useLoad<CatalogData>(can("catalog.read") ? "/api/admin/catalog" : null);
+  const [capabilities, setCapabilities] = useState<PanelRow | null>(null);
   const [editing, setEditing] = useState<PanelRow | "new" | null>(null);
   const [nodes, setNodes] = useState<PanelRow | null>(null);
   const [importing, setImporting] = useState<PanelRow | null>(null);
@@ -992,7 +994,7 @@ export function Panels() {
               <Empty title={t("no_panels")} hint={t("no_panels_hint")} />
             </Section>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-2 [&_h2]:min-w-0 [&_h2]:[overflow-wrap:anywhere]">
               {data.items.map((panel) => (
                 <Section
                   key={panel.id}
@@ -1050,6 +1052,7 @@ export function Panels() {
                     ]}
                   />
                   <div className="mt-3 flex flex-wrap gap-2">
+                    {writable && <Button small tone="ghost" onClick={() => setCapabilities(panel)}>{t("cap_open")}</Button>}
                     <Button small tone="ghost" icon="refresh" busy={checking === panel.id} onClick={() => void checkNow(panel)}>
                       {t("check_now")}
                     </Button>
@@ -1081,6 +1084,7 @@ export function Panels() {
           }}
         />
       )}
+      {capabilities && <CapabilitySheet key={capabilities.id} panel={capabilities} onClose={() => setCapabilities(null)} />}
       {nodes && <NodesSheet panel={nodes} onClose={() => setNodes(null)} />}
       {importing && <ImportSheet panel={importing} onClose={() => setImporting(null)} />}
       {transferring && <TransferSheet panel={transferring} onClose={() => setTransferring(null)} />}

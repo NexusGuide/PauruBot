@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ResellerHub, StaffHubButton } from "../reseller-hub/ResellerHub";
+import { TicketDesk, StaffTicketPage } from "../tickets/TicketDesk";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { money } from "@shared/format";
 import {
@@ -867,7 +868,7 @@ function NewTicketSheet({ onClose, onCreated }: { onClose: () => void; onCreated
   );
 }
 
-export function Tickets() {
+function ResellerTickets() {
   const { t, me, can } = useSession();
   const navigate = useNavigate();
   const [composing, setComposing] = useState(false);
@@ -925,7 +926,7 @@ export function Tickets() {
   );
 }
 
-export function TicketPage() {
+function ResellerTicketPage() {
   const { id } = useParams();
   const { t, can, me, toast, errorText } = useSession();
   const { data, error, reload } = useLoad<{ ticket: Ticket; customer: string | null; messages: TicketMessage[] }>(
@@ -1179,4 +1180,18 @@ function ResellerBotInfo({ profileId }: { profileId: number }) {
       )}
     </section>
   );
+}
+
+// Resellers keep their customer-side flow; staff-only desk operations never mount for them.
+export function Tickets() {
+  const {me,checking,can,t}=useSession();
+  if(checking)return null;
+  if(!can("tickets.read"))return <Page title={t("nav_tickets")}><p role="alert">{t("err_forbidden")}</p></Page>;
+  return me?.role === "reseller" ? <ResellerTickets/> : <TicketDesk/>;
+}
+export function TicketPage() {
+  const {id}=useParams();const {me,checking,can,t}=useSession();
+  if(checking)return null;
+  if(!can("tickets.read"))return <Page title={t("nav_tickets")}><p role="alert">{t("err_forbidden")}</p></Page>;
+  return me?.role === "reseller" ? <ResellerTicketPage key={id}/> : <StaffTicketPage key={id}/>;
 }
