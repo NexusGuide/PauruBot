@@ -1,13 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import ts from 'typescript';
 
-// Compile the real pure TypeScript helper with the project's existing compiler; no test dependency.
-const source = readFileSync(new URL('../src/admin/typed-confirm.ts', import.meta.url), 'utf8');
-const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
+// Load the real pure TypeScript helper through Node's built-in type stripping; no test dependency.
 const { confirmationSpec, validateChallenge, normalizeConfirmation, needsTyping, confirmationFields } =
-  await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
+  await import(new URL('../src/admin/typed-confirm.ts', import.meta.url));
 const challenge = (extra = {}) => ({ action: 'service.delete', token: 'test-token', phrase: 'Customer_12', expires_in: 300, ...extra });
 
 for (const [input, expected] of [
