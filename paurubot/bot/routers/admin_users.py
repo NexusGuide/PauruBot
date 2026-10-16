@@ -89,7 +89,7 @@ async def users_home(call: CallbackQuery, t: Texts, staff: StaffIdentity, state:
 async def reseller_ranking(call: CallbackQuery, session: AsyncSession, shop: ShopRow, t: Texts) -> None:
     from paurubot.core.reseller_ranking import rankings
 
-    rows = await rankings(session, shop.id)
+    rows = await rankings(session, shop.id, days=30)
     await call.answer()
     lines = [t("adm_reseller_ranking_title")]
     if not rows:

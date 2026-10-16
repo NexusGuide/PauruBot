@@ -1,13 +1,15 @@
-"""Owner-facing reseller ranking from sales and support complaints."""
+"""Owner-facing reseller ranking from sales and staff-confirmed complaints (F-21)."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from paurubot.db.base import utcnow
 from paurubot.db.models import Customer, Order, OrderStatus, ResellerProfile, Shop, Ticket
 
 REVENUE_UNIT = 100_000
@@ -31,7 +33,10 @@ def score(sales: int, revenue: int, complaints: int) -> int:
     return max(0, sales * SALES_WEIGHT + revenue // REVENUE_UNIT - complaints * COMPLAINT_WEIGHT)
 
 
-async def rankings(session: AsyncSession, shop_id: int) -> list[ResellerRank]:
+async def rankings(session: AsyncSession, shop_id: int, *, days: int | None = None) -> list[ResellerRank]:
+    """Only staff-confirmed complaints count, never every ticket; ``days`` limits both sales and
+    complaints to that recent window so the ranking shows the current period."""
+    since = utcnow() - timedelta(days=days) if days else None
     profiles = list(
         await session.scalars(
             select(ResellerProfile)
@@ -51,6 +56,8 @@ async def rankings(session: AsyncSession, shop_id: int) -> list[ResellerRank]:
             Order.amount > 0,
             or_(own_sales, Order.shop_id.in_(child_ids)) if child_ids else own_sales,
         ]
+        if since is not None:
+            sales_conditions.append(Order.completed_at >= since)
         sales, revenue = (
             await session.execute(
                 select(func.count(Order.id), func.coalesce(func.sum(Order.amount), 0)).where(
@@ -60,7 +67,12 @@ async def rankings(session: AsyncSession, shop_id: int) -> list[ResellerRank]:
         ).one()
         own_tickets = (Ticket.shop_id == shop_id) & (Ticket.customer_id == profile.customer_id)
         ticket_scope: Any = or_(own_tickets, Ticket.shop_id.in_(child_ids)) if child_ids else own_tickets
-        complaints = int(await session.scalar(select(func.count(Ticket.id)).where(ticket_scope)) or 0)
+        complaint_conditions: list[Any] = [ticket_scope, Ticket.is_complaint.is_(True)]
+        if since is not None:
+            complaint_conditions.append(Ticket.created_at >= since)
+        complaints = int(
+            await session.scalar(select(func.count(Ticket.id)).where(*complaint_conditions)) or 0
+        )
         result.append((profile, customer.display_name, int(sales or 0), int(revenue or 0), complaints))
 
     result.sort(key=lambda row: (-score(row[2], row[3], row[4]), row[4], -row[2], row[0].id))

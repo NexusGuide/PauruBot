@@ -364,6 +364,16 @@ async def test_reseller_writes_to_the_shop_from_the_panel(http, env) -> None:  #
     ).status_code == 200
     detail = (await owner.call("GET", f"/api/admin/tickets/{ticket_id}")).json()
     assert detail["messages"][-1]["author_type"] == "staff"
+    # Confirming a complaint is a desk action and needs tickets.reply, which the reseller lacks.
+    assert (
+        await reseller.call("PATCH", f"/api/admin/tickets/{ticket_id}", {"is_complaint": True})
+    ).status_code == 403
+    patched = await owner.call("PATCH", f"/api/admin/tickets/{ticket_id}", {"is_complaint": True})
+    assert patched.status_code == 200 and patched.json()["ticket"]["is_complaint"] is True
+    detail = (await owner.call("GET", f"/api/admin/tickets/{ticket_id}")).json()
+    assert detail["ticket"]["is_complaint"] is True
+    cleared = await owner.call("PATCH", f"/api/admin/tickets/{ticket_id}", {"is_complaint": False})
+    assert cleared.json()["ticket"]["is_complaint"] is False
 
 
 async def test_reseller_prices_and_hidden_panels_stay_in_the_shop(session, env: Env, http) -> None:  # type: ignore[no-untyped-def]

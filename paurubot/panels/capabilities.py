@@ -1,8 +1,10 @@
 """Panel capability report (F-04): what this bot can really do on a panel with its credentials.
 
 Read probes never change the panel. The write probe is opt-in: it creates one throw-away user
-named `pbprobe_<hex>`, reads it back, changes its limit, revokes it when the panel supports that,
-and always tries to delete it again, even when a step fails.
+named `pbprobe_<hex>`, reads it back, changes its limit and confirms the new limit by reading the
+account again, revokes it when the panel supports that, and always tries to delete it again, even
+when a step fails. If the create answer is lost, the probe user is found by its unique name and
+removed, so a half-created test account is not left behind.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from typing import Any
 from paurubot.panels.base import GB, PanelDriver, PanelError, PanelRef, UserSpec
 
 PROBE_PREFIX = "pbprobe_"
+UPDATE_SLACK = 16 * 1024**2  # panels that count data in (fractional) GB round a little
 
 
 @dataclass(slots=True)
@@ -70,6 +73,43 @@ async def read_probes(driver: PanelDriver) -> list[Check]:
     return checks
 
 
+def _probe_ref(username: str) -> PanelRef:
+    """A best-effort reference to the probe user, for recovery without a create answer."""
+    return PanelRef(username, {})
+
+
+async def _confirm_update(driver: PanelDriver, ref: PanelRef) -> Check:
+    """An ok answer is not proof: read the account back and check the new limit."""
+    wanted = 2 * GB
+    try:
+        fresh = await driver.get_user(ref)
+    except PanelError as exc:
+        return Check("update", "warn", f"change sent but the read-back failed: {_err(exc)}")
+    if fresh is None:
+        return Check("update", "fail", "the user disappeared after the change")
+    if not fresh.limits_known:
+        return Check("update", "warn", "this panel cannot report limits; the change is unconfirmed")
+    if abs(int(fresh.data_limit or 0) - wanted) > max(UPDATE_SLACK, wanted // 1000):
+        return Check("update", "fail", "the panel did not apply the new limit")
+    return Check("update", "ok")
+
+
+async def _recover_create(driver: PanelDriver, username: str, reason: str) -> Check:
+    """The panel may have created the user before the answer was lost: find and remove it."""
+    detail = reason
+    try:
+        found = await driver.get_user(_probe_ref(username))
+    except PanelError:
+        found = None
+    if found is not None:
+        try:
+            await driver.delete_user(_probe_ref(username))
+            detail += f"; the probe user {username} was found and removed"
+        except PanelError as exc:
+            detail += f"; remove {username} by hand: {_err(exc)}"
+    return Check("create", "fail", detail)
+
+
 async def write_probes(driver: PanelDriver) -> list[Check]:
     username = PROBE_PREFIX + secrets.token_hex(3)
     checks: list[Check] = []
@@ -85,7 +125,7 @@ async def write_probes(driver: PanelDriver) -> list[Check]:
                 )
             )
         except PanelError as exc:
-            return [Check("create", "fail", _err(exc))]
+            return [await _recover_create(driver, username, _err(exc))]
         ref = PanelRef(created.username or username, dict(created.data or {}))
         checks.append(Check("create", "ok", ref.username))
         try:
@@ -95,9 +135,10 @@ async def write_probes(driver: PanelDriver) -> list[Check]:
             checks.append(Check("read", "fail", _err(exc)))
         try:
             await driver.update_user(ref, data_limit=2 * GB)
-            checks.append(Check("update", "ok"))
         except PanelError as exc:
             checks.append(Check("update", "fail", _err(exc)))
+        else:
+            checks.append(await _confirm_update(driver, ref))
         if "revoke" in driver.changes:
             try:
                 await driver.revoke_subscription(ref)

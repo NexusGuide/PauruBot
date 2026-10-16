@@ -140,8 +140,9 @@ async def update(
     priority: str | None = None,
     assigned_staff_id: int | None = None,
     unassign: bool = False,
+    complaint: bool | None = None,
 ) -> dict[str, object]:
-    """Change a ticket's department, priority or assignee; returns the fields that changed."""
+    """Change a ticket's department, priority, assignee or complaint flag; returns the changed fields."""
     changed: dict[str, object] = {}
     if clear_department and ticket.department_id is not None:
         ticket.department_id = None
@@ -162,6 +163,9 @@ async def update(
     elif assigned_staff_id is not None and assigned_staff_id != ticket.assigned_staff_id:
         ticket.assigned_staff_id = assigned_staff_id
         changed["assigned_staff_id"] = assigned_staff_id
+    if complaint is not None and complaint != ticket.is_complaint:
+        ticket.is_complaint = complaint
+        changed["is_complaint"] = complaint
     if changed:
         ticket.updated_at = utcnow()
         await session.flush()

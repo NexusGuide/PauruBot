@@ -31,7 +31,7 @@ class FakeDriver(PanelDriver):
         return [PanelOption("1", "default")]
 
     async def create_user(self, spec: UserSpec) -> PanelUser:
-        user = PanelUser(username=spec.username)
+        user = PanelUser(username=spec.username, data_limit=spec.data_limit)
         self.users[spec.username] = user
         return user
 
@@ -48,7 +48,10 @@ class FakeDriver(PanelDriver):
     ) -> PanelUser:
         if self.fail_update:
             raise PanelError("forbidden", 403)
-        return self.users[ref.username]
+        user = self.users[ref.username]
+        if data_limit is not None:
+            user.data_limit = data_limit
+        return user
 
     async def reset_usage(self, ref: PanelRef) -> None:
         return None
@@ -124,3 +127,54 @@ async def test_create_failure_does_not_delete_an_unknown_user() -> None:
     result = await report(driver, write=True)
     assert _by_key(result)["create"] == "fail"
     assert driver.deleted == []
+
+
+async def test_ineffective_limit_change_is_not_reported_ok() -> None:
+    class IgnoringDriver(FakeDriver):
+        async def update_user(
+            self,
+            ref: PanelRef,
+            *,
+            expire_at: datetime | None = UNSET,
+            data_limit: int | None = None,
+            enabled: bool | None = None,
+        ) -> PanelUser:
+            return self.users[ref.username]  # an ok answer that changed nothing
+
+    driver = IgnoringDriver()
+    result = await report(driver, write=True)
+    assert _by_key(result)["update"] == "fail"
+    assert result["status"] == "fail"
+
+
+async def test_a_panel_that_cannot_report_limits_gets_a_warning_not_a_false_ok() -> None:
+    class BlindDriver(FakeDriver):
+        async def update_user(
+            self,
+            ref: PanelRef,
+            *,
+            expire_at: datetime | None = UNSET,
+            data_limit: int | None = None,
+            enabled: bool | None = None,
+        ) -> PanelUser:
+            user = self.users[ref.username]
+            user.limits_known = False
+            return user
+
+    driver = BlindDriver()
+    result = await report(driver, write=True)
+    assert _by_key(result)["update"] == "warn"
+
+
+async def test_lost_create_answer_finds_and_removes_the_probe_user() -> None:
+    class LostAnswerDriver(FakeDriver):
+        async def create_user(self, spec: UserSpec) -> PanelUser:
+            self.users[spec.username] = PanelUser(username=spec.username)  # the panel did create it
+            raise PanelError("gateway timeout", 504)
+
+    driver = LostAnswerDriver()
+    result = await report(driver, write=True)
+    check = next(c for c in result["checks"] if c["key"] == "create")
+    assert check["status"] == "fail" and "removed" in check["detail"]
+    assert driver.deleted and driver.deleted[0].startswith(PROBE_PREFIX)
+    assert driver.users == {}

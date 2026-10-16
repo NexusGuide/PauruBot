@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core.reports import day_bounds
 from paurubot.db.base import utcnow
-from paurubot.db.models import Customer, Order, OrderStatus
+from paurubot.db.models import Customer, Order, OrderKind, OrderStatus
 
 
 @dataclass(slots=True)
@@ -38,6 +38,18 @@ def period_bounds(key: str, now: datetime | None = None) -> tuple[datetime, date
     return start - timedelta(days=days - 1), end
 
 
+# A sale for this report is a paid plan order: a purchase, renewal, add-on or upgrade. Free
+# trials and relocation fees are not sales, and panel-account orders belong to the shop's own
+# staff, not to a reseller's bot, so none of them belong in this profit.
+SALE_KINDS = (
+    OrderKind.PURCHASE,
+    OrderKind.RENEW,
+    OrderKind.EXTRA_VOLUME,
+    OrderKind.EXTRA_DAYS,
+    OrderKind.UPGRADE,
+)
+
+
 async def _orders(
     session: AsyncSession, shop_id: int, start: datetime, end: datetime
 ) -> list[tuple[Order, Customer]]:
@@ -46,6 +58,7 @@ async def _orders(
         .join(Customer, Customer.id == Order.customer_id)
         .where(
             Order.shop_id == shop_id,
+            Order.kind.in_(SALE_KINDS),
             Order.status == OrderStatus.COMPLETED,
             Order.amount > 0,
             Order.completed_at >= start,
@@ -67,8 +80,17 @@ async def summary(session: AsyncSession, shop_id: int, key: str) -> ProfitPeriod
     return ProfitPeriod(key, start, end, len(rows), revenue, wholesale, revenue - wholesale)
 
 
+def _text_cell(ws: Any, value: str) -> WriteOnlyCell:
+    """Customer text stays text: a leading = must never open a formula in Excel."""
+    cell = WriteOnlyCell(ws, value=value)
+    if value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        cell.data_type = "s"
+    return cell
+
+
 async def workbook(session: AsyncSession, shop_id: int, key: str) -> bytes:
-    """Build a safe two-sheet XLSX with summary and completed reseller orders."""
+    """Build the two-sheet XLSX: the summary and the period's paid plan sales, with customer
+    text protected from formula injection."""
     period = await summary(session, shop_id, key)
     rows = await _orders(session, shop_id, period.start, period.end)
     wb = Workbook(write_only=True)
@@ -109,7 +131,7 @@ async def workbook(session: AsyncSession, shop_id: int, key: str) -> bytes:
                 order.id,
                 completed,
                 customer.id,
-                customer.display_name,
+                _text_cell(orders_ws, str(customer.display_name or "")),
                 str(order.kind),
                 revenue,
                 cost,

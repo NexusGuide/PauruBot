@@ -8,6 +8,7 @@ export interface Ticket {
     customer_id: number;
     department_id: number | null;
     priority: Priority;
+    is_complaint: boolean;
     assigned_staff_id: number | null;
     last_customer_at: string | null;
     last_staff_at: string | null;
@@ -57,9 +58,9 @@ const nullableDate = (v: unknown) => v === null || iso(v);
 const integer = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v);
 function invalid(): never { throw new Error("ticket_response_invalid"); }
 export function parseTicket(v: unknown): Ticket {
-    if (!record(v) || !positive(v.id) || typeof v.subject !== "string" || typeof v.status !== "string" || typeof v.source !== "string" || !positive(v.customer_id) || !nullableId(v.department_id) || !PRIORITIES.includes(v.priority as Priority) || !nullableId(v.assigned_staff_id) || !nullableDate(v.last_customer_at) || !nullableDate(v.last_staff_at) || !iso(v.created_at) || !iso(v.updated_at) || typeof v.awaiting !== "boolean" || (v.customer !== undefined && !nullableString(v.customer)))
+    if (!record(v) || !positive(v.id) || typeof v.subject !== "string" || typeof v.status !== "string" || typeof v.source !== "string" || !positive(v.customer_id) || !nullableId(v.department_id) || !PRIORITIES.includes(v.priority as Priority) || (v.is_complaint !== undefined && typeof v.is_complaint !== "boolean") || !nullableId(v.assigned_staff_id) || !nullableDate(v.last_customer_at) || !nullableDate(v.last_staff_at) || !iso(v.created_at) || !iso(v.updated_at) || typeof v.awaiting !== "boolean" || (v.customer !== undefined && !nullableString(v.customer)))
         return invalid();
-    return { id: v.id, subject: v.subject, status: v.status, source: v.source, customer_id: v.customer_id, department_id: v.department_id as number | null, priority: v.priority as Priority, assigned_staff_id: v.assigned_staff_id as number | null, last_customer_at: v.last_customer_at as string | null, last_staff_at: v.last_staff_at as string | null, created_at: v.created_at as string, updated_at: v.updated_at as string, awaiting: v.awaiting, customer: v.customer as string | null | undefined };
+    return { id: v.id, subject: v.subject, status: v.status, source: v.source, customer_id: v.customer_id, department_id: v.department_id as number | null, priority: v.priority as Priority, is_complaint: v.is_complaint === true, assigned_staff_id: v.assigned_staff_id as number | null, last_customer_at: v.last_customer_at as string | null, last_staff_at: v.last_staff_at as string | null, created_at: v.created_at as string, updated_at: v.updated_at as string, awaiting: v.awaiting, customer: v.customer as string | null | undefined };
 }
 export function parseMessage(v: unknown): Message {
     if (!record(v) || !positive(v.id) || typeof v.author_type !== "string" || !nullableId(v.author_id) || !nullableString(v.text) || !nullableString(v.attachment_kind) || typeof v.has_attachment !== "boolean" || typeof v.is_internal !== "boolean" || !iso(v.created_at) || v.is_internal && v.author_type !== "staff")
@@ -116,8 +117,8 @@ export function numeric(value: string, { positiveOnly = false }: {
         throw new Error("number");
     return n;
 }
-export function ticketPatch(row: Ticket, department: number | null, priority: Priority, assignee: number | null): Record<string, unknown> {
-    if (!nullableId(department) || !nullableId(assignee) || !PRIORITIES.includes(priority))
+export function ticketPatch(row: Ticket, department: number | null, priority: Priority, assignee: number | null, complaint: boolean): Record<string, unknown> {
+    if (!nullableId(department) || !nullableId(assignee) || !PRIORITIES.includes(priority) || typeof complaint !== "boolean")
         throw new Error("metadata");
     const body: Record<string, unknown> = {};
     if (department !== row.department_id)
@@ -126,6 +127,8 @@ export function ticketPatch(row: Ticket, department: number | null, priority: Pr
         body.priority = priority;
     if (assignee !== row.assigned_staff_id)
         body.assigned_staff_id = assignee;
+    if (complaint !== row.is_complaint)
+        body.is_complaint = complaint;
     return body;
 }
 export function listPath(params: URLSearchParams): {
