@@ -158,6 +158,7 @@ export function Checkout() {
           </p>
           <div className="flex gap-2">
             <input
+              aria-label={t("customer_label")}
               value={label}
               maxLength={48}
               onChange={(e) => setLabel(e.target.value)}
@@ -174,6 +175,7 @@ export function Checkout() {
       {order.code_discount === 0 && (
         <div className="mb-4 flex gap-2">
           <input
+            aria-label={t("discount_code")}
             value={code}
             onChange={(e) => setCode(e.target.value)}
             placeholder={t("discount_code")}

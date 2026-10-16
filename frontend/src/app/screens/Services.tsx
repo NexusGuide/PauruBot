@@ -5,18 +5,18 @@ import { date, daysLeft, money, size } from "@shared/format";
 import { api, type Service } from "../api";
 import { errorText, useApp } from "../state";
 import { haptic, tg } from "../telegram";
-import { Button, Empty, Loading, Panel, Ring, Row, Screen, StatusDot } from "../ui";
+import { Button, Empty, Loading, Panel, ReadFailure, Ring, Row, Screen, StatusDot } from "../ui";
 import { timeRatio, usageRatio } from "./Home";
+import { useResource } from "../useResource";
 import { AutoRenew } from "../autoRenew/AutoRenew";
 import { UsageChart } from "../usage/UsageChart";
 
 export function Services() {
   const { t, locale } = useApp();
   const navigate = useNavigate();
-  const [items, setItems] = useState<Service[] | null>(null);
-  useEffect(() => {
-    api.services().then((r) => setItems(r.items));
-  }, []);
+  const { data, error, retry } = useResource(api.services);
+  const items = data?.items ?? null;
+  if (error) return <Screen title={t("my_services")}><ReadFailure error={error} retry={retry} /></Screen>;
   if (!items) return <Loading />;
   const units = t("units").split(",");
   if (!items.length) {

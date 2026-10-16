@@ -95,10 +95,10 @@ export function UsageChart({ serviceId }: { serviceId: number }) {
           </label>
           <p className="num mt-2" aria-live="polite">{value(chosen.used_bytes)}</p>
           <p className="sr-only">{chosen.used_bytes} bytes</p>
-          <table className="sr-only"><caption>{t("usage_history")}</caption>
+          <div className="sr-only"><table><caption>{t("usage_history")}</caption>
             <thead><tr><th>{t("usage_observation")}</th><th>bytes</th></tr></thead>
             <tbody>{points.map(p => <tr key={p.at}><td>{stamp(p.at)}</td><td>{p.used_bytes}</td></tr>)}</tbody>
-          </table>
+          </table></div>
         </div>}
         {stale && <p role="status" className="mt-2 text-sm">{t("usage_stale")}</p>}
       </div>
