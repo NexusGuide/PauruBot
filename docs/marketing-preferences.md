@@ -37,3 +37,23 @@ Before release: apply migration on staging; run Python and frontend CI, then tes
 scheduled/pause/resume campaigns, opting out after a batch loads, strict auth/input validation,
 and real Mini App success/failure/reload. Keep service/payment messages enabled in those checks.
 This PR does not deploy, merge, change notification settings or enable typed confirmations.
+
+
+## Explicit web targeting contract (F-16 compatibility)
+
+The additive `POST /api/admin/broadcasts/targeted` requires `kind`; legacy mirrors are strict
+booleans and, if true, must agree with kind. Conflicts are rejected before scheduling, audit or
+job creation. It delegates to the existing tenant-scoped create function and preserves all
+button/schedule validation and permission checks. Legacy `/broadcasts` is unchanged.
+`GET /api/admin/broadcasts/targeted/audience` requires a valid kind and bounds locale to eight
+characters; it delegates to the same tenant-scoped audience predicate. Both require broadcast.send.
+
+The #56 frontend uses these explicit paths without falling back to old APIs that could ignore
+kind. Deploy/integrate this backend and migration before enabling customer queuing in that UI.
+Preview is an estimate, not a frozen list, authorization token or durable idempotency key.
+
+Added 21 API contract tests (creation/preview delegation, all six kinds, input conflicts,
+required kind, locale bounds, permission denial, matching mirrors and legacy body default).
+Local validation executes original endpoint/model AST nodes with injected auth/DB dependencies;
+21 passed, with create/count mocked: no real campaign, audit, queue or Telegram request.
+Full repository tests/imports, PostgreSQL isolation and staging still need GitHub CI/real validation.

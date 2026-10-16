@@ -9,6 +9,7 @@
     "lint": "tsc --noEmit",
     "preview": "vite preview",
     "test:usage": "node --test tests/usage-data.test.mjs",
+    "test:auto-renew": "node --test tests/auto-renew.test.mjs",
     "test:help": "node --test tests/help-data.test.mjs",
     "test:ux": "node --test tests/ux.test.mjs"
   },
@@ -24,9 +25,9 @@
     "@types/qrcode": "^1.5.5",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@vitejs/plugin-react": "^5.0.0",
+    "@vitejs/plugin-react": "^6.1.2",
     "tailwindcss": "^4.1.0",
-    "typescript": "~5.9.0",
-    "vite": "^7.1.0"
+    "typescript": "~7.0.2",
+    "vite": "^8.3.4"
   }
 }

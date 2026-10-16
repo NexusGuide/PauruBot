@@ -10,7 +10,7 @@ from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select
 
-from paurubot.api.routes import webapp_staff
+from paurubot.api.routes import webapp_auto_renew, webapp_staff
 from paurubot.api.webapp_auth import WebApp
 from paurubot.core import (
     catalog,
@@ -756,3 +756,6 @@ async def reseller_renew(body: RenewManyBody, ctx: WebApp) -> dict[str, Any]:
         "failed": [{"id": s.id, "error": key} for s, key in result.failed],
         "balance": await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id),
     }
+
+
+router.include_router(webapp_auto_renew.router)

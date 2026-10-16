@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import test from 'node:test';
-import ts from 'typescript';
-const source=readFileSync(new URL('../src/app/help/help-data.ts',import.meta.url),'utf8');
-const {outputText}=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}});
-const {safeHelpUrl,normaliseHelp,matchesHelp,platformApps,validateHelp}=await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
+const {safeHelpUrl,normaliseHelp,matchesHelp,platformApps,validateHelp}=await import(new URL('../src/app/help/help-data.ts',import.meta.url));
 const cases=JSON.parse(readFileSync(new URL('../../tests/fixtures/help_urls.json',import.meta.url),'utf8'));
 for(const item of cases)test(`URL ${item.allowed?'allowed':'blocked'}: ${item.url.slice(0,80)}`,()=>assert.equal(safeHelpUrl(item.url),item.allowed?item.url:null));
 test('non-string links are not navigable',()=>{for(const value of [null,undefined,0,{},[]])assert.equal(safeHelpUrl(value),null)});

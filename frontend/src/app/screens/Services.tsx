@@ -8,6 +8,7 @@ import { haptic, tg } from "../telegram";
 import { Button, Empty, Loading, Panel, ReadFailure, Ring, Row, Screen, StatusDot } from "../ui";
 import { timeRatio, usageRatio } from "./Home";
 import { useResource } from "../useResource";
+import { AutoRenew } from "../autoRenew/AutoRenew";
 import { UsageChart } from "../usage/UsageChart";
 
 export function Services() {
@@ -168,6 +169,8 @@ export function ServiceDetail() {
           </div>
         )}
       </Panel>
+
+      {service.id === serviceId && <AutoRenew key={`auto-${service.id}`} serviceId={service.id} />}
 
       {service.subscription_url && (
         <Panel className="mb-4">

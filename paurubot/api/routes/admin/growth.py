@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field, StrictBool
 from sqlalchemy import func, select
 
 from paurubot.api.admin_common import Page, owned, page_params, paginate, plain
@@ -192,6 +192,14 @@ class BroadcastBody(BaseModel):
     scheduled_at: datetime | None = None
 
 
+class TargetedBroadcastBody(BroadcastBody):
+    """Explicit contract: an old server must never ignore a new audience kind."""
+
+    kind: AudienceKind = Field(...)
+    resellers_only: StrictBool = False
+    buyers_only: StrictBool = False
+
+
 def _check_buttons(body: BroadcastBody) -> None:
     for button in body.buttons:
         url = button.get("url", "")
@@ -248,6 +256,19 @@ async def create_broadcast(
         after={"scheduled_at": body.scheduled_at.isoformat()} if body.scheduled_at else None,
     )
     return plain(row, BROADCAST_FIELDS)
+
+
+@router.post("/broadcasts/targeted")
+async def create_targeted_broadcast(
+    body: TargetedBroadcastBody,
+    ctx: Annotated[StaffContext, Depends(require("broadcast.send"))],
+    db: DB,
+) -> dict[str, Any]:
+    # Legacy mirrors are accepted only when they agree with the explicit kind.
+    # Keep /broadcasts unchanged for existing bot/admin clients.
+    if (body.resellers_only and body.kind != "resellers") or (body.buyers_only and body.kind != "buyers"):
+        raise HTTPException(status_code=422, detail="audience_conflict")
+    return await create_broadcast(body, ctx, db)
 
 
 @router.post("/broadcasts/test")
@@ -356,6 +377,17 @@ async def audience_size(
     )
     total = await db.scalar(select(func.count(Customer.id)).where(*_audience(draft)))
     return {"reachable": int(total or 0)}
+
+
+@router.get("/broadcasts/targeted/audience")
+async def targeted_audience_size(
+    ctx: Annotated[StaffContext, Depends(require("broadcast.send"))],
+    db: DB,
+    kind: AudienceKind,
+    locale: Annotated[str | None, Query(max_length=8)] = None,
+) -> dict[str, int]:
+    # Same tenant, opt-out and segment predicates as the legacy count and worker.
+    return await audience_size(ctx, db, kind=kind, locale=locale)
 
 
 # --- gift codes (FIN-03) -----------------------------------------------------------

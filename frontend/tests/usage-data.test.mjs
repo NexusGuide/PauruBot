@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import ts from 'typescript';
 
-const source = readFileSync(new URL('../src/app/usage/usage-data.ts', import.meta.url), 'utf8');
-const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { validateHistory, segments, valueScale } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
+const { validateHistory, segments, valueScale } = await import(new URL('../src/app/usage/usage-data.ts', import.meta.url));
 const point = (hour, bytes, boundary = false) => ({ at: `2026-10-14T${String(hour).padStart(2,'0')}:00:00Z`, used_bytes: bytes, break_before: boundary });
 const history = (extra = {}) => ({ service_id: 1, days: 7, resolution: 'hourly_last_observation',
  from:'2026-10-07T12:00:00Z',to:'2026-10-14T12:00:00Z',points:[point(8,0),point(9,1024)], ...extra });

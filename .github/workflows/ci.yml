@@ -66,6 +66,7 @@ jobs:
       - run: npm ci
       - run: npm run test:usage
       - run: npm run test:help
+      - run: npm run test:auto-renew
       - run: npm run test:ux
       - run: npm run lint
       - run: npm run build
