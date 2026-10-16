@@ -80,6 +80,7 @@ jobs:
       - run: npm run test:broadcasts
       - run: npm run test:capabilities
       - run: npm run test:confirm
+      - run: npm run test:receipts
       - run: npm run test:tickets
       - run: npm run lint
       - run: npm run build

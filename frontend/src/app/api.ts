@@ -193,7 +193,13 @@ export const api = {
     post<{ order: Order; payment?: PaymentStart }>(`/orders/${id}/pay`, { method }),
   cancelOrder: (id: number) => post<{ ok: boolean }>(`/orders/${id}/cancel`),
   topup: (amount: number, method: string) => post<{ payment: PaymentStart }>("/wallet/topup", { amount, method }),
-  payment: (id: number) => get<{ id: number; status: string; amount: number; fulfilled: boolean }>(`/payments/${id}`),
+  payment: (id: number) => get<{ id: number; status: string; amount: number; fulfilled: boolean; provider: string; order_id: number | null }>(`/payments/${id}`),
+  receiptState: (id: number) => get<unknown>(`/payments/${id}/receipt-state`),
+  receipts: (before?: number) => get<unknown>(`/receipts${before ? `?before=${before}` : ""}`),
+  sendReceipt: (id: number, file: File, revision: string) => {
+    const form = new FormData(); form.append("file", file); form.append("expected_revision", revision);
+    return request<unknown>(`/api/webapp/payments/${id}/receipt-upload`, { method: "POST", form, headers: auth() });
+  },
   uploadReceipt: (id: number, file: File) => {
     const form = new FormData();
     form.append("file", file);
