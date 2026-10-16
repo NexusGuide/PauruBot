@@ -13,7 +13,14 @@ from sqlalchemy import func, select
 
 from paurubot.core import auto_renew, orders
 from paurubot.db.base import utcnow
-from paurubot.db.models import Job, Order, OrderKind, OrderStatus, Service, ServiceStatus
+from paurubot.db.models import (
+    Job,
+    Order,
+    OrderKind,
+    OrderStatus,
+    Service,
+    ServiceStatus,
+)
 from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.notifications import handlers, telegram
@@ -198,3 +205,62 @@ async def test_enable_checks_extras_and_merges_parts(session) -> None:  # type: 
     with pytest.raises(orders.OrderError):
         await auto_renew.enable(session, service, gb=100_000)
     assert service.auto_renew is None
+
+
+async def test_due_pages_past_the_old_scan_window(session, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # A small page reproduces the original 4*BATCH truncation without thousands of rows.
+    monkeypatch.setattr(auto_renew, "BATCH", 2)
+    _, _, _, template = await _setup(session, used=GB)
+    services = []
+    for i in range(9):
+        row = Service(
+            shop_id=template.shop_id,
+            customer_id=template.customer_id,
+            panel_id=template.panel_id,
+            plan_id=template.plan_id,
+            panel_username=f"scan-{template.id}-{i}",
+            status=ServiceStatus.ACTIVE,
+            data_limit=50 * GB,
+            used_bytes=50 * GB if i == 8 else GB,
+            expire_at=utcnow() + timedelta(days=10),
+            auto_renew={"mode": "renew", "plan_id": template.plan_id},
+        )
+        session.add(row)
+        services.append(row)
+    await session.flush()
+    assert services[-1].id in await auto_renew.due(session, after_id=template.id)
+    assert (
+        await auto_renew.due(
+            session,
+            after_id=template.id,
+            through_id=services[-2].id,
+        )
+        == []
+    )
+
+
+async def test_due_cursor_reaches_later_due_services(session, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(auto_renew, "BATCH", 2)
+    _, _, _, template = await _setup(session)
+    rows = []
+    for i in range(4):
+        row = Service(
+            shop_id=template.shop_id,
+            customer_id=template.customer_id,
+            panel_id=template.panel_id,
+            plan_id=template.plan_id,
+            panel_username=f"due-{template.id}-{i}",
+            status=ServiceStatus.ACTIVE,
+            data_limit=50 * GB,
+            used_bytes=50 * GB,
+            expire_at=utcnow() + timedelta(days=10),
+            auto_renew={"mode": "renew", "plan_id": template.plan_id},
+        )
+        session.add(row)
+        rows.append(row)
+    await session.flush()
+    first = await auto_renew.due(session, after_id=template.id, through_id=rows[-1].id)
+    second = await auto_renew.due(session, after_id=first[-1], through_id=rows[-1].id)
+    assert first == [rows[0].id, rows[1].id]
+    assert second == [rows[2].id, rows[3].id]
+    assert await auto_renew.due(session, after_id=second[-1], through_id=rows[-1].id) == []

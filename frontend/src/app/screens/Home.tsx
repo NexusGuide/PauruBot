@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { daysLeft, money, size } from "@shared/format";
 import { api, type Service } from "../api";
 import { errorText, useApp } from "../state";
 import { haptic } from "../telegram";
-import { Button, Panel, Ring, Screen, Spinner } from "../ui";
+import { Button, Panel, ReadFailure, Ring, Screen, Spinner } from "../ui";
+
+import { useResource } from "../useResource";
 
 export function usageRatio(service: Service): number | null {
   if (!service.data_limit) return null;
@@ -20,12 +22,10 @@ export function timeRatio(service: Service, totalDays = 30): number | null {
 export function Home() {
   const { me, t, locale, reload, toast } = useApp();
   const navigate = useNavigate();
-  const [services, setServices] = useState<Service[] | null>(null);
+  const { data, error, retry } = useResource(api.services);
+  const services = data?.items ?? null;
   const [trialBusy, setTrialBusy] = useState(false);
 
-  useEffect(() => {
-    api.services().then((r) => setServices(r.items)).catch(() => setServices([]));
-  }, []);
 
   if (!me) return null;
   const units = t("units").split(",");
@@ -55,7 +55,7 @@ export function Home() {
         {t("home_hello", { name: me.name ?? "" })}
       </h1>
 
-      {services === null ? (
+      {error ? <ReadFailure error={error} retry={retry} /> : services === null ? (
         <div className="flex justify-center py-16 text-[var(--hint)]">
           <Spinner />
         </div>
@@ -103,7 +103,7 @@ export function Home() {
           className="rounded-3xl bg-[var(--surface)] p-4 text-start"
         >
           <p className="text-xs text-[var(--hint)]">{t("services_count")}</p>
-          <p className="num mt-1 text-xl font-extrabold">{money(services?.length ?? 0, locale)}</p>
+          <p className="num mt-1 text-xl font-extrabold">{services && !error ? money(services.length, locale) : "—"}</p>
           <p className="text-xs text-[var(--hint)]">{t("view_all")}</p>
         </button>
       </div>

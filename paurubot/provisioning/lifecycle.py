@@ -7,9 +7,11 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
+from paurubot import kv
 from paurubot.core import catalog, usernames
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import affected, utcnow
@@ -24,7 +26,15 @@ from paurubot.db.models import (
     ServiceStatus,
     TrialGrant,
 )
-from paurubot.panels import GB, UNSET, PanelError, PanelRef, PanelUser, UserSpec, driver_for
+from paurubot.panels import (
+    GB,
+    UNSET,
+    PanelError,
+    PanelRef,
+    PanelUser,
+    UserSpec,
+    driver_for,
+)
 from paurubot.provisioning import renewal_policy, renewal_state
 
 log = logging.getLogger(__name__)
@@ -47,6 +57,10 @@ async def ensure_sub_token(session: AsyncSession, service: Service) -> str:
         service.sub_token = new_sub_token()
         await session.flush()
     return service.sub_token
+
+
+class ServiceBusy(Exception):
+    """A live or unresolved predecessor owns this service; defer, never refund it."""
 
 
 class ProvisionError(Exception):
@@ -259,7 +273,9 @@ def _target_for(
 
 async def _modify_service(session: AsyncSession, order: Order) -> Service:
     """Apply a renewal, upgrade or add-on through the renewal state machine (renewal_state)."""
-    service = await session.get(Service, order.service_id) if order.service_id else None
+    service = (
+        await session.get(Service, order.service_id, populate_existing=True) if order.service_id else None
+    )
     if service is None or service.status == ServiceStatus.DELETED:
         raise ProvisionError("service_not_found")
     panel = await session.get(Panel, service.panel_id)
@@ -272,6 +288,7 @@ async def _modify_service(session: AsyncSession, order: Order) -> Service:
         cfg = await shop_settings.load(session, order.shop_id)
         mode = renew_mode(plan, panel, cfg)
         params["target"] = _target_for(service, order, plan, mode, queued=bool(params.get("queued")))
+        params["reset_protocol"] = 1
         order.params = params
         renewal_state.move(order, renewal_state.PENDING)
         await session.commit()
@@ -299,6 +316,14 @@ async def _modify_service(session: AsyncSession, order: Order) -> Service:
     if renewal_state.state(order) == renewal_state.RUNNING:
         renewal_state.move(order, renewal_state.UNCERTAIN, "interrupted")  # a crashed worker
         await session.commit()
+    if renewal_policy.reset_untracked(target, order.params or {}):
+        # Old workers had no reservation protocol. Never infer "not called" from missing keys.
+        if renewal_state.state(order) == renewal_state.PENDING:
+            renewal_state.move(order, renewal_state.RUNNING)
+            renewal_state.move(order, renewal_state.UNCERTAIN, "legacy reset has no reservation")
+        renewal_state.park(order, "legacy_reset_uncertain")
+        await session.commit()
+        raise renewal_policy.NotConfirmed(["legacy_reset_uncertain"])
     if renewal_state.state(order) == renewal_state.UNCERTAIN and verifies:
         # Look before acting: an earlier attempt may have reached the panel after all. A panel that
         # cannot report limits proves nothing; re-applying the absolute target is safe instead
@@ -307,8 +332,14 @@ async def _modify_service(session: AsyncSession, order: Order) -> Service:
         if (
             current is not None
             and renewal_policy.can_confirm(current)
+            and (
+                not renewal_policy.reset_pending(order.params or {})
+                or renewal_policy.reset_confirmed(target, current)
+            )
             and not renewal_policy.verify(target, current)
         ):
+            if renewal_policy.reset_pending(order.params or {}):
+                order.params = {**(order.params or {}), "reset_done": True}
             apply_panel_user(service, current)
             _settle_service(service, order, plan, target, verified=True)
             renewal_state.move(order, renewal_state.RECONCILED, "found applied on retry")
@@ -341,14 +372,35 @@ async def _apply_target(
     verifies: bool,
 ) -> bool:
     """The panel calls of a modification. Returns whether the panel confirmed the target."""
-    params = dict(order.params or {})
-    last_check = params.get("verification") or {}
-    redo_reset = not params.get("reset_done") or "usage_not_reset" in (last_check.get("problems") or [])
-    if target.get("reset") and redo_reset:
-        await driver.reset_usage(ref(service))
-        # A retry must not wipe the traffic used since this reset, unless the panel ignored it.
-        order.params = {**(order.params or {}), "reset_done": True}
-        await session.commit()
+    if target.get("reset"):
+        # Re-read under a row lock: a stale worker must see another worker's reset reservation.
+        await session.refresh(order, with_for_update=True)
+        params = dict(order.params or {})
+        if renewal_policy.reset_untracked(target, params):
+            raise renewal_policy.NotConfirmed(["legacy_reset_uncertain"])
+        if renewal_policy.reset_pending(params):
+            fresh = await driver.get_user(ref(service))
+            if fresh is None or not renewal_policy.reset_confirmed(target, fresh):
+                order.params = {
+                    **params,
+                    "verification": {
+                        "ok": False,
+                        "problems": ["reset_uncertain"],
+                        "checked_at": utcnow().isoformat(),
+                    },
+                }
+                await session.commit()
+                raise renewal_policy.NotConfirmed(["reset_uncertain"])
+            order.params = {**params, "reset_done": True}
+            await session.commit()
+        elif not params.get("reset_done"):
+            # Commit the intent BEFORE the remote call. A lost response (or a killed worker)
+            # leaves an uncertain reservation, never permission to reset usage a second time.
+            order.params = {**params, "reset_attempted": utcnow().isoformat()}
+            await session.commit()
+            await driver.reset_usage(ref(service))
+            order.params = {**(order.params or {}), "reset_done": True}
+            await session.commit()
     info = await driver.update_user(
         ref(service),
         expire_at=expire_at if target.get("set_expire") else UNSET,
@@ -395,15 +447,24 @@ def _settle_service(
 # --- reconciliation of parked renewals ------------------------------------------------------
 
 
-async def parked_renewals(session: AsyncSession, limit: int = 200) -> list[int]:
-    """Modification orders whose job gave up while the panel state was unknown."""
-    rows = await session.scalars(
-        select(Order)
-        .where(Order.status == OrderStatus.PROVISIONING, Order.kind.in_(list(renewal_state.KINDS)))
+async def parked_renewals(
+    session: AsyncSession, limit: int = 200, *, after_id: int = 0, through_id: int | None = None
+) -> list[int]:
+    """Filter BEFORE limiting; keyset pages let unresolved old rows coexist with newer ones."""
+    stmt = (
+        select(Order.id)
+        .where(
+            Order.status == OrderStatus.PROVISIONING,
+            Order.kind.in_(list(renewal_state.KINDS)),
+            Order.params["renewal"]["parked"].as_boolean().is_(True),
+            Order.id > after_id,
+        )
         .order_by(Order.id)
         .limit(limit)
     )
-    return [order.id for order in rows if renewal_state.parked(order)]
+    if through_id is not None:
+        stmt = stmt.where(Order.id <= through_id)
+    return list(await session.scalars(stmt))
 
 
 async def _resume(session: AsyncSession, order: Order) -> None:
@@ -461,6 +522,20 @@ async def _reapply_unverifiable(session: AsyncSession, order: Order) -> str:
 
 
 async def reconcile_renewal(session: AsyncSession, order_id: int) -> str:
+    order = await session.get(Order, order_id)
+    if order is None or not order.service_id:
+        return await _reconcile_renewal(session, order_id)
+    try:
+        async with kv.lease(f"service:modify:{order.service_id}", ttl=180):
+            await session.refresh(order)
+            if await _modification_predecessor(session, order) is not None:
+                raise ServiceBusy("another unresolved modification owns the service")
+            return await _reconcile_renewal(session, order_id)
+    except kv.LockNotAcquired as exc:
+        raise ServiceBusy("service reconciliation is busy") from exc
+
+
+async def _reconcile_renewal(session: AsyncSession, order_id: int) -> str:
     """Settle one parked order by reading the panel. Never re-applies the change by itself.
 
     - the panel holds the target → ``reconciled`` and the order is finished;
@@ -490,6 +565,15 @@ async def reconcile_renewal(session: AsyncSession, order_id: int) -> str:
             current, outcome = None, f"panel_unreachable: {exc}"
         else:
             outcome = "missing_on_panel" if current is None else "partial"
+        if renewal_policy.reset_untracked(target, order.params or {}):
+            current, outcome = None, "legacy_reset_uncertain"
+        if current is not None and renewal_policy.reset_pending(order.params or {}):
+            if renewal_policy.reset_confirmed(target, current):
+                order.params = {**(order.params or {}), "reset_done": True}
+                await session.commit()
+            else:
+                # Even an unchanged account is not proof that the reserved reset never ran.
+                current, outcome = None, "reset_uncertain"
         if current is not None and not renewal_policy.can_confirm(current):
             return await _reapply_unverifiable(session, order)
         if current is not None:
@@ -506,6 +590,7 @@ async def reconcile_renewal(session: AsyncSession, order_id: int) -> str:
             if (
                 before is not None
                 and not reset_done
+                and not (order.params or {}).get("reset_attempted")
                 and not renewal_policy.verify(before, current, check_enabled=False)
             ):
                 renewal_state.move(order, renewal_state.FAILED, "panel unchanged")
@@ -644,7 +729,53 @@ async def remove_panel_user(
         return
 
 
+async def _modification_predecessor(session: AsyncSession, order: Order) -> int | None:
+    """Started unresolved changes outrank fresh orders, even with a higher order ID.
+
+    This also quarantines pre-deploy overlapping targets: they need staff resolution, not an
+    arbitrary winner. FIFO by ID applies only when the current order has never stored a target.
+    """
+    conflicts: list[ColumnElement[bool]] = [
+        Order.params["target"].is_not(None),
+        Order.params["move"].is_not(None),
+    ]
+    params = order.params or {}
+    if not params.get("target") and not params.get("move"):
+        conflicts.append(Order.id < order.id)
+    return await session.scalar(
+        select(Order.id)
+        .where(
+            Order.service_id == order.service_id,
+            Order.kind.in_([*renewal_state.KINDS, OrderKind.MOVE]),
+            Order.status.in_([OrderStatus.PAID, OrderStatus.PROVISIONING]),
+            Order.id != order.id,
+            or_(*conflicts),
+        )
+        .order_by(Order.id)
+        .limit(1)
+    )
+
+
 async def fulfill(session: AsyncSession, order_id: int) -> Service | None:
+    order = await session.get(Order, order_id, populate_existing=True)
+    modifying = {*renewal_state.KINDS, OrderKind.MOVE}
+    if order is None or order.kind not in modifying or not order.service_id:
+        return await _fulfill(session, order_id)
+    try:
+        # Unlike a row lock, this lease survives the intent/progress commits around panel calls.
+        async with kv.lease(f"service:modify:{order.service_id}", ttl=180):
+            await session.refresh(order)
+            if order.status not in {OrderStatus.PAID, OrderStatus.PROVISIONING}:
+                return await _fulfill(session, order_id)
+            blocker = await _modification_predecessor(session, order)
+            if blocker is not None:
+                raise ServiceBusy(f"service waits for order {blocker}")
+            return await _fulfill(session, order_id)
+    except kv.LockNotAcquired as exc:
+        raise ServiceBusy("service modification lease unavailable") from exc
+
+
+async def _fulfill(session: AsyncSession, order_id: int) -> Service | None:
     """Run one provisioning attempt. Panel errors propagate so the queue can retry."""
     order = await claim(session, order_id)
     if order is None:
@@ -865,6 +996,9 @@ async def refresh(session: AsyncSession, service: Service) -> PanelUser | None:
         service.delete_reason = "missing on panel"
     else:
         apply_panel_user(service, info)
+        from paurubot.core import usage_history
+
+        await usage_history.observe(session, service, info, source="poll")
     await session.flush()
     return info
 

@@ -85,13 +85,13 @@ export function Wallet() {
       <h2 className="mb-3 text-lg font-bold">{t("top_up")}</h2>
       <div className="mb-3 grid grid-cols-2 gap-2">
         {presets.map((p) => (
-          <button key={p} type="button" onClick={() => { setAmount(p); setCustom(""); haptic("select"); }}
+          <button key={p} aria-pressed={amount === p} type="button" onClick={() => { setAmount(p); setCustom(""); haptic("select"); }}
             className={`num rounded-2xl py-3 font-bold ${amount === p ? "bg-[var(--accent)] text-white" : "bg-[var(--surface)]"}`}>
             {money(p, locale)}
           </button>
         ))}
       </div>
-      <input inputMode="numeric" value={custom}
+      <input aria-label={t("custom_amount", { low: money(low, locale), high: money(high, locale) })} inputMode="numeric" value={custom}
         onChange={(e) => { setCustom(e.target.value); setAmount(null); }}
         placeholder={t("custom_amount", { low: money(low, locale), high: money(high, locale) })}
         className="num mb-3 min-h-12 w-full rounded-2xl bg-[var(--surface)] px-4 outline-none ring-1 ring-[var(--line)] focus:ring-[var(--accent)]" />
@@ -107,7 +107,7 @@ export function Wallet() {
 
       <h2 className="mb-3 text-lg font-bold">{t("gift_code")}</h2>
       <div className="mb-8 flex gap-2">
-        <input value={gift} onChange={(e) => setGift(e.target.value)} placeholder={t("gift_code_placeholder")}
+        <input aria-label={t("gift_code")} value={gift} onChange={(e) => setGift(e.target.value)} placeholder={t("gift_code_placeholder")}
           dir="ltr" maxLength={32}
           className="min-h-12 flex-1 rounded-2xl bg-[var(--surface)] px-4 outline-none ring-1 ring-[var(--line)] focus:ring-[var(--accent)]" />
         <Button tone="quiet" className="w-auto px-5" busy={busy === "gift"} disabled={!gift.trim()} onClick={() => void redeem()}>

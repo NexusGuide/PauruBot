@@ -84,6 +84,7 @@ export function Desk() {
         {[3, 7, 30].map((d) => (
           <button
             key={d}
+            aria-pressed={d === days}
             type="button"
             onClick={() => setDays(d)}
             className={`rounded-full px-3 py-1.5 text-sm ${d === days ? "bg-[var(--accent)] font-bold text-[var(--accent-ink)]" : "bg-[var(--surface)]"}`}
@@ -93,6 +94,7 @@ export function Desk() {
         ))}
       </div>
       <input
+        aria-label={t("desk_search")}
         value={q}
         onChange={(e) => setQ(e.target.value)}
         placeholder={t("desk_search")}
