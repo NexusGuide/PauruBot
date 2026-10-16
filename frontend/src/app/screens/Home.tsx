@@ -50,10 +50,11 @@ export function Home() {
 
   return (
     <Screen>
-      <p className="text-sm text-[var(--hint)]">{me.shop.title}</p>
-      <h1 className="mb-6 text-[1.85rem] font-extrabold leading-tight tracking-tight">
-        {t("home_hello", { name: me.name ?? "" })}
-      </h1>
+      <header className="app-hero">
+        <p className="app-hero-kicker">{me.shop.title}</p>
+        <h1 className="app-hero-title">{t("home_hello", { name: me.name ?? "" })}</h1>
+        <span className="app-hero-glow" aria-hidden="true" />
+      </header>
 
       {error ? <ReadFailure error={error} retry={retry} /> : services === null ? (
         <div className="flex justify-center py-16 text-[var(--hint)]">
@@ -93,7 +94,10 @@ export function Home() {
           onClick={() => navigate("/wallet")}
           className="rounded-3xl bg-[var(--surface)] p-4 text-start"
         >
-          <p className="text-xs text-[var(--hint)]">{t("balance")}</p>
+          <span className="app-mini-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7h16v12H3zM3 7l12-3v3M15 13h4" /></svg>
+          </span>
+          <p className="mt-3 text-xs text-[var(--hint)]">{t("balance")}</p>
           <p className="num mt-1 text-xl font-extrabold">{money(me.balance, locale)}</p>
           <p className="text-xs text-[var(--hint)]">{t("currency")}</p>
         </button>
@@ -102,7 +106,10 @@ export function Home() {
           onClick={() => navigate("/services")}
           className="rounded-3xl bg-[var(--surface)] p-4 text-start"
         >
-          <p className="text-xs text-[var(--hint)]">{t("services_count")}</p>
+          <span className="app-mini-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3a9 9 0 1 0 9 9M12 7a5 5 0 1 0 5 5" /></svg>
+          </span>
+          <p className="mt-3 text-xs text-[var(--hint)]">{t("services_count")}</p>
           <p className="num mt-1 text-xl font-extrabold">{services && !error ? money(services.length, locale) : "—"}</p>
           <p className="text-xs text-[var(--hint)]">{t("view_all")}</p>
         </button>

@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { useEffect, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { parentForPath, tabForPath } from "./navigation";
 import { errorText, useApp } from "./state";
@@ -70,9 +70,12 @@ export function Spinner({ small, decorative = false }: { small?: boolean; decora
 }
 
 export function Loading() {
+  const { t } = useApp();
   return (
-    <div className="flex min-h-[50dvh] items-center justify-center text-[var(--hint)]">
-      <Spinner />
+    <div className="app-loading" role="status" aria-label={t("ui_loading")}>
+      <span className="app-skeleton app-skeleton-title" />
+      <span className="app-skeleton app-skeleton-card" />
+      <span className="app-skeleton app-skeleton-card" />
     </div>
   );
 }
@@ -103,6 +106,11 @@ export function Ring({
   inner: number | null;
   children?: ReactNode;
 }) {
+  const [drawn, setDrawn] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setDrawn(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
   const stroke = Math.max(5, size * 0.085);
   const r1 = size / 2 - stroke / 2;
   const r2 = r1 - stroke * 1.55;
@@ -110,13 +118,15 @@ export function Ring({
   const c2 = 2 * Math.PI * r2;
   const colour = (v: number | null) =>
     v === null ? "#0e9aa7" : v <= 0 ? "#c8344c" : v < 0.15 ? "#e8a33d" : "#0e9aa7";
-  const dash = (v: number | null, c: number) => `${(v === null ? 1 : Math.max(0, Math.min(1, v))) * c} ${c}`;
+  const dash = (v: number | null, c: number) =>
+    `${(drawn ? (v === null ? 1 : Math.max(0, Math.min(1, v))) : 0) * c} ${c}`;
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90" aria-hidden="true">
         <circle cx={size / 2} cy={size / 2} r={r1} fill="none" stroke="var(--line)" strokeWidth={stroke} />
         <circle cx={size / 2} cy={size / 2} r={r2} fill="none" stroke="var(--line)" strokeWidth={stroke * 0.7} />
         <circle
+          className="app-ring-arc"
           cx={size / 2}
           cy={size / 2}
           r={r1}
@@ -124,9 +134,10 @@ export function Ring({
           stroke={colour(outer)}
           strokeWidth={stroke}
           strokeLinecap="round"
-          strokeDasharray={dash(outer, c1)}
+          style={{ strokeDasharray: dash(outer, c1) }}
         />
         <circle
+          className="app-ring-arc"
           cx={size / 2}
           cy={size / 2}
           r={r2}
@@ -135,7 +146,7 @@ export function Ring({
           strokeOpacity={0.75}
           strokeWidth={stroke * 0.7}
           strokeLinecap="round"
-          strokeDasharray={dash(inner, c2)}
+          style={{ strokeDasharray: dash(inner, c2) }}
         />
       </svg>
       {children && <div className="absolute inset-0 flex flex-col items-center justify-center">{children}</div>}
@@ -152,7 +163,8 @@ export function StatusDot({ status }: { status: string }) {
     disabled: "bg-[var(--hint)]",
     pending: "bg-firouzeh-500",
   };
-  return <span className={`inline-block h-2.5 w-2.5 rounded-full ${map[status] ?? "bg-[var(--hint)]"}`} />;
+  const live = status === "active" || status === "pending";
+  return <span className={`app-dot ${live ? "app-dot-live" : ""} inline-block h-2.5 w-2.5 rounded-full ${map[status] ?? "bg-[var(--hint)]"}`} />;
 }
 
 const tabs = [
@@ -162,6 +174,11 @@ const tabs = [
   { to: "/wallet", key: "tab_wallet", icon: "M3 7h16v12H3zM3 7l12-3v3M15 13h4" },
   { to: "/more", key: "tab_more", icon: "M5 12h.01M12 12h.01M19 12h.01" },
 ];
+
+function tapFeedback() {
+  const feedback = window.Telegram?.WebApp?.HapticFeedback;
+  if (feedback) feedback.selectionChanged();
+}
 
 export function TabBar() {
   const { t } = useApp();
@@ -174,7 +191,7 @@ export function TabBar() {
       <ul className="app-tabs">
         {tabs.map((tab) => (
           <li key={tab.to} className="flex-1">
-            <Link to={tab.to}
+            <Link to={tab.to} onClick={tapFeedback}
               aria-current={selected === tab.key.slice(4) ? (path === tab.to ? "page" : "location") : undefined}
               className={`app-tab ${selected === tab.key.slice(4) ? "app-tab-active" : ""}`}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9"

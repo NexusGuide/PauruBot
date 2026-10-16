@@ -9,6 +9,11 @@
   --accent: #087785;
   --accent-ink: #ffffff;
   --accent-soft: #e5f4f5;
+  --accent-gradient: linear-gradient(135deg, #0c8896 0%, #087785 48%, #06636f 100%);
+  --hero-bg: linear-gradient(135deg, #0d98a6 0%, #0a7688 55%, #075a74 100%);
+  --hero-ink: #ffffff;
+  --shadow-card: 0 1px 2px rgb(16 35 54 / 4%), 0 14px 32px -22px rgb(16 35 54 / 30%);
+  --shadow-hero: 0 16px 38px -18px rgb(7 90 116 / 45%);
   --danger: #a72642;
   --danger-soft: #fcecf0;
   --toast: #183444;
@@ -25,6 +30,11 @@
     --color-saffron-100: #413523; --color-saffron-700: #f3cc8e;
     --color-anar-100: #432633; --color-anar-700: #ffabc0;
     --color-firouzeh-50: #163d47; --color-firouzeh-700: #67d6df;
+    --accent-gradient: linear-gradient(135deg, #8fe7ee 0%, #5fd2dc 52%, #46c2cf 100%);
+    --hero-bg: linear-gradient(135deg, #13505d 0%, #103c4b 60%, #0e3141 100%);
+    --hero-ink: #eaf6f8;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 35%), 0 14px 34px -22px rgb(0 0 0 / 65%);
+    --shadow-hero: 0 16px 38px -18px rgb(0 0 0 / 55%);
     color-scheme: dark;
   }
 }
@@ -37,6 +47,11 @@
     --color-saffron-100: #413523; --color-saffron-700: #f3cc8e;
     --color-anar-100: #432633; --color-anar-700: #ffabc0;
     --color-firouzeh-50: #163d47; --color-firouzeh-700: #67d6df;
+    --accent-gradient: linear-gradient(135deg, #8fe7ee 0%, #5fd2dc 52%, #46c2cf 100%);
+    --hero-bg: linear-gradient(135deg, #13505d 0%, #103c4b 60%, #0e3141 100%);
+    --hero-ink: #eaf6f8;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 35%), 0 14px 34px -22px rgb(0 0 0 / 65%);
+    --shadow-hero: 0 16px 38px -18px rgb(0 0 0 / 55%);
     color-scheme: dark;
 }
 :root[data-app="miniapp"] {
@@ -74,14 +89,14 @@
 :root[data-app="miniapp"] .app-screen textarea::placeholder { color: var(--hint); opacity: 1; }
 :root[data-app="miniapp"] .app-screen :where(img, svg) { max-inline-size: 100%; }
 :root[data-app="miniapp"] .app-screen [class~="rounded-3xl"] { border-radius: 16px; }
-:root[data-app="miniapp"] .app-screen [class~="rounded-3xl"][class*="bg-[var(--surface)]"] { border: 1px solid var(--line); }
-:root[data-app="miniapp"] .app-panel { border: 1px solid var(--line); box-shadow: 0 2px 5px rgb(17 37 53 / 2%); }
+:root[data-app="miniapp"] .app-screen [class~="rounded-3xl"][class*="bg-[var(--surface)]"] { border: 1px solid var(--line); box-shadow: var(--shadow-card); }
+:root[data-app="miniapp"] .app-panel { border: 1px solid var(--line); box-shadow: var(--shadow-card); }
 :root[data-app="miniapp"] .app-row { min-block-size: 68px; }
 :root[data-app="miniapp"] .app-row + .app-row { border-block-start: 1px solid var(--line); }
 :root[data-app="miniapp"] .app-button { white-space: normal; overflow-wrap: anywhere; }
-:root[data-app="miniapp"] .app-button[data-tone="primary"] { background: var(--accent); color: var(--accent-ink); }
+:root[data-app="miniapp"] .app-button[data-tone="primary"] { background: var(--accent-gradient); color: var(--accent-ink); box-shadow: inset 0 1px 0 rgb(255 255 255 / 14%), 0 10px 22px -12px color-mix(in srgb, var(--accent) 60%, transparent); }
 :root[data-app="miniapp"] .app-button[data-tone="danger"] { background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger); }
-:root[data-app="miniapp"] .app-screen [aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); }
+:root[data-app="miniapp"] .app-screen [aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); box-shadow: 0 8px 18px -12px color-mix(in srgb, var(--accent) 70%, transparent); }
 :root[data-app="miniapp"] .app-screen [role="switch"] { gap: 12px; }
 :root[data-app="miniapp"] .app-screen [role="switch"] > span:last-child { flex: none; min-inline-size: 44px; padding: 4px 8px; border-radius: 8px; background: var(--bg); color: var(--hint); text-align: center; font-size: .875rem; }
 :root[data-app="miniapp"] .app-screen [role="switch"][aria-checked="true"] > span:last-child { background: var(--accent-soft); color: var(--accent); }
@@ -90,11 +105,11 @@
 :root[data-app="miniapp"] .app-screen summary { cursor: pointer; }
 :root[data-app="miniapp"] .app-screen details[open] summary { color: var(--accent); }
 :root[data-app="miniapp"] .app-screen :where([class~="text-xs"], [class*="text-[0."]) { font-size: .875rem; line-height: 1.5; }
-:root[data-app="miniapp"] .app-tabbar { position: fixed; inset-inline: 0; inset-block-end: 0; z-index: 20; border-block-start: 1px solid var(--line); background: var(--surface); padding-block-end: env(safe-area-inset-bottom); }
+:root[data-app="miniapp"] .app-tabbar { position: fixed; inset-inline: 0; inset-block-end: 0; z-index: 20; border-block-start: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 88%, transparent); -webkit-backdrop-filter: blur(14px) saturate(1.5); backdrop-filter: blur(14px) saturate(1.5); padding-block-end: env(safe-area-inset-bottom); }
 :root[data-app="miniapp"] .app-tabs { display: flex; max-inline-size: 32rem; margin-inline: auto; padding: 8px; gap: 4px; }
 :root[data-app="miniapp"] .app-tabs li { flex: 1; min-inline-size: 0; }
-:root[data-app="miniapp"] .app-tab { display: flex; flex-direction: column; align-items: center; justify-content: center; min-block-size: 56px; gap: 4px; border-radius: 12px; padding: 6px 2px; font-size: .875rem; font-weight: 600; line-height: 1.3; color: var(--hint); }
-:root[data-app="miniapp"] .app-tab-active { background: var(--accent-soft); color: var(--accent); }
+:root[data-app="miniapp"] .app-tab { display: flex; flex-direction: column; align-items: center; justify-content: center; min-block-size: 56px; gap: 4px; border-radius: 12px; padding: 6px 2px; font-size: .875rem; font-weight: 600; line-height: 1.3; color: var(--hint); transition: background-color .25s ease, color .25s ease, transform .16s ease; }
+:root[data-app="miniapp"] .app-tab-active { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent); }
 :root[data-app="miniapp"] .app-toast { position: fixed; inset-inline: 0; inset-block-end: calc(88px + env(safe-area-inset-bottom)); z-index: 30; display: flex; justify-content: center; padding-inline: 16px; pointer-events: none; }
 :root[data-app="miniapp"] .app-toast p { max-inline-size: 30rem; padding: 12px 16px; border-radius: 12px; font-size: .875rem; line-height: 1.6; overflow-wrap: anywhere; background: var(--toast); color: #ffffff; box-shadow: 0 4px 16px rgb(0 0 0 / 12%); }
 :root[data-app="miniapp"] .app-toast [data-tone="error"] { background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger); }
@@ -110,3 +125,66 @@
 
 :root[data-app="miniapp"] .app-screen [class*="bg-[var(--accent)]"][class~="text-white"]:not([aria-pressed="true"]) { color: var(--accent-ink); }
 :root[data-app="miniapp"] .app-button[class~="w-auto"] { inline-size: auto; flex-shrink: 0; }
+
+/* --- Depth & motion ------------------------------------------------------ */
+
+/* Screens rise in when opened: the heading first, then each block of content. */
+:root[data-app="miniapp"] .app-screen > * { animation: app-rise .34s cubic-bezier(.22, 1, .36, 1) both; }
+:root[data-app="miniapp"] .app-screen > :nth-child(2) { animation-delay: .05s; }
+:root[data-app="miniapp"] .app-screen > :nth-child(3) { animation-delay: .1s; }
+:root[data-app="miniapp"] .app-screen > :nth-child(4) { animation-delay: .14s; }
+:root[data-app="miniapp"] .app-screen > :nth-child(n + 5) { animation-delay: .18s; }
+
+/* Tactile press feedback and a soft glow on the primary action. */
+:root[data-app="miniapp"] .app-button { transition: transform .16s ease, box-shadow .2s ease, opacity .16s ease, background-color .2s ease, filter .2s ease; }
+:root[data-app="miniapp"] .app-button:not(:disabled):active { transform: scale(.97); }
+:root[data-app="miniapp"] .app-button[data-tone="primary"]:not(:disabled):hover { filter: brightness(1.05); }
+:root[data-app="miniapp"] .app-screen button[class~="rounded-3xl"] { transition: transform .16s ease, box-shadow .2s ease, border-color .2s ease; }
+:root[data-app="miniapp"] .app-screen button[class~="rounded-3xl"]:active { transform: scale(.98); }
+:root[data-app="miniapp"] .app-screen button[aria-pressed] { transition: transform .14s ease, background-color .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease; }
+:root[data-app="miniapp"] .app-screen button[aria-pressed]:active { transform: scale(.95); }
+:root[data-app="miniapp"] .app-back { transition: transform .16s ease, border-color .2s ease; }
+:root[data-app="miniapp"] .app-back:active { transform: scale(.92); }
+:root[data-app="miniapp"] .app-row { transition: background-color .18s ease, transform .16s ease; }
+:root[data-app="miniapp"] .app-row:active { background-color: color-mix(in srgb, var(--accent) 8%, var(--surface)); transform: scale(.99); }
+
+/* Fields answer to the finger; the accent outline stays for keyboards. */
+:root[data-app="miniapp"] .app-screen :where(input, select, textarea) { transition: border-color .2s ease, background-color .2s ease, box-shadow .2s ease; }
+:root[data-app="miniapp"] .app-screen :where(input, select, textarea):focus { border-color: color-mix(in srgb, var(--accent) 55%, var(--control-line)); }
+
+/* The service gauge draws itself when it appears. */
+:root[data-app="miniapp"] .app-ring-arc { transition: stroke-dasharray .9s cubic-bezier(.22, 1, .36, 1); }
+
+/* Live services breathe. */
+:root[data-app="miniapp"] .app-dot-live { position: relative; }
+:root[data-app="miniapp"] .app-dot-live::after { content: ""; position: absolute; inset: 0; border-radius: 999px; background-color: inherit; animation: app-ping 2s cubic-bezier(0, 0, .2, 1) infinite; }
+
+/* Toasts slide up from the tab bar. */
+:root[data-app="miniapp"] .app-toast p { animation: app-toast-in .3s cubic-bezier(.22, 1, .36, 1) both; box-shadow: 0 16px 44px -18px rgb(0 0 0 / 55%); }
+
+/* Home hero. */
+:root[data-app="miniapp"] .app-hero { position: relative; overflow: hidden; margin-block-end: 16px; padding: 18px 18px 20px; border-radius: 20px; background: var(--hero-bg); color: var(--hero-ink); box-shadow: var(--shadow-hero); }
+:root[data-app="miniapp"] .app-hero-kicker { font-size: .875rem; font-weight: 600; opacity: .85; }
+:root[data-app="miniapp"] .app-hero-title { margin-block-start: 4px; font-size: 1.65rem; font-weight: 800; line-height: 1.45; letter-spacing: -.01em; }
+:root[data-app="miniapp"] .app-hero-glow { position: absolute; inset-inline-end: -36px; inset-block-start: -52px; inline-size: 176px; block-size: 176px; border-radius: 50%; background: radial-gradient(circle, rgb(255 255 255 / 26%) 0%, rgb(255 255 255 / 0%) 68%); animation: app-float 7s ease-in-out infinite; pointer-events: none; }
+
+/* Small icon tile for summary cards. */
+:root[data-app="miniapp"] .app-mini-icon { display: grid; place-items: center; inline-size: 38px; block-size: 38px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); }
+
+/* Skeleton screen while data loads. */
+:root[data-app="miniapp"] .app-loading { inline-size: 100%; max-inline-size: 32rem; margin-inline: auto; padding: calc(24px + env(safe-area-inset-top)) 20px calc(24px + env(safe-area-inset-bottom)); }
+:root[data-app="miniapp"] .app-skeleton { display: block; border-radius: 14px; background: linear-gradient(100deg, var(--line) 35%, color-mix(in srgb, var(--line) 30%, var(--surface)) 50%, var(--line) 65%); background-size: 220% 100%; animation: app-shimmer 1.5s linear infinite; }
+:root[data-app="miniapp"] .app-skeleton-title { block-size: 26px; inline-size: 46%; margin-block-end: 18px; border-radius: 10px; }
+:root[data-app="miniapp"] .app-skeleton-card { block-size: 86px; margin-block-end: 12px; }
+
+@media (hover: hover) {
+  :root[data-app="miniapp"] .app-screen button[class~="rounded-3xl"]:hover { border-color: color-mix(in srgb, var(--accent) 42%, var(--line)); }
+  :root[data-app="miniapp"] .app-plan:hover { box-shadow: 0 18px 36px -22px color-mix(in srgb, var(--accent) 55%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-app="miniapp"] .app-screen > *,
+  :root[data-app="miniapp"] .app-toast p,
+  :root[data-app="miniapp"] .app-skeleton { animation: none; }
+  :root[data-app="miniapp"] .app-ring-arc { transition: none; }
+}

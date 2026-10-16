@@ -1,0 +1,33 @@
+/*
+ * Mini App motion primitives.
+ *
+ * They live in their own file on purpose: frontend/tests/ux.test.mjs asserts that every
+ * selector in app.css is scoped to :root[data-app="miniapp"], and the inner from/to blocks
+ * of @keyframes read as unscoped selectors to that check. Only the Mini App entry
+ * (src/app/main.tsx) imports this file, so nothing leaks into the admin panel.
+ */
+
+@keyframes app-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes app-toast-in {
+  from { opacity: 0; transform: translateY(14px) scale(.97); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes app-ping {
+  0% { transform: scale(1); opacity: .6; }
+  80%, 100% { transform: scale(2.15); opacity: 0; }
+}
+
+@keyframes app-shimmer {
+  from { background-position: 130% 0; }
+  to { background-position: -130% 0; }
+}
+
+@keyframes app-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
