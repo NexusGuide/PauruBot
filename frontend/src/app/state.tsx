@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { direction, makeT, type Translate } from "@shared/i18n";
 import { api, type Me } from "./api";
 import en from "./locales/en.json";
@@ -13,6 +13,8 @@ interface AppState {
   t: Translate;
   reload: () => Promise<void>;
   setLocale: (locale: string) => Promise<void>;
+  setMarketing: (optOut: boolean) => Promise<void>;
+  setAlerts: (muted: boolean) => Promise<void>;
   toast: (message: string, tone?: "ok" | "error") => void;
   toastMessage: { text: string; tone: "ok" | "error" } | null;
 }
@@ -24,12 +26,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [toastMessage, setToast] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
 
+  const revision = useRef(0);
+  const reloadId = useRef(0);
+
   const reload = useCallback(async () => {
+    const initialRevision = revision.current;
+    const requestId = ++reloadId.current;
     try {
-      setMe(await api.me());
+      const profile = await api.me();
+      if (revision.current !== initialRevision || reloadId.current !== requestId) return;
+      setMe(profile);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "error");
+      if (revision.current === initialRevision && reloadId.current === requestId) {
+        setError(err instanceof Error ? err.message : "error");
+      }
     }
   }, []);
 
@@ -45,13 +56,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     document.documentElement.dir = direction(locale);
   }, [locale]);
 
-  const setLocale = useCallback(
-    async (next: string) => {
-      await api.setLocale(next);
-      await reload();
-    },
-    [reload],
-  );
+  const setLocale = useCallback(async (next: string) => {
+    const confirmed = await api.setLocale(next);
+    revision.current += 1;
+    setMe(current => current ? { ...current, locale: confirmed.locale } : current);
+  }, []);
+
+  const setMarketing = useCallback(async (optOut: boolean) => {
+    const preferences = await api.setMarketing(optOut);
+    revision.current += 1;
+    setMe(current => current ? { ...current, preferences } : current);
+  }, []);
+
+  const setAlerts = useCallback(async (muted: boolean) => {
+    const confirmed = await api.setAlerts(muted);
+    revision.current += 1;
+    setMe(current => current ? { ...current, alerts_muted: confirmed.alerts_muted } : current);
+  }, []);
 
   const toast = useCallback((text: string, tone: "ok" | "error" = "ok") => {
     setToast({ text, tone });
@@ -59,8 +80,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ me, error, locale, t, reload, setLocale, toast, toastMessage }),
-    [me, error, locale, t, reload, setLocale, toast, toastMessage],
+    () => ({ me, error, locale, t, reload, setLocale, setMarketing, setAlerts, toast, toastMessage }),
+    [me, error, locale, t, reload, setLocale, setMarketing, setAlerts, toast, toastMessage],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

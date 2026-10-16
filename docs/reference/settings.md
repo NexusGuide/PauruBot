@@ -15,6 +15,8 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `support_username` | str | "" | Support username. Without @ |
 | `terms_required` | bool | false | Require terms |
 | `terms_version` | int | 1 | Terms version. Raising it asks everyone to accept again |
+| `typed_confirm_enabled` | bool | false | Type to confirm deletions. Deleting a service, a bulk delete or disable, and a large refund need a typed confirmation. Turn it on after the panel shows the confirm dialog |
+| `typed_confirm_refund_min` | int | 1000000 | Typed confirmation for refunds from (Toman). Refunds of this amount or more need the amount typed. Empty: never |
 
 ## Free trial
 
@@ -101,6 +103,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `resale_markup_percent` | int | 20 | — |
 | `resale_prices` | dict | {} | — |
 | `resale_blocked` | bool | false | — |
+| `resale_trial_fee` | int | 2000 | — |
 
 ## Appearance
 

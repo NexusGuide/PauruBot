@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from aiogram import Bot, F, Router
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +16,7 @@ from paurubot.bot.callbacks import Ticket as TicketCb
 from paurubot.bot.routers.start import menu
 from paurubot.bot.states import ResellerStates, TicketStates
 from paurubot.bot.utils import Btn, show
-from paurubot.core import customers, tickets, trials
+from paurubot.core import customers, marketing, tickets, trials
 from paurubot.core.formatting import esc, jdate
 from paurubot.db.models import ApplicationStatus, Customer, ResellerApplication, Ticket
 from paurubot.db.models import Shop as ShopRow
@@ -23,6 +24,54 @@ from paurubot.i18n import Texts
 from paurubot.worker import queue
 
 router = Router(name="account")
+
+
+def marketing_keyboard(t: Texts, opt_out: bool) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t("marketing_enable" if opt_out else "marketing_disable"),
+                    callback_data="marketing:on" if opt_out else "marketing:off",
+                )
+            ]
+        ]
+    )
+
+
+def marketing_text(t: Texts, opt_out: bool) -> str:
+    return t("marketing_off" if opt_out else "marketing_on") + "\n\n" + t("marketing_hint")
+
+
+@router.message(Command("marketing", "stop_ads", "start_ads"), F.chat.type == "private")
+async def marketing_preferences(
+    message: Message, session: AsyncSession, customer: Customer, t: Texts
+) -> None:
+    command = (message.text or "").split()[0].split("@")[0]
+    if command in {"/stop_ads", "/start_ads"}:
+        await marketing.set_preference(session, customer, opt_out=command == "/stop_ads", source="bot")
+        await session.commit()
+    await message.answer(
+        marketing_text(t, customer.marketing_opt_out),
+        reply_markup=marketing_keyboard(t, customer.marketing_opt_out),
+    )
+
+
+@router.callback_query(F.data.in_({"marketing:on", "marketing:off"}))
+async def marketing_choice(
+    callback: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts
+) -> None:
+    if not isinstance(callback.message, Message) or callback.message.chat.type != "private":
+        await callback.answer()
+        return
+    await marketing.set_preference(session, customer, opt_out=callback.data == "marketing:off", source="bot")
+    await session.commit()
+    # answer rather than edit: replaying an identical choice must not fail "message not modified".
+    await callback.answer(t("marketing_saved"))
+    await callback.message.answer(
+        marketing_text(t, customer.marketing_opt_out),
+        reply_markup=marketing_keyboard(t, customer.marketing_opt_out),
+    )
 
 
 @router.message(Btn("btn_trial"))
@@ -146,11 +195,41 @@ async def tickets_list(call: CallbackQuery, session: AsyncSession, customer: Cus
 
 
 @router.callback_query(TicketCb.filter(F.action == "new"))
-async def ticket_new(call: CallbackQuery, t: Texts, state: FSMContext) -> None:
+async def ticket_new(
+    call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts, state: FSMContext
+) -> None:
     await call.answer()
+    await state.clear()
+    desks = await tickets.departments(session, customer.shop_id)
+    if desks:  # the customer picks who the ticket is for (F-14)
+        await show(call, t("ticket_ask_department"), keyboards.departments_kb(t, desks))
+        return
+    await _ask_subject(call, t, state)
+
+
+async def _ask_subject(call: CallbackQuery, t: Texts, state: FSMContext) -> None:
     await state.set_state(TicketStates.subject)
     if isinstance(call.message, Message):
         await call.message.answer(t("ticket_ask_subject"), reply_markup=keyboards.cancel(t))
+
+
+@router.callback_query(TicketCb.filter(F.action == "dept"))
+async def ticket_department(
+    call: CallbackQuery,
+    callback_data: TicketCb,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    state: FSMContext,
+) -> None:
+    desk = await tickets.department(session, customer.shop_id, callback_data.id)
+    if desk is None:
+        await call.answer(t("ticket_department_unknown"), show_alert=True)
+        return
+    await call.answer()
+    await state.clear()
+    await state.update_data(department_id=desk.id)
+    await _ask_subject(call, t, state)
 
 
 @router.message(TicketStates.subject, F.text)
@@ -196,7 +275,12 @@ async def ticket_message(
             if ticket is None:
                 raise tickets.TicketError("ticket_not_found")
         else:
-            ticket = await tickets.open_ticket(session, customer, data.get("subject") or "-")
+            ticket = await tickets.open_ticket(
+                session,
+                customer,
+                data.get("subject") or "-",
+                department_id=int(data["department_id"]) if data.get("department_id") else None,
+            )
         await tickets.add_message(
             session,
             ticket,

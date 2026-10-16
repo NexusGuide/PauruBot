@@ -1,0 +1,6 @@
+{
+  "adm_user_btn_limit": "📊 سقف فروش روزانه",
+  "adm_reseller_limit_ask": "سقف فعلی خرید روزانه: {current}. عددی از ۱ تا ۱۰۰۰۰۰ بفرستید؛ برای بدون سقف ۰ را بفرستید.",
+  "adm_reseller_limit_invalid": "عددی بین ۰ تا ۱۰۰۰۰۰ بفرستید؛ ۰ یعنی بدون سقف.",
+  "adm_reseller_limit_unlimited": "بدون سقف"
+}

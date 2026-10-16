@@ -10,6 +10,7 @@ from aiogram.fsm.storage.redis import DefaultKeyBuilder, RedisStorage
 from aiogram.types import BotCommand, CallbackQuery, Message
 
 from paurubot.bot.context import ContextMiddleware, GateMiddleware, StaffIdentity
+from paurubot.bot.dedupe import UpdateDedupeMiddleware
 from paurubot.bot.routers import (
     account,
     accounts,
@@ -26,10 +27,15 @@ from paurubot.bot.routers import (
     admin_panels,
     admin_shop,
     admin_tools,
+    admin_user_actions,
     admin_users,
     business,
     growth,
     resale_bot,
+    resale_broadcast,
+    resale_customization,
+    resale_discounts,
+    resale_reports,
     reseller,
     services,
     shop,
@@ -75,6 +81,8 @@ def build_dispatcher(storage: BaseStorage | None = None, shop_id: int | None = N
             get_settings().redis_url, key_builder=DefaultKeyBuilder(with_bot_id=True, prefix="fsm")
         )
     dp = Dispatcher(storage=storage, shop_id=shop_id)
+    # First: a retried webhook delivery must not open a second ticket or revoke twice.
+    dp.update.outer_middleware(UpdateDedupeMiddleware())
     dp.update.outer_middleware(ContextMiddleware())
     gate = GateMiddleware()
     dp.message.middleware(gate)
@@ -91,6 +99,7 @@ def build_dispatcher(storage: BaseStorage | None = None, shop_id: int | None = N
         admin_shop.router,
         admin_general.router,
         admin_tools.router,
+        admin_user_actions.router,
         admin_ops.router,
         admin_hub.router,
         admin_config.router,
@@ -101,6 +110,10 @@ def build_dispatcher(storage: BaseStorage | None = None, shop_id: int | None = N
         wallet.router,
         reseller.router,
         resale_bot.router,
+        resale_broadcast.router,
+        resale_customization.router,
+        resale_discounts.router,
+        resale_reports.router,
         accounts.router,
         account.router,
         growth.router,
@@ -116,5 +129,6 @@ async def set_commands(bot: Bot, t_fa: Texts, t_en: Texts) -> None:
             BotCommand(command="start", description=t("cmd_start")),
             BotCommand(command="help", description=t("cmd_help")),
             BotCommand(command="language", description=t("cmd_language")),
+            BotCommand(command="marketing", description=t("cmd_marketing")),
         ]
         await bot.set_my_commands(commands, language_code=language)

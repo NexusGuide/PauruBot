@@ -1,0 +1,10 @@
+{
+  "rb_btn_reports": "📈 Profit reports",
+  "rb_profit_report": "📈 <b>{period} profit</b>\n\nSales: {sales}\nRevenue: {revenue}\nWholesale cost: {wholesale}\nNet profit: {profit}",
+  "rb_profit_day": "Today",
+  "rb_profit_week": "Last 7 days",
+  "rb_profit_month": "Last 30 days",
+  "rb_profit_export": "📄 Excel · {period}",
+  "rb_profit_file_caption": "Profit report · {period}",
+  "rb_profit_exported": "Excel report is ready."
+}

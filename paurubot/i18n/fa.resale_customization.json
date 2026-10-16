@@ -1,0 +1,16 @@
+{
+  "rb_btn_customize": "🎨 شخصی‌سازی ربات",
+  "rb_customize_title": "🎨 <b>شخصی‌سازی ربات فروش</b>\nموردی را که می‌خواهید تغییر دهید انتخاب کنید:",
+  "rb_customize_welcome": "✍️ پیام خوش‌آمد",
+  "rb_customize_rules": "📜 قوانین",
+  "rb_customize_guide": "📘 آموزش اتصال",
+  "rb_customize_logo": "🖼 لوگو / تصویر خوش‌آمد",
+  "rb_customize_channel": "📢 کانال اجباری",
+  "rb_customize_text_ask": "متن جدید را بفرستید. متن برای زبان فعلی شما ذخیره می‌شود (حداکثر {max} نویسه).",
+  "rb_customize_text_invalid": "یک متن غیرخالی تا {max} نویسه بفرستید.",
+  "rb_customize_logo_ask": "یک عکس برای نمایش قبل از /start بفرستید، یا برای حذف عکس - را بفرستید.",
+  "rb_customize_logo_invalid": "یک عکس یا برای حذف تصویر فعلی - را بفرستید.",
+  "rb_customize_channel_ask": "<code>@channel | https://t.me/channel</code> را بفرستید، یا برای حذف کانال اجباری - را بفرستید. ربات باید در کانال ادمین باشد.",
+  "rb_customize_channel_invalid": "قالب صحیح: <code>@channel | https://t.me/channel</code>.",
+  "rb_customize_saved": "✅ ذخیره شد."
+}

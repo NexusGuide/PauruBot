@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { money } from "@shared/format";
-import { call, type Broadcast, type CatalogData, type Discount } from "../api";
+import { call, type CatalogData, type Discount } from "../api";
 import { PAGE_SIZE, useAction, useList, useLoad } from "../hooks";
 import { useSession } from "../session";
 import {
@@ -17,9 +17,7 @@ import {
   Section,
   Select,
   Sheet,
-  Status,
   Table,
-  Textarea,
   Toggle,
   When,
   useConfirm,
@@ -390,177 +388,7 @@ export function Discounts() {
   );
 }
 
-interface ButtonDraft {
-  text: string;
-  url: string;
-}
-
-export function Broadcasts() {
-  const { t, locale, toast, errorText } = useSession();
-  const confirm = useConfirm();
-  const list = useList<Broadcast>("/api/admin/broadcasts", []);
-  const audience = useLoad<{ reachable: number }>("/api/admin/broadcasts/audience");
-  const [composing, setComposing] = useState(false);
-  const [text, setText] = useState("");
-  const [buttons, setButtons] = useState<ButtonDraft[]>([]);
-  const [resellersOnly, setResellersOnly] = useState(false);
-  const [buyersOnly, setBuyersOnly] = useState(false);
-  const [lang, setLang] = useState("");
-  const [busy, run] = useAction();
-
-  const buttonsValid = buttons.every((b) => b.text.trim() && /^(https:\/\/|tg:\/\/)/.test(b.url.trim()));
-
-  const send = async () => {
-    const ok = await confirm({
-      title: t("broadcast_confirm_title"),
-      body: t("broadcast_confirm_body", { n: money(audience.data?.reachable ?? 0, locale) }),
-      confirm: t("send"),
-    });
-    if (!ok) return;
-    try {
-      await run(() =>
-        call("/api/admin/broadcasts", {
-          method: "POST",
-          body: {
-            text,
-            buttons: buttons.map((b) => ({ text: b.text.trim(), url: b.url.trim() })),
-            resellers_only: resellersOnly,
-            buyers_only: buyersOnly,
-            locale: lang || null,
-          },
-        }),
-      );
-      toast(t("broadcast_queued"));
-      setComposing(false);
-      setText("");
-      setButtons([]);
-      void list.reload();
-    } catch (err) {
-      toast(errorText(err), "error");
-    }
-  };
-
-  const cancel = async (row: Broadcast) => {
-    try {
-      await call(`/api/admin/broadcasts/${row.id}/cancel`, { method: "POST" });
-      void list.reload();
-    } catch (err) {
-      toast(errorText(err), "error");
-    }
-  };
-
-  const columns: Column<Broadcast>[] = [
-    {
-      key: "text",
-      label: t("message_text"),
-      mobile: "title",
-      className: "max-w-md",
-      render: (b) => <span className="line-clamp-2" dir="auto">{b.text}</span>,
-    },
-    { key: "status", label: t("col_status"), mobile: "end", render: (b) => <Status value={b.status} /> },
-    {
-      key: "progress",
-      label: t("delivered"),
-      mobile: "meta",
-      render: (b) => (
-        <span className="num">
-          {money(b.sent, locale)} / {money(b.total, locale)}
-          {b.failed > 0 && <span className="text-anar-700"> ({t("failed_n", { n: money(b.failed, locale) })})</span>}
-        </span>
-      ),
-    },
-    { key: "created", label: t("col_created"), mobile: "meta", render: (b) => <When iso={b.created_at} time /> },
-    {
-      key: "actions",
-      label: "",
-      mobile: "hide",
-      render: (b) =>
-        ["queued", "running"].includes(b.status) ? (
-          <Button small tone="ghost" onClick={() => void cancel(b)}>
-            {t("cancel")}
-          </Button>
-        ) : null,
-    },
-  ];
-
-  return (
-    <Page
-      title={t("nav_broadcasts")}
-      actions={
-        <Button tone="primary" icon="plus" onClick={() => setComposing(true)}>
-          {t("new_broadcast")}
-        </Button>
-      }
-    >
-      <Section flush>
-        <Async data={list.data} error={list.error} reload={list.reload}>
-          {(data) => (
-            <>
-              <Table columns={columns} rows={data.items} />
-              <Pager page={list.page} total={data.total} size={PAGE_SIZE} onPage={list.setPage} />
-            </>
-          )}
-        </Async>
-      </Section>
-      <Sheet
-        open={composing}
-        onClose={() => setComposing(false)}
-        title={t("new_broadcast")}
-        footer={
-          <Button tone="primary" busy={busy} disabled={!text.trim() || !buttonsValid} onClick={() => void send()}>
-            {t("send_broadcast")}
-          </Button>
-        }
-      >
-        <div className="flex flex-col gap-4">
-          <p className="text-[0.85rem] text-[var(--hint)]">
-            {t("broadcast_reach", { n: money(audience.data?.reachable ?? 0, locale) })}
-          </p>
-          <Field label={t("message_text")} hint={t("broadcast_text_hint")}>
-            {(id) => <Textarea id={id} value={text} maxLength={4000} rows={7} onChange={(e) => setText(e.target.value)} />}
-          </Field>
-          <div className="flex flex-col gap-2">
-            <p className="text-[0.82rem] font-semibold">{t("broadcast_buttons")}</p>
-            {buttons.map((b, index) => (
-              <div key={index} className="grid grid-cols-[1fr_1.4fr_auto] gap-2">
-                <Input
-                  aria-label={t("button_text")}
-                  placeholder={t("button_text")}
-                  value={b.text}
-                  onChange={(e) => setButtons(buttons.map((x, i) => (i === index ? { ...x, text: e.target.value } : x)))}
-                />
-                <Input
-                  aria-label={t("button_url")}
-                  placeholder="https://"
-                  dir="ltr"
-                  value={b.url}
-                  onChange={(e) => setButtons(buttons.map((x, i) => (i === index ? { ...x, url: e.target.value } : x)))}
-                />
-                <Button small tone="ghost" icon="close" aria-label={t("remove")} onClick={() => setButtons(buttons.filter((_, i) => i !== index))} />
-              </div>
-            ))}
-            {buttons.length < 6 && (
-              <Button small icon="plus" className="self-start" onClick={() => setButtons([...buttons, { text: "", url: "" }])}>
-                {t("add_button")}
-              </Button>
-            )}
-          </div>
-          <Toggle checked={buyersOnly} onChange={setBuyersOnly} label={t("buyers_only")} />
-          <Toggle checked={resellersOnly} onChange={setResellersOnly} label={t("resellers_only")} />
-          <Field label={t("language")}>
-            {(id) => (
-              <Select id={id} value={lang} onChange={(e) => setLang(e.target.value)}>
-                <option value="">{t("all_languages")}</option>
-                <option value="fa">فارسی</option>
-                <option value="en">English</option>
-              </Select>
-            )}
-          </Field>
-        </div>
-      </Sheet>
-    </Page>
-  );
-}
+export { Broadcasts } from "../broadcasts/Broadcasts";
 
 // ---------------------------------------------------------------- lotteries (GRW-04)
 

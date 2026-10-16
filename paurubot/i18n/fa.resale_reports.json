@@ -1,0 +1,10 @@
+{
+  "rb_btn_reports": "📈 گزارش سود",
+  "rb_profit_report": "📈 <b>گزارش سود {period}</b>\n\nفروش: {sales}\nدرآمد فروش: {revenue}\nهزینهٔ عمده: {wholesale}\nسود خالص: {profit}",
+  "rb_profit_day": "امروز",
+  "rb_profit_week": "۷ روز اخیر",
+  "rb_profit_month": "۳۰ روز اخیر",
+  "rb_profit_export": "📄 Excel · {period}",
+  "rb_profit_file_caption": "گزارش سود · {period}",
+  "rb_profit_exported": "گزارش Excel آماده است."
+}

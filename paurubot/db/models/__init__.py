@@ -47,12 +47,14 @@ from paurubot.db.models.ops import (
     BotText,
     Broadcast,
     BroadcastPin,
+    CannedReply,
     ForcedChannel,
     InboxDismissal,
     Job,
     LogChannel,
     SupportContact,
     Ticket,
+    TicketDepartment,
     TicketMessage,
 )
 from paurubot.db.models.tenancy import (
@@ -67,6 +69,7 @@ from paurubot.db.models.tenancy import (
     Staff,
     StaffApiKey,
 )
+from paurubot.db.models.usage import ServiceUsage
 
 __all__ = [
     "AccountPlan",
@@ -76,6 +79,7 @@ __all__ = [
     "BotText",
     "BusinessConnection",
     "Broadcast",
+    "CannedReply",
     "Category",
     "Customer",
     "DiscountCode",
@@ -108,6 +112,7 @@ __all__ = [
     "ResellerPrice",
     "ResellerProfile",
     "Service",
+    "ServiceUsage",
     "Settlement",
     "StaffApiKey",
     "PanelCheck",
@@ -127,6 +132,7 @@ __all__ = [
     "WheelSpin",
     "SupportContact",
     "Ticket",
+    "TicketDepartment",
     "TicketMessage",
     "TicketStatus",
     "TrialGrant",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
@@ -18,6 +19,7 @@ from paurubot.panels.base import (
     parse_expire,
     seg,
     system_figures,
+    usage_counter,
     whole,
 )
 
@@ -28,6 +30,9 @@ class TokenApiDriver(PanelDriver):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._token: str | None = None
+        # Single-flight login (F-05): concurrent calls on a cold or expired token share one login
+        # instead of each posting the password and tripping the panel's rate limit.
+        self._login_lock = asyncio.Lock()
 
     async def _login(self) -> str:
         resp = await self.http.request(
@@ -46,14 +51,20 @@ class TokenApiDriver(PanelDriver):
         self._token = str(token)
         return self._token
 
+    async def _fresh_token(self, stale: str | None = None) -> str:
+        """The current token, logging in only when there is none or it is still the rejected one."""
+        async with self._login_lock:
+            if self._token is not None and self._token != stale:
+                return self._token
+            return await self._login()
+
     async def call(self, method: str, path: str, **kwargs: Any) -> Any:
-        if self._token is None:
-            await self._login()
+        token = self._token or await self._fresh_token()
         for attempt in range(2):
-            headers = {"Authorization": f"Bearer {self._token}", "Accept": "application/json"}
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
             resp = await self.http.request(method, path, headers=headers, **kwargs)
             if resp.status_code == 401 and attempt == 0:
-                await self._login()
+                token = await self._fresh_token(stale=token)
                 continue
             if resp.status_code == 404:
                 raise PanelNotFound(f"{method} {path} not found", 404)
@@ -78,6 +89,7 @@ class TokenApiDriver(PanelDriver):
             username=str(data.get("username", "")),
             status=str(data.get("status") or "active"),
             used_bytes=int(data.get("used_traffic") or 0),
+            usage_known=usage_counter(data.get("used_traffic")) is not None,
             data_limit=int(data.get("data_limit") or 0),
             expire_at=parse_expire(data.get("expire")),
             subscription_url=self.absolute_url(data.get("subscription_url")),

@@ -1,0 +1,7 @@
+{
+  "rb_btn_broadcast": "📣 Broadcast to customers",
+  "rb_broadcast_ask": "Send the message to broadcast to customers of this bot. Text, photo or any Telegram message is supported.",
+  "rb_broadcast_queued": "📣 Broadcast queued for this bot's customers.",
+  "rb_broadcast_limit": "This bot has reached its daily broadcast limit ({limit}). Try again tomorrow.",
+  "rb_broadcast_own_bot": "Open your own sales bot and use its admin menu to send broadcasts. The message must be sent to that bot."
+}
