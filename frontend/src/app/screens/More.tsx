@@ -97,6 +97,13 @@ export function More() {
         </Panel>
       )}
 
+      <section className="mb-4 overflow-hidden rounded-3xl bg-[var(--surface)]">
+        <Row onClick={() => navigate("/tickets")}>
+          <span className="flex-1 text-start"><span className="block font-bold">{t("tickets_title")}</span>
+            <span className="block text-sm text-[var(--hint)]">{t("tickets_entry_hint")}</span></span>
+          <span aria-hidden="true">›</span>
+        </Row>
+      </section>
       <CustomerSettings />
 
       {me.shop.support && (

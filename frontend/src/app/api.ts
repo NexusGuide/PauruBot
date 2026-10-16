@@ -39,6 +39,32 @@ export interface UsageHistory {
   points: UsagePoint[];
 }
 
+export interface Ticket {
+  id: number;
+  subject: string;
+  status: "open" | "answered" | "closed";
+  department_id: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+export interface TicketMessage {
+  id: number;
+  from: "me" | "support";
+  text: string | null;
+  has_attachment: boolean;
+  created_at: string | null;
+}
+export interface TicketList {
+  items: Ticket[];
+  departments: { id: number; title: string }[];
+  next_before: number | null;
+}
+export interface TicketThreadData {
+  ticket: Ticket;
+  messages: TicketMessage[];
+  next_before: number | null;
+}
+
 export interface StaffAccess {
   role: string;
   scoped: boolean;
@@ -178,7 +204,7 @@ export interface HistoryItem {
 }
 
 const auth = () => ({ "X-Telegram-Init-Data": initData() });
-const get = <T>(path: string) => request<T>(`/api/webapp${path}`, { headers: auth() });
+const get = <T>(path: string, signal?: AbortSignal) => request<T>(`/api/webapp${path}`, { headers: auth(), signal });
 const post = <T>(path: string, body: unknown = {}) =>
   request<T>(`/api/webapp${path}`, { method: "POST", body, headers: auth() });
 
@@ -188,6 +214,11 @@ export const api = {
   setMarketing: (optOut: boolean) =>
     post<MarketingPreference>("/me/marketing", { marketing_opt_out: optOut }),
   setLocale: (locale: string) => post<{ locale: string }>("/me/locale", { locale }),
+  tickets: (before?: number, signal?: AbortSignal) => get<TicketList>(`/tickets${before ? `?before=${before}` : ""}`, signal),
+  ticket: (id: number, before?: number, signal?: AbortSignal) => get<TicketThreadData>(`/tickets/${id}${before ? `?before=${before}` : ""}`, signal),
+  newTicket: (body: { subject: string; text: string; department_id: number | null }) => post<{ ticket: Ticket }>("/tickets", body),
+  replyTicket: (id: number, text: string) => post<{ ticket: Ticket }>(`/tickets/${id}/reply`, { text }),
+  closeTicket: (id: number) => post<{ ticket: Ticket }>(`/tickets/${id}/close`),
   catalog: () => get<Catalog>("/catalog"),
   createOrder: (body: {
     kind: string;

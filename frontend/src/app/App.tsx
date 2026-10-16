@@ -10,6 +10,7 @@ import { Receipts } from "./screens/Receipts";
 import { Payment } from "./screens/Payment";
 import { Profile } from "./screens/Profile";
 import { Extra, ServiceDetail, Services } from "./screens/Services";
+import { NewTicket, TicketThread, Tickets } from "./screens/Tickets";
 import { Wallet } from "./screens/Wallet";
 import { AppProvider, useApp } from "./state";
 import { tg } from "./telegram";
@@ -63,6 +64,9 @@ function Shell() {
         <Route path="/extra/:id/:unit" element={<Extra />} />
         <Route path="/wallet" element={<Wallet />} />
         <Route path="/more" element={<More />} />
+        <Route path="/tickets" element={<Tickets />} />
+        <Route path="/tickets/new" element={<NewTicket />} />
+        <Route path="/tickets/:id" element={<TicketThread />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/manage" element={<Manage />} />
         <Route path="/desk" element={<Desk />} />
