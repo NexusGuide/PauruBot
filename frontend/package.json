@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test:broadcasts": "node --test tests/broadcasts.test.mjs",
     "test:capabilities": "node --test tests/capabilities.test.mjs",
-    "test:confirm": "node --test tests/typed-confirm.test.mjs"
+    "test:confirm": "node --test tests/typed-confirm.test.mjs",
+    "test:tickets": "node --test tests/ticket-desk.test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/vazirmatn": "^5.3.0",
