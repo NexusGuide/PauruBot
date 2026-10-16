@@ -24,6 +24,7 @@ export const NAV_GROUPS: { key: string; items: NavItem[] }[] = [
       { to: "/orders", key: "nav_orders", icon: "orders", permission: "orders.read" },
       { to: "/payments", key: "nav_payments", icon: "payments", permission: "payments.read" },
       { to: "/tickets", key: "nav_tickets", icon: "tickets", permission: "tickets.read" },
+      { to: "/billing", key: "nav_reseller_hub", icon: "resellers", permission: "dashboard.view", resellerOnly: true },
     ],
   },
   {

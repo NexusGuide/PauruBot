@@ -6,6 +6,7 @@ import { Desk } from "./screens/Desk";
 import { Home } from "./screens/Home";
 import { Manage } from "./screens/Manage";
 import { More } from "./screens/More";
+import { Receipts } from "./screens/Receipts";
 import { Payment } from "./screens/Payment";
 import { Profile } from "./screens/Profile";
 import { Extra, ServiceDetail, Services } from "./screens/Services";
@@ -56,6 +57,7 @@ function Shell() {
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/done/:id" element={<Done />} />
         <Route path="/payment/:id" element={<Payment />} />
+        <Route path="/receipts" element={<Receipts />} />
         <Route path="/services" element={<Services />} />
         <Route path="/services/:id" element={<ServiceDetail />} />
         <Route path="/extra/:id/:unit" element={<Extra />} />
