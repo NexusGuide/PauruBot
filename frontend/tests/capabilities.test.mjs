@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import test from 'node:test';
-import ts from 'typescript';
-const source=readFileSync(new URL('../src/admin/capabilities/report.ts',import.meta.url),'utf8');
-const {outputText}=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}});
-const {validateReport,needsCleanup,cleanupUnconfirmed,CHECK_KEYS}=await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
+const {validateReport,needsCleanup,cleanupUnconfirmed,CHECK_KEYS}=await import(new URL('../src/admin/capabilities/report.ts',import.meta.url));
 const read=()=>({status:'ok',write_tested:false,checks:[{key:'connect',status:'ok',detail:'Version 1'},{key:'client_ips',status:'skip',detail:''}]});
 test('read-only report preserves skipped and raw plain details',()=>{const d=read();assert.deepEqual(validateReport(d),d);assert(!needsCleanup(d))});
 for(const [status,expected] of [['ok','ok'],['warn','warn'],['fail','fail'],['skip','ok']])test(`overall ${expected} from ${status}`,()=>{const d=read();d.checks[0].status=status;d.status=expected;assert.deepEqual(validateReport(d),d)});
