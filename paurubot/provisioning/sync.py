@@ -125,6 +125,9 @@ async def apply_webhook_user(session: AsyncSession, panel: Panel, info: PanelUse
         return None
     previous = service.status
     apply_panel_user(service, info)
+    from paurubot.core import usage_history
+
+    await usage_history.observe(session, service, info, source="webhook")
     await evaluate_alerts(session, service, previous)
     return service
 

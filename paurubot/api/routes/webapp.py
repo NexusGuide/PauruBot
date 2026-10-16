@@ -503,6 +503,20 @@ async def service_detail(service_id: int, ctx: WebApp, refresh: bool = False) ->
     return {"service": service_view(service, ctx.cfg)}
 
 
+@router.get("/services/{service_id}/usage")
+async def service_usage(service_id: int, ctx: WebApp, days: int = Query(default=7)) -> dict[str, Any]:
+    from paurubot.core import usage_history
+
+    if days not in (7, 30):
+        raise HTTPException(status_code=422, detail="unsupported_usage_window")
+    service = await _owned_service(ctx, service_id)
+    assert service is not None
+    # Explicit shop guard in addition to customer ownership; history never queries the panel.
+    if service.shop_id != ctx.shop.id:
+        raise HTTPException(status_code=404, detail="service_not_found")
+    return await usage_history.series(ctx.session, service, days)
+
+
 @router.get("/services/{service_id}/links")
 async def service_links(service_id: int, ctx: WebApp) -> dict[str, Any]:
     service = await _owned_service(ctx, service_id)

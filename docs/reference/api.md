@@ -229,6 +229,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/services/{service_id}/links` | Mini App initData | Service links |
 | POST | `/api/webapp/services/{service_id}/rename` | Mini App initData | Service rename |
 | POST | `/api/webapp/services/{service_id}/revoke` | Mini App initData | Service revoke |
+| GET | `/api/webapp/services/{service_id}/usage` | Mini App initData | Service usage |
 | GET | `/api/webapp/services/{service_id}` | Mini App initData | Service detail |
 | GET | `/api/webapp/services` | Mini App initData | Services |
 | GET | `/api/webapp/staff/dashboard` | Mini App initData | Dashboard |

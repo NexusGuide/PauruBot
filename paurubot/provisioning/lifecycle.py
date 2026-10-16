@@ -996,6 +996,9 @@ async def refresh(session: AsyncSession, service: Service) -> PanelUser | None:
         service.delete_reason = "missing on panel"
     else:
         apply_panel_user(service, info)
+        from paurubot.core import usage_history
+
+        await usage_history.observe(session, service, info, source="poll")
     await session.flush()
     return info
 

@@ -82,6 +82,7 @@ jobs:
       - run: npm run test:confirm
       - run: npm run test:receipts
       - run: npm run test:tickets
+      - run: npm run test:usage
       - run: npm run lint
       - run: npm run build
       - run: npm run test:reseller-hub

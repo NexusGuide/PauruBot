@@ -65,6 +65,8 @@ class PanelUser:
     owner: str | None = None  # the panel admin the user belongs to, when the panel has admins
     # False when the panel cannot report data and time limits (MikroTik, IBSng): ours are kept.
     limits_known: bool = True
+    # F-06: opt in only when the driver saw an actual valid counter, not a missing-field zero.
+    usage_known: bool = False
 
 
 SUBSCRIPTION_MAX_BYTES = 2 * 1024 * 1024
@@ -113,6 +115,19 @@ def seg(value: Any) -> str:
     from urllib.parse import quote
 
     return quote(str(value), safe="")
+
+
+def usage_counter(value: Any) -> int | None:
+    """An exact non-negative byte counter safe in both PostgreSQL and JavaScript."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        if not value.isascii() or not value.isdigit() or len(value) > 16:
+            return None
+        value = int(value)
+    if not isinstance(value, int) or not 0 <= value <= 2**53 - 1:
+        return None
+    return value
 
 
 def number(data: dict[str, Any], *keys: str) -> float | None:

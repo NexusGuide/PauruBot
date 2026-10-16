@@ -25,6 +25,17 @@ export interface MarketingPreference {
   changed_at: string | null;
 }
 
+export interface UsagePoint { at: string; used_bytes: number; break_before: boolean }
+export interface UsageHistory {
+  service_id: number;
+  days: 7 | 30;
+  resolution: "hourly_last_observation";
+  from: string;
+  to: string;
+  last_observed_at: string | null;
+  points: UsagePoint[];
+}
+
 export interface StaffAccess {
   role: string;
   scoped: boolean;
@@ -213,6 +224,8 @@ export const api = {
   history: (before?: number) => get<{ items: HistoryItem[] }>(`/wallet/history${before ? `?before=${before}` : ""}`),
   services: () => get<{ items: Service[] }>("/services"),
   service: (id: number, refresh = false) => get<{ service: Service }>(`/services/${id}${refresh ? "?refresh=true" : ""}`),
+  usage: (id: number, days: 7 | 30, signal?: AbortSignal) =>
+    request<UsageHistory>(`/api/webapp/services/${id}/usage?days=${days}`, { headers: auth(), signal }),
   links: (id: number) => get<{ links: string[] }>(`/services/${id}/links`),
   revoke: (id: number) => post<{ service: Service }>(`/services/${id}/revoke`),
   rename: (id: number, label: string) => post<{ service: Service }>(`/services/${id}/rename`, { label }),
