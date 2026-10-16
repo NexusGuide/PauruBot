@@ -1,4 +1,5 @@
 import { request } from "@shared/http";
+import type { Body as AutoRenewBody } from "./autoRenew/model";
 import { initData } from "./telegram";
 
 export interface Me {
@@ -17,7 +18,56 @@ export interface Me {
   payment_methods: string[];
   topup_bounds: [number, number];
   staff: StaffAccess | null;
+  preferences: MarketingPreference;
+  alerts_muted: boolean;
+  profile: { phone_masked: string | null; member_since: string };
 }
+
+export interface MarketingPreference {
+  marketing_opt_out: boolean;
+  changed_at: string | null;
+}
+
+export interface UsagePoint { at: string; used_bytes: number; break_before: boolean }
+export interface UsageHistory {
+  service_id: number;
+  days: 7 | 30;
+  resolution: "hourly_last_observation";
+  from: string;
+  to: string;
+  last_observed_at: string | null;
+  points: UsagePoint[];
+}
+
+export interface Ticket {
+  id: number;
+  subject: string;
+  status: "open" | "answered" | "closed";
+  department_id: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+export interface TicketMessage {
+  id: number;
+  from: "me" | "support";
+  text: string | null;
+  has_attachment: boolean;
+  created_at: string | null;
+}
+export interface TicketList {
+  items: Ticket[];
+  departments: { id: number; title: string }[];
+  next_before: number | null;
+}
+export interface TicketThreadData {
+  ticket: Ticket;
+  messages: TicketMessage[];
+  next_before: number | null;
+}
+
+export interface HelpArticle { id: number; title: string; text: string; url: string | null }
+export interface HelpApp { id: number; name: string; platform: string; store_url: string | null; release_url: string | null }
+export interface CustomerHelp { articles: HelpArticle[]; apps: HelpApp[]; bot_url: string | null }
 
 export interface StaffAccess {
   role: string;
@@ -158,13 +208,22 @@ export interface HistoryItem {
 }
 
 const auth = () => ({ "X-Telegram-Init-Data": initData() });
-const get = <T>(path: string) => request<T>(`/api/webapp${path}`, { headers: auth() });
+const get = <T>(path: string, signal?: AbortSignal) => request<T>(`/api/webapp${path}`, { headers: auth(), signal });
 const post = <T>(path: string, body: unknown = {}) =>
   request<T>(`/api/webapp${path}`, { method: "POST", body, headers: auth() });
 
 export const api = {
   me: () => get<Me>("/me"),
+  setAlerts: (muted: boolean) => post<{ alerts_muted: boolean }>("/me/alerts", { alerts_muted: muted }),
+  setMarketing: (optOut: boolean) =>
+    post<MarketingPreference>("/me/marketing", { marketing_opt_out: optOut }),
   setLocale: (locale: string) => post<{ locale: string }>("/me/locale", { locale }),
+  help: (signal?: AbortSignal) => get<CustomerHelp>("/help", signal),
+  tickets: (before?: number, signal?: AbortSignal) => get<TicketList>(`/tickets${before ? `?before=${before}` : ""}`, signal),
+  ticket: (id: number, before?: number, signal?: AbortSignal) => get<TicketThreadData>(`/tickets/${id}${before ? `?before=${before}` : ""}`, signal),
+  newTicket: (body: { subject: string; text: string; department_id: number | null }) => post<{ ticket: Ticket }>("/tickets", body),
+  replyTicket: (id: number, text: string) => post<{ ticket: Ticket }>(`/tickets/${id}/reply`, { text }),
+  closeTicket: (id: number) => post<{ ticket: Ticket }>(`/tickets/${id}/close`),
   catalog: () => get<Catalog>("/catalog"),
   createOrder: (body: {
     kind: string;
@@ -185,7 +244,13 @@ export const api = {
     post<{ order: Order; payment?: PaymentStart }>(`/orders/${id}/pay`, { method }),
   cancelOrder: (id: number) => post<{ ok: boolean }>(`/orders/${id}/cancel`),
   topup: (amount: number, method: string) => post<{ payment: PaymentStart }>("/wallet/topup", { amount, method }),
-  payment: (id: number) => get<{ id: number; status: string; amount: number; fulfilled: boolean }>(`/payments/${id}`),
+  payment: (id: number) => get<{ id: number; status: string; amount: number; fulfilled: boolean; provider: string; order_id: number | null }>(`/payments/${id}`),
+  receiptState: (id: number) => get<unknown>(`/payments/${id}/receipt-state`),
+  receipts: (before?: number) => get<unknown>(`/receipts${before ? `?before=${before}` : ""}`),
+  sendReceipt: (id: number, file: File, revision: string) => {
+    const form = new FormData(); form.append("file", file); form.append("expected_revision", revision);
+    return request<unknown>(`/api/webapp/payments/${id}/receipt-upload`, { method: "POST", form, headers: auth() });
+  },
   uploadReceipt: (id: number, file: File) => {
     const form = new FormData();
     form.append("file", file);
@@ -199,6 +264,10 @@ export const api = {
   history: (before?: number) => get<{ items: HistoryItem[] }>(`/wallet/history${before ? `?before=${before}` : ""}`),
   services: () => get<{ items: Service[] }>("/services"),
   service: (id: number, refresh = false) => get<{ service: Service }>(`/services/${id}${refresh ? "?refresh=true" : ""}`),
+  usage: (id: number, days: 7 | 30, signal?: AbortSignal) =>
+    request<UsageHistory>(`/api/webapp/services/${id}/usage?days=${days}`, { headers: auth(), signal }),
+  autoRenew: (id: number) => get<unknown>(`/services/${id}/auto-renew`),
+  setAutoRenew: (id: number, body: AutoRenewBody) => post<unknown>(`/services/${id}/auto-renew`, body),
   links: (id: number) => get<{ links: string[] }>(`/services/${id}/links`),
   revoke: (id: number) => post<{ service: Service }>(`/services/${id}/revoke`),
   rename: (id: number, label: string) => post<{ service: Service }>(`/services/${id}/rename`, { label }),

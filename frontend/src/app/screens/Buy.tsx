@@ -4,7 +4,9 @@ import { money } from "@shared/format";
 import { api, type Catalog, type Plan } from "../api";
 import { useApp } from "../state";
 import { haptic } from "../telegram";
-import { Button, Empty, Loading, Screen } from "../ui";
+import { Button, Empty, Loading, ReadFailure, Screen } from "../ui";
+
+import { useResource } from "../useResource";
 
 function Chips<T extends number | null>({
   items,
@@ -20,6 +22,7 @@ function Chips<T extends number | null>({
       {items.map((item) => (
         <button
           key={String(item.id)}
+          aria-pressed={item.id === value}
           type="button"
           onClick={() => {
             haptic("select");
@@ -43,16 +46,13 @@ export function Buy() {
   const serviceId = Number(params.get("service")) || undefined;
   const kind = params.get("kind") ?? "purchase";
   const panelId = Number(params.get("panel")) || undefined;
-  const [catalog, setCatalog] = useState<Catalog | null>(null);
+  const { data: catalog, error, retry } = useResource(api.catalog);
   const [location, setLocation] = useState<number | null>(null);
   const [category, setCategory] = useState<number | null>(null);
 
   useEffect(() => {
-    api.catalog().then((c) => {
-      setCatalog(c);
-      setLocation(c.locations[0]?.id ?? null);
-    });
-  }, []);
+    if (catalog) setLocation(current => catalog.locations.some(item => item.id === current) ? current : catalog.locations[0]?.id ?? null);
+  }, [catalog]);
 
   const plans = useMemo(() => {
     if (!catalog) return [];
@@ -65,6 +65,7 @@ export function Buy() {
     );
   }, [catalog, location, category, panelId, serviceId, kind]);
 
+  if (error) return <Screen title={t("buy_title")}><ReadFailure error={error} retry={retry} /></Screen>;
   if (!catalog) return <Loading />;
   const title = serviceId ? t(kind === "upgrade" ? "choose_upgrade" : "choose_renew") : t("buy_title");
   const usedCategories = catalog.categories.filter((c) => plans.some((p) => p.category_id === c.id) || c.id === category);
@@ -100,7 +101,7 @@ export function Buy() {
               <button
                 type="button"
                 onClick={() => choose(plan)}
-                className="flex w-full items-stretch gap-4 rounded-3xl bg-[var(--surface)] p-4 text-start active:opacity-80"
+                className="app-plan flex w-full items-stretch gap-4 rounded-3xl bg-[var(--surface)] p-4 text-start active:opacity-80"
               >
                 <div className="flex w-16 shrink-0 flex-col items-center justify-center rounded-2xl bg-firouzeh-50 text-firouzeh-700">
                   <span className="num text-2xl font-extrabold leading-none">

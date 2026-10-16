@@ -18,6 +18,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/backups` | `backups.manage` | List backups |
 | POST | `/api/admin/backups` | `backups.manage` | Start backup |
 | GET | `/api/admin/broadcasts/audience` | `broadcast.send` | Audience size |
+| GET | `/api/admin/broadcasts/targeted/audience` | `broadcast.send` | Targeted audience size |
+| POST | `/api/admin/broadcasts/targeted` | `broadcast.send` | Create targeted broadcast |
 | POST | `/api/admin/broadcasts/test` | `broadcast.send` | Send test broadcast |
 | POST | `/api/admin/broadcasts/{broadcast_id}/cancel` | `broadcast.send` | Cancel broadcast |
 | POST | `/api/admin/broadcasts/{broadcast_id}/pause` | `broadcast.send` | Pause broadcast |
@@ -210,19 +212,28 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | Method | Path | Access | What it does |
 |---|---|---|---|
 | GET | `/api/webapp/catalog` | Mini App initData | Catalog view |
+| GET | `/api/webapp/help` | Mini App initData | Customer help view |
+| POST | `/api/webapp/me/alerts` | Mini App initData | Set alert preferences |
 | POST | `/api/webapp/me/locale` | Mini App initData | Set locale |
+| POST | `/api/webapp/me/marketing` | Mini App initData | Set marketing |
 | GET | `/api/webapp/me` | Mini App initData | Me |
 | POST | `/api/webapp/orders/{order_id}/cancel` | Mini App initData | Cancel order |
 | POST | `/api/webapp/orders/{order_id}/pay` | Mini App initData | Pay order |
 | GET | `/api/webapp/orders/{order_id}` | Mini App initData | Get order |
 | POST | `/api/webapp/orders` | Mini App initData | Create order |
+| GET | `/api/webapp/payments/{payment_id}/receipt-state` | Mini App initData | State |
+| POST | `/api/webapp/payments/{payment_id}/receipt-upload` | Mini App initData | Upload |
 | POST | `/api/webapp/payments/{payment_id}/receipt` | Mini App initData | Upload receipt |
 | GET | `/api/webapp/payments/{payment_id}` | Mini App initData | Payment status |
+| GET | `/api/webapp/receipts` | Mini App initData | Inbox |
 | GET | `/api/webapp/reseller/desk` | Mini App initData | Reseller desk view |
 | POST | `/api/webapp/reseller/renew` | Mini App initData | Reseller renew |
+| GET | `/api/webapp/services/{service_id}/auto-renew` | Mini App initData | Get auto renew |
+| POST | `/api/webapp/services/{service_id}/auto-renew` | Mini App initData | Set auto renew |
 | GET | `/api/webapp/services/{service_id}/links` | Mini App initData | Service links |
 | POST | `/api/webapp/services/{service_id}/rename` | Mini App initData | Service rename |
 | POST | `/api/webapp/services/{service_id}/revoke` | Mini App initData | Service revoke |
+| GET | `/api/webapp/services/{service_id}/usage` | Mini App initData | Service usage |
 | GET | `/api/webapp/services/{service_id}` | Mini App initData | Service detail |
 | GET | `/api/webapp/services` | Mini App initData | Services |
 | GET | `/api/webapp/staff/dashboard` | Mini App initData | Dashboard |

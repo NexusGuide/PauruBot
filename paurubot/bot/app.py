@@ -35,6 +35,7 @@ from paurubot.bot.routers import (
     resale_broadcast,
     resale_customization,
     resale_discounts,
+    resale_reports,
     reseller,
     services,
     shop,
@@ -112,6 +113,7 @@ def build_dispatcher(storage: BaseStorage | None = None, shop_id: int | None = N
         resale_broadcast.router,
         resale_customization.router,
         resale_discounts.router,
+        resale_reports.router,
         accounts.router,
         account.router,
         growth.router,
@@ -127,5 +129,6 @@ async def set_commands(bot: Bot, t_fa: Texts, t_en: Texts) -> None:
             BotCommand(command="start", description=t("cmd_start")),
             BotCommand(command="help", description=t("cmd_help")),
             BotCommand(command="language", description=t("cmd_language")),
+            BotCommand(command="marketing", description=t("cmd_marketing")),
         ]
         await bot.set_my_commands(commands, language_code=language)

@@ -19,6 +19,7 @@ from paurubot.panels.base import (
     parse_expire,
     seg,
     system_figures,
+    usage_counter,
     whole,
 )
 
@@ -88,6 +89,7 @@ class TokenApiDriver(PanelDriver):
             username=str(data.get("username", "")),
             status=str(data.get("status") or "active"),
             used_bytes=int(data.get("used_traffic") or 0),
+            usage_known=usage_counter(data.get("used_traffic")) is not None,
             data_limit=int(data.get("data_limit") or 0),
             expire_at=parse_expire(data.get("expire")),
             subscription_url=self.absolute_url(data.get("subscription_url")),

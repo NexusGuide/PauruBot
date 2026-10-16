@@ -1,0 +1,150 @@
+[
+  {
+    "url": "https://example.com/guide?x=1#part",
+    "allowed": true
+  },
+  {
+    "url": "https://apps.apple.com/app/id123",
+    "allowed": true
+  },
+  {
+    "url": "https://github.com/Owner/App/releases",
+    "allowed": true
+  },
+  {
+    "url": "https://t.me/Shop_bot",
+    "allowed": true
+  },
+  {
+    "url": "HTTPS://EXAMPLE.COM:443/path",
+    "allowed": true
+  },
+  {
+    "url": "https://example.com/%D8%A7",
+    "allowed": true
+  },
+  {
+    "url": "https://xn--e1afmkfd.xn--p1ai/",
+    "allowed": true
+  },
+  {
+    "url": "javascript:alert(1)",
+    "allowed": false
+  },
+  {
+    "url": "data:text/html,Hi",
+    "allowed": false
+  },
+  {
+    "url": "http://example.com/",
+    "allowed": false
+  },
+  {
+    "url": "//example.com",
+    "allowed": false
+  },
+  {
+    "url": "/relative",
+    "allowed": false
+  },
+  {
+    "url": "https://user:pass@example.com",
+    "allowed": false
+  },
+  {
+    "url": "https://@example.com",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com:8443/",
+    "allowed": false
+  },
+  {
+    "url": "https://localhost/",
+    "allowed": false
+  },
+  {
+    "url": "https://printer.local/",
+    "allowed": false
+  },
+  {
+    "url": "https://a.internal/",
+    "allowed": false
+  },
+  {
+    "url": "https://127.0.0.1/",
+    "allowed": false
+  },
+  {
+    "url": "https://127.1/",
+    "allowed": false
+  },
+  {
+    "url": "https://[::1]/",
+    "allowed": false
+  },
+  {
+    "url": "https://2130706433/",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com./",
+    "allowed": false
+  },
+  {
+    "url": "https://a..com/",
+    "allowed": false
+  },
+  {
+    "url": "https://-a.com/",
+    "allowed": false
+  },
+  {
+    "url": "https://a_.com/",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/hello world",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/\\evil",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/%0aHeader",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/%5cpath",
+    "allowed": false
+  },
+  {
+    "url": "https://example%2ecom/",
+    "allowed": false
+  },
+  {
+    "url": "https://مثال.com/",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/راهنما",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com:bad/",
+    "allowed": false
+  },
+  {
+    "url": " https://example.com/",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/\npath",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "allowed": false
+  }
+]

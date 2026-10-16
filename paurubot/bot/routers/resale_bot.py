@@ -123,6 +123,7 @@ def home_kb(
         kb.button(text=t("rb_btn_cards"), callback_data=Rb(action="cards"))
         kb.button(text=t("rb_btn_support"), callback_data=Rb(action="support"))
         kb.button(text=t("rb_btn_customize"), callback_data=Rb(action="customize"))
+        kb.button(text=t("rb_btn_reports"), callback_data=Rb(action="profit"))
         kb.button(text=t("rb_btn_features"), callback_data=Rb(action="features"))
         kb.button(text=t("rb_btn_toggle"), callback_data=Rb(action="toggle"))
         kb.button(text=t("rb_btn_broadcast"), callback_data=Rb(action="broadcast"))

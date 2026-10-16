@@ -806,6 +806,8 @@ async def customer_card(session: AsyncSession, t: Texts, customer: Customer, sta
         button("adm_ua_btn_channels", "uchan"),
         button("adm_ua_btn_zero", "uzero") if staff.can("wallet.adjust") else None,
     )
+    if staff.can("resellers.manage"):
+        pair(button("adm_user_btn_transfer", "utransfer"))
     if write:
         pair(
             button(

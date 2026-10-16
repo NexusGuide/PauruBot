@@ -69,6 +69,7 @@ from paurubot.db.models.tenancy import (
     Staff,
     StaffApiKey,
 )
+from paurubot.db.models.usage import ServiceUsage
 
 __all__ = [
     "AccountPlan",
@@ -111,6 +112,7 @@ __all__ = [
     "ResellerPrice",
     "ResellerProfile",
     "Service",
+    "ServiceUsage",
     "Settlement",
     "StaffApiKey",
     "PanelCheck",

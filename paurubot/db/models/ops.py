@@ -56,6 +56,7 @@ class Broadcast(Base, UpdatedMixin):
     # of the job may send (bumped on every resume, so a stopped job never sends again).
     blocked: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     deleted: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    skipped: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     scheduled_at: Mapped[datetime | None] = mapped_column()
     run: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
