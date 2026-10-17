@@ -234,11 +234,6 @@ mask:radial-gradient(circle,transparent 66%,#000 67% 69%,transparent 70%);animat
 .ring b{font-size:1.5rem}
 .ringrow p{margin:0;color:var(--mute);font-size:.86rem;line-height:1.9}
 .ringrow p strong{color:var(--ink)}
-.quick{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.q{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:18px;padding:14px 6px;
-font:500 .8rem 'Vazirmatn',Tahoma,sans-serif;display:flex;flex-direction:column;align-items:center;gap:8px;
-cursor:pointer;text-decoration:none;transition:transform .2s,border-color .2s}
-.q:active{transform:scale(.95)}.q:hover{border-color:var(--a)}.q svg{color:var(--a)}
 .search{width:100%;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:16px;
 padding:13px 16px;font:500 .92rem 'Vazirmatn',Tahoma,sans-serif;outline:none}
 .search:focus{border-color:var(--a);box-shadow:0 0 0 3px var(--glow)}
@@ -389,9 +384,8 @@ if(lst)lst.addEventListener("click",function(e){var b=e.target.closest("button")
 if(b.dataset.all){cp(b.dataset.all,b.dataset.m,e);return}
 if(b.dataset.u){cp(b.dataset.u,b.dataset.m,e);return}
 if(b.dataset.qr!=null&&b.dataset.qr!=="")sheet(b.dataset.t,b.dataset.p,b.dataset.qr)});
-var lnk=$("#lnk"),cpb=$("#cp"),qc=$("#qc"),dl=$("#dl"),qr=$("#qr");
+var lnk=$("#lnk"),cpb=$("#cp"),dl=$("#dl"),qr=$("#qr");
 if(cpb&&lnk)cpb.onclick=function(e){cp(lnk.textContent.trim(),cpb.dataset.m,e)};
-if(qc&&lnk)qc.onclick=function(e){cp(lnk.textContent.trim(),qc.dataset.m,e)};
 if(dl&&qr)dl.onclick=function(){var a=document.createElement("a");a.href=qr.src;
 a.download="subscription-qr.png";document.body.appendChild(a);a.click();a.remove()};
 // numbers count up once; the ring follows with the same easing
@@ -676,8 +670,8 @@ def _ring(t: Texts, service: Service) -> str:
     )
 
 
-def _initial(t: Texts, shop: Shop, service: Service, *, quick: bool = True) -> str:
-    """The home page body: hero, two stat tiles, the usage ring and quick actions."""
+def _initial(t: Texts, shop: Shop, service: Service) -> str:
+    """The home page body: hero, two stat tiles and the usage ring."""
     _expiry_text, days = _expiry(t, service)
     _percent, _used, total, _left = _usage(service)
     if total:
@@ -694,27 +688,12 @@ def _initial(t: Texts, shop: Shop, service: Service, *, quick: bool = True) -> s
         if days is not None
         else _tile("cal", t("sub_page_days_left"), "", "", "-")
     )
-    quick_row = (
-        '<div class="quick full">'
-        '<button type="button" class="q" id="qc" data-m="'
-        + escape(t("sub_page_t_link"))
-        + '"><span data-i="copy"></span>'
-        + escape(t("sub_page_copy_link"))
-        + "</button>"
-        + '<a class="q" href="#configs"><span data-i="globe"></span>'
-        + escape(t("sub_page_tab_configs"))
-        + "</a>"
-        + '<a class="q" href="#apps"><span data-i="app"></span>'
-        + escape(t("sub_page_tab_apps"))
-        + "</a></div>"
-    )
     return (
         '<section class="page on" id="home">'
         + _hero(t, service, shop)
         + volume_tile
         + days_tile
         + _ring(t, service)
-        + (quick_row if quick else "")
         + "</section>"
     )
 
@@ -735,14 +714,20 @@ def _acts(uid: str, msg: str, index: str, title: str, note: str, t: Texts) -> st
 
 
 def _rows(t: Texts, link: str, raw: list[str]) -> str:
-    """The configs list: the link row, copy-all, then one row per line of the subscription."""
+    """The configs list: panel notices first, the link row, copy-all, then one row per config."""
     uris = [item for item in raw if _is_config(item)]
     parts = [
+        f'<div class="it n" data-q="{escape(item.lower())}">'
+        '<div class="ib2" data-i="info"></div><div class="tx"><b>' + escape(item) + "</b></div></div>"
+        for item in raw
+        if not _is_config(item)
+    ]
+    parts.append(
         '<div class="it g"><div class="ib2" data-i="link"></div><div class="tx"><b>'
         f"{escape(t('sub_page_link_row'))}</b><span>{escape(link)}</span></div>"
         + _acts(link, t("sub_page_t_link"), "-1", t("sub_page_link_row"), t("sub_page_sheet_p_link"), t)
         + "</div>"
-    ]
+    )
     if uris:
         parts.append(
             '<div class="it y"><div class="ib2" data-i="layers"></div><div class="tx"><b>'
@@ -774,11 +759,6 @@ def _rows(t: Texts, link: str, raw: list[str]) -> str:
                 + "</span></div>"
                 + _acts(item, t("sub_page_t_one"), str(index), title, t("sub_page_sheet_p_one"), t)
                 + "</div>"
-            )
-        else:
-            parts.append(
-                f'<div class="it n" data-q="{escape(item.lower())}">'
-                '<div class="ib2" data-i="info"></div><div class="tx"><b>' + escape(item) + "</b></div></div>"
             )
     return "".join(parts)
 
@@ -924,7 +904,7 @@ async def _page(db: DB, request: Request, service: Service, shop: Shop, panel: P
     if kind != "subscription":
         rows = await _links(panel, service) if kind == "wireguard" else []
         access = _special_access(t, service, kind, link, rows)
-        pages = _initial(t, shop, service, quick=False) + access
+        pages = _initial(t, shop, service) + access
         return HTMLResponse(_document(t, title, title, tag, pages), headers=NO_STORE)
     nav_items = (
         NAV.replace("{home}", escape(t("sub_page_tab_home")))
