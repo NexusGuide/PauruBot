@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core import customers
 from paurubot.core.shops import create_shop
-from paurubot.db.models import Customer, Panel, PanelKind, Plan, Shop
+from paurubot.db.models import AccountPlan, Customer, Panel, PanelAccount, PanelKind, Plan, Shop
+from paurubot.panels import GB
 from paurubot.security.secretbox import encrypt
 
 _ids = itertools.count(1_000_000)
@@ -56,6 +57,61 @@ async def plan(
 ) -> Plan:
     row = Plan(
         shop_id=shop_obj.id, panel_id=panel_obj.id, title=title, price=price, days=days, data_gb=data_gb
+    )
+    session.add(row)
+    await session.flush()
+    return row
+
+
+async def account_plan(
+    session: AsyncSession,
+    shop_obj: Shop,
+    panel_obj: Panel,
+    *,
+    price: int = 1_000_000,
+    days: int = 30,
+    data_gb: int = 500,
+    max_users: int | None = 50,
+    gb_price: int = 1_000,
+    user_price: int = 5_000,
+    title: str = "Starter",
+) -> AccountPlan:
+    """A PasarGuard admin plan for sale (TEN-14)."""
+    row = AccountPlan(
+        shop_id=shop_obj.id,
+        panel_id=panel_obj.id,
+        title=title,
+        role_id=2,
+        data_gb=data_gb,
+        max_users=max_users,
+        days=days,
+        price=price,
+        gb_price=gb_price,
+        user_price=user_price,
+    )
+    session.add(row)
+    await session.flush()
+    return row
+
+
+async def panel_account(
+    session: AsyncSession,
+    owner: Customer,
+    plan_obj: AccountPlan,
+    *,
+    status: str = "active",
+) -> PanelAccount:
+    """A live panel admin account owned by `owner`."""
+    row = PanelAccount(
+        shop_id=owner.shop_id,
+        customer_id=owner.id,
+        panel_id=plan_obj.panel_id,
+        plan_id=plan_obj.id,
+        username=f"r{owner.telegram_id}_web",
+        password_enc=encrypt("panel", "pane!Passw0rd"),
+        data_limit=plan_obj.data_gb * GB,
+        max_users=plan_obj.max_users,
+        status=status,
     )
     session.add(row)
     await session.flush()

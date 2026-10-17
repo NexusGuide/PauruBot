@@ -1,0 +1,318 @@
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { date, daysLeft, money, size } from "@shared/format";
+import { api, type PanelAccount, type PanelPlan } from "../api";
+import { errorText, useApp } from "../state";
+import { haptic } from "../telegram";
+import { Icon } from "../icons";
+import { Button, Chevron, Empty, ReadFailure, Ring, Screen } from "../ui";
+import { useResource } from "../useResource";
+
+/** Traffic and user-slot steps of the bot flow, shown as one-tap cards (TEN-14). */
+const GB_STEPS = [10, 50, 100, 200, 500];
+const USER_STEPS = [5, 10, 20, 50, 100];
+
+function badgeTone(status: string) {
+  if (status === "active") return "green";
+  if (status === "paused") return "orange";
+  return "red";
+}
+
+function planLine(
+  t: (key: string, vars?: Record<string, string | number>) => string,
+  locale: string,
+  plan: PanelPlan,
+) {
+  const parts = [
+    plan.data_gb ? `${money(plan.data_gb, locale)} ${t("gb")}` : t("unlimited_data"),
+    plan.max_users ? t("agency_users_n", { count: money(plan.max_users, locale) }) : null,
+    plan.days ? t("n_days", { days: money(plan.days, locale) }) : t("unlimited_time"),
+  ].filter(Boolean);
+  return parts.join(" · ") || plan.title;
+}
+
+/** Hub of panel admin accounts: plans to buy on top, the customer's own ones below (TEN-14). */
+export function Agency() {
+  const { t, locale } = useApp();
+  const navigate = useNavigate();
+  const plans = useResource(api.accountPlans);
+  const accounts = useResource(api.accounts);
+  if (plans.error || accounts.error) {
+    const failure = plans.error ?? accounts.error;
+    const retry = plans.error ? plans.retry : accounts.retry;
+    return (
+      <Screen title={t("agency_title")}>
+        <ReadFailure error={failure} retry={retry} />
+      </Screen>
+    );
+  }
+  if (!plans.data || !accounts.data) return <div className="app-loading" />;
+  const items = accounts.data.items;
+  return (
+    <Screen title={t("agency_title")} subtitle={t("agency_sub")}>
+      <p className="app-lbl">{t("agency_plans")}</p>
+      {plans.data.plans.length === 0 && items.length === 0 && (
+        <Empty title={t("agency_none")} hint={t("agency_none_hint")} />
+      )}
+      {plans.data.plans.length === 0 && items.length > 0 && (
+        <p className="app-hint px-1 text-sm">{t("agency_none_now")}</p>
+      )}
+      <ul className="flex flex-col gap-3" role="group" aria-label={t("agency_plans")}>
+        {plans.data.plans.map(plan => (
+          <li key={plan.id} className="app-card">
+            <button
+              type="button"
+              className="app-row app-rip-host flex w-full items-center gap-3 px-4 py-4 text-start"
+              onClick={() => {
+                haptic("select");
+                navigate(`/checkout?kind=account_purchase&aplan=${plan.id}&name=${encodeURIComponent(plan.title)}`);
+              }}
+            >
+              <span className="app-ico" data-tone="green">
+                <Icon name="panel" />
+              </span>
+              <span className="app-grow">
+                <b className="block text-[0.95rem] font-bold leading-7">{plan.title}</b>
+                <small className="mt-0.5 block text-[0.8rem] font-medium text-[var(--hint)]">
+                  {planLine(t, locale, plan)}
+                </small>
+                {plan.description && (
+                  <small className="mt-0.5 block text-[0.75rem] font-medium text-[var(--hint)]">
+                    {plan.description}
+                  </small>
+                )}
+              </span>
+              <span className="flex flex-col items-end justify-center text-end">
+                <b className="num text-[1.02rem] font-extrabold">{money(plan.price, locale)}</b>
+                <small className="text-[0.7rem] font-medium text-[var(--hint)]">{t("currency")}</small>
+              </span>
+              <Chevron />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="app-lbl">{t("agency_mine")}</p>
+      {items.length === 0 && (
+        <p className="app-hint px-1 text-sm">{t("agency_mine_hint")}</p>
+      )}
+      <ul className="flex flex-col">
+        {items.map(account => (
+          <li key={account.id} className="app-card">
+            <button
+              type="button"
+              className="app-row app-rip-host flex w-full items-center gap-3 px-4 py-3 text-start"
+              onClick={() => {
+                haptic("select");
+                navigate(`/agency/${account.id}`);
+              }}
+            >
+              <span className="app-ico">
+                <Icon name="panel" />
+              </span>
+              <span className="app-grow">
+                <b className="flex items-center gap-2 text-[0.95rem] font-bold">
+                  <span dir="ltr" className="truncate">{account.username}</span>
+                  <span className="app-badge" data-tone={badgeTone(account.status)}>
+                    {t(`pacc_${account.status}`)}
+                  </span>
+                </b>
+                <small className="num mt-0.5 block text-[0.8rem] font-medium text-[var(--hint)]">
+                  {account.plan_title}
+                  {account.expire_at &&
+                    ` · ${t("days_left", { days: money(daysLeft(account.expire_at) ?? 0, locale) })}`}
+                </small>
+              </span>
+              <Chevron />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Screen>
+  );
+}
+
+/** One panel admin account: quota, users, expiry, the login and its paid actions (TEN-14). */
+export function AgencyAccount() {
+  const { t, locale, toast } = useApp();
+  const navigate = useNavigate();
+  const { id } = useParams();
+  const accountId = Number(id);
+  const load = useCallback(async () => api.account(accountId), [accountId]);
+  const { data, error, retry } = useResource(load);
+  const [picker, setPicker] = useState<"gb" | "users" | null>(null);
+  const [login, setLogin] = useState<{ url: string; username: string; password: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setPicker(null);
+    setLogin(null);
+  }, [accountId]);
+
+  if (error) {
+    return (
+      <Screen title={t("agency_title")}>
+        <ReadFailure error={error} retry={retry} />
+      </Screen>
+    );
+  }
+  if (!data) return <div className="app-loading" />;
+  const account: PanelAccount = data.account;
+  const left = daysLeft(account.expire_at);
+  const units = t("units").split(",");
+  const remaining = account.data_limit ? account.data_limit - account.used_bytes : null;
+  const quota = account.data_limit
+    ? Math.min(1, Math.max(0, account.used_bytes / account.data_limit))
+    : 0;
+  const usersQuota = account.max_users
+    ? Math.min(1, Math.max(0, account.users_count / account.max_users))
+    : null;
+
+  const copy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      haptic("select");
+      toast(t("copied"));
+    } catch {
+      toast(t("copy_failed"), "error");
+    }
+  };
+
+  const refresh = async () => {
+    setBusy(true);
+    try {
+      await api.refreshAccount(account.id);
+      haptic("success");
+      toast(t("agency_refreshed"));
+      retry();
+    } catch (err) {
+      toast(errorText(t, err), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reveal = async () => {
+    setBusy(true);
+    try {
+      setLogin(await api.accountLogin(account.id));
+      haptic("success");
+    } catch (err) {
+      toast(errorText(t, err), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const go = (kind: string, amount?: number) =>
+    navigate(
+      `/checkout?kind=${kind}&acc=${account.id}&name=${encodeURIComponent(account.username)}${amount ? `&amt=${amount}` : ""}`,
+    );
+
+  return (
+    <Screen title={account.username} subtitle={account.plan_title ?? t("agency_title")}>
+      <section className="app-card p-5 text-center">
+        <Ring size={170} outer={quota} inner={usersQuota}>
+          <span className="num text-2xl font-extrabold">
+            {remaining === null ? "∞" : size(Math.max(0, remaining), locale, units)}
+          </span>
+          <span className="mt-0.5 text-xs text-[var(--hint)]">{t("data_left_label")}</span>
+          <span className="num mt-1 text-sm font-bold">
+            {left === null ? t("never") : t("days_left", { days: money(left, locale) })}
+          </span>
+        </Ring>
+        <p className="mt-3">
+          <span className="app-badge" data-tone={badgeTone(account.status)}>
+            {t(`pacc_${account.status}`)}
+          </span>
+        </p>
+        <div className="-mx-5 mt-2 border-t border-[var(--line)] px-5 text-start">
+          <div className="app-ln">
+            <small>{t("used")}</small>
+            <b className="num">
+              {size(account.used_bytes, locale, units)}
+              {account.data_limit ? ` / ${size(account.data_limit, locale, units)}` : ""}
+            </b>
+          </div>
+          <div className="app-ln">
+            <small>{t("agency_users")}</small>
+            <b className="num">
+              {money(account.users_count, locale)}
+              {account.max_users ? ` / ${money(account.max_users, locale)}` : ""}
+            </b>
+          </div>
+          <div className="app-ln">
+            <small>{t("expires")}</small>
+            <b className="num">{account.expire_at ? date(account.expire_at, locale) : t("never")}</b>
+          </div>
+        </div>
+      </section>
+
+      <div className="mb-3.5 grid gap-3">
+        <Button onClick={() => go("account_renew")}>{t("agency_renew")}</Button>
+        {account.gb_price > 0 && account.data_limit > 0 && (
+          <Button tone="quiet" onClick={() => { haptic("select"); setPicker(picker === "gb" ? null : "gb"); }}>
+            {t("agency_add_data")}
+          </Button>
+        )}
+        {account.user_price > 0 && account.max_users != null && (
+          <Button tone="quiet" onClick={() => { haptic("select"); setPicker(picker === "users" ? null : "users"); }}>
+            {t("agency_add_users")}
+          </Button>
+        )}
+        {picker && (
+          <ul className="grid grid-cols-2 gap-3">
+            {(picker === "gb" ? GB_STEPS : USER_STEPS).map(value => {
+              const price = value * (picker === "gb" ? account.gb_price : account.user_price);
+              return (
+                <li key={value}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      haptic("select");
+                      go(picker === "gb" ? "account_gb" : "account_users", value);
+                    }}
+                    className="w-full rounded-3xl bg-[var(--surface)] p-4 text-center"
+                  >
+                    <p className="num text-2xl font-extrabold">{money(value, locale)}</p>
+                    <p className="text-xs text-[var(--hint)]">{t(picker === "gb" ? "gb" : "agency_users")}</p>
+                    <p className="num mt-2 text-sm font-semibold">{money(price, locale)} {t("currency")}</p>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <Button tone="quiet" busy={busy} onClick={refresh}>{t("agency_refresh")}</Button>
+      </div>
+
+      <section className="app-card p-5">
+        <p className="mb-2 text-sm font-bold">{t("agency_login")}</p>
+        {!login ? (
+          <>
+            <Button tone="quiet" busy={busy} onClick={reveal}>{t("agency_login_show")}</Button>
+            <p className="mt-2 text-center text-xs text-[var(--hint)]">{t("agency_login_hint")}</p>
+          </>
+        ) : (
+          <>
+            {([
+              [t("agency_login_url"), login.url],
+              [t("account_username"), login.username],
+              [t("account_password"), login.password],
+            ] as [string, string][]).map(([label, value]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => copy(value)}
+                className="mb-2 flex w-full items-center justify-between gap-3 rounded-2xl bg-[var(--bg)] p-3 text-start"
+              >
+                <span className="text-sm text-[var(--hint)]">{label}</span>
+                <span dir="ltr" className="min-w-0 truncate font-mono text-sm">{value}</span>
+              </button>
+            ))}
+            <p className="text-center text-xs text-[var(--hint)]">{t("tap_to_copy")}</p>
+          </>
+        )}
+      </section>
+    </Screen>
+  );
+}

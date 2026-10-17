@@ -216,6 +216,11 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 
 | Method | Path | Access | What it does |
 |---|---|---|---|
+| GET | `/api/webapp/account-plans` | Mini App initData | The panel admin plans the customer buys from (TEN-14) and whether they are sold at all. |
+| GET | `/api/webapp/accounts/{account_id}/login` | Mini App initData | The dashboard URL, the username and the password — the same as the bot's login message. |
+| POST | `/api/webapp/accounts/{account_id}/refresh` | Mini App initData | Account refresh |
+| GET | `/api/webapp/accounts/{account_id}` | Mini App initData | Account detail |
+| GET | `/api/webapp/accounts` | Mini App initData | Accounts view |
 | GET | `/api/webapp/catalog` | Mini App initData | Catalog view |
 | GET | `/api/webapp/help` | Mini App initData | Customer help view |
 | POST | `/api/webapp/join/check` | Mini App initData | Ask Telegram again after the customer joined; the answer is never cached. |

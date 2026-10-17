@@ -4,7 +4,7 @@ import { money } from "@shared/format";
 import { api, type Catalog, type Plan } from "../api";
 import { Icon } from "../icons";
 import { useApp } from "../state";
-import { haptic, openExternal, tg } from "../telegram";
+import { haptic } from "../telegram";
 import { ActionBar, Button, Empty, Item, Loading, ReadFailure, Screen, Steps } from "../ui";
 
 import { useResource } from "../useResource";
@@ -92,29 +92,26 @@ function PlanList({ plans, selected, onSelect }: { plans: Plan[]; selected: numb
 }
 
 export function Buy() {
-  const { me, t, locale, toast } = useApp();
+  const { me, t, locale } = useApp();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const serviceId = Number(params.get("service")) || undefined;
   if (serviceId) return <RenewPicker serviceId={serviceId} />;
-
-  const openBot = () => {
-    const username = me?.shop.bot_username;
-    if (!username) {
-      toast(t("contact_support"), "error");
-      return;
-    }
-    const url = `https://t.me/${username}`;
-    if (tg) tg.openTelegramLink(url);
-    else openExternal(url);
-  };
 
   if (!me) return null;
   return (
     <Screen title={t("buy_title")} subtitle={t("buy_hub_sub")}>
       <div className="app-card">
         <Item icon={<Icon name="globe" />} title={t("buy_v2ray")} sub={t("buy_v2ray_sub")} to="/panel" />
-        <Item icon={<Icon name="panel" />} tone="green" title={t("buy_agency")} sub={t("buy_agency_sub")} onClick={openBot} />
+        {me.panel_accounts && (
+          <Item
+            icon={<Icon name="panel" />}
+            tone="green"
+            title={t("buy_agency")}
+            sub={t("buy_agency_sub")}
+            to="/agency"
+          />
+        )}
       </div>
       <div className="app-card">
         <div className="app-row flex items-center gap-3 px-4">
