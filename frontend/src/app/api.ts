@@ -304,7 +304,7 @@ export const api = {
   payOrder: (id: number, method: string) =>
     post<{ order: Order; payment?: PaymentStart }>(`/orders/${id}/pay`, { method }),
   cancelOrder: (id: number) => post<{ ok: boolean }>(`/orders/${id}/cancel`),
-  topup: (amount: number, method: string) => post<{ payment: PaymentStart }>("/wallet/topup", { amount, method }),
+  topup: (amount: number, method: string, intent_key?: string) => post<{ payment: PaymentStart }>("/wallet/topup", { amount, method, intent_key }),
   payment: (id: number) => get<{ id: number; status: string; amount: number; fulfilled: boolean; provider: string; order_id: number | null }>(`/payments/${id}`),
   receiptState: (id: number) => get<unknown>(`/payments/${id}/receipt-state`),
   receipts: (before?: number) => get<unknown>(`/receipts${before ? `?before=${before}` : ""}`),

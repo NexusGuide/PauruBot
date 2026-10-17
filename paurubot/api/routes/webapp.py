@@ -581,14 +581,18 @@ async def cancel_order(order_id: int, ctx: WebApp) -> dict[str, Any]:
 class TopupBody(BaseModel):
     amount: int = Field(gt=0, le=10**12)
     method: str = Field(min_length=2, max_length=32, pattern=r"^[a-z0-9_]+$")
+    intent_key: str | None = Field(default=None, min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
 
 
 @router.post("/wallet/topup")
 async def topup(body: TopupBody, ctx: WebApp) -> dict[str, Any]:
     try:
-        started = await payments.start(ctx.session, ctx.customer, body.method, body.amount)
+        started = await payments.start(
+            ctx.session, ctx.customer, body.method, body.amount, idempotency_key=body.intent_key
+        )
     except PaymentError as exc:
-        raise HTTPException(status_code=400, detail=exc.key) from exc
+        status = 409 if exc.key in {"payment_intent_conflict", "payment_intent_closed"} else 400
+        raise HTTPException(status_code=status, detail=exc.key) from exc
     await ctx.session.commit()
     return {"payment": await _payment_view(ctx, started)}
 
