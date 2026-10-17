@@ -290,4 +290,5 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 
 | Method | Path | Access | What it does |
 |---|---|---|---|
+| GET | `/s/{token}/qr.png` | subscription token in the link | One QR per request: no params for the subscription link, ?i=<n> for config n. |
 | GET | `/s/{token}` | subscription token in the link | Subscription endpoint |
