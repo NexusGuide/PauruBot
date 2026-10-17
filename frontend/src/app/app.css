@@ -191,10 +191,6 @@
 :root[data-app="miniapp"] .app-sw:disabled { opacity: .55; }
 :root[data-app="miniapp"] .app-note { display: flex; align-items: flex-start; gap: 9px; margin-block-end: 14px; padding: 12px 14px; border-radius: 16px; background: var(--color-saffron-100); color: var(--color-saffron-700); font-size: .85rem; font-weight: 500; line-height: 1.75; }
 :root[data-app="miniapp"] .app-note svg { flex: none; margin-block-start: 2px; }
-/* A checkbox inside a note is the row's only control (the receipt receipt ack): without
-   `flex: none` the flex row squeezes it to a ~8px sliver nobody can see or tap.
-   With an unchecked `label` — cursor: pointer — tapping the row toggles it. */
-:root[data-app="miniapp"] .app-note input[type="checkbox"] { flex: none; inline-size: 1.15rem; block-size: 1.15rem; margin-block-start: .2rem; accent-color: var(--accent); cursor: pointer; }
 :root[data-app="miniapp"] .app-note[data-tone="danger"] { background: var(--danger-soft); color: var(--danger); }
 :root[data-app="miniapp"] .app-note[data-tone="soft"] { background: var(--accent-soft); color: var(--accent); }
 :root[data-app="miniapp"] .app-depts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-block-end: 14px; }
