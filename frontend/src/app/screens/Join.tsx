@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { errorText, useApp } from "../state";
+import { tg } from "../telegram";
 import { Button, Screen } from "../ui";
 
 /** The join gate that stands between the customer and the rest of the app (GRW-07). */
@@ -7,6 +8,20 @@ export function Join() {
   const { t, join, checkJoin, toast } = useApp();
   const [busy, setBusy] = useState(false);
   const channels = join?.channels ?? [];
+
+  // Plain target="_blank" anchors do not open reliably inside Telegram's webview;
+  // the WebApp API is the supported path, with the anchor as the fallback outside Telegram.
+  const open = (url: string, event: { preventDefault(): void }) => {
+    const target = url || "https://t.me/";
+    if (tg) {
+      event.preventDefault();
+      if (/^(https?:\/\/)?(t\.me|telegram\.me|www\.t\.me)/i.test(target)) tg.openTelegramLink(target);
+      else tg.openLink(target);
+    } else if (target !== "https://t.me/") {
+      event.preventDefault();
+      window.open(target, "_blank", "noopener");
+    }
+  };
 
   const check = async () => {
     setBusy(true);
@@ -31,6 +46,7 @@ export function Join() {
               href={channel.url || "https://t.me/"}
               target="_blank"
               rel="noreferrer"
+              onClick={(event) => open(channel.url, event)}
               className="app-rip-host flex min-h-12 items-center justify-between gap-3 rounded-2xl bg-[var(--surface)] px-4 text-[0.95rem] font-semibold ring-1 ring-[var(--line)] active:opacity-80"
             >
               <span>{channel.title || t("join_channel")}</span>
