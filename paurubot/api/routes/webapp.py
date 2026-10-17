@@ -328,7 +328,7 @@ async def create_order(body: OrderBody, ctx: WebApp) -> dict[str, Any]:
             service=service,
             extra_gb=body.extra_gb,
             extra_days=body.extra_days,
-            label=body.label if ctx.customer.is_reseller else None,
+            label=body.label,
             custom_gb=body.custom_gb if body.kind == "purchase" and not plan else 0,
             custom_days=body.custom_days if body.kind == "purchase" and not plan else 0,
         )

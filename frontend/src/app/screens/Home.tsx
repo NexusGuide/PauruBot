@@ -2,9 +2,11 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { daysLeft, money, size } from "@shared/format";
 import { api, type Service } from "../api";
+import { buildAlerts, readAlertIds } from "../alerts";
+import { Icon } from "../icons";
 import { errorText, useApp } from "../state";
 import { haptic } from "../telegram";
-import { Button, Panel, ReadFailure, Ring, Screen, Spinner } from "../ui";
+import { Chevron, CountUp, Item, ReadFailure, Screen, Spinner } from "../ui";
 
 import { useResource } from "../useResource";
 
@@ -23,14 +25,20 @@ export function Home() {
   const { me, t, locale, reload, toast } = useApp();
   const navigate = useNavigate();
   const { data, error, retry } = useResource(api.services);
-  const services = data?.items ?? null;
+  const { data: history } = useResource(api.history);
   const [trialBusy, setTrialBusy] = useState(false);
-
+  const [read] = useState<Set<string>>(readAlertIds);
 
   if (!me) return null;
   const units = t("units").split(",");
-  const featured = services?.find((s) => s.status === "active") ?? services?.[0];
+  const services = data?.items ?? null;
+  const featured = services?.find((service) => service.status === "active") ?? services?.[0];
   const left = featured ? daysLeft(featured.expire_at) : null;
+  const unread =
+    services && history ? buildAlerts(services, history.items, t, locale).filter((alert) => !read.has(alert.id)).length : 0;
+  const ratio = featured ? usageRatio(featured) : null;
+  const remaining = featured && ratio !== null ? featured.data_limit - featured.used_bytes : null;
+  const remainingPct = ratio === null ? null : Math.max(0, Math.min(100, Math.round(ratio * 100)));
 
   const takeTrial = async () => {
     setTrialBusy(true);
@@ -50,77 +58,103 @@ export function Home() {
 
   return (
     <Screen>
-      <header className="app-hero">
-        <p className="app-hero-kicker">{me.shop.title}</p>
-        <h1 className="app-hero-title">{t("home_hello", { name: me.name ?? "" })}</h1>
-        <span className="app-hero-glow" aria-hidden="true" />
+      <header className="app-heading">
+        <div className="app-heading-grow">
+          <p className="app-hint text-sm font-semibold">{me.shop.title}</p>
+          <h1>{t("home_hello", { name: me.name ?? "" })}</h1>
+        </div>
+        <div className="app-heading-action">
+          <button
+            type="button"
+            className="app-iconbtn app-rip-host"
+            aria-label={t("notifications")}
+            onClick={() => navigate("/notifications")}
+          >
+            <Icon name="bell" size={20} />
+            {unread > 0 && (
+              <span aria-hidden="true" className="absolute end-2 top-2 h-2.5 w-2.5 rounded-full bg-[var(--danger)]" />
+            )}
+          </button>
+        </div>
       </header>
 
-      {error ? <ReadFailure error={error} retry={retry} /> : services === null ? (
-        <div className="flex justify-center py-16 text-[var(--hint)]">
-          <Spinner />
+      <div className="app-wcard">
+        <p className="app-wcard-label">{t("home_wallet")}</p>
+        <div className="app-wcard-amt num">
+          <CountUp value={me.balance} format={(value) => money(value, locale)} /> <small>{t("currency")}</small>
         </div>
-      ) : featured ? (
-        <button
-          type="button"
-          onClick={() => navigate(`/services/${featured.id}`)}
-          className="mb-4 flex w-full items-center gap-5 rounded-3xl bg-[var(--surface)] p-5 text-start"
-        >
-          <Ring size={128} outer={usageRatio(featured)} inner={timeRatio(featured)}>
-            <span className="num text-2xl font-extrabold">
-              {featured.data_limit ? size(featured.data_limit - featured.used_bytes, locale, units) : "∞"}
-            </span>
-            <span className="text-[0.7rem] text-[var(--hint)]">{t("left")}</span>
-          </Ring>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-lg font-bold">{featured.label}</p>
-            <p className="mt-1 text-sm text-[var(--hint)]">
-              {left === null ? t("never_expires") : t("days_left", { days: money(left, locale) })}
-            </p>
-            {featured.location && <p className="mt-1 text-sm text-[var(--hint)]">{featured.location}</p>}
-            <p className="mt-3 text-sm font-semibold text-[var(--accent)]">{t("manage_service")}</p>
-          </div>
-        </button>
-      ) : (
-        <Panel className="mb-4 py-8 text-center">
-          <p className="text-lg font-bold">{t("no_service_yet")}</p>
-          <p className="mx-auto mt-1 max-w-xs text-sm text-[var(--hint)]">{t("no_service_hint")}</p>
-        </Panel>
-      )}
-
-      <div className="mb-4 grid grid-cols-2 gap-3">
-        <button
-          type="button"
-          onClick={() => navigate("/wallet")}
-          className="rounded-3xl bg-[var(--surface)] p-4 text-start"
-        >
-          <span className="app-mini-icon" aria-hidden="true">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7h16v12H3zM3 7l12-3v3M15 13h4" /></svg>
-          </span>
-          <p className="mt-3 text-xs text-[var(--hint)]">{t("balance")}</p>
-          <p className="num mt-1 text-xl font-extrabold">{money(me.balance, locale)}</p>
-          <p className="text-xs text-[var(--hint)]">{t("currency")}</p>
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate("/services")}
-          className="rounded-3xl bg-[var(--surface)] p-4 text-start"
-        >
-          <span className="app-mini-icon" aria-hidden="true">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3a9 9 0 1 0 9 9M12 7a5 5 0 1 0 5 5" /></svg>
-          </span>
-          <p className="mt-3 text-xs text-[var(--hint)]">{t("services_count")}</p>
-          <p className="num mt-1 text-xl font-extrabold">{services && !error ? money(services.length, locale) : "—"}</p>
-          <p className="text-xs text-[var(--hint)]">{t("view_all")}</p>
-        </button>
+        <div className="app-wcard-actions">
+          <button type="button" className="app-wcard-btn app-rip-host" onClick={() => navigate("/wallet")}>
+            <Icon name="plus" size={17} />
+            {t("home_topup")}
+          </button>
+        </div>
       </div>
 
-      <div className="flex flex-col gap-3">
-        <Button onClick={() => navigate("/buy")}>{t("buy_plan")}</Button>
+      {error ? (
+        <ReadFailure error={error} retry={retry} />
+      ) : services === null ? (
+        <div className="flex justify-center py-10 text-[var(--hint)]">
+          <Spinner />
+        </div>
+      ) : (
+        <>
+          <p className="app-lbl">{t("home_active")}</p>
+          <div className="app-card">
+            {featured ? (
+              <button
+                type="button"
+                onClick={() => navigate(`/services/${featured.id}`)}
+                className="app-row app-rip-host flex w-full items-center gap-3 px-4 text-start"
+              >
+                <span className="app-ico">
+                  <Icon name="globe" size={22} />
+                </span>
+                <span className="app-grow">
+                  <b className="block truncate text-[0.95rem] font-bold" dir="ltr">
+                    {featured.label || featured.username}
+                  </b>
+                  <small className="mt-0.5 block text-[0.8rem] font-medium text-[var(--hint)]">
+                    {remaining === null ? t("unlimited_data") : `${size(remaining, locale, units)} ${t("left")}`}
+                    {" · "}
+                    {left === null ? t("never_expires") : t("days_left", { days: money(left, locale) })}
+                  </small>
+                  {remainingPct !== null && (
+                    <span
+                      className="app-prog mt-2 block"
+                      data-tone={remainingPct <= 0 ? "red" : remainingPct < 15 ? "orange" : undefined}
+                      aria-hidden="true"
+                    >
+                      <i style={{ inlineSize: `${remainingPct}%` }} />
+                    </span>
+                  )}
+                </span>
+                <Chevron />
+              </button>
+            ) : (
+              <div className="app-empty">
+                <b className="block text-[0.95rem] font-bold text-[var(--text)]">{t("no_service_yet")}</b>
+                <p className="mt-1">{t("no_service_hint")}</p>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      <p className="app-lbl">{t("home_quick")}</p>
+      <div className="app-card">
+        <Item icon={<Icon name="bag" />} title={t("buy_plan")} sub={t("home_buy_sub")} to="/buy" />
+        <Item icon={<Icon name="card" />} tone="green" title={t("home_topup_full")} sub={t("home_topup_sub")} to="/wallet" />
+        <Item icon={<Icon name="headset" />} tone="orange" title={t("contact_support")} sub={t("home_support_sub")} to="/tickets" />
         {me.trial.available && (
-          <Button tone="quiet" busy={trialBusy} onClick={takeTrial}>
-            {t("take_trial", { days: me.trial.days, gb: me.trial.gb })}
-          </Button>
+          <Item
+            icon={<Icon name="gift" />}
+            tone="orange"
+            title={t("take_trial", { days: me.trial.days, gb: me.trial.gb })}
+            sub={t("trial_row_sub")}
+            onClick={takeTrial}
+            disabled={trialBusy}
+          />
         )}
       </div>
     </Screen>

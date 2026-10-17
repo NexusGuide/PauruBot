@@ -29,7 +29,7 @@ export function Services() {
   }
   return (
     <Screen title={t("my_services")}>
-      <ul className="overflow-hidden rounded-3xl bg-[var(--surface)]">
+      <ul className="app-card overflow-hidden">
         {items.map((service, index) => {
           const left = daysLeft(service.expire_at);
           return (

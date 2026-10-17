@@ -47,13 +47,42 @@ export function initData(): string {
   return tg?.initData ?? "";
 }
 
+const THEME_KEY = "pauru.theme";
+
+export type ThemePref = "light" | "auto" | "dark";
+
+export function themePref(): ThemePref {
+  try {
+    const value = localStorage.getItem(THEME_KEY);
+    return value === "light" || value === "dark" ? value : "auto";
+  } catch {
+    return "auto";
+  }
+}
+
+/** Paint the chosen theme. "auto" follows Telegram first, then the device. */
+export function applyTheme(pref: ThemePref = themePref()): void {
+  const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ?? false;
+  const scheme = pref !== "auto" ? pref : tg?.colorScheme ?? (prefersDark ? "dark" : "light");
+  document.documentElement.dataset.theme = scheme;
+}
+
+export function setThemePref(pref: ThemePref): void {
+  try {
+    localStorage.setItem(THEME_KEY, pref);
+  } catch {
+    // storage may be unavailable inside some Telegram clients
+  }
+  applyTheme(pref);
+}
+
 export function boot(): void {
+  applyTheme();
   if (!tg) return;
   tg.ready();
   tg.expand();
-  document.documentElement.dataset.theme = tg.colorScheme;
   tg.onEvent("themeChanged", () => {
-    document.documentElement.dataset.theme = tg.colorScheme;
+    if (themePref() === "auto") applyTheme("auto");
   });
 }
 

@@ -1,11 +1,8 @@
-import { useNavigate } from "react-router-dom";
-import { CustomerSettings } from "../CustomerSettings";
 import { useApp } from "../state";
 import { Screen } from "../ui";
 
 export function Profile() {
   const { me, t, locale } = useApp();
-  const navigate = useNavigate();
   if (!me) return null;
   const joined = me.profile?.member_since ? new Date(me.profile.member_since) : null;
   const rows = [
@@ -17,17 +14,20 @@ export function Profile() {
     [t("profile_member_since"), joined && Number.isFinite(joined.getTime())
       ? joined.toLocaleDateString(locale, { year: "numeric", month: "short", day: "numeric" }) : t("profile_unset")],
   ];
-  return <Screen title={t("profile_title")}>
-    <section className="mb-4 rounded-3xl bg-[var(--surface)] p-4" aria-label={t("profile_identity")}>
-      <h2 className="mb-2 font-bold">{t("profile_identity")}</h2>
-      <dl>{rows.map(([label, value]) => <div key={label} className="border-b border-[var(--line)] py-3 last:border-0">
-        <dt className="text-xs text-[var(--hint)]">{label}</dt>
-        <dd className="mt-1 break-words font-semibold" dir="auto">{value}</dd>
-      </div>)}</dl>
-      <p className="mt-3 text-sm text-[var(--hint)]">{t("profile_identity_hint")}</p>
-    </section>
-    <CustomerSettings />
-    <button type="button" className="min-h-12 w-full rounded-2xl bg-[var(--surface)] p-3 font-semibold"
-      onClick={() => navigate("/more")}>{t("profile_back")}</button>
-  </Screen>;
+  return (
+    <Screen title={t("profile_title")}>
+      <section className="app-card p-4" aria-label={t("profile_identity")}>
+        <h2 className="mb-2 font-bold">{t("profile_identity")}</h2>
+        <dl>
+          {rows.map(([label, value]) => (
+            <div key={label} className="border-b border-[var(--line)] py-3 last:border-0">
+              <dt className="text-xs text-[var(--hint)]">{label}</dt>
+              <dd className="mt-1 break-words font-semibold" dir="auto">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-3 text-sm text-[var(--hint)]">{t("profile_identity_hint")}</p>
+      </section>
+    </Screen>
+  );
 }

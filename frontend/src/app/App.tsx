@@ -1,12 +1,13 @@
 import { useEffect } from "react";
 import { BrowserRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { Buy, Custom } from "./screens/Buy";
+import { Buy, Custom, PanelStep, PlanStep } from "./screens/Buy";
 import { Checkout, Done } from "./screens/Checkout";
 import { Desk } from "./screens/Desk";
 import { Help } from "./screens/Help";
 import { Home } from "./screens/Home";
 import { Manage } from "./screens/Manage";
 import { More } from "./screens/More";
+import { Notifications } from "./screens/Notifications";
 import { Receipts } from "./screens/Receipts";
 import { Payment } from "./screens/Payment";
 import { Profile } from "./screens/Profile";
@@ -58,6 +59,32 @@ function RouteFocus() {
   return null;
 }
 
+/** Ink ripple on every .app-rip-host surface (buttons, rows, icon buttons). */
+function Ripple() {
+  useEffect(() => {
+    const onDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const host = target.closest(".app-rip-host");
+      if (!(host instanceof HTMLElement) || host.matches("button:disabled")) return;
+      const rect = host.getBoundingClientRect();
+      const size = Math.max(rect.width, rect.height) * 1.2;
+      const ripple = document.createElement("span");
+      ripple.className = "app-rip";
+      ripple.setAttribute("aria-hidden", "true");
+      ripple.style.width = `${size}px`;
+      ripple.style.height = `${size}px`;
+      ripple.style.left = `${event.clientX - rect.left - size / 2}px`;
+      ripple.style.top = `${event.clientY - rect.top - size / 2}px`;
+      host.appendChild(ripple);
+      window.setTimeout(() => ripple.remove(), 620);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, []);
+  return null;
+}
+
 function Shell() {
   const { me, error, t } = useApp();
   if (error && !me) {
@@ -76,9 +103,13 @@ function Shell() {
       <a className="app-skip" href="#app-content">{t("ui_skip")}</a>
       <BackButton />
       <RouteFocus />
+      <Ripple />
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/notifications" element={<Notifications />} />
         <Route path="/buy" element={<Buy />} />
+        <Route path="/panel" element={<PanelStep />} />
+        <Route path="/plan" element={<PlanStep />} />
         <Route path="/custom" element={<Custom />} />
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/done/:id" element={<Done />} />
