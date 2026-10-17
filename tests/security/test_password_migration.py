@@ -1,4 +1,5 @@
 """Versioned password hashing: preserve every byte and retain explicit legacy compatibility."""
+
 from __future__ import annotations
 
 import bcrypt
@@ -50,9 +51,15 @@ async def test_legacy_login_then_explicit_password_change(session) -> None:  # t
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         old = "a" * 72 + "legacy-tail"
         token = await issue_token()
-        response = await client.post("/api/setup/complete", json={
-            "token": token, "shop_title": "Passwords", "username": "owner", "password": old,
-        })
+        response = await client.post(
+            "/api/setup/complete",
+            json={
+                "token": token,
+                "shop_title": "Passwords",
+                "username": "owner",
+                "password": old,
+            },
+        )
         assert response.status_code == 200, response.text
         row = await session.scalar(select(Staff).where(Staff.username == "owner"))
         assert row is not None
@@ -64,9 +71,13 @@ async def test_legacy_login_then_explicit_password_change(session) -> None:  # t
         await session.refresh(row)
         assert row.password_hash == legacy  # never bless an ambiguous legacy suffix on login
         replacement = "ش" * 40 + "fresh-tail"
-        response = await client.post("/api/auth/password", headers={
-            "x-csrf-token": response.json()["csrf_token"],
-        }, json={"current_password": old, "new_password": replacement})
+        response = await client.post(
+            "/api/auth/password",
+            headers={
+                "x-csrf-token": response.json()["csrf_token"],
+            },
+            json={"current_password": old, "new_password": replacement},
+        )
         assert response.status_code == 200, response.text
         await session.refresh(row)
         assert row.password_hash.startswith("$argon2id$")
