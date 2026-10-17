@@ -42,6 +42,8 @@ from paurubot.worker.runner import Permanent, QueueSpec, Retry, register_queue
 
 log = logging.getLogger(__name__)
 
+TRUST_FAIL_TTL = 900  # how long a failing trust channel stays flagged for the admin panel
+
 
 async def _texts(session: AsyncSession, customer: Customer) -> Texts:
     shop = await session.get(Shop, customer.shop_id)
@@ -894,22 +896,28 @@ async def tier_up(session: AsyncSession, job: queue.Claimed) -> None:
 
 
 async def trust_post(session: AsyncSession, job: queue.Claimed) -> None:
-    """Order report in the shop's public channel, with the buyer id masked (GRW-08)."""
+    """Order reports in the shop's public channels, with the buyer id masked (GRW-08)."""
     from paurubot import kv
-    from paurubot.core import growth
-    from paurubot.core import settings as shop_settings
-    from paurubot.db.models import Plan
+    from paurubot.core import channels, growth
+    from paurubot.db.models import Plan, TrustChannel
 
     order = await session.get(Order, int(job.payload["order_id"]))
-    if order is None:
+    if order is None or order.kind.value not in channels.TRUST_KINDS:
         return
-    cfg = await shop_settings.load(session, order.shop_id)
-    chat = cfg.get("trust_channel_id")
-    if not chat:
+    if order.amount <= 0 and order.kind != OrderKind.TRIAL:
+        return  # a free extra or a move is not worth a public post
+    # Every active channel that lists this order kind gets the report; a shop may keep several.
+    targets = [
+        row
+        for row in await session.scalars(
+            select(TrustChannel)
+            .where(TrustChannel.shop_id == order.shop_id, TrustChannel.is_active.is_(True))
+            .order_by(TrustChannel.sort, TrustChannel.id)
+        )
+        if order.kind.value in (row.kinds or [])
+    ]
+    if not targets:
         return
-    allowed, _ = await kv.hit(f"trust:{order.shop_id}", 20, 3600)
-    if not allowed:
-        return  # keep the channel readable on busy hours
     customer = await session.get(Customer, order.customer_id)
     plan = await session.get(Plan, order.plan_id) if order.plan_id else None
     service = await session.get(Service, order.service_id) if order.service_id else None
@@ -921,21 +929,26 @@ async def trust_post(session: AsyncSession, job: queue.Claimed) -> None:
         {"shop": esc(shop.title if shop else "")},
     )
     when = order.completed_at or order.paid_at or order.created_at or utcnow()
-    key = "trust_renew" if order.kind == OrderKind.RENEW else "trust_purchase"
     # The panel username can contain the buyer's id, so the public channel only ever sees the
     # service's own label (or the plan name when it has none).
     service_name = (service.label if service else None) or (plan.title if plan else None)
-    text = t(
-        key,
-        buyer=growth.masked_id(customer.telegram_id if customer else None),
-        name=esc(growth.masked(customer.first_name if customer else None)),
-        plan=esc(plan.title) if plan else "—",
-        category=esc(plan.category.title) if plan and plan.category else "—",
-        service=esc(service_name) if service_name else "—",
-        amount=money(order.amount),
-        date=jdate(when),
-        time=local(when).strftime("%H:%M:%S"),
-    )
+    fields: dict[str, Any] = {
+        "buyer": growth.masked_id(customer.telegram_id if customer else None),
+        "name": esc(growth.masked(customer.first_name if customer else None)),
+        "plan": esc(plan.title) if plan else "—",
+        "category": esc(plan.category.title) if plan and plan.category else "—",
+        "service": esc(service_name) if service_name else "—",
+        "amount": money(order.amount),
+        "date": jdate(when),
+        "time": local(when).strftime("%H:%M:%S"),
+    }
+    special = {
+        OrderKind.PURCHASE: "trust_purchase",
+        OrderKind.RENEW: "trust_renew",
+        OrderKind.TRIAL: "trust_trial",
+    }
+    key = special.get(order.kind)
+    text = t(key, **fields) if key else t("trust_generic", kind=t(f"order_kind_{order.kind.value}"), **fields)
     markup: InlineKeyboardMarkup | None = None
     if shop and shop.bot_username:
         markup = InlineKeyboardMarkup(
@@ -943,10 +956,15 @@ async def trust_post(session: AsyncSession, job: queue.Claimed) -> None:
                 [InlineKeyboardButton(text=t("btn_trust_buy"), url=f"https://t.me/{shop.bot_username}")]
             ]
         )
-    try:
-        await telegram.send_text(int(chat), text, shop_id=order.shop_id, reply_markup=markup)
-    except telegram.Undeliverable:
-        log.warning("trust channel post failed for shop %s", order.shop_id)
+    for row in targets:
+        try:
+            await telegram.send_text(row.chat_id, text, shop_id=order.shop_id, reply_markup=markup)
+        except telegram.Undeliverable as exc:
+            log.warning("trust channel post failed for shop %s in %s", order.shop_id, row.chat_id)
+            # The admin panel shows the channel as failing instead of dropping posts silently.
+            await kv.mark(f"trust:{order.shop_id}:{row.chat_id}", TRUST_FAIL_TTL, str(exc) or "1")
+        else:
+            await kv.unmark(f"trust:{order.shop_id}:{row.chat_id}")
 
 
 async def lottery_result(session: AsyncSession, job: queue.Claimed) -> None:

@@ -35,10 +35,15 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/catalog` | `catalog.read` | Catalog |
 | PUT | `/api/admin/categories/{row_id}` | `catalog.write` | Update category |
 | POST | `/api/admin/categories` | `catalog.write` | Create category |
+| POST | `/api/admin/channels/check` | `settings.write` | Resolve a channel with the shop's bot before it is added, so mistakes surface right away. |
 | DELETE | `/api/admin/channels/forced/{row_id}` | `settings.write` | Remove forced |
+| PUT | `/api/admin/channels/forced/{row_id}` | `settings.write` | Set forced |
 | POST | `/api/admin/channels/forced` | `settings.write` | Add forced |
 | DELETE | `/api/admin/channels/logs/{row_id}` | `settings.write` | Remove log channel |
 | PUT | `/api/admin/channels/logs` | `settings.write` | Set log channel |
+| DELETE | `/api/admin/channels/trust/{row_id}` | `settings.write` | Remove trust |
+| PUT | `/api/admin/channels/trust/{row_id}` | `settings.write` | Set trust |
+| POST | `/api/admin/channels/trust` | `settings.write` | Add trust |
 | GET | `/api/admin/channels` | `settings.read` | List channels |
 | DELETE | `/api/admin/contacts/{row_id}` | `settings.write` | Remove contact |
 | POST | `/api/admin/contacts` | `settings.write` | Add contact |
@@ -213,6 +218,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 |---|---|---|---|
 | GET | `/api/webapp/catalog` | Mini App initData | Catalog view |
 | GET | `/api/webapp/help` | Mini App initData | Customer help view |
+| POST | `/api/webapp/join/check` | Mini App initData | Ask Telegram again after the customer joined; the answer is never cached. |
+| GET | `/api/webapp/join` | Mini App initData | Channels a customer must join before the rest of the Mini App answers (GRW-07). |
 | POST | `/api/webapp/me/alerts` | Mini App initData | Set alert preferences |
 | POST | `/api/webapp/me/locale` | Mini App initData | Set locale |
 | POST | `/api/webapp/me/marketing` | Mini App initData | Set marketing |

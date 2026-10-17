@@ -19,6 +19,7 @@ from aiogram.methods import (
     DeleteWebhook,
     EditMessageCaption,
     EditMessageText,
+    GetChat,
     GetChatMember,
     GetFile,
     GetMe,
@@ -31,6 +32,7 @@ from aiogram.methods import (
 from aiogram.types import (
     CallbackQuery,
     Chat,
+    ChatMemberAdministrator,
     ChatMemberLeft,
     ChatMemberMember,
     File,
@@ -43,6 +45,14 @@ from aiogram.types import (
 
 TOKEN = "123456:TEST-token-for-unit-tests-only-xxxxxxxx"
 BOT_USER = User(id=123456, is_bot=True, first_name="Pauru", username="pauru_test_bot")
+
+
+def chat_key(value: Any) -> str:
+    """`@name` and `name` are the same chat, and so are the int and string forms of an id."""
+    text = str(value).strip()
+    return text[1:] if text.startswith("@") else text
+
+
 _ids = itertools.count(1000)
 
 
@@ -51,6 +61,9 @@ class FakeSession(BaseSession):
         super().__init__()
         self.calls: list[TelegramMethod[Any]] = []
         self.non_members: set[tuple[str, int]] = set()
+        self.admins: set[tuple[str, int]] = set()
+        self.chats: dict[str, Chat] = {}
+        self.unreachable: set[str] = set()
         self.files: dict[str, bytes] = {}
         self.blocked: set[int] = set()
 
@@ -75,6 +88,13 @@ class FakeSession(BaseSession):
             raise TelegramForbiddenError(method=method, message="Forbidden: bot was blocked by the user")
         if isinstance(method, GetMe):
             return BOT_USER
+        if isinstance(method, GetChat):
+            from aiogram.exceptions import TelegramBadRequest
+
+            chat = self.chats.get(chat_key(method.chat_id))
+            if chat is None:
+                raise TelegramBadRequest(method=method, message="Bad Request: chat not found")
+            return chat
         if isinstance(method, SendMessage):
             return self._message(int(method.chat_id), text=method.text)
         if isinstance(method, SendPhoto):
@@ -88,9 +108,18 @@ class FakeSession(BaseSession):
         if isinstance(method, CopyMessage):
             return MessageId(message_id=next(_ids))
         if isinstance(method, GetChatMember):
+            from aiogram.exceptions import TelegramBadRequest
+
+            if chat_key(method.chat_id) in self.unreachable:
+                raise TelegramBadRequest(method=method, message="Bad Request: bot is not a member")
+            who = User(id=method.user_id, is_bot=method.user_id == BOT_USER.id, first_name="x")
             if (str(method.chat_id), method.user_id) in self.non_members:
-                return ChatMemberLeft(user=User(id=method.user_id, is_bot=False, first_name="x"))
-            return ChatMemberMember(user=User(id=method.user_id, is_bot=False, first_name="x"))
+                return ChatMemberLeft(user=who)
+            if (str(method.chat_id), method.user_id) in self.admins:
+                return ChatMemberAdministrator.model_construct(
+                    user=who, status="administrator", is_member=True
+                )
+            return ChatMemberMember(user=who)
         if isinstance(method, GetFile):
             return File(file_id=method.file_id, file_unique_id=method.file_id, file_path=method.file_id)
         if isinstance(method, (AnswerCallbackQuery, AnswerPreCheckoutQuery, SetMyCommands, DeleteWebhook)):

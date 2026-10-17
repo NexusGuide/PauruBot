@@ -199,6 +199,12 @@ export interface CryptoInstructions {
   expires_at: string | null;
 }
 
+/** A channel the customer must join before the app answers anything else (GRW-07). */
+export interface JoinChannel {
+  title: string;
+  url: string;
+}
+
 export interface HistoryItem {
   id: number;
   amount: number;
@@ -214,6 +220,8 @@ const post = <T>(path: string, body: unknown = {}) =>
 
 export const api = {
   me: () => get<Me>("/me"),
+  join: () => get<{ channels: JoinChannel[] }>("/join"),
+  checkJoin: () => post<{ ok: boolean; channels: JoinChannel[] }>("/join/check"),
   setAlerts: (muted: boolean) => post<{ alerts_muted: boolean }>("/me/alerts", { alerts_muted: muted }),
   setMarketing: (optOut: boolean) =>
     post<MarketingPreference>("/me/marketing", { marketing_opt_out: optOut }),

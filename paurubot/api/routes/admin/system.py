@@ -13,10 +13,12 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import Date, cast, delete, func, select
 
-from paurubot import i18n
+from paurubot import i18n, kv
 from paurubot.api.admin_common import Page, owned, page_params, paginate, plain, reseller_scope
+from paurubot.api.channels import require_channel, resolve_channel
 from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record
+from paurubot.core import channels as channel_rules
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import utcnow
 from paurubot.db.models import (
@@ -33,6 +35,7 @@ from paurubot.db.models import (
     PaymentStatus,
     Plan,
     SupportContact,
+    TrustChannel,
 )
 from paurubot.worker import queue
 
@@ -51,7 +54,8 @@ LOG_TOPICS = (
     "panels",
     "tickets",
 )
-CHANNEL_FIELDS = ["id", "chat_id", "title", "url", "sort"]
+CHANNEL_FIELDS = ["id", "chat_id", "title", "url", "is_active", "sort"]
+TRUST_FIELDS = ["id", "chat_id", "title", "url", "kinds", "is_active", "sort"]
 LOG_FIELDS = ["id", "topic", "chat_id", "thread_id"]
 CONTACT_FIELDS = ["id", "title", "url", "sort"]
 AUDIT_FIELDS = [
@@ -406,10 +410,34 @@ SettingsRead = Annotated[StaffContext, Depends(require("settings.read"))]
 
 
 class ForcedChannelBody(BaseModel):
-    chat_id: str = Field(min_length=2, max_length=64, pattern=r"^(@[A-Za-z0-9_]{4,}|-100\d{5,})$")
-    title: str = Field(min_length=1, max_length=96)
-    url: str = Field(min_length=8, max_length=255, pattern=r"^https://t\.me/")
+    chat_id: str = Field(min_length=2, max_length=255)
+    title: str = Field(default="", max_length=96)
+    url: str = Field(default="", max_length=255)
     sort: int = 0
+
+
+class ForcedChannelPatch(BaseModel):
+    title: str | None = Field(default=None, max_length=96)
+    url: str | None = Field(default=None, max_length=255)
+    is_active: bool | None = None
+    sort: int | None = None
+
+
+class ChannelCheckBody(BaseModel):
+    chat_id: str = Field(min_length=2, max_length=255)
+
+
+class TrustChannelBody(BaseModel):
+    chat_id: str = Field(min_length=2, max_length=255)
+    kinds: list[str] = Field(default_factory=list)
+    is_active: bool = True
+    sort: int = 0
+
+
+class TrustChannelPatch(BaseModel):
+    kinds: list[str] | None = None
+    is_active: bool | None = None
+    sort: int | None = None
 
 
 class LogChannelBody(BaseModel):
@@ -424,13 +452,39 @@ class ContactBody(BaseModel):
     sort: int = 0
 
 
+def _invite_link(given: str, resolved: str) -> str:
+    """The link customers press: what the admin typed when it is a real link, else the @username."""
+    given = given.strip()
+    if given.startswith(("https://t.me/", "tg://")) and len(given) > len("https://t.me/"):
+        return given[:255]
+    return resolved
+
+
+def _kinds(raw: list[str]) -> list[str]:
+    clean = sorted({kind for kind in raw if kind in channel_rules.TRUST_KINDS})
+    if not clean:
+        raise HTTPException(status_code=422, detail="kinds_required")
+    if len(clean) != len(set(raw)):
+        raise HTTPException(status_code=422, detail="unknown_kind")
+    return clean
+
+
 @router.get("/channels")
 async def list_channels(ctx: SettingsRead, db: DB) -> dict[str, Any]:
     shop = ctx.shop_id
-    forced = await db.scalars(
-        select(ForcedChannel)
-        .where(ForcedChannel.shop_id == shop)
-        .order_by(ForcedChannel.sort, ForcedChannel.id)
+    forced = list(
+        await db.scalars(
+            select(ForcedChannel)
+            .where(ForcedChannel.shop_id == shop)
+            .order_by(ForcedChannel.sort, ForcedChannel.id)
+        )
+    )
+    trust = list(
+        await db.scalars(
+            select(TrustChannel)
+            .where(TrustChannel.shop_id == shop)
+            .order_by(TrustChannel.sort, TrustChannel.id)
+        )
     )
     logs = await db.scalars(select(LogChannel).where(LogChannel.shop_id == shop).order_by(LogChannel.topic))
     contacts = await db.scalars(
@@ -438,24 +492,55 @@ async def list_channels(ctx: SettingsRead, db: DB) -> dict[str, Any]:
         .where(SupportContact.shop_id == shop)
         .order_by(SupportContact.sort, SupportContact.id)
     )
+    # Channels Telegram could not verify or deliver to during the last fifteen minutes.
+    warnings = await kv.marked(
+        [f"join:{shop}:{row.chat_id}" for row in forced] + [f"trust:{shop}:{row.chat_id}" for row in trust]
+    )
     return {
-        "forced": [plain(x, CHANNEL_FIELDS) for x in forced],
+        "forced": [
+            {**plain(x, CHANNEL_FIELDS), "warning": warnings.get(f"join:{shop}:{x.chat_id}")} for x in forced
+        ],
+        "trust": [
+            {**plain(x, TRUST_FIELDS), "warning": warnings.get(f"trust:{shop}:{x.chat_id}")} for x in trust
+        ],
         "logs": [plain(x, LOG_FIELDS) for x in logs],
         "contacts": [plain(x, CONTACT_FIELDS) for x in contacts],
         "topics": list(LOG_TOPICS),
+        "trust_kinds": list(channel_rules.TRUST_KINDS),
+    }
+
+
+@router.post("/channels/check")
+async def check_channel(body: ChannelCheckBody, ctx: Settings) -> dict[str, Any]:
+    """Resolve a channel with the shop's bot before it is added, so mistakes surface right away."""
+    info = await resolve_channel(ctx.shop_id, body.chat_id)
+    return {
+        "chat_id": info.chat_id,
+        "title": info.title,
+        "url": info.url,
+        "bot_admin": info.bot_admin,
     }
 
 
 @router.post("/channels/forced")
 async def add_forced(body: ForcedChannelBody, ctx: Settings, db: DB) -> dict[str, Any]:
+    info = await require_channel(ctx.shop_id, body.chat_id)
+    chat_id = str(info.chat_id)
     exists = await db.scalar(
-        select(ForcedChannel.id).where(
-            ForcedChannel.shop_id == ctx.shop_id, ForcedChannel.chat_id == body.chat_id
-        )
+        select(ForcedChannel.id).where(ForcedChannel.shop_id == ctx.shop_id, ForcedChannel.chat_id == chat_id)
     )
     if exists:
         raise HTTPException(status_code=409, detail="channel_exists")
-    row = ForcedChannel(shop_id=ctx.shop_id, **body.model_dump())
+    link = _invite_link(body.url, info.url)
+    if not link:
+        raise HTTPException(status_code=422, detail="link_required")
+    row = ForcedChannel(
+        shop_id=ctx.shop_id,
+        chat_id=chat_id,
+        title=body.title.strip() or info.title or chat_id,
+        url=link,
+        sort=body.sort,
+    )
     db.add(row)
     await db.flush()
     await record(
@@ -465,7 +550,28 @@ async def add_forced(body: ForcedChannelBody, ctx: Settings, db: DB) -> dict[str
         action="channel.forced_add",
         entity="channel",
         entity_id=row.id,
-        after=body.model_dump(),
+        after={"chat_id": chat_id, "title": row.title, "url": link, "sort": body.sort},
+    )
+    return plain(row, CHANNEL_FIELDS)
+
+
+@router.put("/channels/forced/{row_id}")
+async def set_forced(body: ForcedChannelPatch, row_id: int, ctx: Settings, db: DB) -> dict[str, Any]:
+    row = await owned(db, ForcedChannel, row_id, ctx)
+    fields = body.model_dump(exclude_none=True)
+    before = {key: getattr(row, key) for key in fields}
+    for key, value in fields.items():
+        setattr(row, key, value.strip() if isinstance(value, str) else value)
+    await db.flush()
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="channel.forced_set",
+        entity="channel",
+        entity_id=row_id,
+        before=before,
+        after={key: getattr(row, key) for key in fields},
     )
     return plain(row, CHANNEL_FIELDS)
 
@@ -479,6 +585,78 @@ async def remove_forced(row_id: int, ctx: Settings, db: DB) -> dict[str, bool]:
         shop_id=ctx.shop_id,
         actor=ctx.actor,
         action="channel.forced_remove",
+        entity="channel",
+        entity_id=row_id,
+    )
+    return {"ok": True}
+
+
+@router.post("/channels/trust")
+async def add_trust(body: TrustChannelBody, ctx: Settings, db: DB) -> dict[str, Any]:
+    kinds = _kinds(body.kinds)
+    info = await require_channel(ctx.shop_id, body.chat_id)
+    exists = await db.scalar(
+        select(TrustChannel.id).where(
+            TrustChannel.shop_id == ctx.shop_id, TrustChannel.chat_id == info.chat_id
+        )
+    )
+    if exists:
+        raise HTTPException(status_code=409, detail="channel_exists")
+    row = TrustChannel(
+        shop_id=ctx.shop_id,
+        chat_id=info.chat_id,
+        title=info.title,
+        url=info.url,
+        kinds=kinds,
+        is_active=body.is_active,
+        sort=body.sort,
+    )
+    db.add(row)
+    await db.flush()
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="channel.trust_add",
+        entity="channel",
+        entity_id=row.id,
+        after={"chat_id": row.chat_id, "kinds": kinds, "is_active": body.is_active},
+    )
+    return plain(row, TRUST_FIELDS)
+
+
+@router.put("/channels/trust/{row_id}")
+async def set_trust(body: TrustChannelPatch, row_id: int, ctx: Settings, db: DB) -> dict[str, Any]:
+    row = await owned(db, TrustChannel, row_id, ctx)
+    fields = body.model_dump(exclude_none=True)
+    if "kinds" in fields:
+        fields["kinds"] = _kinds(fields["kinds"])
+    before = {key: getattr(row, key) for key in fields}
+    for key, value in fields.items():
+        setattr(row, key, value)
+    await db.flush()
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="channel.trust_set",
+        entity="channel",
+        entity_id=row_id,
+        before=before,
+        after={key: getattr(row, key) for key in fields},
+    )
+    return plain(row, TRUST_FIELDS)
+
+
+@router.delete("/channels/trust/{row_id}")
+async def remove_trust(row_id: int, ctx: Settings, db: DB) -> dict[str, bool]:
+    row = await owned(db, TrustChannel, row_id, ctx)
+    await db.delete(row)
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="channel.trust_remove",
         entity="channel",
         entity_id=row_id,
     )

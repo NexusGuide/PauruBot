@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot import __version__
+from paurubot.core import channels as channel_rules
 from paurubot.core import settings as shop_settings
 from paurubot.db.models import (
     BotText,
@@ -31,6 +32,7 @@ from paurubot.db.models import (
     PlanAudience,
     ResellerGroup,
     SupportContact,
+    TrustChannel,
 )
 
 FORMAT = "paurubot-bundle"
@@ -170,6 +172,17 @@ async def export(session: AsyncSession, shop_id: int) -> dict[str, Any]:
             {"topic": lc.topic, "chat_id": lc.chat_id, "thread_id": lc.thread_id}
             for lc in await session.scalars(select(LogChannel).where(LogChannel.shop_id == shop_id))
         ],
+        "trust_channels": [
+            {
+                "chat_id": tc.chat_id,
+                "title": tc.title,
+                "url": tc.url,
+                "kinds": tc.kinds,
+                "is_active": tc.is_active,
+                "sort": tc.sort,
+            }
+            for tc in await session.scalars(select(TrustChannel).where(TrustChannel.shop_id == shop_id))
+        ],
         "support_contacts": [
             {"title": s.title, "url": s.url, "sort": s.sort}
             for s in await session.scalars(select(SupportContact).where(SupportContact.shop_id == shop_id))
@@ -191,6 +204,7 @@ def _check(bundle: Any) -> dict[str, Any]:
         "bot_texts",
         "forced_channels",
         "log_channels",
+        "trust_channels",
         "support_contacts",
     ):
         if not isinstance(bundle.get(key, []), list):
@@ -333,6 +347,25 @@ async def apply(session: AsyncSession, shop_id: int, raw: Any, *, dry_run: bool 
         topic = str(item["topic"])[:32]
         values = {"topic": topic, "chat_id": int(item["chat_id"]), "thread_id": item.get("thread_id")}
         put("log_channels", await one(LogChannel, topic=topic), values, LogChannel)
+    for item in bundle.get("trust_channels", []):
+        chat_id = int(item["chat_id"])
+        kinds = [kind for kind in (item.get("kinds") or []) if kind in channel_rules.TRUST_KINDS]
+        if not kinds:
+            report.warnings.append(f"trust channel {chat_id}: no report kinds, skipped")
+            continue
+        values = {
+            "chat_id": chat_id,
+            "title": str(item.get("title") or "")[:96],
+            "url": str(item.get("url") or "")[:255],
+            "kinds": kinds,
+            "is_active": bool(item.get("is_active", True)),
+        }
+        put(
+            "trust_channels",
+            await one(TrustChannel, chat_id=chat_id),
+            {**values, "sort": int(item.get("sort") or 0)},
+            TrustChannel,
+        )
     for item in bundle.get("support_contacts", []):
         title = str(item["title"])[:64]
         values = {"title": title, "url": str(item.get("url") or "")[:255], "sort": int(item.get("sort") or 0)}

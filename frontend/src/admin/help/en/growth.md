@@ -49,7 +49,7 @@ At the draw time winners are picked by fair chance, wallet prizes are paid and t
 
 ## Trust channel
 
-If you run a public channel, put its ID in **Trust channel** and make the bot an admin there. Every paid purchase and renewal is announced there as a report: only the first digits of the buyer's id are shown, with the plan, category, service and amount paid, plus a buy button. Full usernames and ids are never shown, and at most 20 posts go out per hour on busy hours.
+[Channels](/channels) has a **Trust channels** section: add as many public channels as you like and tick the report kinds each one receives (purchase, renewal, free trial, upgrade, extra volume, extra days and moving a service). Every such order is posted there as a masked report: only the first digits of the buyer's id are shown, with the plan, category, service and amount paid, plus a buy button. A free trial shows «Free» in place of the amount. Full usernames and ids are never shown. If Telegram refuses a check or a post, a red badge appears on that channel row until it works again. The bot's own growth screen still sets a single channel; the full list with report kinds lives in the panel.
 
 ## Referrals
 

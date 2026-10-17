@@ -56,6 +56,7 @@ from paurubot.db.models.ops import (
     Ticket,
     TicketDepartment,
     TicketMessage,
+    TrustChannel,
 )
 from paurubot.db.models.tenancy import (
     Customer,
@@ -136,5 +137,6 @@ __all__ = [
     "TicketMessage",
     "TicketStatus",
     "TrialGrant",
+    "TrustChannel",
     "UsernameMethod",
 ]

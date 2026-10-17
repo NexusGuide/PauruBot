@@ -428,6 +428,8 @@
   "tier_next": "با {amount} تومان خرید دیگه به سطح {title} می‌رسی.",
   "trust_purchase": "✅ گزارش خرید #سفارش_جدید\n\n👤 آیدی کاربر: {buyer}\n🖥 پلن: {plan}\n🗂 دسته‌بندی: {category}\n📦 سرویس: {service}\n💰 مبلغ پرداختی: {amount} تومان\n\n📅 {date} - ⏰ {time}",
   "trust_renew": "🔄 گزارش تمدید #تمدید_جدید\n\n👤 آیدی کاربر: {buyer}\n🖥 پلن: {plan}\n🗂 دسته‌بندی: {category}\n📦 سرویس: {service}\n💰 مبلغ پرداختی: {amount} تومان\n\n📅 {date} - ⏰ {time}",
+  "trust_trial": "🎁 گزارش تست رایگان #تست_جدید\n\n👤 آیدی کاربر: {buyer}\n🖥 پلن: {plan}\n🗂 دسته‌بندی: {category}\n📦 سرویس: {service}\n💰 مبلغ پرداختی: رایگان\n\n📅 {date} - ⏰ {time}",
+  "trust_generic": "📌 گزارش {kind}\n\n👤 آیدی کاربر: {buyer}\n🖥 پلن: {plan}\n🗂 دسته‌بندی: {category}\n📦 سرویس: {service}\n💰 مبلغ پرداختی: {amount} تومان\n\n📅 {date} - ⏰ {time}",
   "btn_trust_buy": "🛒 خرید از ربات",
   "checkout_tier_discount": "⭐ تخفیف وفاداری: {amount} تومان",
   "btn_infocard": "🪪 کارت سرویس",

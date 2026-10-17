@@ -5,6 +5,7 @@ import { Checkout, Done } from "./screens/Checkout";
 import { Desk } from "./screens/Desk";
 import { Help } from "./screens/Help";
 import { Home } from "./screens/Home";
+import { Join } from "./screens/Join";
 import { Manage } from "./screens/Manage";
 import { More } from "./screens/More";
 import { Notifications } from "./screens/Notifications";
@@ -86,7 +87,16 @@ function Ripple() {
 }
 
 function Shell() {
-  const { me, error, t } = useApp();
+  const { me, error, join, t } = useApp();
+  if (join && !me) {
+    // The API holds customers at the join gate; the screen is its only job until they are in.
+    return (
+      <>
+        <Join />
+        <Toast />
+      </>
+    );
+  }
   if (error && !me) {
     return (
       <Screen>
