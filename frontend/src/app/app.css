@@ -215,6 +215,11 @@
 :root[data-app="miniapp"] .app-ln { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-block: 6px; font-size: .9rem; }
 :root[data-app="miniapp"] .app-ln small { color: var(--hint); font-weight: 500; }
 :root[data-app="miniapp"] .app-ln strong { font-size: 1.08rem; font-weight: 800; }
+:root[data-app="miniapp"] .app-ln.lg { padding-block: 13px; }
+:root[data-app="miniapp"] .app-lk { display: block; inline-size: 100%; margin-block: 14px 6px; padding: 14px 16px; border: none; border-radius: 18px; background: var(--bg); color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .72rem; line-height: 1.7; text-align: start; word-break: break-all; direction: ltr; }
+:root[data-app="miniapp"] .app-lk:active { background: var(--accent-soft); }
+:root[data-app="miniapp"] .app-qrb { display: inline-block; margin-block: 4px 12px; padding: 12px; border-radius: 22px; background: #fff; box-shadow: 0 0 0 1px var(--line), 0 10px 26px color-mix(in srgb, var(--accent) 18%, transparent); }
+:root[data-app="miniapp"] .app-qrb img { display: block; }
 :root[data-app="miniapp"] .app-bal { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-block-start: 12px; padding: 12px 14px; border-radius: 16px; background: var(--accent-soft); color: var(--accent); font-size: .88rem; font-weight: 700; }
 :root[data-app="miniapp"] .app-bal[data-tone="low"] { background: var(--danger-soft); color: var(--danger); }
 :root[data-app="miniapp"] .app-dc { display: flex; gap: 8px; }
@@ -301,8 +306,8 @@
 :root[data-app="miniapp"] .app-screen :where(input, select, textarea) { transition: border-color .2s ease, background-color .2s ease, box-shadow .2s ease; }
 :root[data-app="miniapp"] .app-screen :where(input, select, textarea):focus { border-color: color-mix(in srgb, var(--accent) 55%, var(--control-line)); }
 
-/* The service gauge draws itself when it appears. */
-:root[data-app="miniapp"] .app-ring-arc { transition: stroke-dasharray .9s cubic-bezier(.22, 1, .36, 1); }
+/* The service gauge fills to its value on first paint; the arc length lives in the markup. */
+:root[data-app="miniapp"] .app-ring-arc { animation: app-ring-draw .9s cubic-bezier(.22, 1, .36, 1) backwards; transition: stroke-dasharray .9s cubic-bezier(.22, 1, .36, 1); }
 
 /* Live services breathe. */
 :root[data-app="miniapp"] .app-dot-live { position: relative; }
@@ -321,7 +326,8 @@
   :root[data-app="miniapp"] .app-tab-fab .app-tab-p::before,
   :root[data-app="miniapp"] .app-check circle,
   :root[data-app="miniapp"] .app-check path,
-  :root[data-app="miniapp"] .app-skeleton { animation: none; }
+  :root[data-app="miniapp"] .app-skeleton,
+  :root[data-app="miniapp"] .app-ring-arc { animation: none; }
   :root[data-app="miniapp"] .app-ring-arc,
   :root[data-app="miniapp"] .app-prog i,
   :root[data-app="miniapp"] .app-seg-th { transition: none; }

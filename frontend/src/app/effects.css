@@ -54,6 +54,11 @@
   to { stroke-dashoffset: 0; }
 }
 
+/* The service gauge sweeps from empty to its real value on first paint. */
+@keyframes app-ring-draw {
+  from { stroke-dasharray: 0 var(--ring-c, 100); }
+}
+
 /* A small pop for freshly selected things. */
 @keyframes app-pop {
   0% { transform: scale(.9); }

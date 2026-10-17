@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { parentForPath, tabForPath } from "./navigation";
 import { errorText, useApp } from "./state";
@@ -344,11 +344,6 @@ export function Ring({
   inner: number | null;
   children?: ReactNode;
 }) {
-  const [drawn, setDrawn] = useState(false);
-  useEffect(() => {
-    const id = requestAnimationFrame(() => setDrawn(true));
-    return () => cancelAnimationFrame(id);
-  }, []);
   const stroke = Math.max(5, size * 0.085);
   const r1 = size / 2 - stroke / 2;
   const r2 = r1 - stroke * 1.55;
@@ -357,7 +352,7 @@ export function Ring({
   const colour = (v: number | null) =>
     v === null ? "var(--accent)" : v <= 0 ? "var(--color-anar-500)" : v < 0.15 ? "var(--color-saffron-500)" : "var(--accent)";
   const dash = (v: number | null, c: number) =>
-    `${(drawn ? (v === null ? 1 : Math.max(0, Math.min(1, v))) : 0) * c} ${c}`;
+    `${(v === null ? 1 : Math.max(0, Math.min(1, v))) * c} ${c}`;
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90" aria-hidden="true">
@@ -372,7 +367,7 @@ export function Ring({
           stroke={colour(outer)}
           strokeWidth={stroke}
           strokeLinecap="round"
-          style={{ strokeDasharray: dash(outer, c1) }}
+          style={{ strokeDasharray: dash(outer, c1), "--ring-c": c1 } as CSSProperties}
         />
         <circle
           className="app-ring-arc"
@@ -384,7 +379,7 @@ export function Ring({
           strokeOpacity={0.75}
           strokeWidth={stroke * 0.7}
           strokeLinecap="round"
-          style={{ strokeDasharray: dash(inner, c2) }}
+          style={{ strokeDasharray: dash(inner, c2), "--ring-c": c2 } as CSSProperties}
         />
       </svg>
       {children && <div className="absolute inset-0 flex flex-col items-center justify-center">{children}</div>}

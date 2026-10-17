@@ -102,7 +102,7 @@
   "receipt_hint": "After transferring, send a photo of the receipt for review.",
   "receipt_under_review": "Receipt under review",
   "receipt_under_review_hint": "Once approved, the amount is added to your wallet and your order goes through.",
-  "renew": "Renew",
+  "renew": "Renew service",
   "reseller_active": "Reseller account active",
   "reseller_discount": "Reseller discount",
   "reseller_discount_note": "Prices show your {percent}% discount.",
@@ -463,5 +463,8 @@
   "step_receipt": "Receipt",
   "card_target": "Destination card",
   "receipt_sent_title": "Receipt sent",
-  "receipt_sent_text": "Once an admin approves it, the balance is added to your wallet."
+  "receipt_sent_text": "Once an admin approves it, the balance is added to your wallet.",
+  "add_data": "Add data",
+  "add_time": "Add time",
+  "buy_new_service": "Buy a new service"
 }

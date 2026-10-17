@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "@shared/http";
 import { api } from "../api";
 import { useApp } from "../state";
+import { Button } from "../ui";
 import {
   basePrices,
   buildBody,
@@ -12,6 +13,16 @@ import {
   type Preference,
 } from "./model";
 import { translator } from "./copy";
+
+/** Badge tone for the saved auto-renewal status. */
+function statusTone(blocked: boolean, status: string) {
+  if (blocked || status === "off") return "gray";
+  if (status === "on") return "green";
+  if (status === "waiting_balance") return "orange";
+  if (status === "stopped") return "red";
+  return "gray";
+}
+
 export function AutoRenew({ serviceId }: { serviceId: number }) {
   const { locale } = useApp(),
     t = translator(locale);
@@ -125,13 +136,10 @@ export function AutoRenew({ serviceId }: { serviceId: number }) {
   const money = (n: number) => new Intl.NumberFormat(locale).format(n);
   const selected = review ?? choice;
   return (
-    <section
-      className="mb-4 rounded-3xl bg-[var(--surface)] p-4"
-      aria-label={t("title")}
-    >
+    <section className="app-card p-4" aria-label={t("title")}>
       <h2 className="mb-2 font-bold">{t("title")}</h2>
-      <p className="text-sm text-[var(--hint)]">{t("rules")}</p>
-      <p className="mt-2 text-sm">{t("wallet")}</p>
+      <p className="text-xs leading-6 text-[var(--hint)]">{t("rules")}</p>
+      <p className="mt-1.5 text-xs leading-6 text-[var(--hint)]">{t("wallet")}</p>
       {loading && <p role="status">{t("loading")}</p>}
       {busy && <p role="status">{t("busy")}</p>}
       {message && (
@@ -143,38 +151,41 @@ export function AutoRenew({ serviceId }: { serviceId: number }) {
         type="button"
         disabled={busy || loading}
         onClick={() => void read()}
-        className="my-3 rounded-xl border p-2"
+        className="app-chip my-3"
       >
         {t("refresh")}
       </button>
       {confirmed && choice && (
         <>
-          <p>
-            {t(blocked ? "unknown" : confirmed.status)}
+          <p className="my-2 flex flex-wrap items-center gap-2">
+            <span className="app-badge" data-tone={statusTone(blocked, confirmed.status)}>
+              {t(blocked ? "unknown" : confirmed.status)}
+            </span>
             {!blocked && confirmed.reason && (
-              <>
-                {" "}
-                · {t("reason")}: <bdi>{confirmed.reason}</bdi>
-              </>
+              <span className="text-sm text-[var(--hint)]">
+                {t("reason")}: <bdi>{confirmed.reason}</bdi>
+              </span>
             )}
           </p>
-          <p>
-            {t("current")}:{" "}
-            <bdi>
-              {confirmed.rule?.mode === "renew"
-                ? `${t("renew")} #${confirmed.rule.plan_id}`
-                : confirmed.rule?.mode === "extra"
-                  ? `${confirmed.rule.gb} GB / ${confirmed.rule.days} ${t("dayUnit")}`
-                  : t(confirmed.status)}
-            </bdi>
-          </p>
-          <p>
-            {t("balance")}:{" "}
-            <bdi>
-              {money(confirmed.balance)} {confirmed.currency}
-            </bdi>
-          </p>
-          {!confirmed.eligible && <p>{t("ineligible")}</p>}
+          <div className="mt-1 border-t border-[var(--line)]">
+            <div className="app-ln">
+              <small>{t("current")}</small>
+              <bdi className="font-bold">
+                {confirmed.rule?.mode === "renew"
+                  ? `${t("renew")} #${confirmed.rule.plan_id}`
+                  : confirmed.rule?.mode === "extra"
+                    ? `${confirmed.rule.gb} GB / ${confirmed.rule.days} ${t("dayUnit")}`
+                    : t(confirmed.status)}
+              </bdi>
+            </div>
+            <div className="app-ln border-t border-[var(--line)]">
+              <small>{t("balance")}</small>
+              <bdi className="num font-bold">
+                {money(confirmed.balance)} {confirmed.currency}
+              </bdi>
+            </div>
+          </div>
+          {!confirmed.eligible && <p className="mt-2 text-sm text-[var(--hint)]">{t("ineligible")}</p>}
           {!review ? (
             <fieldset
               disabled={busy || loading || blocked}
@@ -273,13 +284,9 @@ export function AutoRenew({ serviceId }: { serviceId: number }) {
                     </select>
                   </label>
                 ))}
-              <button
-                type="button"
-                onClick={prepare}
-                className="rounded-xl bg-firouzeh-500 p-3 font-bold text-white"
-              >
+              <Button type="button" onClick={prepare}>
                 {t("review")}
-              </button>
+              </Button>
             </fieldset>
           ) : (
             <div className="mt-3 grid gap-3">
@@ -314,15 +321,16 @@ export function AutoRenew({ serviceId }: { serviceId: number }) {
                 />
                 {t("ack")}
               </label>
-              <button
+              <Button
                 type="button"
                 disabled={busy || blocked || !ack}
+                busy={busy}
                 onClick={() => void save()}
-                className="rounded-xl bg-firouzeh-500 p-3 font-bold text-white"
               >
                 {t("save")}
-              </button>
-              <button
+              </Button>
+              <Button
+                tone="quiet"
                 type="button"
                 disabled={busy}
                 onClick={() => {
@@ -331,7 +339,7 @@ export function AutoRenew({ serviceId }: { serviceId: number }) {
                 }}
               >
                 {t("edit")}
-              </button>
+              </Button>
             </div>
           )}
           {selected && basePrices(selected, confirmed).length > 0 && (

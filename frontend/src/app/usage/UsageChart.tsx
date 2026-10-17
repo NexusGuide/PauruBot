@@ -53,12 +53,12 @@ export function UsageChart({ serviceId }: { serviceId: number }) {
   const stale = !!last && Date.now() - Date.parse(last.at) > 2 * 3600_000;
 
   return (
-    <section className="mb-4 rounded-3xl bg-[var(--surface)] p-4" aria-label={t("usage_history")}>
+    <section className="app-card p-4" aria-label={t("usage_history")}>
       <h2 className="font-bold">{t("usage_history")}</h2>
       <p className="mt-1 text-sm text-[var(--hint)]">{t("usage_counter_hint")}</p>
-      <div className="my-3 flex gap-2">
+      <div className="app-chips mt-3">
         {([7, 30] as const).map(window => <button key={window} type="button" aria-pressed={days === window}
-          className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm" onClick={() => setDays(window)}>
+          className="app-chip" onClick={() => setDays(window)}>
           {t("usage_days", { days: window })}
         </button>)}
       </div>
