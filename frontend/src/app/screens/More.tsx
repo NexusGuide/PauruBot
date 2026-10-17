@@ -1,34 +1,37 @@
-import { useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
 import { money } from "@shared/format";
-import { errorText, useApp } from "../state";
-import { haptic, tg } from "../telegram";
-import { translator } from "../receipts/copy";
-import { Panel, Row, Screen } from "../ui";
+import { Icon } from "../icons";
+import { useApp } from "../state";
+import { haptic, setThemePref, tg, themePref, type ThemePref } from "../telegram";
 import { CustomerSettings } from "../CustomerSettings";
+import { Item, Screen, Seg } from "../ui";
 
 export function More() {
-  const { me, t, locale, setMarketing, toast } = useApp();
-  const [savingMarketing, setSavingMarketing] = useState(false);
-  const marketingBusy = useRef(false);
-  const navigate = useNavigate();
+  const { me, t, locale } = useApp();
+  const [theme, setTheme] = useState<ThemePref>(() => themePref());
   if (!me) return null;
   const referral = me.shop.bot_username ? `https://t.me/${me.shop.bot_username}?start=ref_${me.telegram_id}` : null;
+  const joined = me.profile?.member_since ? new Date(me.profile.member_since) : null;
+  const joinedText =
+    joined && Number.isFinite(joined.getTime())
+      ? joined.toLocaleDateString(locale, { year: "numeric", month: "short", day: "numeric" })
+      : null;
 
-  const changeMarketing = async () => {
-    if (marketingBusy.current || !me.preferences) return;
-    marketingBusy.current = true;
-    setSavingMarketing(true);
-    try {
-      await setMarketing(!me.preferences.marketing_opt_out);
-      haptic("success");
-      toast(t("marketing_saved"));
-    } catch (err) {
-      toast(errorText(t, err), "error");
-    } finally {
-      marketingBusy.current = false;
-      setSavingMarketing(false);
-    }
+  const stats = [
+    { label: t("balance"), value: money(me.balance, locale) },
+    ...(me.referral.enabled
+      ? [
+          { label: t("stat_invites"), value: money(me.referral.count, locale) },
+          { label: t("stat_reward"), value: `${money(me.referral.percent, locale)}${t("percent")}` },
+        ]
+      : []),
+  ];
+
+  const changeTheme = (value: string) => {
+    const pref = value as ThemePref;
+    setTheme(pref);
+    setThemePref(pref);
+    haptic("select");
   };
 
   const share = () => {
@@ -39,88 +42,86 @@ export function More() {
   };
 
   return (
-    <Screen title={t("more")}>
-      <section className="mb-4 overflow-hidden rounded-3xl bg-[var(--surface)]">
-        <Row onClick={() => navigate("/profile")}>
-          <span className="flex-1 text-start">
-            <span className="block font-bold">{t("profile_title")}</span>
-            <span className="block text-sm text-[var(--hint)]">{t("profile_open_hint")}</span>
-          </span><span aria-hidden="true">›</span>
-        </Row>
-      </section>
-      <section className="mb-4 rounded-3xl bg-[var(--surface)]"><Row onClick={() => navigate("/receipts")}>{translator(locale)("title")}</Row></section>
-      {me.preferences && (
-        <section className="mb-4 rounded-3xl bg-[var(--surface)] p-4" aria-busy={savingMarketing}>
-          <p className="font-bold" aria-live="polite">
-            {t(me.preferences.marketing_opt_out ? "marketing_off" : "marketing_on")}
+    <Screen>
+      <div className="mb-4 text-center">
+        <div className="app-avatar">{(me.name || "?").trim().charAt(0)}</div>
+        <h1 className="mt-3 text-2xl font-extrabold">{me.name || t("profile_unset")}</h1>
+        {me.username && (
+          <p className="app-hint text-sm" dir="ltr">
+            @{me.username}
           </p>
-          <p className="my-2 text-sm text-[var(--hint)]">{t("marketing_hint")}</p>
-          <button type="button" disabled={savingMarketing} onClick={() => void changeMarketing()}
-            className="rounded-xl bg-[var(--accent)] px-4 py-2 text-white disabled:opacity-50">
-            {t(me.preferences.marketing_opt_out ? "marketing_enable" : "marketing_disable")}
-          </button>
-        </section>
-      )}
-      {me.staff && (me.staff.dashboard || me.staff.review) && (
-        <section className="mb-4 overflow-hidden rounded-3xl bg-[var(--surface)]">
-          <Row onClick={() => navigate("/manage")}>
-            <span className="flex-1">
-              <span className="block font-bold">{t("manage")}</span>
-              <span className="block text-sm text-[var(--hint)]">{t("manage_hint")}</span>
-            </span>
-            <span className="text-[var(--hint)]" aria-hidden="true">›</span>
-          </Row>
-        </section>
-      )}
-      {me.reseller.active && (
-        <Panel className="mb-4 bg-firouzeh-50 text-firouzeh-700">
-          <p className="font-bold">{t("reseller_active")}</p>
-          <p className="text-sm">{t("reseller_discount_note", { percent: money(me.reseller.discount_percent, locale) })}</p>
-          <button type="button" onClick={() => navigate("/desk")}
-            className="mt-3 w-full rounded-2xl bg-[var(--accent)] py-3 font-bold text-white">
-            {t("desk_open")}
-          </button>
-        </Panel>
-      )}
+        )}
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+          {joinedText && <span className="app-pill">{`${t("profile_member_since")} ${joinedText}`}</span>}
+          <span className="app-pill num" dir="ltr">{me.telegram_id}</span>
+        </div>
+      </div>
 
-      {me.referral.enabled && referral && (
-        <Panel className="mb-4">
-          <p className="font-bold">{t("invite_title")}</p>
-          <p className="mt-1 text-sm text-[var(--hint)]">
-            {t("invite_hint", { percent: money(me.referral.percent, locale) })}
-          </p>
-          <p className="num mt-3 text-sm">{t("invited_count", { count: money(me.referral.count, locale) })}</p>
-          <button type="button" onClick={share}
-            className="mt-3 w-full rounded-2xl bg-[var(--accent)] py-3 font-bold text-white">
-            {t("share_invite")}
-          </button>
-        </Panel>
-      )}
+      <div className="app-stats" style={{ gridTemplateColumns: `repeat(${stats.length}, 1fr)` }}>
+        {stats.map((stat) => (
+          <div key={stat.label} className="app-stat">
+            <b className="num">{stat.value}</b>
+            <small>{stat.label}</small>
+          </div>
+        ))}
+      </div>
 
-      <section className="mb-4 overflow-hidden rounded-3xl bg-[var(--surface)]">
-        <Row onClick={() => navigate("/tickets")}>
-          <span className="flex-1 text-start"><span className="block font-bold">{t("tickets_title")}</span>
-            <span className="block text-sm text-[var(--hint)]">{t("tickets_entry_hint")}</span></span>
-          <span aria-hidden="true">›</span>
-        </Row>
-      </section>
-      <section className="mb-4 overflow-hidden rounded-3xl bg-[var(--surface)]">
-        <Row onClick={() => navigate("/help")}>
-          <span className="flex-1 text-start"><span className="block font-bold">{t("help_title")}</span>
-            <span className="block text-sm text-[var(--hint)]">{t("help_entry_hint")}</span></span>
-          <span aria-hidden="true">›</span>
-        </Row>
-      </section>
+      <div className="app-card p-4">
+        <div className="mb-3 flex items-center gap-3">
+          <span className="app-ico" data-tone="gray">
+            <Icon name="globe" />
+          </span>
+          <span className="app-grow text-[0.95rem] font-bold">{t("appearance")}</span>
+        </div>
+        <Seg
+          options={[
+            { value: "light", label: t("theme_light") },
+            { value: "auto", label: t("theme_auto") },
+            { value: "dark", label: t("theme_dark") },
+          ]}
+          value={theme}
+          onChange={changeTheme}
+        />
+      </div>
+
       <CustomerSettings />
 
-      {me.shop.support && (
-        <section className="overflow-hidden rounded-3xl bg-[var(--surface)]">
-          <Row onClick={() => tg?.openTelegramLink(`https://t.me/${me.shop.support}`)}>
-            <span className="flex-1">{t("contact_support")}</span>
-            <span className="text-sm text-[var(--hint)]" dir="ltr">@{me.shop.support}</span>
-          </Row>
-        </section>
-      )}
+      <p className="app-lbl">{t("account")}</p>
+      <div className="app-card">
+        {me.referral.enabled && referral && (
+          <Item
+            icon={<Icon name="gift" />}
+            tone="orange"
+            title={t("invite_title")}
+            sub={t("invite_hint", { percent: money(me.referral.percent, locale) })}
+            onClick={share}
+          />
+        )}
+        <Item icon={<Icon name="recv" />} title={t("receipts_title")} sub={t("receipts_hint")} to="/receipts" />
+        <Item icon={<Icon name="headset" />} title={t("tickets_title")} sub={t("tickets_entry_hint")} to="/tickets" />
+        <Item icon={<Icon name="help" />} title={t("help_title")} sub={t("help_entry_hint")} to="/help" />
+        {me.staff && (me.staff.dashboard || me.staff.review) && (
+          <Item icon={<Icon name="gauge" />} tone="green" title={t("manage")} sub={t("manage_hint")} to="/manage" />
+        )}
+        {me.reseller.active && (
+          <Item
+            icon={<Icon name="panel" />}
+            tone="green"
+            title={t("desk_open")}
+            sub={t("reseller_discount_note", { percent: money(me.reseller.discount_percent, locale) })}
+            to="/desk"
+          />
+        )}
+        {me.shop.support && (
+          <Item
+            icon={<Icon name="headset" />}
+            tone="gray"
+            title={t("contact_support")}
+            sub={<span dir="ltr">@{me.shop.support}</span>}
+            onClick={() => tg?.openTelegramLink(`https://t.me/${me.shop.support}`)}
+          />
+        )}
+      </div>
     </Screen>
   );
 }

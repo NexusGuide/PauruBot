@@ -1,17 +1,27 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { dateTime, money } from "@shared/format";
 import { api, type Order } from "../api";
+import { Icon } from "../icons";
 import { errorText, useApp } from "../state";
 import { haptic, openExternal, openInvoice } from "../telegram";
-import { Button, Loading, Panel, Screen } from "../ui";
+import { ActionBar, Button, Loading, Panel, Screen, Steps } from "../ui";
 import { rememberCard, rememberPayment } from "./Payment";
+
+function randomName() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789";
+  return Array.from({ length: 10 }, () => chars.charAt(Math.floor(Math.random() * chars.length))).join("");
+}
 
 function Line({ label, value, strong, tone }: { label: string; value: string; strong?: boolean; tone?: string }) {
   return (
-    <div className={`flex items-baseline justify-between gap-3 py-1.5 ${strong ? "text-lg font-extrabold" : "text-sm"}`}>
-      <span className={strong ? "" : "text-[var(--hint)]"}>{label}</span>
-      <span className={`num ${tone ?? ""}`}>{value}</span>
+    <div className="app-ln">
+      <span className={strong ? "font-semibold" : "app-hint"}>{label}</span>
+      {strong ? (
+        <b className={`num text-[1.08rem] font-extrabold ${tone ?? ""}`}>{value}</b>
+      ) : (
+        <span className={`num font-semibold ${tone ?? ""}`}>{value}</span>
+      )}
     </div>
   );
 }
@@ -25,7 +35,9 @@ export function Checkout() {
   const [balance, setBalance] = useState(0);
   const [code, setCode] = useState("");
   const [appliedCode, setAppliedCode] = useState<string | undefined>(undefined);
-  const [label, setLabel] = useState("");
+  const isPurchase = (params.get("kind") ?? "purchase") === "purchase";
+  const [label, setLabel] = useState(() => (isPurchase ? randomName() : ""));
+  const initialLabel = useRef(label);
   const [busy, setBusy] = useState<string | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
 
@@ -51,7 +63,7 @@ export function Checkout() {
   );
 
   useEffect(() => {
-    create().catch((err) => setFailed(errorText(t, err)));
+    create(undefined, initialLabel.current || undefined).catch((err) => setFailed(errorText(t, err)));
   }, [create, t]);
 
   if (failed) {
@@ -62,6 +74,11 @@ export function Checkout() {
     );
   }
   if (!order || !me) return <Loading />;
+
+  const dirtyLabel = label.trim() !== "" && label.trim() !== (order.params.label ?? "");
+  const after = balance - order.amount;
+  const methods = me.payment_methods;
+  const method = methods[0] ?? "card";
 
   const applyCode = async () => {
     if (!code.trim()) return;
@@ -95,11 +112,11 @@ export function Checkout() {
     }
   };
 
-  const pay = async (method: string) => {
-    setBusy(method);
+  const pay = async (selected: string) => {
+    setBusy(selected);
     try {
-      const result = await api.payOrder(order.id, method);
-      if (method === "wallet") {
+      const result = await api.payOrder(order.id, selected);
+      if (selected === "wallet") {
         haptic("success");
         await reload();
         navigate(`/done/${order.id}`, { replace: true });
@@ -129,7 +146,35 @@ export function Checkout() {
   const extra = order.params;
   return (
     <Screen title={t(`checkout_${order.kind}`)}>
-      <Panel className="mb-4">
+      {order.kind === "purchase" && <Steps n={3} note={t("step_note_confirm")} />}
+
+      {order.kind === "purchase" && (
+        <>
+          <p className="app-lbl">{t("config_label")}</p>
+          <div className="app-fr">
+            <input
+              dir="ltr"
+              aria-label={t("config_label")}
+              value={label}
+              maxLength={48}
+              onChange={(e) => setLabel(e.target.value.replace(/[^A-Za-z0-9_]/g, ""))}
+              placeholder={t("config_label")}
+              className="w-full pe-14 text-left"
+            />
+            <button type="button" className="app-gen" aria-label={t("random_name")} onClick={() => setLabel(randomName())}>
+              <Icon name="dice" size={18} />
+            </button>
+          </div>
+          <p className="app-hint mt-2 px-1 text-xs">{t("config_label_hint")}</p>
+          {dirtyLabel && (
+            <Button tone="quiet" className="mt-3" busy={busy === "label"} onClick={applyLabel}>
+              {t("apply")}
+            </Button>
+          )}
+        </>
+      )}
+
+      <div className="app-card mt-4 p-4">
         {extra.custom ? (
           <>
             <Line label={t("custom_data")} value={`${money(extra.custom.gb, locale)} ${t("gb")}`} />
@@ -148,66 +193,57 @@ export function Checkout() {
         )}
         <div className="my-2 border-t border-dashed border-[var(--line)]" />
         <Line label={t("total")} value={`${money(order.amount, locale)} ${t("currency")}`} strong />
-        <Line label={t("balance")} value={money(balance, locale)} />
-      </Panel>
+      </div>
 
-      {me.reseller.active && order.kind === "purchase" && (
-        <div className="mb-4">
-          <p className="mb-2 text-sm text-[var(--hint)]">
-            {order.params.label ? t("label_current", { label: order.params.label }) : t("label_hint")}
-          </p>
-          <div className="flex gap-2">
+      {order.code_discount === 0 && (
+        <>
+          <p className="app-lbl">{t("code_discount")}</p>
+          <div className="app-dc">
             <input
-              aria-label={t("customer_label")}
-              value={label}
-              maxLength={48}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder={t("customer_label")}
-              className="min-h-12 flex-1 rounded-2xl bg-[var(--surface)] px-4 text-[var(--text)] outline-none ring-1 ring-[var(--line)] focus:ring-[var(--accent)]"
+              aria-label={t("discount_code")}
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder={t("discount_code")}
+              autoCapitalize="characters"
             />
-            <Button tone="quiet" className="!w-auto px-5" busy={busy === "label"} disabled={!label.trim()} onClick={applyLabel}>
+            <Button tone="quiet" className="w-auto px-5" busy={busy === "code"} onClick={applyCode}>
               {t("apply")}
             </Button>
           </div>
-        </div>
+        </>
       )}
 
-      {order.code_discount === 0 && (
-        <div className="mb-4 flex gap-2">
-          <input
-            aria-label={t("discount_code")}
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            placeholder={t("discount_code")}
-            className="min-h-12 flex-1 rounded-2xl bg-[var(--surface)] px-4 text-[var(--text)] outline-none ring-1 ring-[var(--line)] focus:ring-[var(--accent)]"
-            autoCapitalize="characters"
-          />
-          <Button tone="quiet" className="!w-auto px-5" busy={busy === "code"} onClick={applyCode}>
-            {t("apply")}
-          </Button>
-        </div>
-      )}
-
-      <div className="flex flex-col gap-3">
-        {due === 0 ? (
-          <Button busy={busy === "wallet"} onClick={() => pay("wallet")}>
-            {t("pay_from_wallet")}
-          </Button>
-        ) : (
-          <>
-            <p className="text-center text-sm text-[var(--hint)]">
-              {t("pay_due", { amount: money(due, locale) })}
-            </p>
-            {me.payment_methods.map((method) => (
-              <Button key={method} tone={method === me.payment_methods[0] ? "primary" : "quiet"}
-                busy={busy === method} onClick={() => pay(method)}>
-                {t(`method_${method}`)}
-              </Button>
-            ))}
-            {me.payment_methods.length === 0 && <p className="text-center text-sm">{t("no_methods")}</p>}
-          </>
-        )}
+      <div className="app-bal" data-tone={after < 0 ? "low" : undefined}>
+        <span>{t("balance_after")}</span>
+        <b className="num">
+          {after < 0 ? `− ${money(-after, locale)}` : money(after, locale)} {t("currency")}
+        </b>
       </div>
+
+      {due > 0 && (
+        <>
+          <p className="app-hint mt-4 text-center text-sm">{t("pay_due", { amount: money(due, locale) })}</p>
+          {methods.length === 0 && <p className="mt-2 text-center text-sm">{t("no_methods")}</p>}
+          {methods.length > 1 && (
+            <div className="mt-3 flex flex-col gap-3">
+              {methods.slice(1).map((option) => (
+                <Button key={option} tone="quiet" busy={busy === option} onClick={() => pay(option)}>
+                  {t(`method_${option}`)}
+                </Button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      <ActionBar
+        summary={t(`checkout_${order.kind}`)}
+        price={`${money(order.amount, locale)} ${t("currency")}`}
+        action={due === 0 ? t("pay_from_wallet") : t(`method_${method}`)}
+        busy={busy !== null}
+        disabled={due > 0 && methods.length === 0}
+        onClick={() => pay(due === 0 ? "wallet" : method)}
+      />
     </Screen>
   );
 }
@@ -225,20 +261,16 @@ export function Done() {
   }, [id]);
   return (
     <Screen>
-      <div className="flex min-h-[60dvh] flex-col items-center justify-center gap-4 text-center">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-pista-100 text-pista-700">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
-            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M5 12.5 10 17 19 7" />
+      <div className="app-done">
+        <div className="app-check">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle cx="60" cy="60" r="48" />
+            <path d="M38 62l16 16 28-32" />
           </svg>
         </div>
-        <h1 className="text-2xl font-extrabold">{t("paid_title")}</h1>
-        <p className="max-w-xs text-[var(--hint)]">
-          {queuedUntil
-            ? t("renew_queued_hint", { date: dateTime(queuedUntil, locale) })
-            : t("paid_hint")}
-        </p>
-        <div className="mt-2 w-full max-w-xs">
+        <h1 className="mt-2 text-2xl font-extrabold">{t("paid_title")}</h1>
+        <p>{queuedUntil ? t("renew_queued_hint", { date: dateTime(queuedUntil, locale) }) : t("paid_hint")}</p>
+        <div className="mt-3 w-full max-w-xs">
           <Button onClick={() => navigate("/services", { replace: true })}>{t("go_services")}</Button>
         </div>
       </div>

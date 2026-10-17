@@ -2,11 +2,10 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { useNavigate, useParams } from "react-router-dom";
 import { ApiError } from "@shared/http";
 import { api, type Ticket, type TicketList, type TicketThreadData } from "../api";
+import { Icon, type IconName } from "../icons";
 import { errorText, useApp } from "../state";
-import { Panel, Screen, Spinner } from "../ui";
-
-const control = "min-h-12 w-full rounded-2xl bg-[var(--surface)] p-3 text-start font-semibold disabled:opacity-50";
-const input = "mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--bg)] p-3";
+import { tg } from "../telegram";
+import { ActionBar, Button, Item, Screen, Spinner } from "../ui";
 
 // Abort + generation guard: a previous route/page/read never replaces a newer result.
 function useRead<T>(key: string, read: (signal: AbortSignal) => Promise<T>) {
@@ -38,42 +37,124 @@ function useLive() {
   return live;
 }
 
-function TicketStatus({ ticket }: { ticket: Ticket }) {
+function StatusBadge({ status }: { status: Ticket["status"] }) {
   const { t } = useApp();
-  return <span className="text-sm font-semibold">{t(`ticket_status_${ticket.status}`)}</span>;
+  return (
+    <span className="app-badge" data-tone={status === "answered" ? "green" : status === "closed" ? "gray" : undefined}>
+      {t(`ticket_status_${status}`)}
+    </span>
+  );
 }
 
 function ReadError({ error, retry }: { error: unknown; retry: () => void }) {
   const { t } = useApp();
   if (!error) return null;
-  return <div className="my-3" role="alert"><p>{errorText(t, error)}</p>
-    <button type="button" className={control} onClick={retry}>{t("tickets_retry")}</button></div>;
+  return (
+    <div className="app-note" data-tone="danger" role="alert">
+      <Icon name="help" size={20} />
+      <span className="app-grow">
+        {errorText(t, error)}
+        <Button tone="quiet" className="mt-2" onClick={retry}>{t("tickets_retry")}</Button>
+      </span>
+    </div>
+  );
 }
 
+const DEPT_ICONS: IconName[] = ["chat", "globe", "wallet", "bag", "headset"];
+
 export function Tickets() {
-  const { t, locale } = useApp();
+  const { me, t, locale } = useApp();
   const navigate = useNavigate();
   const [before, setBefore] = useState<number | undefined>();
+  const [status, setStatus] = useState<string | null>(null);
+  const [department, setDepartment] = useState<number | null>(null);
   const read = useCallback((signal: AbortSignal) => api.tickets(before, signal), [before]);
   const { data, error, busy, reload } = useRead<TicketList>(String(before ?? "latest"), read);
-  return <Screen title={t("tickets_title")}>
-    <button type="button" className={control} onClick={() => navigate("/tickets/new")}>{t("tickets_new")}</button>
-    <p className="my-3 text-sm text-[var(--hint)]">{t("tickets_order_hint")}</p>
-    <button type="button" className={control} disabled={busy} onClick={() => void reload()}>{t("tickets_refresh")}</button>
-    <ReadError error={error} retry={() => void reload()} />
-    {busy && <div role="status" className="p-4"><Spinner /><span>{t("tickets_loading")}</span></div>}
-    {!busy && data?.items.length === 0 && <Panel><p>{t("tickets_empty")}</p></Panel>}
-    <ul className="my-3 space-y-3">{data?.items.map(ticket => <li key={ticket.id}>
-      <button type="button" className={`${control} break-words`} onClick={() => navigate(`/tickets/${ticket.id}`)}>
-        <span className="block font-bold">#{ticket.id} — {ticket.subject}</span>
-        <TicketStatus ticket={ticket} />
-        <span className="block text-xs text-[var(--hint)]">{ticket.updated_at ? new Date(ticket.updated_at).toLocaleString(locale) : ""}</span>
-      </button>
-    </li>)}</ul>
-    {data?.next_before && <button type="button" className={control} disabled={busy} onClick={() => setBefore(data.next_before!)}>{t("tickets_older")}</button>}
-    {before && <button type="button" className={control} disabled={busy} onClick={() => setBefore(undefined)}>{t("tickets_latest")}</button>}
-    <button type="button" className={control} onClick={() => navigate("/more")}>{t("profile_back")}</button>
-  </Screen>;
+  const items = (data?.items ?? []).filter(
+    (ticket) => (status === null || ticket.status === status) && (department === null || ticket.department_id === department),
+  );
+
+  return (
+    <Screen
+      title={t("tickets_title")}
+      subtitle={t("tickets_order_hint")}
+      action={
+        <button
+          type="button"
+          className="app-iconbtn app-rip-host"
+          data-busy={busy}
+          aria-label={t("tickets_refresh")}
+          onClick={() => void reload()}
+        >
+          <Icon name="refresh" size={20} />
+        </button>
+      }
+    >
+      <div className="app-card">
+        <Item icon={<Icon name="plus" />} tone="green" title={t("tickets_new")} sub={t("tickets_new_sub")} to="/tickets/new" />
+        {me?.shop.support && (
+          <Item
+            icon={<Icon name="headset" />}
+            title={t("tickets_admin")}
+            sub={t("tickets_admin_sub")}
+            onClick={() => tg?.openTelegramLink(`https://t.me/${me.shop.support}`)}
+          />
+        )}
+      </div>
+
+      <div className="app-chips" role="group" aria-label={t("tickets_status_label")}>
+        {[{ id: null, label: t("all") }, ...(["open", "answered", "closed"] as const).map((value) => ({ id: value, label: t(`ticket_status_${value}`) }))].map((chip) => (
+          <button key={chip.id ?? "all"} type="button" aria-pressed={status === chip.id} className="app-chip" onClick={() => setStatus(chip.id)}>
+            {chip.label}
+          </button>
+        ))}
+      </div>
+      {data && data.departments.length > 0 && (
+        <div className="app-chips" role="group" aria-label={t("tickets_department")}>
+          {[{ id: null, title: t("all") }, ...data.departments].map((chip) => (
+            <button key={chip.id ?? "all"} type="button" aria-pressed={department === chip.id} className="app-chip" onClick={() => setDepartment(chip.id)}>
+              {chip.title}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <ReadError error={error} retry={() => void reload()} />
+
+      {busy && (
+        <div role="status" className="flex items-center justify-center gap-2 py-6 text-[var(--hint)]">
+          <Spinner /> <span className="text-sm">{t("tickets_loading")}</span>
+        </div>
+      )}
+      {!busy && data && items.length === 0 && <div className="app-card"><div className="app-empty">{t("tickets_empty")}</div></div>}
+      {items.length > 0 && (
+        <div className="app-card">
+          {items.map((ticket) => (
+            <Item
+              key={ticket.id}
+              icon={<Icon name={ticket.status === "closed" ? "check" : ticket.status === "answered" ? "chat" : "clock"} />}
+              tone={ticket.status === "answered" ? "green" : ticket.status === "closed" ? "gray" : undefined}
+              title={`#${ticket.id} — ${ticket.subject}`}
+              sub={ticket.updated_at ? new Date(ticket.updated_at).toLocaleString(locale) : ""}
+              badge={<StatusBadge status={ticket.status} />}
+              onClick={() => navigate(`/tickets/${ticket.id}`)}
+            />
+          ))}
+        </div>
+      )}
+
+      {data?.next_before != null && (
+        <Button tone="quiet" className="mt-3" disabled={busy} onClick={() => setBefore(data?.next_before ?? undefined)}>
+          {t("tickets_older")}
+        </Button>
+      )}
+      {before !== undefined && (
+        <Button tone="quiet" className="mt-2" disabled={busy} onClick={() => setBefore(undefined)}>
+          {t("tickets_latest")}
+        </Button>
+      )}
+    </Screen>
+  );
 }
 
 export function NewTicket() {
@@ -88,6 +169,7 @@ export function NewTicket() {
   const [writeError, setWriteError] = useState<string | null>(null);
   const guard = useRef(false);
   const live = useLive();
+  const blocked = saving || busy || !data || !subject.trim() || !text.trim();
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (guard.current || busy || !data || !subject.trim() || !text.trim()) return;
@@ -101,24 +183,47 @@ export function NewTicket() {
       if (live.current) setWriteError(err instanceof ApiError && err.status < 500 ? errorText(t, err) : t("tickets_uncertain"));
     } finally { guard.current = false; if (live.current) setSaving(false); }
   };
-  return <Screen title={t("tickets_new")}>
-    <p className="mb-3 text-sm text-[var(--hint)]">{t("tickets_text_only")}</p>
-    <ReadError error={error} retry={() => void reload()} />
-    {busy && <p role="status">{t("tickets_loading")}</p>}
-    <form onSubmit={event => void submit(event)}>
-      <fieldset disabled={saving} className="min-w-0 space-y-4">
-        <label className="block">{t("tickets_subject")}<input aria-label={t("tickets_subject")} className={input} value={subject} maxLength={128} required onChange={event => setSubject(event.target.value)} /></label>
-        <label className="block">{t("tickets_department")}<select aria-label={t("tickets_department")} className={input} value={department} disabled={busy || !data} onChange={event => setDepartment(event.target.value)}>
-          <option value="">{t("tickets_general")}</option>{data?.departments.map(desk => <option key={desk.id} value={desk.id}>{desk.title}</option>)}
-        </select></label>
-        <label className="block">{t("tickets_message")}<textarea aria-label={t("tickets_message")} className={input} value={text} rows={6} maxLength={4000} required onChange={event => setText(event.target.value)} /></label>
-        <p className="text-xs text-[var(--hint)]">{t("tickets_characters", { count: text.length, max: 4000 })}</p>
-        <button type="submit" className={control} disabled={saving || busy || !data || !subject.trim() || !text.trim()}>{t(saving ? "tickets_sending" : "tickets_send")}</button>
-      </fieldset>
-    </form>
-    {writeError && <p role="alert" className="my-3">{writeError}</p>}
-    <button type="button" className={control} disabled={saving} onClick={() => navigate("/tickets")}>{t("tickets_back")}</button>
-  </Screen>;
+  return (
+    <Screen title={t("tickets_new")}>
+      <div className="app-note">
+        <Icon name="help" size={20} />
+        <span>{t("tickets_text_only")}</span>
+      </div>
+      <ReadError error={error} retry={() => void reload()} />
+      <form onSubmit={(event) => void submit(event)}>
+        <fieldset disabled={saving} className="min-w-0">
+          <p className="app-lbl">{t("tickets_department")}</p>
+          <div className="app-depts">
+            <button type="button" className="app-dept" aria-pressed={department === ""} onClick={() => setDepartment("")} disabled={busy || !data}>
+              <Icon name="headset" size={22} />
+              <b>{t("tickets_general")}</b>
+            </button>
+            {data?.departments.map((desk, index) => (
+              <button key={desk.id} type="button" className="app-dept" aria-pressed={department === String(desk.id)}
+                disabled={busy || !data} onClick={() => setDepartment(String(desk.id))}>
+                <Icon name={DEPT_ICONS[index % DEPT_ICONS.length] ?? "chat"} size={22} />
+                <b>{desk.title}</b>
+              </button>
+            ))}
+          </div>
+          <p className="app-lbl">{t("tickets_subject")}</p>
+          <input aria-label={t("tickets_subject")} value={subject} maxLength={128} required
+            placeholder={t("tickets_subject_placeholder")} onChange={(event) => setSubject(event.target.value)} />
+          <p className="app-lbl mt-4">{t("tickets_message")}</p>
+          <textarea aria-label={t("tickets_message")} value={text} rows={8} maxLength={4000} required
+            placeholder={t("tickets_message_placeholder")} onChange={(event) => setText(event.target.value)} />
+          <p className="app-hint mt-2 px-1 text-xs">{t("tickets_characters", { count: text.length, max: 4000 })}</p>
+        </fieldset>
+        {writeError && <p role="alert" className="app-note mt-4" data-tone="danger">{writeError}</p>}
+        <ActionBar
+          action={t(saving ? "tickets_sending" : "tickets_send")}
+          submit
+          busy={saving}
+          disabled={blocked}
+        />
+      </form>
+    </Screen>
+  );
 }
 
 export function TicketThread() {
@@ -127,7 +232,7 @@ export function TicketThread() {
   const navigate = useNavigate();
   const value = Number(id);
   if (!id || !/^\d+$/.test(id) || !Number.isSafeInteger(value) || value <= 0) {
-    return <Screen title={t("tickets_title")}><p role="alert">{t("err_ticket_not_found")}</p><button type="button" className={control} onClick={() => navigate("/tickets")}>{t("tickets_back")}</button></Screen>;
+    return <Screen title={t("tickets_title")}><p role="alert">{t("err_ticket_not_found")}</p><Button tone="quiet" onClick={() => navigate("/tickets")}>{t("tickets_back")}</Button></Screen>;
   }
   // A route change discards the former ticket's draft/confirmation and all local response state.
   return <Thread key={value} id={value} />;
@@ -135,7 +240,6 @@ export function TicketThread() {
 
 function Thread({ id }: { id: number }) {
   const { t, locale, toast } = useApp();
-  const navigate = useNavigate();
   const read = useCallback((signal: AbortSignal) => api.ticket(id, undefined, signal), [id]);
   const { data, error, busy, reload } = useRead<TicketThreadData>(String(id), read);
   const [older, setOlder] = useState<TicketThreadData["messages"]>([]);
@@ -180,35 +284,95 @@ function Thread({ id }: { id: number }) {
   // still displays the server-confirmed closed status and does not re-enable reply.
   useEffect(() => { if (data) setConfirmed(null); }, [data]);
   const messages = [...new Map([...older, ...(data?.messages ?? [])].map(message => [message.id, message])).values()].sort((a, b) => a.id - b.id);
-  return <Screen title={t("tickets_title")}>
-    {ticket && <h2 className="mb-3 break-words text-xl font-bold">#{ticket.id} — {ticket.subject}</h2>}
-    <button type="button" className={control} disabled={saving} onClick={() => navigate("/tickets")}>{t("tickets_back")}</button>
-    <button type="button" className={control} disabled={unavailable} onClick={refresh}>{t("tickets_refresh")}</button>
-    <ReadError error={error} retry={refresh} />
-    {busy && <p role="status">{t("tickets_loading")}</p>}
-    {ticket && <p className="my-3"><TicketStatus ticket={ticket} /></p>}
-    {(cursor === undefined ? data?.next_before : cursor) && <button type="button" className={control} disabled={unavailable} onClick={() => void run("older")}>{t("tickets_older_messages")}</button>}
-    <ol aria-label={t("tickets_conversation")} className="my-4 space-y-3">{messages.map(message => <li key={message.id}>
-      <Panel><p className="text-sm font-bold">{t(message.from === "me" ? "tickets_me" : "tickets_support")}</p>
-        <p className="mt-2 whitespace-pre-wrap break-words" dir="auto">{message.text}</p>
-        {message.has_attachment && <p className="mt-2 text-sm text-[var(--hint)]">{t("tickets_attachment")}</p>}
-        <time className="mt-2 block text-xs text-[var(--hint)]">{message.created_at ? new Date(message.created_at).toLocaleString(locale) : ""}</time>
-      </Panel>
-    </li>)}</ol>
-    {writeError && <p role="alert">{writeError}</p>}
-    {ticket?.status === "closed" ? <p role="status">{t("tickets_closed_hint")}</p> : data && <>
-      <form onSubmit={event => { event.preventDefault(); void run("reply"); }}>
-        <label className="block">{t("tickets_reply")}<textarea aria-label={t("tickets_reply")} className={input} value={text} disabled={unavailable || confirmClose} rows={5} maxLength={4000} required onChange={event => setText(event.target.value)} /></label>
-        <p className="text-xs text-[var(--hint)]">{t("tickets_characters", { count: text.length, max: 4000 })}</p>
-        <button type="submit" className={control} disabled={unavailable || confirmClose || !text.trim()}>{t(saving ? "tickets_sending" : "tickets_send_reply")}</button>
-      </form>
-      {confirmClose ? <section role="group" aria-label={t("tickets_close_confirm")} className="my-4 rounded-2xl border border-[var(--line)] p-4">
-        <p>{t("tickets_close_confirm")}</p>
-        <button type="button" className={control} disabled={unavailable} onClick={() => void run("close")}>{t("tickets_close_yes")}</button>
-        <button type="button" className={control} disabled={unavailable} onClick={() => setConfirmClose(false)}>{t("tickets_cancel")}</button>
-      </section> : <button type="button" className={control} disabled={unavailable} onClick={() => setConfirmClose(true)}>{t("tickets_close")}</button>}
-    </>}
-    {saving && <p role="status">{t("tickets_loading")}</p>}
-    <p className="my-3 text-sm text-[var(--hint)]">{t("tickets_text_only")}</p>
-  </Screen>;
+  return (
+    <Screen
+      title={ticket?.subject ?? t("tickets_title")}
+      subtitle={ticket ? `#${ticket.id}` : undefined}
+      action={
+        <button type="button" className="app-iconbtn app-rip-host" data-busy={busy} aria-label={t("tickets_refresh")} onClick={refresh}>
+          <Icon name="refresh" size={20} />
+        </button>
+      }
+    >
+      {ticket && (
+        <div className="app-card p-4">
+          <div className="app-ln">
+            <span className="app-hint">{t("tickets_status_label")}</span>
+            <StatusBadge status={ticket.status} />
+          </div>
+          <div className="app-ln">
+            <span className="app-hint">{t("tickets_created_label")}</span>
+            <span className="num font-semibold">
+              {ticket.created_at ? new Date(ticket.created_at).toLocaleString(locale) : "—"}
+            </span>
+          </div>
+          {ticket.status === "closed" ? null : confirmClose ? (
+            <>
+              <p className="app-hint mt-2 text-xs">{t("tickets_close_confirm")}</p>
+              <div className="mt-2 flex gap-2">
+                <Button tone="danger" busy={saving} onClick={() => void run("close")}>{t("tickets_close_yes")}</Button>
+                <Button tone="quiet" onClick={() => setConfirmClose(false)}>{t("tickets_cancel")}</Button>
+              </div>
+            </>
+          ) : (
+            <button type="button" className="mt-1 min-h-11 font-bold text-[var(--danger)]" disabled={unavailable}
+              onClick={() => setConfirmClose(true)}>
+              {t("tickets_close")}
+            </button>
+          )}
+        </div>
+      )}
+
+      <ReadError error={error} retry={refresh} />
+      {(cursor === undefined ? data?.next_before : cursor) != null && (
+        <Button tone="quiet" className="mt-3" disabled={unavailable} onClick={() => void run("older")}>
+          {t("tickets_older_messages")}
+        </Button>
+      )}
+
+      <ol aria-label={t("tickets_conversation")} className="app-chat my-2">
+        {messages.map((message) => (
+          <li key={message.id} className="app-msg" data-from={message.from}>
+            <span className="whitespace-pre-wrap break-words" dir="auto">{message.text}</span>
+            {message.has_attachment && <span className="app-hint mt-1 block text-xs">{t("tickets_attachment")}</span>}
+            <time className="num">
+              {message.from === "support" ? `${t("tickets_support")} · ` : ""}
+              {message.created_at ? new Date(message.created_at).toLocaleString(locale) : ""}
+            </time>
+          </li>
+        ))}
+      </ol>
+
+      {writeError && <p role="alert" className="app-note" data-tone="danger">{writeError}</p>}
+      {ticket?.status === "closed" ? (
+        <p className="app-hint mx-auto mt-4 max-w-xs text-center text-sm">{t("tickets_closed_hint")}</p>
+      ) : data && (
+        <form
+          className="app-cmp"
+          onSubmit={(event) => { event.preventDefault(); void run("reply"); }}
+        >
+          <textarea
+            aria-label={t("tickets_reply")}
+            className="max-h-40"
+            value={text}
+            disabled={unavailable || confirmClose}
+            rows={2}
+            maxLength={4000}
+            required
+            placeholder={t("tickets_reply_placeholder")}
+            onChange={(event) => setText(event.target.value)}
+          />
+          <button
+            type="submit"
+            className="app-send app-rip-host"
+            aria-label={t(saving ? "tickets_sending" : "tickets_send_reply")}
+            disabled={unavailable || confirmClose || !text.trim()}
+          >
+            <Icon name="send" size={19} />
+          </button>
+        </form>
+      )}
+      {saving && <p role="status" className="sr-only">{t("tickets_loading")}</p>}
+    </Screen>
+  );
 }

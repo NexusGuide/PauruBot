@@ -100,27 +100,27 @@ export function Payment() {
   if (crypto) {
     return (
       <Screen title={t("crypto_payment", { network: crypto.label })}>
-        <Panel className="mb-4 text-center">
-          <p className="text-sm text-[var(--hint)]">{t("crypto_send_exactly")}</p>
-          <button type="button" onClick={() => copy(crypto.amount)} className="mt-1 w-full">
-            <p dir="ltr" className="num text-3xl font-extrabold">{crypto.amount}</p>
-            <p className="text-sm text-[var(--hint)]">{crypto.label}</p>
-          </button>
-          <p className="mt-2 text-xs text-[var(--hint)]">
-            {t("crypto_equals", { amount: money(amount, locale) })}
-          </p>
-        </Panel>
-        <button type="button" onClick={() => copy(crypto.address)}
-          className="mb-3 w-full rounded-3xl bg-[var(--surface)] p-4 text-start">
-          <p className="text-xs text-[var(--hint)]">{t("crypto_address")}</p>
+        <button type="button" onClick={() => void copy(crypto.amount)} className="app-wcard block w-full text-start">
+          <p className="app-wcard-label">{t("crypto_send_exactly")}</p>
+          <div className="app-wcard-amt num" dir="ltr">
+            {crypto.amount}
+          </div>
+          <p className="app-wcard-note mt-1">{crypto.label}</p>
+          <p className="app-wcard-note mt-1">{t("crypto_equals", { amount: money(amount, locale) })}</p>
+          <p className="app-wcard-note mt-2 font-bold">{t("tap_to_copy")}</p>
+        </button>
+        <button type="button" onClick={() => void copy(crypto.address)} className="app-card w-full p-4 text-start">
+          <p className="app-hint text-xs">{t("crypto_address")}</p>
           <p dir="ltr" className="mt-1 break-all font-mono text-sm font-semibold">{crypto.address}</p>
           <p className="mt-1 text-xs font-semibold text-[var(--accent)]">{t("tap_to_copy")}</p>
         </button>
         {crypto.memo && (
-          <button type="button" onClick={() => copy(crypto.memo ?? "")}
-            className="mb-3 w-full rounded-3xl bg-saffron-100 p-4 text-start text-saffron-700">
-            <p className="text-xs">{t("crypto_memo")}</p>
-            <p dir="ltr" className="mt-1 font-mono text-lg font-bold">{crypto.memo}</p>
+          <button type="button" onClick={() => void copy(crypto.memo ?? "")} className="app-note w-full text-start">
+            <span className="app-grow">
+              <small className="block font-semibold">{t("crypto_memo")}</small>
+              <b dir="ltr" className="mt-1 block font-mono text-lg">{crypto.memo}</b>
+              <small className="mt-1 block text-xs font-semibold">{t("tap_to_copy")}</small>
+            </span>
           </button>
         )}
         {closed ? (

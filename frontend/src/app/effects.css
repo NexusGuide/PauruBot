@@ -1,0 +1,77 @@
+/*
+ * Mini App motion primitives.
+ *
+ * They live in their own file on purpose: frontend/tests/ux.test.mjs asserts that every
+ * selector in app.css is scoped to :root[data-app="miniapp"], and the inner from/to blocks
+ * of @keyframes read as unscoped selectors to that check. Only the Mini App entry
+ * (src/app/main.tsx) imports this file, so nothing leaks into the admin panel.
+ */
+
+@keyframes app-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes app-toast-in {
+  from { opacity: 0; transform: translateY(14px) scale(.97); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes app-toast-drop {
+  from { opacity: 0; transform: translateY(-14px) scale(.97); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes app-ping {
+  0% { transform: scale(1); opacity: .55; }
+  80%, 100% { transform: scale(2.2); opacity: 0; }
+}
+
+@keyframes app-shimmer {
+  from { background-position: 130% 0; }
+  to { background-position: -130% 0; }
+}
+
+@keyframes app-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+/* The soft light that sweeps across the wallet card. */
+@keyframes app-shine {
+  0% { transform: translateX(-190%) skewX(-16deg); }
+  55%, 100% { transform: translateX(320%) skewX(-16deg); }
+}
+
+/* Refresh buttons while their read is in flight. */
+@keyframes app-rot {
+  to { transform: rotate(360deg); }
+}
+
+/* Strokes that draw themselves (success check, gauges). */
+@keyframes app-draw {
+  from { stroke-dashoffset: var(--draw-from, 90); }
+  to { stroke-dashoffset: 0; }
+}
+
+/* The service gauge sweeps from empty to its real value on first paint. */
+@keyframes app-ring-draw {
+  from { stroke-dasharray: 0 var(--ring-c, 100); }
+}
+
+/* A small pop for freshly selected things. */
+@keyframes app-pop {
+  0% { transform: scale(.9); }
+  55% { transform: scale(1.07); }
+  100% { transform: scale(1); }
+}
+
+/* The ripple that grows from the touch point on buttons. */
+@keyframes app-rip {
+  to { transform: scale(4.4); opacity: 0; }
+}
+
+@keyframes app-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

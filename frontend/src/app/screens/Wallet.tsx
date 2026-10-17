@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { dateTime, money } from "@shared/format";
 import { api, type HistoryItem } from "../api";
+import { Icon } from "../icons";
 import { errorText, useApp } from "../state";
 import { haptic, openExternal, openInvoice } from "../telegram";
-import { Button, Panel, Screen } from "../ui";
+import { Button, CountUp, Item, Screen } from "../ui";
 import { rememberCard, rememberPayment } from "./Payment";
 
 const PRESETS = [50_000, 100_000, 200_000, 500_000];
@@ -21,6 +22,11 @@ export function Wallet() {
   useEffect(() => {
     api.history().then((r) => setHistory(r.items));
   }, []);
+  useEffect(() => {
+    if (!me || amount !== null || custom !== "") return;
+    const [low, high] = me.topup_bounds;
+    setAmount(PRESETS.find((p) => p >= low && p <= high) ?? low);
+  }, [me, amount, custom]);
   if (!me) return null;
   const [low, high] = me.topup_bounds;
   const presets = PRESETS.filter((p) => p >= low && p <= high);
@@ -75,61 +81,111 @@ export function Wallet() {
   };
 
   return (
-    <Screen title={t("wallet")}>
-      <Panel className="mb-5 text-center">
-        <p className="text-sm text-[var(--hint)]">{t("balance")}</p>
-        <p className="num mt-1 text-4xl font-extrabold">{money(me.balance, locale)}</p>
-        <p className="text-sm text-[var(--hint)]">{t("currency")}</p>
-      </Panel>
+    <Screen
+      title={t("wallet")}
+      action={
+        <button
+          type="button"
+          className="app-iconbtn app-rip-host"
+          aria-label={t("receipts_title")}
+          onClick={() => navigate("/receipts")}
+        >
+          <Icon name="recv" size={20} />
+        </button>
+      }
+    >
+      <div className="app-wcard">
+        <p className="app-wcard-label">{t("home_wallet")}</p>
+        <div className="app-wcard-amt num">
+          <CountUp value={me.balance} format={(value) => money(value, locale)} /> <small>{t("currency")}</small>
+        </div>
+      </div>
 
-      <h2 className="mb-3 text-lg font-bold">{t("top_up")}</h2>
-      <div className="mb-3 grid grid-cols-2 gap-2">
-        {presets.map((p) => (
-          <button key={p} aria-pressed={amount === p} type="button" onClick={() => { setAmount(p); setCustom(""); haptic("select"); }}
-            className={`num rounded-2xl py-3 font-bold ${amount === p ? "bg-[var(--accent)] text-white" : "bg-[var(--surface)]"}`}>
-            {money(p, locale)}
+      <p className="app-lbl">{t("topup_amount")}</p>
+      <div className="app-chips" role="group">
+        {presets.map((preset) => (
+          <button
+            key={preset}
+            type="button"
+            aria-pressed={amount === preset}
+            className="app-chip num"
+            onClick={() => {
+              setAmount(preset);
+              setCustom("");
+              haptic("select");
+            }}
+          >
+            {money(preset, locale)}
           </button>
         ))}
       </div>
-      <input aria-label={t("custom_amount", { low: money(low, locale), high: money(high, locale) })} inputMode="numeric" value={custom}
-        onChange={(e) => { setCustom(e.target.value); setAmount(null); }}
+      <input
+        aria-label={t("custom_amount", { low: money(low, locale), high: money(high, locale) })}
+        inputMode="numeric"
+        value={custom}
+        onChange={(e) => {
+          setCustom(e.target.value);
+          setAmount(null);
+        }}
         placeholder={t("custom_amount", { low: money(low, locale), high: money(high, locale) })}
-        className="num mb-3 min-h-12 w-full rounded-2xl bg-[var(--surface)] px-4 outline-none ring-1 ring-[var(--line)] focus:ring-[var(--accent)]" />
-      <div className="mb-8 flex flex-col gap-2">
-        {me.payment_methods.map((method, index) => (
-          <Button key={method} tone={index === 0 ? "primary" : "quiet"} disabled={!valid} busy={busy === method}
-            onClick={() => topup(method)}>
-            {t(`method_${method}`)}
-          </Button>
+        className="num mb-4 w-full"
+      />
+
+      <p className="app-lbl">{t("topup_method")}</p>
+      <div className="app-card">
+        {me.payment_methods.map((method) => (
+          <Item
+            key={method}
+            icon={<Icon name={method === "card" ? "card" : "coin"} />}
+            tone={method === "card" ? undefined : "green"}
+            title={t(`method_${method}`)}
+            sub={method === "card" ? t("method_card_sub") : undefined}
+            onClick={() => topup(method)}
+            disabled={!valid || (busy !== null && busy !== method)}
+          />
         ))}
-        {me.payment_methods.length === 0 && <p className="text-center text-sm text-[var(--hint)]">{t("no_methods")}</p>}
+        {me.payment_methods.length === 0 && <div className="app-empty">{t("no_methods")}</div>}
       </div>
 
-      <h2 className="mb-3 text-lg font-bold">{t("gift_code")}</h2>
-      <div className="mb-8 flex gap-2">
-        <input aria-label={t("gift_code")} value={gift} onChange={(e) => setGift(e.target.value)} placeholder={t("gift_code_placeholder")}
-          dir="ltr" maxLength={32}
-          className="min-h-12 flex-1 rounded-2xl bg-[var(--surface)] px-4 outline-none ring-1 ring-[var(--line)] focus:ring-[var(--accent)]" />
+      <p className="app-lbl">{t("gift_code")}</p>
+      <div className="app-dc">
+        <input
+          aria-label={t("gift_code")}
+          value={gift}
+          onChange={(e) => setGift(e.target.value)}
+          placeholder={t("gift_code_placeholder")}
+          dir="ltr"
+          maxLength={32}
+        />
         <Button tone="quiet" className="w-auto px-5" busy={busy === "gift"} disabled={!gift.trim()} onClick={() => void redeem()}>
           {t("redeem")}
         </Button>
       </div>
 
-      <h2 className="mb-3 text-lg font-bold">{t("transactions")}</h2>
-      {history && history.length === 0 && <p className="text-sm text-[var(--hint)]">{t("no_transactions")}</p>}
-      <ul className="overflow-hidden rounded-3xl bg-[var(--surface)]">
-        {history?.map((item, index) => (
-          <li key={item.id} className={`flex items-center justify-between px-4 py-3 ${index ? "border-t border-[var(--line)]" : ""}`}>
-            <div>
-              <p className="text-sm font-semibold">{t(`tx_${item.kind}`)}</p>
-              <p className="num text-xs text-[var(--hint)]">{dateTime(item.created_at, locale)}</p>
+      <p className="app-lbl mt-6">{t("transactions")}</p>
+      <div className="app-card">
+        {history === null ? null : history.length === 0 ? (
+          <div className="app-empty">{t("no_transactions")}</div>
+        ) : (
+          history.map((item) => (
+            <div key={item.id} className="app-row flex items-center gap-3 px-4">
+              <span className="app-ico" data-tone={item.amount > 0 ? "green" : undefined}>
+                <Icon name={item.amount > 0 ? "coin" : "wallet"} size={21} />
+              </span>
+              <span className="app-grow">
+                <b className="block text-[0.93rem] font-bold leading-7">{t(`tx_${item.kind}`)}</b>
+                <small className="num mt-0.5 block text-[0.75rem] font-medium text-[var(--hint)]">
+                  {dateTime(item.created_at, locale)}
+                </small>
+              </span>
+              <b className={`num text-[0.93rem] font-bold ${item.amount > 0 ? "text-pista-700" : ""}`} dir="ltr">
+                {item.amount > 0 ? "+" : "−"}
+                {money(Math.abs(item.amount), locale)}
+              </b>
             </div>
-            <p className={`num font-bold ${item.amount > 0 ? "text-pista-700" : ""}`} dir="ltr">
-              {item.amount > 0 ? "+" : "−"}{money(Math.abs(item.amount), locale)}
-            </p>
-          </li>
-        ))}
-      </ul>
+          ))
+        )}
+      </div>
     </Screen>
   );
 }

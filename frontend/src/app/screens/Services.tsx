@@ -1,15 +1,24 @@
 import QRCode from "qrcode";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { date, daysLeft, money, size } from "@shared/format";
 import { api, type Service } from "../api";
 import { errorText, useApp } from "../state";
 import { haptic, tg } from "../telegram";
-import { Button, Empty, Loading, Panel, ReadFailure, Ring, Row, Screen, StatusDot } from "../ui";
+import { Icon } from "../icons";
+import { Button, Chevron, Empty, Loading, Panel, ReadFailure, Ring, Row, Screen } from "../ui";
 import { timeRatio, usageRatio } from "./Home";
 import { useResource } from "../useResource";
 import { AutoRenew } from "../autoRenew/AutoRenew";
 import { UsageChart } from "../usage/UsageChart";
+
+/** Badge tone for a service status: green while healthy, saffron while settling, red once it is gone. */
+function statusTone(status: string) {
+  if (status === "active") return "green";
+  if (status === "on_hold" || status === "pending") return "orange";
+  if (status === "limited" || status === "expired") return "red";
+  return "gray";
+}
 
 export function Services() {
   const { t, locale } = useApp();
@@ -29,17 +38,19 @@ export function Services() {
   }
   return (
     <Screen title={t("my_services")}>
-      <ul className="overflow-hidden rounded-3xl bg-[var(--surface)]">
-        {items.map((service, index) => {
+      <ul className="flex flex-col">
+        {items.map((service) => {
           const left = daysLeft(service.expire_at);
           return (
-            <li key={service.id} className={index ? "border-t border-[var(--line)]" : ""}>
+            <li key={service.id} className="app-card">
               <Row onClick={() => navigate(`/services/${service.id}`)}>
-                <Ring size={46} outer={usageRatio(service)} inner={timeRatio(service)} />
+                <Ring size={54} outer={usageRatio(service)} inner={timeRatio(service)} />
                 <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-2 truncate font-bold">
-                    <StatusDot status={service.status} />
-                    {service.label}
+                  <p className="flex items-center gap-2 font-bold">
+                    <span className="truncate">{service.label || service.username}</span>
+                    <span className="app-badge" data-tone={statusTone(service.status)}>
+                      {t(`status_${service.status}`)}
+                    </span>
                   </p>
                   <p className="num mt-0.5 text-sm text-[var(--hint)]">
                     {service.data_limit
@@ -49,11 +60,18 @@ export function Services() {
                     {left === null ? t("never_expires") : t("days_left", { days: money(left, locale) })}
                   </p>
                 </div>
+                <Chevron />
               </Row>
             </li>
           );
         })}
       </ul>
+      <Button onClick={() => navigate("/buy")}>
+        <span className="inline-flex items-center gap-2">
+          <Icon name="bag" />
+          {t("buy_new_service")}
+        </span>
+      </Button>
     </Screen>
   );
 }
@@ -132,56 +150,96 @@ export function ServiceDetail() {
   const go = (kind: string) =>
     navigate(`/buy?kind=${kind}&service=${service.id}&panel=${service.panel_id}`);
 
+  const actions: ReactNode[] = [];
+  if (!service.is_trial && can("renew")) {
+    actions.push(<Button key="renew" onClick={() => go("renew")}>{t("renew")}</Button>);
+  }
+  if (service.extras?.gb_price != null) {
+    actions.push(
+      <Button key="gb" tone="quiet" onClick={() => navigate(`/extra/${service.id}/gb`)}>{t("add_data")}</Button>,
+    );
+  }
+  if (service.extras?.day_price != null) {
+    actions.push(
+      <Button key="days" tone="quiet" onClick={() => navigate(`/extra/${service.id}/days`)}>{t("add_time")}</Button>,
+    );
+  }
+  if (me.extras.upgrade && can("upgrade")) {
+    actions.push(<Button key="upgrade" tone="quiet" onClick={() => go("upgrade")}>{t("upgrade")}</Button>);
+  }
+  const showConfigs = !links && service.delivery !== "wireguard" && service.delivery !== "account";
+  const canRevoke = can("revoke");
+
   return (
-    <Screen title={service.label}>
-      <UsageChart key={service.id} serviceId={service.id} />
-      <div className="mb-5 flex flex-col items-center">
-        <Ring size={210} outer={usageRatio(service)} inner={timeRatio(service)}>
+    <Screen title={service.label || service.username} subtitle={service.username}>
+      <section className="app-card p-5 text-center">
+        <Ring size={190} outer={usageRatio(service)} inner={timeRatio(service)}>
           <span className="num text-3xl font-extrabold">
             {remaining === null ? "∞" : size(Math.max(0, remaining), locale, units)}
           </span>
-          <span className="text-xs text-[var(--hint)]">{t("data_left_label")}</span>
-          <span className="num mt-2 text-lg font-bold">
+          <span className="mt-0.5 text-xs text-[var(--hint)]">{t("data_left_label")}</span>
+          <span className="num mt-1 text-sm font-bold">
             {left === null ? "∞" : t("days_left", { days: money(left, locale) })}
           </span>
         </Ring>
-        <p className="mt-3 flex items-center gap-2 text-sm font-semibold">
-          <StatusDot status={service.status} /> {t(`status_${service.status}`)}
-        </p>
-      </div>
-
-      <Panel className="mb-4">
-        <div className="flex justify-between py-1 text-sm">
-          <span className="text-[var(--hint)]">{t("used")}</span>
-          <span className="num">
-            {size(service.used_bytes, locale, units)}
-            {service.data_limit ? ` / ${size(service.data_limit, locale, units)}` : ""}
+        <p className="mt-3">
+          <span className="app-badge" data-tone={statusTone(service.status)}>
+            {t(`status_${service.status}`)}
           </span>
-        </div>
-        <div className="flex justify-between py-1 text-sm">
-          <span className="text-[var(--hint)]">{t("expires")}</span>
-          <span className="num">{service.expire_at ? date(service.expire_at, locale) : t("never")}</span>
-        </div>
-        {service.location && (
-          <div className="flex justify-between py-1 text-sm">
-            <span className="text-[var(--hint)]">{t("location")}</span>
-            <span>{service.location}</span>
+        </p>
+        <div className="-mx-5 mt-2 border-t border-[var(--line)] px-5 text-start">
+          <div className="app-ln lg">
+            <small>{t("used")}</small>
+            <b className="num">
+              {size(service.used_bytes, locale, units)}
+              {service.data_limit ? ` / ${size(service.data_limit, locale, units)}` : ""}
+            </b>
           </div>
-        )}
-      </Panel>
+          <div className="app-ln lg border-t border-[var(--line)]">
+            <small>{t("expires")}</small>
+            <b className="num">{service.expire_at ? date(service.expire_at, locale) : t("never")}</b>
+          </div>
+          {service.location && (
+            <div className="app-ln lg border-t border-[var(--line)]">
+              <small>{t("location")}</small>
+              <b>{service.location}</b>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {actions.length > 0 && (
+        <div className={`mb-3.5 grid gap-3 ${actions.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+          {actions}
+        </div>
+      )}
 
       {service.id === serviceId && <AutoRenew key={`auto-${service.id}`} serviceId={service.id} />}
 
       {service.subscription_url && (
-        <Panel className="mb-4">
-          <p className="mb-2 text-sm font-bold">{t("subscription_link")}</p>
-          {qr && <img src={qr} alt={t("qr_alt")} className="mx-auto mb-3 w-48 rounded-2xl bg-white p-2" />}
-          <button type="button" dir="ltr" onClick={() => copy(service.subscription_url ?? "")}
-            className="w-full break-all rounded-2xl bg-[var(--bg)] p-3 text-start font-mono text-xs">
+        <section className="app-card p-5 text-center">
+          <p className="mb-3 text-start text-sm font-bold">{t("subscription_link")}</p>
+          {qr && (
+            <span className="app-qrb">
+              <img src={qr} alt={t("qr_alt")} className="w-44" />
+            </span>
+          )}
+          <button type="button" dir="ltr" className="app-lk"
+            onClick={() => copy(service.subscription_url ?? "")}>
             {service.subscription_url}
           </button>
-          <p className="mt-2 text-center text-xs text-[var(--hint)]">{t("tap_to_copy")}</p>
-        </Panel>
+          <p className="mt-2 text-xs text-[var(--hint)]">{t("tap_to_copy")}</p>
+          {(showConfigs || canRevoke) && (
+            <div className={`mt-4 grid gap-3 ${showConfigs && canRevoke ? "grid-cols-2" : "grid-cols-1"}`}>
+              {showConfigs && (
+                <Button tone="quiet" busy={busy === "links"} onClick={showLinks}>{t("show_configs")}</Button>
+              )}
+              {canRevoke && (
+                <Button tone="danger" busy={busy === "revoke"} onClick={revoke}>{t("new_link")}</Button>
+              )}
+            </div>
+          )}
+        </section>
       )}
 
       {service.delivery === "account" && service.account && (
@@ -230,20 +288,7 @@ export function ServiceDetail() {
         </Panel>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
-        {!service.is_trial && can("renew") && <Button onClick={() => go("renew")}>{t("renew")}</Button>}
-        {me.extras.upgrade && can("upgrade") && <Button tone="quiet" onClick={() => go("upgrade")}>{t("upgrade")}</Button>}
-        {service.extras?.gb_price != null && (
-          <Button tone="quiet" onClick={() => navigate(`/extra/${service.id}/gb`)}>{t("extra_data")}</Button>
-        )}
-        {service.extras?.day_price != null && (
-          <Button tone="quiet" onClick={() => navigate(`/extra/${service.id}/days`)}>{t("extra_time")}</Button>
-        )}
-        {!links && service.delivery !== "wireguard" && service.delivery !== "account" && (
-          <Button tone="quiet" busy={busy === "links"} onClick={showLinks}>{t("show_configs")}</Button>
-        )}
-        {can("revoke") && <Button tone="danger" busy={busy === "revoke"} onClick={revoke}>{t("new_link")}</Button>}
-      </div>
+      <UsageChart key={service.id} serviceId={service.id} />
     </Screen>
   );
 }
