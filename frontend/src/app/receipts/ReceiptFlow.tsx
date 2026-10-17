@@ -58,6 +58,13 @@ export function ReceiptFlow({
     setPreview(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
+  // After a file is picked, bring the confirmation row and the send button into view:
+  // they land at the bottom of the screen where the fixed bar and tab bar live.
+  const ackRow = useRef<HTMLLabelElement | null>(null);
+  const picked = file !== null;
+  useEffect(() => {
+    if (picked) ackRow.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [picked]);
   const refresh = async () => {
     if (inFlight.current || reading.current) return;
     reading.current = true;
@@ -250,7 +257,7 @@ export function ReceiptFlow({
           </label>
           {file && (
             <>
-              <label className="app-note mt-4" data-tone="soft">
+              <label ref={ackRow} className="app-note mt-4" data-tone="soft">
                 <input
                   type="checkbox"
                   checked={ack}
