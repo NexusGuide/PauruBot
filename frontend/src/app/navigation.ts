@@ -2,7 +2,7 @@
 export type AppTab = "home" | "buy" | "services" | "wallet" | "more";
 export function tabForPath(pathname: string): AppTab {
   const part = pathname.split("/")[1] ?? "";
-  if (["buy", "custom", "checkout", "done", "panel", "plan"].includes(part)) return "buy";
+  if (["buy", "custom", "checkout", "done", "panel", "plan", "agency"].includes(part)) return "buy";
   if (["services", "extra"].includes(part)) return "services";
   if (["wallet", "payment"].includes(part)) return "wallet";
   if (["more", "profile", "tickets", "help", "manage", "desk", "receipts"].includes(part)) return "more";
@@ -13,6 +13,7 @@ export function parentForPath(pathname: string): string | null {
   if (part === "notifications") return "/";
   if (part === "panel") return "/buy";
   if (part === "plan") return "/panel";
+  if (part === "agency") return parts.length > 1 ? "/agency" : "/buy";
   if (["profile", "help", "manage", "desk", "receipts"].includes(part)) return "/more";
   if (part === "tickets") return parts.length > 1 ? "/tickets" : "/more";
   if (part === "services" && parts.length > 1) return "/services";

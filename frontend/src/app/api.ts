@@ -14,6 +14,7 @@ export interface Me {
   trial: { available: boolean; reason: string | null; days: number; gb: number };
   referral: { enabled: boolean; percent: number; count: number };
   reseller: { active: boolean; discount_percent: number };
+  panel_accounts: boolean;
   extras: { enabled: boolean; gb_price: number; day_price: number; upgrade: boolean };
   payment_methods: string[];
   topup_bounds: [number, number];
@@ -138,6 +139,46 @@ export interface Catalog {
   custom: CustomOffer | null;
 }
 
+/** A PasarGuard admin plan the customer can buy (TEN-14). */
+export interface PanelPlan {
+  id: number;
+  title: string;
+  description: string | null;
+  data_gb: number;
+  max_users: number | null;
+  days: number;
+  price: number;
+  gb_price: number;
+  user_price: number;
+}
+
+export interface AccountPlans {
+  available: boolean;
+  plans: PanelPlan[];
+}
+
+/** A panel admin account the customer owns: status, quota, users, expiry. */
+export interface PanelAccount {
+  id: number;
+  username: string;
+  status: "active" | "paused" | "expired";
+  data_limit: number;
+  used_bytes: number;
+  max_users: number | null;
+  users_count: number;
+  expire_at: string | null;
+  plan_title: string | null;
+  price: number;
+  gb_price: number;
+  user_price: number;
+  login_url: string;
+}
+
+export interface AccountList {
+  available: boolean;
+  items: PanelAccount[];
+}
+
 export interface Service {
   id: number;
   label: string;
@@ -176,6 +217,10 @@ export interface Order {
     custom?: { gb: number; days: number };
     queued?: boolean;
     queued_until?: string;
+    account_plan_id?: number;
+    account_id?: number;
+    gb?: number;
+    users?: number;
   };
   expires_at: string | null;
 }
@@ -233,6 +278,11 @@ export const api = {
   replyTicket: (id: number, text: string) => post<{ ticket: Ticket }>(`/tickets/${id}/reply`, { text }),
   closeTicket: (id: number) => post<{ ticket: Ticket }>(`/tickets/${id}/close`),
   catalog: () => get<Catalog>("/catalog"),
+  accountPlans: (signal?: AbortSignal) => get<AccountPlans>("/account-plans", signal),
+  accounts: (signal?: AbortSignal) => get<AccountList>("/accounts", signal),
+  account: (id: number) => get<{ account: PanelAccount }>(`/accounts/${id}`),
+  accountLogin: (id: number) => get<{ url: string; username: string; password: string }>(`/accounts/${id}/login`),
+  refreshAccount: (id: number) => post<{ account: PanelAccount }>(`/accounts/${id}/refresh`),
   createOrder: (body: {
     kind: string;
     plan_id?: number;
@@ -243,6 +293,9 @@ export const api = {
     custom_gb?: number;
     custom_days?: number;
     label?: string;
+    account_plan_id?: number;
+    account_id?: number;
+    account_amount?: number;
   }) => post<{ order: Order; balance: number; due: number }>("/orders", body),
   resellerDesk: (days: number) => get<ResellerDesk>(`/reseller/desk?days=${days}`),
   renewMany: (ids: number[]) =>

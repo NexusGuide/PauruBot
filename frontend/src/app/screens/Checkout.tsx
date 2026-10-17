@@ -51,6 +51,9 @@ export function Checkout() {
         extra_days: Number(params.get("days")) || undefined,
         custom_gb: Number(params.get("cgb")) || undefined,
         custom_days: Number(params.get("cdays")) || undefined,
+        account_plan_id: Number(params.get("aplan")) || undefined,
+        account_id: Number(params.get("acc")) || undefined,
+        account_amount: Number(params.get("amt")) || undefined,
         code: discount || undefined,
         label: name || undefined,
       };
@@ -175,6 +178,24 @@ export function Checkout() {
       )}
 
       <div className="app-card mt-4 p-4">
+        {order.kind === "account_purchase" && (
+          <Line label={t("agency_plan")} value={params.get("name") ?? "…"} />
+        )}
+        {order.kind === "account_renew" && (
+          <Line label={t("agency_renew")} value={params.get("name") ?? "…"} />
+        )}
+        {order.kind === "account_gb" && (
+          <Line
+            label={t("agency_add_data")}
+            value={`${money(Number(params.get("amt")) || (order.params.gb ?? 0), locale)} ${t("gb")}`}
+          />
+        )}
+        {order.kind === "account_users" && (
+          <Line
+            label={t("agency_add_users")}
+            value={money(Number(params.get("amt")) || (order.params.users ?? 0), locale)}
+          />
+        )}
         {extra.custom ? (
           <>
             <Line label={t("custom_data")} value={`${money(extra.custom.gb, locale)} ${t("gb")}`} />
@@ -195,7 +216,7 @@ export function Checkout() {
         <Line label={t("total")} value={`${money(order.amount, locale)} ${t("currency")}`} strong />
       </div>
 
-      {order.code_discount === 0 && (
+      {order.code_discount === 0 && !order.kind.startsWith("account_") && (
         <>
           <p className="app-lbl">{t("code_discount")}</p>
           <div className="app-dc">
@@ -253,12 +274,20 @@ export function Done() {
   const navigate = useNavigate();
   const { id } = useParams();
   const [queuedUntil, setQueuedUntil] = useState<string | null>(null);
+  const [target, setTarget] = useState<{ path: string; label: string } | null>(null);
   useEffect(() => {
     api
       .order(Number(id))
-      .then((r) => setQueuedUntil(r.order.params.queued ? (r.order.params.queued_until ?? null) : null))
+      .then((r) => {
+        setQueuedUntil(r.order.params.queued ? (r.order.params.queued_until ?? null) : null);
+        setTarget(
+          r.order.kind.startsWith("account")
+            ? { path: "/agency", label: t("go_agency") }
+            : null,
+        );
+      })
       .catch(() => undefined);
-  }, [id]);
+  }, [id, t]);
   return (
     <Screen>
       <div className="app-done">
@@ -271,7 +300,9 @@ export function Done() {
         <h1 className="mt-2 text-2xl font-extrabold">{t("paid_title")}</h1>
         <p>{queuedUntil ? t("renew_queued_hint", { date: dateTime(queuedUntil, locale) }) : t("paid_hint")}</p>
         <div className="mt-3 w-full max-w-xs">
-          <Button onClick={() => navigate("/services", { replace: true })}>{t("go_services")}</Button>
+          <Button onClick={() => navigate(target?.path ?? "/services", { replace: true })}>
+            {target?.label ?? t("go_services")}
+          </Button>
         </div>
       </div>
     </Screen>

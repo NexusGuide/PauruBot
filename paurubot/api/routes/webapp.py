@@ -19,12 +19,14 @@ from paurubot.core import (
     customers,
     marketing,
     orders,
+    panel_accounts,
     pricing,
     reseller_desk,
     tickets,
     trials,
 )
 from paurubot.db.models import (
+    AccountPlan,
     Category,
     DiscountCode,
     ForcedChannel,
@@ -32,6 +34,7 @@ from paurubot.db.models import (
     Order,
     OrderKind,
     OrderStatus,
+    PanelAccount,
     Payment,
     Plan,
     Service,
@@ -188,6 +191,7 @@ async def me(ctx: WebApp) -> dict[str, Any]:
             "active": bool(profile and profile.is_current),
             "discount_percent": profile.discount_percent if profile else 0,
         },
+        "panel_accounts": await panel_accounts.available(ctx.session, customer),
         "extras": {
             "enabled": bool(cfg["extras_enabled"]),
             "gb_price": cfg["extra_gb_price"],
@@ -308,8 +312,102 @@ def _custom_offer(ctx: WebApp) -> dict[str, Any] | None:
     }
 
 
+def account_plan_view(plan: AccountPlan) -> dict[str, Any]:
+    return {
+        "id": plan.id,
+        "title": plan.title,
+        "description": plan.description,
+        "data_gb": plan.data_gb,
+        "max_users": plan.max_users,
+        "days": plan.days,
+        "price": int(plan.price),
+        "gb_price": int(plan.gb_price),
+        "user_price": int(plan.user_price),
+    }
+
+
+def account_view(account: PanelAccount) -> dict[str, Any]:
+    plan = account.plan
+    return {
+        "id": account.id,
+        "username": account.username,
+        "status": account.status,
+        "data_limit": account.data_limit,
+        "used_bytes": account.used_bytes,
+        "max_users": account.max_users,
+        "users_count": account.users_count,
+        "expire_at": _iso(account.expire_at),
+        "plan_title": plan.title if plan else None,
+        "price": int(plan.price) if plan else 0,
+        "gb_price": int(plan.gb_price) if plan else 0,
+        "user_price": int(plan.user_price) if plan else 0,
+        "login_url": panel_accounts.login_url(account),
+    }
+
+
+@router.get("/account-plans")
+async def account_plans_view(ctx: WebApp) -> dict[str, Any]:
+    """The panel admin plans the customer buys from (TEN-14) and whether they are sold at all."""
+    return {
+        "available": await panel_accounts.available(ctx.session, ctx.customer),
+        "plans": [account_plan_view(p) for p in await panel_accounts.plans(ctx.session, ctx.shop.id)],
+    }
+
+
+@router.get("/accounts")
+async def accounts_view(ctx: WebApp) -> dict[str, Any]:
+    return {
+        "available": await panel_accounts.available(ctx.session, ctx.customer),
+        "items": [account_view(a) for a in await panel_accounts.accounts_of(ctx.session, ctx.customer)],
+    }
+
+
+async def _own_account(ctx: WebApp, account_id: int) -> PanelAccount:
+    account = await panel_accounts.owned(ctx.session, ctx.customer, account_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="account_not_found")
+    return account
+
+
+@router.get("/accounts/{account_id}")
+async def account_detail(account_id: int, ctx: WebApp) -> dict[str, Any]:
+    return {"account": account_view(await _own_account(ctx, account_id))}
+
+
+@router.get("/accounts/{account_id}/login")
+async def account_login(account_id: int, ctx: WebApp) -> dict[str, Any]:
+    """The dashboard URL, the username and the password — the same as the bot's login message."""
+    account = await _own_account(ctx, account_id)
+    return {
+        "url": panel_accounts.login_url(account),
+        "username": account.username,
+        "password": panel_accounts.password_of(account),
+    }
+
+
+@router.post("/accounts/{account_id}/refresh")
+async def account_refresh(account_id: int, ctx: WebApp) -> dict[str, Any]:
+    account = await _own_account(ctx, account_id)
+    try:
+        await panel_accounts.refresh(ctx.session, account)
+    except (PanelError, panel_accounts.ProvisionError) as exc:
+        raise HTTPException(status_code=503, detail="panel_down") from exc
+    await ctx.session.commit()
+    return {"account": account_view(account)}
+
+
 class OrderBody(BaseModel):
-    kind: Literal["purchase", "renew", "extra_volume", "extra_days", "upgrade"]
+    kind: Literal[
+        "purchase",
+        "renew",
+        "extra_volume",
+        "extra_days",
+        "upgrade",
+        "account_purchase",
+        "account_renew",
+        "account_gb",
+        "account_users",
+    ]
     plan_id: int | None = None
     service_id: int | None = None
     extra_gb: int = Field(default=0, ge=0, le=10_000)
@@ -318,6 +416,10 @@ class OrderBody(BaseModel):
     label: str | None = Field(default=None, max_length=48)
     custom_gb: int = Field(default=0, ge=0, le=100_000)
     custom_days: int = Field(default=0, ge=0, le=3650)
+    account_plan_id: int | None = None
+    account_id: int | None = None
+    # GB or user slots for the two account add-ons
+    account_amount: int = Field(default=0, ge=0, le=100_000)
 
 
 async def _owned_service(ctx: WebApp, service_id: int | None) -> Service | None:
@@ -331,6 +433,12 @@ async def _owned_service(ctx: WebApp, service_id: int | None) -> Service | None:
 
 @router.post("/orders")
 async def create_order(body: OrderBody, ctx: WebApp) -> dict[str, Any]:
+    kind = OrderKind(body.kind)
+    if kind in panel_accounts.KINDS:
+        # Panel admin accounts (TEN-14): priced by the account rules, no discount codes.
+        order = await _account_order(body, ctx, kind)
+        balance = await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id)
+        return {"order": order_view(order), "balance": balance, "due": payments.amount_due(order, balance)}
     plan = None
     if body.plan_id:
         plan = await catalog.get_plan(ctx.session, ctx.shop.id, body.plan_id, ctx.customer)
@@ -367,6 +475,37 @@ async def create_order(body: OrderBody, ctx: WebApp) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=exc.key) from exc
     balance = await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id)
     return {"order": order_view(order), "balance": balance, "due": payments.amount_due(order, balance)}
+
+
+async def _account_order(body: OrderBody, ctx: WebApp, kind: OrderKind) -> Order:
+    """Draft, price and store one panel-account order (TEN-14)."""
+    plan_arg = None
+    account_arg = None
+    amount = 0
+    if kind == OrderKind.ACCOUNT_PURCHASE:
+        plan_arg = (
+            await panel_accounts.plan_for(ctx.session, ctx.shop.id, body.account_plan_id)
+            if body.account_plan_id
+            else None
+        )
+        if plan_arg is None:
+            raise HTTPException(status_code=404, detail="plan_unavailable")
+    else:
+        account_arg = (
+            await panel_accounts.owned(ctx.session, ctx.customer, body.account_id)
+            if body.account_id
+            else None
+        )
+        if account_arg is None:
+            raise HTTPException(status_code=404, detail="account_not_found")
+        amount = body.account_amount
+    try:
+        draft = await panel_accounts.draft(
+            ctx.session, ctx.customer, kind, plan=plan_arg, account=account_arg, amount=amount
+        )
+        return await orders.create(ctx.session, ctx.customer, draft, source="webapp")
+    except orders.OrderError as exc:
+        raise HTTPException(status_code=400, detail=exc.key) from exc
 
 
 async def _own_order(ctx: WebApp, order_id: int) -> Order:
