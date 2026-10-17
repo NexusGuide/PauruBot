@@ -1,4 +1,5 @@
 """All automatic receipt paths must respect human-review safety exclusions."""
+
 from __future__ import annotations
 
 from datetime import timedelta
@@ -25,15 +26,28 @@ async def pending_receipt(session):  # type: ignore[no-untyped-def]
     return shop, customer, started.payment
 
 
-@pytest.mark.parametrize("trust,risk", [
-    ("trusted", "medium"), ("trusted", "high"), ("blocked", "low"),
-    ("blocked", "high"), ("normal", "medium"), ("normal", "high"),
-])
+@pytest.mark.parametrize(
+    "trust,risk",
+    [
+        ("trusted", "medium"),
+        ("trusted", "high"),
+        ("blocked", "low"),
+        ("blocked", "high"),
+        ("normal", "medium"),
+        ("normal", "high"),
+    ],
+)
 async def test_changed_trust_or_risk_cannot_auto_approve(session, trust, risk) -> None:  # type: ignore[no-untyped-def]
     shop, customer, payment = await pending_receipt(session)
-    await shop_settings.set_many(session, shop.id, {
-        "card_auto_approve": True, "card_auto_max_amount": 300_000, "card_auto_min_history": 0,
-    })
+    await shop_settings.set_many(
+        session,
+        shop.id,
+        {
+            "card_auto_approve": True,
+            "card_auto_max_amount": 300_000,
+            "card_auto_min_history": 0,
+        },
+    )
     # Start was legal; the customer's policy changed before the receipt arrived.
     customer.card_trust, customer.risk = trust, risk
     await engine.attach_receipt(session, payment, file_id="receipt", text=None)
@@ -83,23 +97,43 @@ async def test_trusted_clean_policy_and_normal_auto_approval_are_preserved(sessi
     await engine.attach_receipt(session, payment, file_id="trusted", text=None)
     assert payment.status == PaymentStatus.PAID  # PAY-17 exception remains explicit
     customer.card_trust = "normal"
-    await shop_settings.set_many(session, shop.id, {
-        "card_auto_approve": True, "card_auto_min_history": 0, "card_auto_max_amount": 300_000,
-    })
+    await shop_settings.set_many(
+        session,
+        shop.id,
+        {
+            "card_auto_approve": True,
+            "card_auto_min_history": 0,
+            "card_auto_max_amount": 300_000,
+        },
+    )
     await engine.attach_receipt(session, normal, file_id="normal", text=None)
     assert normal.status == PaymentStatus.PAID
 
 
-@pytest.mark.parametrize("case", [
-    "provider", "pending", "missing_receipt", "duplicate", "correction", "missing_customer", "wrong_shop",
-])
+@pytest.mark.parametrize(
+    "case",
+    [
+        "provider",
+        "pending",
+        "missing_receipt",
+        "duplicate",
+        "correction",
+        "missing_customer",
+        "wrong_shop",
+    ],
+)
 async def test_shared_guard_rejects_ineligible_resources(case: str) -> None:
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
     payment = SimpleNamespace(
-        provider="card", status=PaymentStatus.VERIFYING, receipt_file_id="receipt",
-        duplicate_of_id=None, meta={}, customer_id=42, shop_id=7,
+        provider="card",
+        status=PaymentStatus.VERIFYING,
+        receipt_file_id="receipt",
+        duplicate_of_id=None,
+        meta={},
+        customer_id=42,
+        shop_id=7,
     )
     customer = SimpleNamespace(shop_id=7, card_trust="trusted", risk="low")
     if case == "provider":
@@ -129,9 +163,12 @@ async def test_timer_respects_aware_offsets_and_future_timestamps(session) -> No
     await shop_settings.set_many(session, shop.id, {"card_auto_approve_after_minutes": 30})
     for payment in (old, future):
         await engine.attach_receipt(session, payment, file_id=f"receipt-{payment.id}", text=None)
-    old.meta = {**old.meta, "receipt_at": (
-        utcnow() - timedelta(hours=1)
-    ).astimezone(timezone(timedelta(hours=3, minutes=30))).isoformat()}
+    old.meta = {
+        **old.meta,
+        "receipt_at": (utcnow() - timedelta(hours=1))
+        .astimezone(timezone(timedelta(hours=3, minutes=30)))
+        .isoformat(),
+    }
     future.meta = {**future.meta, "receipt_at": (utcnow() + timedelta(hours=1)).isoformat()}
     await session.commit()
     assert await cards.approve_late(session) == 1
