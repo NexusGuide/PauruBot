@@ -13,10 +13,6 @@ const copy = {
     "Upload result is unknown. Do not send again blindly. Refresh before any new manual attempt.",
     "نتیجهٔ ارسال نامشخص است؛ کورکورانه دوباره نفرست. پیش از تلاش دستی تازه، وضعیت را دوباره دریافت کن.",
   ],
-  ack: [
-    "I reviewed the payment and operator note. This image is sent to my Telegram chat and staff for review; it is not a payment confirmation.",
-    "پرداخت و یادداشت اپراتور را بررسی کردم. تصویر به گفت‌وگوی تلگرام من و بررسی کارکنان می‌رسد؛ ارسال آن تأیید پرداخت نیست.",
-  ],
   warning: [
     "Read the operator's instructions. Do not make another transfer solely because a correction was requested; contact support if the amount or destination is unclear.",
     "دستور اپراتور را بخوان. صرف درخواست اصلاح، دوباره پول واریز نکن؛ اگر مبلغ یا مقصد روشن نیست از پشتیبانی بپرس.",

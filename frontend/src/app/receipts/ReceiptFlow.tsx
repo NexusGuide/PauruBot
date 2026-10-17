@@ -33,8 +33,7 @@ export function ReceiptFlow({
     [blocked, setBlocked] = useState(true);
   const [file, setFile] = useState<File | null>(null),
     [preview, setPreview] = useState<string | null>(null);
-  const [ack, setAck] = useState(false),
-    [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(Date.now());
   const [overlay, setOverlay] = useState(false);
   const alive = useRef(true),
     inFlight = useRef(false),
@@ -58,19 +57,11 @@ export function ReceiptFlow({
     setPreview(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
-  // After a file is picked, bring the confirmation row and the send button into view:
-  // they land at the bottom of the screen where the fixed bar and tab bar live.
-  const ackRow = useRef<HTMLLabelElement | null>(null);
-  const picked = file !== null;
-  useEffect(() => {
-    if (picked) ackRow.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [picked]);
   const refresh = async () => {
     if (inFlight.current || reading.current) return;
     reading.current = true;
     setLoading(true);
     setBlocked(true);
-    setAck(false);
     setFile(null);
     try {
       const value = parseReceipt(await api.receiptState(paymentId), paymentId);
@@ -95,7 +86,6 @@ export function ReceiptFlow({
       blocked ||
       !state ||
       !file ||
-      !ack ||
       !validateFile(file) ||
       !canSend(state)
     )
@@ -103,7 +93,6 @@ export function ReceiptFlow({
     inFlight.current = true;
     setBusy(true);
     setBlocked(true);
-    setAck(false);
     const before = state;
     try {
       const value = confirmUpload(
@@ -240,7 +229,6 @@ export function ReceiptFlow({
               className="sr-only"
               onChange={(event) => {
                 const picked = event.target.files?.[0];
-                setAck(false);
                 if (picked && validateFile(picked)) {
                   setFile(picked);
                   setMessage(null);
@@ -256,24 +244,12 @@ export function ReceiptFlow({
             {file && <small className="break-all">{file.name}</small>}
           </label>
           {file && (
-            <>
-              <label ref={ackRow} className="app-note mt-4" data-tone="soft">
-                <input
-                  type="checkbox"
-                  checked={ack}
-                  disabled={busy}
-                  className="mt-1"
-                  onChange={(e) => setAck(e.target.checked)}
-                />
-                <span>{c("ack")}</span>
-              </label>
-              <ActionBar
-                action={c("send")}
-                busy={busy}
-                disabled={!ack || busy || !canSend(state, now)}
-                onClick={() => void send()}
-              />
-            </>
+            <ActionBar
+              action={c("send")}
+              busy={busy}
+              disabled={busy || !canSend(state, now)}
+              onClick={() => void send()}
+            />
           )}
         </>
       )}

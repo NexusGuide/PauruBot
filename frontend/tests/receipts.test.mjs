@@ -187,13 +187,6 @@ test("checkout card details only for matching initial payment", () => {
 });
 for (const locale of ["fa", "en"])
   test("review and uncertainty copy " + locale, () => {
-    for (const key of [
-      "ack",
-      "warning",
-      "uncertain",
-      "error",
-      "initial",
-      "missingAccounts",
-    ])
+    for (const key of ["warning", "uncertain", "error", "initial", "missingAccounts"])
       assert(translator(locale)(key).length > 10);
   });
