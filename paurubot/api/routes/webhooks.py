@@ -7,6 +7,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
+from paurubot.api.body import BodyTooLarge, read_limited_body
 from paurubot.api.deps import DB
 from paurubot.db.models import Panel
 from paurubot.panels import driver_for
@@ -32,9 +33,10 @@ async def panel_webhook(panel_id: int, request: Request, db: DB) -> dict:
         or not constant_equals(request.headers.get("x-webhook-secret"), secret)
     ):
         raise HTTPException(status_code=403, detail="forbidden")
-    body = await request.body()
-    if len(body) > MAX_BODY:
-        raise HTTPException(status_code=413, detail="too_large")
+    try:
+        body = await read_limited_body(request, MAX_BODY)
+    except BodyTooLarge as exc:
+        raise HTTPException(status_code=413, detail="too_large") from exc
     try:
         payload = json.loads(body)
     except ValueError as exc:
