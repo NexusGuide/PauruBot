@@ -149,6 +149,8 @@ class AuditLog(Base, TimestampMixin):
 
 
 class ForcedChannel(Base, TimestampMixin):
+    """A channel a customer must join before using the bot (GRW-07)."""
+
     __tablename__ = "forced_channels"
     __table_args__ = (UniqueConstraint("shop_id", "chat_id"),)
 
@@ -157,6 +159,8 @@ class ForcedChannel(Base, TimestampMixin):
     chat_id: Mapped[str] = mapped_column(String(64))
     title: Mapped[str] = mapped_column(String(96))
     url: Mapped[str] = mapped_column(String(255))
+    # Paused channels keep their settings but are not checked and not shown to customers.
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     sort: Mapped[int] = mapped_column(Integer, default=0)
 
 
@@ -171,6 +175,26 @@ class LogChannel(Base, TimestampMixin):
     topic: Mapped[str] = mapped_column(String(32))
     chat_id: Mapped[int] = mapped_column()
     thread_id: Mapped[int | None] = mapped_column()
+
+
+class TrustChannel(Base, TimestampMixin):
+    """A public channel that gets masked order reports (GRW-08).
+
+    A shop may keep several. ``kinds`` lists the order kinds posted here, so one channel can show
+    purchases and renewals while another shows free trials, for example.
+    """
+
+    __tablename__ = "trust_channels"
+    __table_args__ = (UniqueConstraint("shop_id", "chat_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"), index=True)
+    chat_id: Mapped[int] = mapped_column()
+    title: Mapped[str] = mapped_column(String(96), default="")
+    url: Mapped[str] = mapped_column(String(255), default="")
+    kinds: Mapped[list[str]] = mapped_column(JSON, default=list)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    sort: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class BotText(Base, TimestampMixin):

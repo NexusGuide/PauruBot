@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import secrets
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager, suppress
 
 from redis.asyncio import Redis
@@ -45,6 +45,26 @@ async def close_redis() -> None:
     if _client is not None:
         await _client.aclose()
     _client = None
+
+
+MARK_PREFIX = "mark:"
+
+
+async def mark(name: str, ttl: int, value: str = "1") -> None:
+    """Remember a short-lived fact (a check result, a delivery failure) for other processes."""
+    await get_redis().set(f"{MARK_PREFIX}{name}", value or "1", ex=ttl)
+
+
+async def unmark(name: str) -> None:
+    await get_redis().delete(f"{MARK_PREFIX}{name}")
+
+
+async def marked(names: Sequence[str]) -> dict[str, str]:
+    """The subset of these marks that is set, with the value it was stored with."""
+    if not names:
+        return {}
+    values = await get_redis().mget([f"{MARK_PREFIX}{name}" for name in names])
+    return {name: str(value) for name, value in zip(names, values, strict=True) if value is not None}
 
 
 class LockNotAcquired(Exception):

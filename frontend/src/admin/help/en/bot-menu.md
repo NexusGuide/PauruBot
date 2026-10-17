@@ -40,13 +40,14 @@ In [Bot texts](/texts) change any message the bot sends, separately for each lan
 
 ## Channels
 
-[Channels](/channels) sets three things:
+[Channels](/channels) sets four things:
 
 - **Required channels**: people must join these channels to use the bot. The bot must be an admin there.
 - **Report channels**: each kind of report (orders, payments, new users, errors, services, daily report, backups, resellers and panels) can go to its own group or topic. **Everything** is for when you want them all in one place.
+- **Trust channels**: masked purchase, renewal, free-trial and top-up reports go to these public channels, so new visitors see the shop is active. Tick for each channel which kinds of report it receives.
 - **Support contacts**: links customers see for reaching you.
 
-> Enter a channel or group ID with its minus sign (for example -100...) and make the bot an admin there before saving.
+> Enter an `@name`, an invite link or a channel or group ID with its minus sign (for example -100...) and press **Check**: the panel asks Telegram and says whether the bot is an admin there. Pausing a channel keeps it saved but stops checks and reports. The gate covers the Mini App too: until people join, the app shows them the same channel list.
 
 You can also set a report group from inside it: add the bot to the group, then a staff member who may change settings sends `/setlog orders` (or any other topic) there, or inside one of the group's topics to use that topic. `/unsetlog orders` stops it and `/logs` shows what the group receives.
 

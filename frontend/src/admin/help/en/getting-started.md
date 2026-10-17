@@ -23,7 +23,7 @@ Open the bot in Telegram, top up the wallet, approve the receipt in [Payments](/
 
 - In [Bot menu](/bot-menu) arrange the buttons and colours, help topics and app download links.
 - In [Bot texts](/texts) you can change any message the bot sends.
-- In [Channels](/channels) set report channels, required channels and support contacts.
+- In [Channels](/channels) set report channels, required channels, trust channels and support contacts.
 
 ## 6. Add your staff
 

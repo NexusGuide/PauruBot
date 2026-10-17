@@ -12,7 +12,20 @@ from paurubot.core import growth, orders, pricing
 from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import money
 from paurubot.db.base import utcnow
-from paurubot.db.models import DiscountCode, Job, JobStatus, Lottery, OrderKind, PanelKind, Service, WheelSpin
+from paurubot.db.models import (
+    DiscountCode,
+    Job,
+    JobStatus,
+    Lottery,
+    Order,
+    OrderKind,
+    OrderStatus,
+    PanelKind,
+    Service,
+    TrustChannel,
+    WheelSpin,
+)
+from paurubot.i18n import Texts
 from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.notifications import handlers as _handlers  # noqa: F401  (registers the notify queue)
@@ -28,6 +41,7 @@ TIERS = [
     {"title": "Silver", "min_spent": 100_000, "percent": 5},
     {"title": "Gold", "min_spent": 300_000, "percent": 10},
 ]
+FA = Texts("fa")
 
 
 @pytest.fixture(autouse=True)
@@ -151,7 +165,7 @@ def test_weighted_pick_never_repeats() -> None:
 async def test_trust_channel_posts_a_masked_report(session, env) -> None:  # type: ignore[no-untyped-def]
     shop, cust, plan = env["shop"], env["cust"], env["plan"]
     shop.bot_username = "pauru_test_bot"
-    await shop_settings.set_many(session, shop.id, {"trust_channel_id": -1001234})
+    session.add(TrustChannel(shop_id=shop.id, chat_id=-1001234, kinds=["purchase", "renew"]))
     await session.commit()
     await _buy(session, cust, OrderKind.PURCHASE, plan=plan)
     await drain(session, "provision")
@@ -174,3 +188,55 @@ async def test_trust_channel_posts_a_masked_report(session, env) -> None:  # typ
     )
     row = post.reply_markup.inline_keyboard
     assert len(row) == 1 and row[0][0].url == "https://t.me/pauru_test_bot"
+
+
+async def test_trust_channels_follow_their_kinds_and_pause(session, env) -> None:  # type: ignore[no-untyped-def]
+    shop, cust, plan = env["shop"], env["cust"], env["plan"]
+    session.add(TrustChannel(shop_id=shop.id, chat_id=-1002101, kinds=["renew"]))  # not a purchase
+    session.add(TrustChannel(shop_id=shop.id, chat_id=-1002102, kinds=["purchase"], is_active=False))
+    session.add(TrustChannel(shop_id=shop.id, chat_id=-1002103, kinds=["purchase"], sort=1))
+    await session.commit()
+    await _buy(session, cust, OrderKind.PURCHASE, plan=plan)
+    await drain(session, "provision")
+    await drain(session, "notify")
+    assert env["tg"].texts(-1002101) == [] and env["tg"].texts(-1002102) == []
+    assert len(env["tg"].texts(-1002103)) == 1
+
+
+async def test_trial_and_free_orders_post_only_when_asked_for(session, env) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.provisioning import lifecycle
+
+    shop, cust, plan = env["shop"], env["cust"], env["plan"]
+    session.add(TrustChannel(shop_id=shop.id, chat_id=-1003101, kinds=["trial"]))
+    session.add(TrustChannel(shop_id=shop.id, chat_id=-1003102, kinds=["extra_days"]))
+    await session.commit()
+    trial = Order(
+        shop_id=shop.id,
+        customer_id=cust.id,
+        kind=OrderKind.TRIAL,
+        status=OrderStatus.COMPLETED,
+        plan_id=plan.id,
+        amount=0,
+        completed_at=utcnow(),
+    )
+    free = Order(
+        shop_id=shop.id,
+        customer_id=cust.id,
+        kind=OrderKind.EXTRA_DAYS,
+        status=OrderStatus.COMPLETED,
+        plan_id=plan.id,
+        amount=0,
+        completed_at=utcnow(),
+    )
+    session.add_all([trial, free])
+    await session.commit()
+    for order in (trial, free):
+        await lifecycle.after_sale(session, order)
+        await session.commit()
+    await drain(session, "notify")
+    posts = env["tg"].texts(-1003101)
+    assert len(posts) == 1
+    assert growth.masked_id(cust.telegram_id) in posts[0]
+    assert str(cust.telegram_id) not in posts[0] and plan.title in posts[0]
+    assert FA("trust_trial").split("\n")[0] in posts[0]
+    assert env["tg"].texts(-1003102) == []  # a free bonus is not worth a public post

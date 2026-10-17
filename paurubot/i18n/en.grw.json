@@ -9,6 +9,7 @@
   "adm_grw_prizes_btn": "🎁 Wheel prizes",
   "adm_grw_lots_btn": "🎟 Lotteries",
   "adm_grw_ask_value": "Send the new value for <b>{name}</b>.\nCurrent: <code>{value}</code>\nSend \"-\" to clear or reset to default.",
+  "adm_grw_trust_hint": "This option sets one trust channel; for several channels with their own report kinds, use the panel's channels page.",
   "adm_grw_bad_value": "That value is not accepted. The spin interval must be 1 to 720 hours and the channel ID a number like <code>-1001234567890</code>.",
   "adm_grw_prizes_needed": "Set up at least two valid wheel prizes first.",
   "adm_grw_prizes_title": "🎁 <b>Wheel prizes</b>\nEach prize's chance comes from its weight.",

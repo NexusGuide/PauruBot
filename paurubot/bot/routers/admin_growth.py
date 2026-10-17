@@ -275,7 +275,10 @@ async def growth_admin(
         await state.set_state(AdminStates.growth_value)
         await state.update_data(growth_key=key)
         name = esc(t(f"adm_grw_{key}"))
-        await _ask(call, t("adm_grw_ask_value", name=name, value=esc(shown(key, cfg.get(key)))), t)
+        prompt = t("adm_grw_ask_value", name=name, value=esc(shown(key, cfg.get(key))))
+        if key == "trust_channel_id":
+            prompt = f"{prompt}\n\n{t('adm_grw_trust_hint')}"
+        await _ask(call, prompt, t)
         return
     if action == "prizes":
         await call.answer()
@@ -351,6 +354,18 @@ async def growth_admin(
     await show(call, t("adm_grw_title"), home_kb(t, cfg))
 
 
+async def sync_trust_rows(session: AsyncSession, shop_id: int, chat_id: int | None) -> None:
+    """The bot's trust-channel field stands for the whole list: one channel with purchases and
+    renewals, or none. The admin panel's channels page manages several with their own kinds."""
+    from paurubot.db.models import TrustChannel
+
+    for row in await session.scalars(select(TrustChannel).where(TrustChannel.shop_id == shop_id)):
+        await session.delete(row)
+    if chat_id:
+        session.add(TrustChannel(shop_id=shop_id, chat_id=int(chat_id), kinds=["purchase", "renew"]))
+    await session.flush()
+
+
 @router.message(AdminStates.growth_value, F.text)
 async def growth_value(
     message: Message,
@@ -371,6 +386,8 @@ async def growth_value(
         return
     await state.clear()
     await save(session, shop, staff, key, value)
+    if key == "trust_channel_id":
+        await sync_trust_rows(session, shop.id, value)
     fresh = await shop_settings.load(session, shop.id, fresh=True)
     await message.answer(t("adm_saved"), reply_markup=menu(t, fresh, staff))
     await message.answer(t("adm_grw_title"), reply_markup=home_kb(t, fresh))

@@ -428,6 +428,8 @@
   "tier_next": "Spend {amount} Toman more to reach {title}.",
   "trust_purchase": "✅ Purchase report #new_order\n\n👤 User ID: {buyer}\n🖥 Plan: {plan}\n🗂 Category: {category}\n📦 Service: {service}\n💰 Amount paid: {amount} Toman\n\n📅 {date} - ⏰ {time}",
   "trust_renew": "🔄 Renewal report #new_renewal\n\n👤 User ID: {buyer}\n🖥 Plan: {plan}\n🗂 Category: {category}\n📦 Service: {service}\n💰 Amount paid: {amount} Toman\n\n📅 {date} - ⏰ {time}",
+  "trust_trial": "🎁 Free trial report #new_trial\n\n👤 User ID: {buyer}\n🖥 Plan: {plan}\n🗂 Category: {category}\n📦 Service: {service}\n💰 Amount paid: Free\n\n📅 {date} - ⏰ {time}",
+  "trust_generic": "📌 {kind} report\n\n👤 User ID: {buyer}\n🖥 Plan: {plan}\n🗂 Category: {category}\n📦 Service: {service}\n💰 Amount paid: {amount} Toman\n\n📅 {date} - ⏰ {time}",
   "btn_trust_buy": "🛒 Buy from the bot",
   "checkout_tier_discount": "⭐ Loyalty discount: {amount} Toman",
   "btn_infocard": "🪪 Card",

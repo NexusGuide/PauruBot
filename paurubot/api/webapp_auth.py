@@ -13,22 +13,28 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot import kv
 from paurubot.api.deps import DB
 from paurubot.config import get_settings
+from paurubot.core import channels as channel_rules
 from paurubot.core import customers
 from paurubot.core import settings as shop_settings
 from paurubot.core.shops import root_shop
-from paurubot.db.models import Customer, Shop, ShopStatus
+from paurubot.db.models import Customer, ForcedChannel, Shop, ShopStatus
 from paurubot.i18n import LOCALES
+from paurubot.notifications import telegram
 from paurubot.security.tokens import InitDataError, WebAppUser, validate_init_data
 
 HEADER = "x-telegram-init-data"
 RATE_LIMIT = 120
 RATE_WINDOW = 60
 RESELLER_TOKENS_TTL = 60.0
+JOIN_CACHE_TTL = 300
+# The join screen calls these two; they must work before the customer has joined (GRW-07).
+JOIN_PATHS = {"/api/webapp/join", "/api/webapp/join/check"}
 
 _reseller_tokens_cache: tuple[float, list[tuple[int, str]]] | None = None
 
@@ -65,6 +71,37 @@ def forget_reseller_tokens() -> None:
     """Drop the cached reseller tokens (tests, and after a reseller bot changes)."""
     global _reseller_tokens_cache
     _reseller_tokens_cache = None
+
+
+async def forget_join_cache(shop_id: int, telegram_id: int) -> None:
+    """Make the next request ask Telegram again (the customer pressed "I joined")."""
+    await kv.unmark(f"joined:{shop_id}:{telegram_id}")
+
+
+async def forced_gate(db: AsyncSession, shop: Shop, customer: Customer) -> list[ForcedChannel]:
+    """Channels this customer still has to join before using the Mini App (GRW-07).
+
+    The verdict is cached per customer for a few minutes. Telegram errors never block anyone:
+    the shared check flags the channel for the admin panel and the customer keeps working.
+    """
+    if await kv.marked([f"joined:{shop.id}:{customer.telegram_id}"]):
+        return []
+    rows = list(
+        await db.scalars(
+            select(ForcedChannel)
+            .where(ForcedChannel.shop_id == shop.id, ForcedChannel.is_active.is_(True))
+            .order_by(ForcedChannel.sort, ForcedChannel.id)
+        )
+    )
+    if not rows:
+        return []
+    bot = await telegram.bot_for(shop.id)
+    if bot is None:
+        return []
+    missing, _unknown = await channel_rules.missing_members(bot, rows, customer.telegram_id)
+    if not missing:
+        await kv.mark(f"joined:{shop.id}:{customer.telegram_id}", JOIN_CACHE_TTL)
+    return missing
 
 
 async def reseller_tokens(db: AsyncSession) -> list[tuple[int, str]]:
@@ -120,6 +157,10 @@ async def webapp_context(request: Request, db: DB) -> WebAppContext:
         raise HTTPException(status_code=403, detail="banned")
     if not cfg["bot_enabled"]:
         raise HTTPException(status_code=503, detail="maintenance")
+    if request.url.path.rstrip("/") not in JOIN_PATHS:
+        missing = await forced_gate(db, shop, customer)
+        if missing:
+            raise HTTPException(status_code=403, detail="join_required")
     return WebAppContext(db, shop, customer, cfg)
 
 

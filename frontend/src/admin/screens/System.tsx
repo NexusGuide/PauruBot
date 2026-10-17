@@ -514,7 +514,8 @@ export function Settings() {
             {Object.entries(value.groups).filter(([group]) => group !== "appearance" && group !== "resale").map(([group, items]) => (
               <Section key={group} title={t(`settings_group_${group}`)}>
                 <div className="grid gap-5 md:grid-cols-2">
-                  {items.map((item) => (
+                  {/* The trust channel lives on the channels screen now, with its own report kinds. */}
+                  {items.filter((item) => item.key !== "trust_channel_id").map((item) => (
                     <div key={item.key} className={["card_accounts", "topup_bonus_rules", "app_links", "loyalty_tiers", "wheel_prizes", "business_rules", "business_reply", "guest_plan_ids"].includes(item.key) || item.type === "bool" ? "md:col-span-2" : ""}>
                       <SettingControl
                         item={item}
@@ -687,11 +688,69 @@ export function Texts() {
 
 // ---------------------------------------------------------------- channels
 
+type ForcedRow = ChannelData["forced"][number];
+type TrustRow = ChannelData["trust"][number];
+type CheckInfo = { chat_id: number; title: string; url: string; bot_admin: boolean };
+
+/** The report kinds a channel receives; the labels come from the order-kind names. */
+function KindPicker({ kinds, available, onChange }: { kinds: string[]; available: string[]; onChange: (kinds: string[]) => void }) {
+  const { t } = useSession();
+  return (
+    <div className="flex flex-wrap gap-x-5 gap-y-2">
+      {available.map((kind) => (
+        <label key={kind} className="flex items-center gap-2 text-[0.85rem]">
+          <Checkbox
+            label={t(`order_kind_${kind}`)}
+            checked={kinds.includes(kind)}
+            onChange={(on) => onChange(on ? [...kinds, kind] : kinds.filter((item) => item !== kind))}
+          />
+          {t(`order_kind_${kind}`)}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+function KindList({ kinds }: { kinds: string[] }) {
+  const { t } = useSession();
+  return (
+    <span className="text-[0.78rem] text-[var(--hint)]">
+      {kinds.map((kind) => t(`order_kind_${kind}`)).join(" · ")}
+    </span>
+  );
+}
+
+/** What Telegram said about a channel before the admin saved it. */
+function CheckNote({ info }: { info: CheckInfo }) {
+  const { t } = useSession();
+  return (
+    <p className="flex items-center gap-2 text-[0.8rem]">
+      <Badge tone={info.bot_admin ? "health" : "loss"}>{info.bot_admin ? t("bot_admin_ok") : t("bot_admin_no")}</Badge>
+      <span className="text-[var(--hint)]">{info.title}</span>
+    </p>
+  );
+}
+
+/** A channel Telegram could not verify or deliver to during the last minutes. */
+function ChannelWarning({ text, label }: { text: string | null; label: string }) {
+  if (!text) return null;
+  return (
+    <span title={text}>
+      <Badge tone="loss">{label}</Badge>
+    </span>
+  );
+}
+
 export function Channels() {
   const { t, can, toast, errorText } = useSession();
   const { data, error, reload } = useLoad<ChannelData>("/api/admin/channels");
   const [busy, run] = useAction();
-  const [forced, setForced] = useState({ chat_id: "", title: "", url: "https://t.me/" });
+  const [forced, setForced] = useState({ chat_id: "", title: "", url: "" });
+  const [forcedChecked, setForcedChecked] = useState<CheckInfo | null>(null);
+  const [trust, setTrust] = useState({ chat_id: "", kinds: ["purchase", "renew"] });
+  const [trustChecked, setTrustChecked] = useState<CheckInfo | null>(null);
+  const [forcedEdit, setForcedEdit] = useState<ForcedRow | null>(null);
+  const [trustEdit, setTrustEdit] = useState<TrustRow | null>(null);
   const [contact, setContact] = useState({ title: "", url: "https://t.me/" });
   const [log, setLog] = useState<{ topic: string; chat_id: string; thread_id: string } | null>(null);
   const writable = can("settings.write");
@@ -701,6 +760,17 @@ export function Channels() {
       await run(fn);
       toast(t(done));
       void reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  const check = async (raw: string, apply: (info: CheckInfo) => void) => {
+    try {
+      const info = await run(() =>
+        call<CheckInfo>("/api/admin/channels/check", { method: "POST", body: { chat_id: raw.trim() } }),
+      );
+      if (info) apply(info);
     } catch (err) {
       toast(errorText(err), "error");
     }
@@ -716,38 +786,124 @@ export function Channels() {
               <ul className="mb-4 divide-y divide-[var(--line)]">
                 {value.forced.map((c) => (
                   <li key={c.id} className="flex items-center justify-between gap-3 py-2.5">
-                    <span className="flex flex-col">
-                      <span className="font-semibold">{c.title}</span>
-                      <span className="text-[0.78rem] text-[var(--hint)]" dir="ltr">
+                    <span className="flex min-w-0 flex-col">
+                      <span className="flex flex-wrap items-center gap-2 font-semibold">
+                        {c.title}
+                        {c.is_active ? <Badge tone="health">{t("active")}</Badge> : <Badge>{t("inactive")}</Badge>}
+                        <ChannelWarning text={c.warning} label={t("channel_check_failed")} />
+                      </span>
+                      <span className="truncate text-[0.78rem] text-[var(--hint)]" dir="ltr">
                         {c.chat_id}
                       </span>
                     </span>
                     {writable && (
-                      <Button small tone="ghost" busy={busy} onClick={() => void act(() => call(`/api/admin/channels/forced/${c.id}`, { method: "DELETE" }), "removed")}>
-                        {t("remove")}
-                      </Button>
+                      <span className="flex shrink-0 gap-2">
+                        <Button small onClick={() => setForcedEdit(c)}>
+                          {t("edit")}
+                        </Button>
+                        <Button small tone="ghost" busy={busy} onClick={() => void act(() => call(`/api/admin/channels/forced/${c.id}`, { method: "DELETE" }), "removed")}>
+                          {t("remove")}
+                        </Button>
+                      </span>
                     )}
                   </li>
                 ))}
               </ul>
               {writable && (
-                <div className="grid gap-2 sm:grid-cols-[1fr_1fr_1.3fr_auto]">
-                  <Input aria-label={t("channel_id")} placeholder="@channel / -100…" dir="ltr" value={forced.chat_id} onChange={(e) => setForced({ ...forced, chat_id: e.target.value })} />
-                  <Input aria-label={t("title")} placeholder={t("title")} value={forced.title} onChange={(e) => setForced({ ...forced, title: e.target.value })} />
-                  <Input aria-label={t("invite_link")} dir="ltr" value={forced.url} onChange={(e) => setForced({ ...forced, url: e.target.value })} />
-                  <Button
-                    tone="primary"
-                    busy={busy}
-                    disabled={!forced.chat_id || !forced.title}
-                    onClick={() =>
-                      void act(async () => {
-                        await call("/api/admin/channels/forced", { method: "POST", body: forced });
-                        setForced({ chat_id: "", title: "", url: "https://t.me/" });
-                      }, "added")
-                    }
-                  >
-                    {t("add")}
-                  </Button>
+                <div className="flex flex-col gap-2">
+                  <div className="grid gap-2 sm:grid-cols-[1.1fr_auto_1fr_1.3fr_auto]">
+                    <Input aria-label={t("channel_id")} placeholder="@channel / -100…" dir="ltr" value={forced.chat_id} onChange={(e) => setForced({ ...forced, chat_id: e.target.value })} />
+                    <Button
+                      busy={busy}
+                      disabled={!forced.chat_id.trim()}
+                      onClick={() =>
+                        void check(forced.chat_id, (info) => {
+                          setForcedChecked(info);
+                          setForced((prev) => ({ ...prev, title: prev.title || info.title, url: prev.url || info.url }));
+                        })
+                      }
+                    >
+                      {t("check_channel")}
+                    </Button>
+                    <Input aria-label={t("title")} placeholder={t("title")} value={forced.title} onChange={(e) => setForced({ ...forced, title: e.target.value })} />
+                    <Input aria-label={t("invite_link")} dir="ltr" placeholder={t("invite_link")} value={forced.url} onChange={(e) => setForced({ ...forced, url: e.target.value })} />
+                    <Button
+                      tone="primary"
+                      busy={busy}
+                      disabled={!forced.chat_id.trim()}
+                      onClick={() =>
+                        void act(async () => {
+                          await call("/api/admin/channels/forced", { method: "POST", body: forced });
+                          setForced({ chat_id: "", title: "", url: "" });
+                          setForcedChecked(null);
+                        }, "added")
+                      }
+                    >
+                      {t("add")}
+                    </Button>
+                  </div>
+                  {forcedChecked && <CheckNote info={forcedChecked} />}
+                </div>
+              )}
+            </Section>
+
+            <Section title={t("trust_channels")}>
+              <p className="mb-3 text-[0.85rem] leading-relaxed text-[var(--hint)]">{t("trust_channels_hint")}</p>
+              <ul className="mb-4 divide-y divide-[var(--line)]">
+                {value.trust.map((row) => (
+                  <li key={row.id} className="flex items-center justify-between gap-3 py-2.5">
+                    <span className="flex min-w-0 flex-col">
+                      <span className="flex flex-wrap items-center gap-2 font-semibold">
+                        {row.title || row.chat_id}
+                        {row.is_active ? <Badge tone="health">{t("active")}</Badge> : <Badge>{t("inactive")}</Badge>}
+                        <ChannelWarning text={row.warning} label={t("send_failed")} />
+                      </span>
+                      <span className="truncate text-[0.78rem] text-[var(--hint)]" dir="ltr">
+                        {row.chat_id}
+                      </span>
+                      <KindList kinds={row.kinds} />
+                    </span>
+                    {writable && (
+                      <span className="flex shrink-0 gap-2">
+                        <Button small onClick={() => setTrustEdit(row)}>
+                          {t("edit")}
+                        </Button>
+                        <Button small tone="ghost" busy={busy} onClick={() => void act(() => call(`/api/admin/channels/trust/${row.id}`, { method: "DELETE" }), "removed")}>
+                          {t("remove")}
+                        </Button>
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {writable && (
+                <div className="flex flex-col gap-3">
+                  <div className="grid gap-2 sm:grid-cols-[1.5fr_auto_auto]">
+                    <Input aria-label={t("channel_id")} placeholder="@channel / -100…" dir="ltr" value={trust.chat_id} onChange={(e) => setTrust({ ...trust, chat_id: e.target.value })} />
+                    <Button busy={busy} disabled={!trust.chat_id.trim()} onClick={() => void check(trust.chat_id, setTrustChecked)}>
+                      {t("check_channel")}
+                    </Button>
+                    <Button
+                      tone="primary"
+                      busy={busy}
+                      disabled={!trust.chat_id.trim() || trust.kinds.length === 0}
+                      onClick={() =>
+                        void act(async () => {
+                          await call("/api/admin/channels/trust", {
+                            method: "POST",
+                            body: { chat_id: trust.chat_id, kinds: trust.kinds },
+                          });
+                          setTrust({ chat_id: "", kinds: ["purchase", "renew"] });
+                          setTrustChecked(null);
+                        }, "added")
+                      }
+                    >
+                      {t("add")}
+                    </Button>
+                  </div>
+                  {trustChecked && <CheckNote info={trustChecked} />}
+                  <span className="text-[0.85rem] font-semibold">{t("report_kinds")}</span>
+                  <KindPicker kinds={trust.kinds} available={value.trust_kinds} onChange={(kinds) => setTrust({ ...trust, kinds })} />
                 </div>
               )}
             </Section>
@@ -857,6 +1013,88 @@ export function Channels() {
                   <Field label={t("thread_id")} hint={t("thread_id_hint")}>
                     {(id) => <Input id={id} dir="ltr" value={log.thread_id} onChange={(e) => setLog({ ...log, thread_id: e.target.value })} />}
                   </Field>
+                </div>
+              )}
+            </Sheet>
+
+            <Sheet
+              open={forcedEdit !== null}
+              onClose={() => setForcedEdit(null)}
+              title={forcedEdit ? forcedEdit.title : t("forced_channels")}
+              footer={
+                <Button
+                  tone="primary"
+                  busy={busy}
+                  disabled={!forcedEdit}
+                  onClick={() =>
+                    forcedEdit &&
+                    void act(async () => {
+                      await call(`/api/admin/channels/forced/${forcedEdit.id}`, {
+                        method: "PUT",
+                        body: { title: forcedEdit.title, url: forcedEdit.url, is_active: forcedEdit.is_active },
+                      });
+                      setForcedEdit(null);
+                    }, "saved")
+                  }
+                >
+                  {t("save")}
+                </Button>
+              }
+            >
+              {forcedEdit && (
+                <div className="flex flex-col gap-4">
+                  <Field label={t("title")}>
+                    {(id) => <Input id={id} value={forcedEdit.title} onChange={(e) => setForcedEdit({ ...forcedEdit, title: e.target.value })} />}
+                  </Field>
+                  <Field label={t("invite_link")} hint={t("invite_link_hint")}>
+                    {(id) => <Input id={id} dir="ltr" value={forcedEdit.url} onChange={(e) => setForcedEdit({ ...forcedEdit, url: e.target.value })} />}
+                  </Field>
+                  <Toggle
+                    checked={forcedEdit.is_active}
+                    onChange={(on) => setForcedEdit({ ...forcedEdit, is_active: on })}
+                    label={t("channel_is_active")}
+                    hint={t("channel_is_active_hint")}
+                  />
+                </div>
+              )}
+            </Sheet>
+
+            <Sheet
+              open={trustEdit !== null}
+              onClose={() => setTrustEdit(null)}
+              title={trustEdit ? trustEdit.title || String(trustEdit.chat_id) : t("trust_channels")}
+              footer={
+                <Button
+                  tone="primary"
+                  busy={busy}
+                  disabled={!trustEdit || trustEdit.kinds.length === 0}
+                  onClick={() =>
+                    trustEdit &&
+                    void act(async () => {
+                      await call(`/api/admin/channels/trust/${trustEdit.id}`, {
+                        method: "PUT",
+                        body: { kinds: trustEdit.kinds, is_active: trustEdit.is_active },
+                      });
+                      setTrustEdit(null);
+                    }, "saved")
+                  }
+                >
+                  {t("save")}
+                </Button>
+              }
+            >
+              {trustEdit && (
+                <div className="flex flex-col gap-4">
+                  <Toggle
+                    checked={trustEdit.is_active}
+                    onChange={(on) => setTrustEdit({ ...trustEdit, is_active: on })}
+                    label={t("channel_is_active")}
+                    hint={t("channel_is_active_hint")}
+                  />
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[0.88rem] font-semibold">{t("report_kinds")}</span>
+                    <KindPicker kinds={trustEdit.kinds} available={value.trust_kinds} onChange={(kinds) => setTrustEdit({ ...trustEdit, kinds })} />
+                  </div>
                 </div>
               )}
             </Sheet>

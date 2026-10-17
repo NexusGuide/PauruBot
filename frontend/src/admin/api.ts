@@ -476,10 +476,29 @@ export interface TextItem {
 }
 
 export interface Channels {
-  forced: { id: number; chat_id: string; title: string; url: string; sort: number }[];
+  forced: {
+    id: number;
+    chat_id: string;
+    title: string;
+    url: string;
+    is_active: boolean;
+    sort: number;
+    warning: string | null;
+  }[];
+  trust: {
+    id: number;
+    chat_id: number;
+    title: string;
+    url: string;
+    kinds: string[];
+    is_active: boolean;
+    sort: number;
+    warning: string | null;
+  }[];
   logs: { id: number; topic: string; chat_id: number; thread_id: number | null }[];
   contacts: { id: number; title: string; url: string; sort: number }[];
   topics: string[];
+  trust_kinds: string[];
 }
 
 export interface AuditRow {

@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select
 
 from paurubot.api.routes import webapp_auto_renew, webapp_receipts, webapp_staff
-from paurubot.api.webapp_auth import WebApp
+from paurubot.api.webapp_auth import WebApp, forced_gate, forget_join_cache
 from paurubot.core import (
     catalog,
     customer_help,
@@ -27,6 +27,7 @@ from paurubot.core import (
 from paurubot.db.models import (
     Category,
     DiscountCode,
+    ForcedChannel,
     Location,
     Order,
     OrderKind,
@@ -205,6 +206,30 @@ async def me(ctx: WebApp) -> dict[str, Any]:
 @router.get("/help")
 async def customer_help_view(ctx: WebApp) -> dict[str, Any]:
     return customer_help.view(ctx.cfg, bot_username=ctx.shop.bot_username)
+
+
+@router.get("/join")
+async def join_channels(ctx: WebApp) -> dict[str, Any]:
+    """Channels a customer must join before the rest of the Mini App answers (GRW-07)."""
+    rows = list(
+        await ctx.session.scalars(
+            select(ForcedChannel)
+            .where(ForcedChannel.shop_id == ctx.shop.id, ForcedChannel.is_active.is_(True))
+            .order_by(ForcedChannel.sort, ForcedChannel.id)
+        )
+    )
+    return {"channels": [{"title": row.title, "url": row.url} for row in rows]}
+
+
+@router.post("/join/check")
+async def join_check(ctx: WebApp) -> dict[str, Any]:
+    """Ask Telegram again after the customer joined; the answer is never cached."""
+    await forget_join_cache(ctx.shop.id, ctx.customer.telegram_id)
+    missing = await forced_gate(ctx.session, ctx.shop, ctx.customer)
+    return {
+        "ok": not missing,
+        "channels": [{"title": row.title, "url": row.url} for row in missing],
+    }
 
 
 class MarketingBody(BaseModel):

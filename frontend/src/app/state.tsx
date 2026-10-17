@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { direction, makeT, type Translate } from "@shared/i18n";
-import { api, type Me } from "./api";
+import { api, type JoinChannel, type Me } from "./api";
 import en from "./locales/en.json";
 import fa from "./locales/fa.json";
 
@@ -9,9 +9,12 @@ const DICTS: Record<string, Record<string, string>> = { fa, en };
 interface AppState {
   me: Me | null;
   error: string | null;
+  /** Set while the API holds the customer at the join gate; null once they are in (GRW-07). */
+  join: { channels: JoinChannel[] } | null;
   locale: string;
   t: Translate;
   reload: () => Promise<void>;
+  checkJoin: () => Promise<boolean>;
   setLocale: (locale: string) => Promise<void>;
   setMarketing: (optOut: boolean) => Promise<void>;
   setAlerts: (muted: boolean) => Promise<void>;
@@ -24,6 +27,7 @@ const Ctx = createContext<AppState | null>(null);
 export function AppProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [join, setJoin] = useState<{ channels: JoinChannel[] } | null>(null);
   const [toastMessage, setToast] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
 
   const revision = useRef(0);
@@ -37,15 +41,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (revision.current !== initialRevision || reloadId.current !== requestId) return;
       setMe(profile);
       setError(null);
+      setJoin(null);
     } catch (err) {
       if (revision.current === initialRevision && reloadId.current === requestId) {
-        setError(err instanceof Error ? err.message : "error");
+        const code = err instanceof Error ? err.message : "error";
+        setError(code);
+        if (code !== "join_required") return;
+        // The join screen still needs the channel list, and /join is the one ungated route.
+        try {
+          setJoin({ channels: (await api.join()).channels });
+        } catch {
+          setJoin({ channels: [] });
+        }
       }
     }
   }, []);
 
   useEffect(() => {
     void reload();
+  }, [reload]);
+
+  const checkJoin = useCallback(async () => {
+    const answer = await api.checkJoin();
+    if (answer.ok) {
+      setJoin(null);
+      await reload();
+      return true;
+    }
+    setJoin({ channels: answer.channels });
+    return false;
   }, [reload]);
 
   const locale = me?.locale && DICTS[me.locale] ? me.locale : "fa";
@@ -87,8 +111,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ me, error, locale, t, reload, setLocale, setMarketing, setAlerts, toast, toastMessage }),
-    [me, error, locale, t, reload, setLocale, setMarketing, setAlerts, toast, toastMessage],
+    () => ({ me, error, join, locale, t, reload, checkJoin, setLocale, setMarketing, setAlerts, toast, toastMessage }),
+    [me, error, join, locale, t, reload, checkJoin, setLocale, setMarketing, setAlerts, toast, toastMessage],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

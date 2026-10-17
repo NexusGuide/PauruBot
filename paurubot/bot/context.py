@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from paurubot import kv
 from paurubot.auth import rbac
 from paurubot.config import get_settings
+from paurubot.core import channels as channel_rules
 from paurubot.core import customers
 from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import esc
@@ -31,7 +32,6 @@ log = logging.getLogger(__name__)
 Handler = Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]]
 FLOOD_LIMIT = 25
 FLOOD_WINDOW = 10
-MEMBER_STATUSES = {"creator", "administrator", "member", "restricted"}
 _join_ok: dict[int, float] = {}
 
 
@@ -246,24 +246,13 @@ async def missing_channels(bot: Bot, session: AsyncSession, customer: Customer) 
     channels = list(
         await session.scalars(
             select(ForcedChannel)
-            .where(ForcedChannel.shop_id == customer.shop_id)
+            .where(ForcedChannel.shop_id == customer.shop_id, ForcedChannel.is_active.is_(True))
             .order_by(ForcedChannel.sort)
         )
     )
     if not channels or _join_ok.get(customer.telegram_id, 0) > time.monotonic():
         return []
-    missing: list[ForcedChannel] = []
-    for channel in channels:
-        try:
-            member = await bot.get_chat_member(channel.chat_id, customer.telegram_id)
-        except TelegramAPIError as exc:
-            log.warning("cannot check membership in %s: %s", channel.chat_id, exc)
-            continue
-        status = getattr(member, "status", "")
-        if status not in MEMBER_STATUSES or (
-            status == "restricted" and not getattr(member, "is_member", True)
-        ):
-            missing.append(channel)
+    missing, _unknown = await channel_rules.missing_members(bot, channels, customer.telegram_id)
     if not missing:
         _join_ok[customer.telegram_id] = time.monotonic() + 300
     return missing

@@ -890,35 +890,42 @@ async def _deliver_stock(session: AsyncSession, order: Order) -> None:
 
 
 async def after_sale(session: AsyncSession, order: Order) -> None:
-    """Loyalty tier and trust-channel post for a completed paid order (GRW-02, GRW-08)."""
-    from paurubot.core import growth
+    """Loyalty tier and trust-channel posts for a completed order (GRW-02, GRW-08)."""
+    from paurubot.core import channels, growth
+    from paurubot.db.models import TrustChannel
     from paurubot.worker import queue
 
-    if order.amount <= 0 or order.kind in {OrderKind.TRIAL, OrderKind.MOVE}:
-        return
     cfg = await shop_settings.load(session, order.shop_id)
     customer = await session.get(Customer, order.customer_id)
     if customer is None:
         return
-    if (cfg.get("loyalty_enabled") or customer.tier_percent) and not customer.is_reseller:
-        if await growth.refresh_tier(session, customer, cfg):
+    if order.amount > 0 and order.kind not in {OrderKind.TRIAL, OrderKind.MOVE}:
+        if (cfg.get("loyalty_enabled") or customer.tier_percent) and not customer.is_reseller:
+            if await growth.refresh_tier(session, customer, cfg):
+                await queue.enqueue(
+                    session,
+                    "notify",
+                    "tier_up",
+                    {"customer_id": customer.id, "percent": customer.tier_percent},
+                    shop_id=order.shop_id,
+                    dedupe_key=f"tier:{customer.id}:{customer.tier_percent}",
+                )
+    # Free trials post too; free extras and moves do not. The handler checks each channel's kinds.
+    if order.kind.value in channels.TRUST_KINDS and (order.amount > 0 or order.kind == OrderKind.TRIAL):
+        posts_here = await session.scalar(
+            select(TrustChannel.id)
+            .where(TrustChannel.shop_id == order.shop_id, TrustChannel.is_active.is_(True))
+            .limit(1)
+        )
+        if posts_here:
             await queue.enqueue(
                 session,
                 "notify",
-                "tier_up",
-                {"customer_id": customer.id, "percent": customer.tier_percent},
+                "trust_post",
+                {"order_id": order.id},
                 shop_id=order.shop_id,
-                dedupe_key=f"tier:{customer.id}:{customer.tier_percent}",
+                dedupe_key=f"order:{order.id}:trust",
             )
-    if cfg.get("trust_channel_id") and order.kind in {OrderKind.PURCHASE, OrderKind.RENEW}:
-        await queue.enqueue(
-            session,
-            "notify",
-            "trust_post",
-            {"order_id": order.id},
-            shop_id=order.shop_id,
-            dedupe_key=f"order:{order.id}:trust",
-        )
 
 
 async def batch_progress(session: AsyncSession, order: Order) -> None:
