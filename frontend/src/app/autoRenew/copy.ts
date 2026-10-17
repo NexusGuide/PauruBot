@@ -7,7 +7,10 @@ const copy = {
   loading: ["Loading…", "در حال دریافت…"],
   stopped: ["Stopped after an error", "پس از خطا متوقف شد"],
   waiting: ["On; waiting for wallet funds", "روشن؛ منتظر شارژ کیف پول"],
-  unknown: ["Status unknown; check again", "وضعیت نامشخص؛ دوباره بررسی کن"],
+  unknown: [
+    "Setting is invalid; enable it again to fix it",
+    "تنظیم نامعتبر است؛ برای اصلاح دوباره فعالسازی کن",
+  ],
   loadError: [
     "Settings could not be loaded; the status is unknown.",
     "تنظیمات دریافت نشد؛ وضعیت نامشخص است.",

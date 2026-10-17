@@ -74,9 +74,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setMe(current => current ? { ...current, alerts_muted: confirmed.alerts_muted } : current);
   }, []);
 
+  const toastTimer = useRef<number | undefined>(undefined);
+  // Each toast gets its own full 2.6s: a new toast extends the timer instead of
+  // being cut short by the previous toast's one.
   const toast = useCallback((text: string, tone: "ok" | "error" = "ok") => {
+    if (toastTimer.current !== undefined) window.clearTimeout(toastTimer.current);
     setToast({ text, tone });
-    window.setTimeout(() => setToast(null), 2600);
+    toastTimer.current = window.setTimeout(() => {
+      toastTimer.current = undefined;
+      setToast(null);
+    }, 2600);
   }, []);
 
   const value = useMemo(

@@ -142,20 +142,23 @@ export function AutoRenew({ serviceId }: { serviceId: number }) {
   const on =
     confirmed?.status === "on" || confirmed?.status === "waiting_balance";
   const modes = confirmed ? available(confirmed) : { renew: false, extra: false };
+  /** Open the picker: only possible where the service could actually buy something. */
   const canOpen =
     !!confirmed &&
     !frozen &&
     !loading &&
     confirmed.eligible &&
     (modes.renew || modes.extra);
+  /** The switch always has somewhere to go: turn off a live rule or start choosing one. */
+  const canToggle = !!confirmed && !frozen && !loading && (on || canOpen);
 
   const sub = (() => {
     if (blocked) return t("loadError");
     if (!confirmed) return t("loading");
+    if (!confirmed.eligible) return t("ineligible");
     if (confirmed.status === "stopped") return t("stopped");
     if (confirmed.status === "waiting_balance") return t("waiting");
     if (confirmed.status === "unknown") return t("unknown");
-    if (!confirmed.eligible) return t("ineligible");
     return summary(confirmed, t, locale) ?? t("hint");
   })();
 
@@ -263,12 +266,12 @@ export function AutoRenew({ serviceId }: { serviceId: number }) {
   };
 
   const toggleSwitch = () => {
-    if (!confirmed || frozen || loading || busy) return;
+    if (!confirmed || !canToggle || busy) return;
     if (on) {
       void commit(OFF, "disabled");
       return;
     }
-    if (confirmed.eligible) openEditor();
+    openEditor();
   };
 
   return (
@@ -278,7 +281,7 @@ export function AutoRenew({ serviceId }: { serviceId: number }) {
           type="button"
           ref={row}
           className="app-grow min-w-0 py-1 text-start"
-          disabled={!canOpen}
+          disabled={!canOpen || busy}
           aria-expanded={open}
           onClick={() => (open ? closeEditor() : openEditor())}
         >
@@ -291,9 +294,7 @@ export function AutoRenew({ serviceId }: { serviceId: number }) {
         </button>
         <Switch
           checked={on}
-          disabled={
-            loading || !confirmed || frozen || (!on && !confirmed.eligible)
-          }
+          disabled={!canToggle || busy}
           busy={busy}
           label={t("title")}
           onChange={toggleSwitch}
