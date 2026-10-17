@@ -220,6 +220,19 @@ async def test_branded_subscription_link(session, env, monkeypatch) -> None:  # 
         assert "style=" not in page.text  # the CSP forbids inline styles
         assert (await client.get("/s/_/page.css")).headers["content-type"].startswith("text/css")
 
+        # The redesigned page: four tabs, a search box, the ring and one row per config.
+        for fragment in ('id="home"', 'id="configs"', 'id="share"', 'id="apps"', 'class="nav"'):
+            assert fragment in page.text
+        assert "/s/_/sub.css" in page.text and 'id="sq"' in page.text and 'id="rp"' in page.text
+        assert "vless://" in page.text  # the browser page shows the config list
+        qr_link = await client.get(f"/s/{service.sub_token}/qr.png")
+        assert qr_link.status_code == 200 and qr_link.headers["content-type"] == "image/png"
+        assert (await client.get(f"/s/{service.sub_token}/qr.png?i=0")).status_code == 200
+        assert (await client.get(f"/s/{service.sub_token}/qr.png?i=9")).status_code == 404
+        assert (await client.get(f"/s/{service.sub_token}/qr.png?i=x")).status_code == 404
+        assert (await client.get("/s/_/font400.ttf")).status_code == 200
+        assert (await client.get("/s/_/nope.ttf")).status_code == 404
+
         # Revoking issues a new token, so the old branded link stops working.
         old = service.sub_token
         await lifecycle.revoke(session, service)
