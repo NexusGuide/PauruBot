@@ -16,4 +16,4 @@ test('ineligible cannot enable but can disable',()=>{const v={...p(),eligible:fa
 test('extra pair has separate base prices, not a guaranteed invoice',()=>assert.deepEqual(basePrices({mode:'extra',plan_id:0,gb:5,days:7},p()),[50,70]));
 test('mismatched server rule cannot confirm success',()=>assert(!matchesChoice({mode:'renew',plan_id:3,gb:0,days:0},p())));
 test('unknown state is not confirmed off',()=>assert(!matchesChoice(off(),{...p(),status:'unknown'})));
-for(const lang of ['fa','en'])test('explicit wallet safety copy '+lang,()=>{for(const key of ['wallet','rules','unknown','uncertain','ack','changed','ineligible','missing','saved'])assert(translator(lang)(key).length>4)});
+for(const lang of ['fa','en'])test('explicit wallet safety copy '+lang,()=>{for(const key of ['hint','unknown','uncertain','changed','ineligible','saved','rejected','loadError','enabled','disabled'])assert(translator(lang)(key).length>4)});

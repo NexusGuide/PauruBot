@@ -142,8 +142,8 @@
 :root[data-app="miniapp"] .app-plan[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 14px 30px -20px color-mix(in srgb, var(--accent) 70%, transparent); }
 :root[data-app="miniapp"] .app-plan:is([aria-pressed="true"], [aria-checked="true"]) { border-color: var(--accent); box-shadow: 0 14px 30px -20px color-mix(in srgb, var(--accent) 70%, transparent); }
 :root[data-app="miniapp"] .app-rad { position: relative; flex: none; inline-size: 22px; block-size: 22px; border: 2px solid var(--control-line); border-radius: 50%; }
-:root[data-app="miniapp"] .app-plan[aria-pressed="true"] .app-rad { border-color: var(--accent); }
-:root[data-app="miniapp"] .app-plan[aria-pressed="true"] .app-rad::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--accent); }
+:root[data-app="miniapp"] .app-plan:is([aria-pressed="true"], [aria-checked="true"]) .app-rad { border-color: var(--accent); }
+:root[data-app="miniapp"] .app-plan:is([aria-pressed="true"], [aria-checked="true"]) .app-rad::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--accent); }
 :root[data-app="miniapp"] .app-steps { display: flex; gap: 5px; margin-block-end: 8px; }
 :root[data-app="miniapp"] .app-steps i { flex: 1; block-size: 5px; border-radius: 99px; background: var(--line); overflow: hidden; }
 :root[data-app="miniapp"] .app-steps i.on { background: var(--accent); }
