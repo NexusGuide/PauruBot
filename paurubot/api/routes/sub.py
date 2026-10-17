@@ -635,7 +635,7 @@ def _hero(t: Texts, service: Service, shop: Shop) -> str:
     name = escape(str(service.label or service.panel_username))
     token = escape(service.sub_token or "")
     letter = escape((shop.title or "PauruBot")[0].upper())
-    # status_* keys lead with an emoji ("🟢 فعال"); this page draws its own dot.
+    # status_* keys lead with an emoji glyph; this page draws its own dot.
     status = re.sub(r"^[^\w\u0600-\u06FF]+", "", t(f"status_{service.status.value}"))
     tone = CHIPS.get(service.status, "mut")
     return (
