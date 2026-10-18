@@ -84,7 +84,10 @@ class TelegramErrorHandler(logging.Handler):
         return self._client
 
     def emit(self, record: logging.LogRecord) -> None:
-        if record.name.startswith(("paurubot.notifications", "redis")):
+        tags = log_tags.get() or {}
+        if record.name.startswith(("paurubot.notifications", "redis")) or (
+            tags.get("queue") == "notify" and tags.get("kind") == "error_report"
+        ):
             return  # never loop on our own delivery failures
         try:
             entry = {

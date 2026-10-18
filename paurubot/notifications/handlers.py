@@ -37,7 +37,7 @@ from paurubot.db.models import (
 )
 from paurubot.i18n import Texts, texts_for
 from paurubot.logs import error_shop_id
-from paurubot.notifications import review_sync, telegram
+from paurubot.notifications import error_reports, review_sync, telegram
 from paurubot.security.redact import redact
 from paurubot.worker import queue
 from paurubot.worker.runner import Permanent, QueueSpec, Retry, register_queue
@@ -1139,6 +1139,7 @@ register_queue(
             "reseller_notice": reseller_notice,
             "panel_alert": panel_alert,
             "job_dead": job_dead,
+            "error_report": error_reports.deliver,
             "order_completed": order_completed,
             "account_ready": account_ready,
             "account_alert": account_alert,

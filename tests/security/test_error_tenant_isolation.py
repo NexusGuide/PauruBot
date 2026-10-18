@@ -12,9 +12,10 @@ import pytest
 from paurubot import kv
 from paurubot.db.models import LogChannel
 from paurubot.logs import TelegramErrorHandler, correlation_id, error_shop_id, log_tags
-from paurubot.notifications import handlers, telegram
+from paurubot.notifications import error_reports, handlers, telegram
 from paurubot.worker import jobs, queue
 from tests import factories
+from tests.unit.test_provisioning import drain
 
 pytestmark = pytest.mark.security
 OWNER = 990001
@@ -34,6 +35,7 @@ async def destinations(session, monkeypatch):  # type: ignore[no-untyped-def]
     send = AsyncMock(return_value=None)
     monkeypatch.setattr(telegram, "send_text", send)
     monkeypatch.setattr(handlers, "get_settings", lambda: SimpleNamespace(owner_telegram_ids=[OWNER]))
+    monkeypatch.setattr(error_reports, "get_settings", handlers.get_settings)
     return first, second, send
 
 
@@ -74,7 +76,7 @@ async def test_error_envelope_carries_only_task_scope_and_redacts_before_queuein
     assert json.loads(await kv.get_redis().lpop(TelegramErrorHandler.KEY))["shop_id"] is None
 
 
-async def test_identical_errors_are_grouped_only_within_their_shop(destinations) -> None:  # type: ignore[no-untyped-def]
+async def test_identical_errors_are_grouped_only_within_their_shop(session, destinations) -> None:  # type: ignore[no-untyped-def]
     first, second, send = destinations
     for scope, detail in [(first.id, "first-only"), (first.id, "first-again"), (second.id, "second-only")]:
         await kv.get_redis().rpush(
@@ -82,6 +84,7 @@ async def test_identical_errors_are_grouped_only_within_their_shop(destinations)
             json.dumps({"shop_id": scope, "logger": "same", "msg": "same", "exc": detail}),
         )
     await jobs.flush_errors()
+    await drain(session, "notify")
     assert send.await_count == 2
     calls = {call.args[0]: call for call in send.await_args_list}
     assert set(calls) == {-100101, -100202}
@@ -93,7 +96,7 @@ async def test_identical_errors_are_grouped_only_within_their_shop(destinations)
 
 
 @pytest.mark.parametrize("scope", [None, True, "1", -1, 999999999])
-async def test_legacy_invalid_and_deleted_scopes_are_platform_only(destinations, scope) -> None:  # type: ignore[no-untyped-def]
+async def test_legacy_invalid_and_deleted_scopes_are_platform_only(session, destinations, scope) -> None:  # type: ignore[no-untyped-def]
     first, _, send = destinations
     entry = {"logger": "legacy", "msg": "password=old-secret", "exc": "token=old-trace-secret"}
     if scope is not None:
@@ -102,6 +105,7 @@ async def test_legacy_invalid_and_deleted_scopes_are_platform_only(destinations,
     entry["shop"] = first.id
     await kv.get_redis().rpush(TelegramErrorHandler.KEY, json.dumps(entry))
     await jobs.flush_errors()
+    await drain(session, "notify")
     send.assert_awaited_once()
     call = send.await_args
     assert call.args[0] == OWNER and call.kwargs["shop_id"] is None
@@ -118,6 +122,7 @@ async def test_malformed_queue_records_do_not_crash_flush_or_route_to_shops(dest
 async def test_no_platform_owners_means_no_fallback_to_shop_channels(destinations, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     _, _, send = destinations
     monkeypatch.setattr(handlers, "get_settings", lambda: SimpleNamespace(owner_telegram_ids=[]))
+    monkeypatch.setattr(error_reports, "get_settings", handlers.get_settings)
     await kv.get_redis().rpush(TelegramErrorHandler.KEY, json.dumps({"msg": "global"}))
     await jobs.flush_errors()
     send.assert_not_awaited()
