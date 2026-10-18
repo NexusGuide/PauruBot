@@ -107,7 +107,13 @@ async def _principal(session: AsyncSession, owner: Owner) -> Customer:
     shop = await session.scalar(
         select(Shop).where(Shop.id == owner.shop_id, Shop.status == ShopStatus.ACTIVE)
     )
-    if customer is None or shop is None or customer.is_banned or not 0 < customer.telegram_id < 2**63:
+    if (
+        customer is None
+        or shop is None
+        or customer.is_banned
+        or customer.card_trust == "blocked"
+        or not 0 < customer.telegram_id < 2**63
+    ):
         raise CustomStateError("not_found")
     return customer
 

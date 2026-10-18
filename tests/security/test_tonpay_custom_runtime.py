@@ -17,6 +17,7 @@ from paurubot.payments import tonpay_custom_runtime as runtime
 from paurubot.payments import tonpay_custom_service as mutations
 from paurubot.payments.base import PaymentError
 from paurubot.payments.providers.tonpay_custom import CustomAPIError, CustomInvoice
+from tests.security.test_payment_intents import intent_engine as intent_engine
 from tests.security.test_tonpay_custom_create import creation as creation
 from tests.security.test_tonpay_custom_create import start
 
@@ -285,3 +286,38 @@ async def test_recent_returns_no_provider_reference_or_internal_token(live):  # 
     rows = await runtime.recent(owner)
     assert len(rows) == 1 and rows[0]["payment_id"] == pid
     assert "invoice_id" not in rows[0] and "provider_ref" not in rows[0] and "token" not in str(rows)
+
+
+async def block_customer(maker, owner):  # type: ignore[no-untyped-def]
+    from paurubot.db.models import Customer
+
+    async with maker() as session:
+        customer = await session.get(Customer, owner.customer_id)
+        customer.card_trust = "blocked"
+        await session.commit()
+
+
+async def test_blocked_customer_cannot_acknowledge_quote(live):  # type: ignore[no-untyped-def]
+    maker, owner, pid, *_ = live
+    await block_customer(maker, owner)
+    with pytest.raises(mutations.CustomStateError):
+        await mutations.consent(owner, pid, 1, 103000)
+
+
+@pytest.mark.parametrize("paid_reply", [False, True])
+async def test_customer_blocked_during_get_cannot_receive_card_or_credit(live, paid_reply):  # type: ignore[no-untyped-def]
+    maker, owner, pid, client, invoice, cfg, _, paid = live
+    cfg["tonpay_custom_confirm_enabled"] = True
+    await mutations.consent(owner, pid, 1, 103000)
+
+    async def remote(*args):  # type: ignore[no-untyped-def]
+        await block_customer(maker, owner)
+        return replace(invoice, paid=paid_reply, status="completed" if paid_reply else "pending")
+
+    client.check.side_effect = remote
+    with pytest.raises(mutations.CustomStateError):
+        await runtime.refresh(owner, pid)
+    paid.assert_not_awaited()
+    async with maker() as session:
+        p = await session.get(Payment, pid)
+        assert p.status == PaymentStatus.PENDING and not p.meta[mutations.STATE_KEY]["paid"]

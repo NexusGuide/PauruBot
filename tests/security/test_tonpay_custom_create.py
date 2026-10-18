@@ -48,6 +48,9 @@ async def creation(intent_engine, monkeypatch):  # type: ignore[no-untyped-def]
         return CustomInvoice("invoice_" + order_id, order_id, amount, amount + 3000, "pending", False)
 
     monkeypatch.setattr(client, "create", AsyncMock(side_effect=response))
+    # intent_engine is module-scoped in CI: previous cases legitimately committed
+    # rows in other shops. Assertions below must inspect this case, not that history.
+    maker.configure(info={"custom_case_shop_id": owner.shop_id})
     return maker, owner, cfg, client
 
 
@@ -56,9 +59,13 @@ async def start(creation, key=KEY, amount=AMOUNT):  # type: ignore[no-untyped-de
     return await create.create_once(owner, amount, key, config=cfg, client=client)
 
 
+def _payments(session):  # type: ignore[no-untyped-def]
+    return select(Payment).where(Payment.shop_id == session.info["custom_case_shop_id"])
+
+
 async def only_payment(maker):  # type: ignore[no-untyped-def]
     async with maker() as session:
-        return (await session.scalars(select(Payment))).one()
+        return (await session.scalars(_payments(session))).one()
 
 
 async def test_committed_marker_and_principal_precede_http(creation):  # type: ignore[no-untyped-def]
@@ -66,7 +73,7 @@ async def test_committed_marker_and_principal_precede_http(creation):  # type: i
 
     async def response(order_id, amount, buyer, callback):  # type: ignore[no-untyped-def]
         async with maker() as independent:
-            payment = await independent.scalar(select(Payment))
+            payment = await independent.scalar(_payments(independent))
             customer = await independent.get(Customer, owner.customer_id)
             assert payment.id == int(order_id)
             assert buyer == customer.telegram_id and callback == cfg.callback_url
@@ -130,7 +137,7 @@ async def test_ambiguous_failure_blocks_same_and_replacement_keys_even_after_exp
     with pytest.raises(type(failure)):
         await start(creation)
     async with maker() as session:
-        payment = await session.scalar(select(Payment))
+        payment = await session.scalar(_payments(session))
         payment.status = PaymentStatus.EXPIRED
         payment.expires_at = utcnow() - timedelta(seconds=1)
         await session.commit()
@@ -171,7 +178,7 @@ async def test_invalid_or_disabled_config_never_writes_or_calls(creation, field)
     with pytest.raises((create.CustomStateError, CustomAPIError)):
         await create.create_once(owner, amount, key, config=cfg, client=client)
     async with maker() as session:
-        assert await session.scalar(select(Payment.id)) is None
+        assert await session.scalar(_payments(session).with_only_columns(Payment.id)) is None
     client.create.assert_not_awaited()
 
 
@@ -200,7 +207,7 @@ async def test_unavailable_principals_fail_before_marker_or_http(creation, case)
         await create.create_once(owner, AMOUNT, KEY, config=cfg, client=client)
     client.create.assert_not_awaited()
     async with maker() as session:
-        assert await session.scalar(select(Payment.id)) is None
+        assert await session.scalar(_payments(session).with_only_columns(Payment.id)) is None
 
 
 async def test_initial_commit_failure_never_calls_provider(creation, monkeypatch):  # type: ignore[no-untyped-def]
@@ -214,7 +221,7 @@ async def test_initial_commit_failure_never_calls_provider(creation, monkeypatch
         await start(creation)
     client.create.assert_not_awaited()
     async with maker() as session:
-        assert await session.scalar(select(Payment.id)) is None
+        assert await session.scalar(_payments(session).with_only_columns(Payment.id)) is None
 
 
 async def test_final_commit_failure_keeps_uncertain_marker(creation, monkeypatch):  # type: ignore[no-untyped-def]
@@ -335,7 +342,7 @@ async def test_completed_new_intent_does_not_reuse_provider_reference(creation):
     with pytest.raises(create.CustomStateError):
         await start(creation, KEY + "-new")
     async with maker() as session:
-        payments = list(await session.scalars(select(Payment).order_by(Payment.id)))
+        payments = list(await session.scalars(_payments(session).order_by(Payment.id)))
         assert len(payments) == 2
         assert payments[0].provider_ref == "duplicate_invoice" and payments[1].provider_ref is None
         assert payments[1].meta[create.CREATE_KEY]["state"] == "uncertain"
@@ -393,7 +400,7 @@ async def test_real_concurrent_claims_commit_once_for_different_keys(creation): 
         sum(isinstance(r, create.CustomStateError) and r.code == "creation_uncertain" for r in results) == 3
     )
     async with maker() as session:
-        assert len(list(await session.scalars(select(Payment.id)))) == 1
+        assert len(list(await session.scalars(_payments(session).with_only_columns(Payment.id)))) == 1
 
 
 async def test_real_client_wire_creation_binds_only_its_checked_response(creation):  # type: ignore[no-untyped-def]
@@ -447,7 +454,7 @@ async def test_private_commit_does_not_commit_unrelated_callers_writes(creation)
         await caller.rollback()
     async with maker() as session:
         assert (await session.get(Shop, owner.shop_id)).title == original
-        assert await session.scalar(select(Payment.id)) is not None
+        assert await session.scalar(_payments(session).with_only_columns(Payment.id)) is not None
 
 
 async def test_ready_but_closed_replay_never_creates_another_invoice(creation):  # type: ignore[no-untyped-def]
@@ -461,3 +468,31 @@ async def test_ready_but_closed_replay_never_creates_another_invoice(creation): 
         await start(creation)
     assert exc.value.code == "payment_closed"
     client.create.assert_awaited_once()
+
+
+@pytest.mark.parametrize("phase", ["before_claim", "before_bind"])
+async def test_blocked_card_trust_prevents_claim_or_binding(creation, phase):  # type: ignore[no-untyped-def]
+    maker, owner, _, client = creation
+
+    async def block():  # type: ignore[no-untyped-def]
+        async with maker() as session:
+            customer = await session.get(Customer, owner.customer_id)
+            customer.card_trust = "blocked"
+            await session.commit()
+
+    if phase == "before_claim":
+        await block()
+    else:
+
+        async def response(order_id, amount, buyer, callback):  # type: ignore[no-untyped-def]
+            await block()
+            return CustomInvoice("risk_changed_invoice", order_id, amount, amount + 3000, "pending", False)
+
+        client.create.side_effect = response
+    with pytest.raises(create.CustomStateError):
+        await start(creation)
+    if phase == "before_claim":
+        client.create.assert_not_awaited()
+    else:
+        p = await only_payment(maker)
+        assert p.provider_ref is None and p.meta[create.CREATE_KEY]["state"] == "uncertain"

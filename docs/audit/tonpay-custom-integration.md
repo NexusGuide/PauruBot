@@ -125,7 +125,7 @@ procedure are still required. This is the main unresolved recovery requirement.
 
 ## Validation evidence and limits
 
-Local run: **132 passed, 2 deselected** (creation + mutation + runtime + API +
+Original SQLite checkpoint: **132 passed, 2 deselected** (creation + mutation + runtime + API +
 settings cases) on Python 3.13, SQLite and minimal ORM/import seams. The two real
 PostgreSQL concurrency cases are excluded only in the local harness; committed
 tests are not skipped or weakened. API cases execute the production router via
@@ -145,3 +145,56 @@ changed Python files. No workflow/check/branch protection was changed.
 A valid exact-head GitHub Actions run and review for the whole stack are still
 required. No merge, deploy, production enablement, bank transfer or real provider
 request was performed.
+
+
+## Follow-up checkpoint: PostgreSQL, financial rollback and committed risk changes
+
+The same PR now rechecks `card_trust=blocked` inside the domain principal guards,
+not only in the earlier API/runtime precheck. It refuses new creation claims,
+late reference binding, quote acknowledgement, or a GET response/card disclosure/
+confirmation when the blocked state was committed before that guard reload.
+Five regression cases failed against the preceding code and passed after this
+change (before-claim, before-bind, consent, in-flight unpaid GET and paid GET).
+This is **not** a claim that ban/risk changes are globally serializable with every
+external HTTP effect or financial mutation. No new medium/high/trusted policy is
+invented and no uncertain marker is cleared.
+
+Five further financial cases use the real `engine.mark_paid` and durable
+`queue.enqueue` in the committed tests: PAID plus one fulfilment job, repeated
+verification, concurrent verified refreshes, enqueue failure rollback, audit
+failure rollback, verified retry and reused-provider-transaction rejection.
+The concurrent case accepts exactly one paid result and three stale observations;
+the durable job is checked in another committed session. Failure injection proves
+that PAID, the provider observation and queued job roll back together before a
+verified retry. These tests do NOT run the fulfilment worker, ledger posting,
+provider banking settlement, or the migration chain locally.
+
+**Current local result: 144 passed, zero deselected/skipped, on PostgreSQL 16.14
+and Python 3.13.** The two previous PostgreSQL-only races now execute. Production
+custom modules/router/settings and the exact repository `mark_paid` function AST
+plus full queue module were executed against minimal ORM/import seams; unrelated
+engine imports, auth, settings provider responses and audit recording remain seams.
+This is materially stronger than SQLite evidence, not an exact full-app run.
+The same 144 cases also pass with **one shared PostgreSQL database and session
+loop** across the entire local custom suite (matching the shared fixture lifetime
+and loop behavior relevant to CI), rather than resetting tables for each case.
+Two pytest plugin assertion-rewrite warnings remain; no test failures or errors.
+
+The shared-fixture experiment exposed an independent test defect: ten invalid-
+configuration cases wrongly assumed that no earlier test had committed any
+Payment. In a controlled shared run they failed after one successful creation.
+Assertions now query the current test shop through session.info instead of
+unfiltered whole-table reads. No destructive cleanup, skip, assertion removal or
+workflow change was introduced. Runtime/financial modules explicitly import their
+fixture dependencies so standalone pytest collection can resolve them.
+This experiment is not claimed as the root cause of a specific GitHub run without
+its log. Ruff lint/format and targeted import-skipping mypy pass for the changed
+production modules; no frontend source changed in this follow-up.
+
+Public documentation search did not yield a verified Tonpays recovery contract;
+retrieving the known homepage returned 404 from the page loader. That is not a
+live API/availability test and does not prove that a merchant-only lookup API does
+not exist. Unknown-reference and uncertain-effect recovery remain unresolved until
+official documentation or provider-attributed evidence supplies a valid contract.
+There is still no guessed endpoint, arbitrary reference binder, automatic re-POST,
+manual credit override, production activation, merge or deploy.
