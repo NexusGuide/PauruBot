@@ -509,5 +509,10 @@
   "receipt_sent_text": "Once an admin approves it, the balance is added to your wallet.",
   "add_data": "Add data",
   "add_time": "Add time",
-  "buy_new_service": "Buy a new service"
+  "buy_new_service": "Buy a new service",
+  "service_rename": "Rename service",
+  "service_label": "Service display name",
+  "service_rename_save": "Save name",
+  "service_renamed": "Service name saved.",
+  "service_rename_hint": "1–48 characters. Only the display name changes; your username, connection link and plan stay the same."
 }
