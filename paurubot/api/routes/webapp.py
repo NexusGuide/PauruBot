@@ -10,7 +10,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select
 
-from paurubot.api.routes import webapp_auto_renew, webapp_receipts, webapp_staff
+from paurubot.api.routes import webapp_auto_renew, webapp_receipts, webapp_staff, webapp_transfers
 from paurubot.api.webapp_auth import WebApp, forced_gate, forget_join_cache
 from paurubot.core import (
     alert_policy,
@@ -56,6 +56,7 @@ from paurubot.worker import queue
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/webapp", tags=["webapp"])
 router.include_router(webapp_receipts.router)
+router.include_router(webapp_transfers.router)
 MAX_RECEIPT = 8 * 1024 * 1024
 
 

@@ -10,6 +10,7 @@ import { actionGate, topupIntents } from "../topup-intents";
 import { Button, CountUp, Item, Screen } from "../ui";
 import { rememberCard, rememberPayment } from "./Payment";
 
+import { WalletTransfer } from "./WalletTransfer";
 import { WalletHistory } from "./WalletHistory";
 
 const PRESETS = [50_000, 100_000, 200_000, 500_000];
@@ -179,6 +180,11 @@ export function Wallet() {
         </Button>
       </div>
 
+      <WalletTransfer key={me.id} owner={me.id} disabled={busy !== null}
+        acquire={() => { if (!gate.current.enter()) return false; setBusy("transfer"); return true; }}
+        release={() => { gate.current.leave(); setBusy(null); }}
+        onDone={() => { setHistoryVersion(value => value + 1); void reload().catch(() => toast(t("retry"), "error")); }}
+      />
       <p className="app-lbl mt-6">{t("transactions")}</p>
       <WalletHistory key={`${me.id}:${historyVersion}`} />
     </Screen>

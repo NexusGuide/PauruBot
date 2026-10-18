@@ -11,7 +11,7 @@ test('different customers amounts and methods do not share keys',()=>{const a=ne
 test('storage failure keeps an in-memory key',()=>{const s={getItem(){throw Error()},setItem(){throw Error()},removeItem(){throw Error()}};const a=new TopupIntents(s,uuid);const k=a.get(1,100,'card');assert.equal(a.get(1,100,'card'),k);a.clear(1,100,'card',k);assert.notEqual(a.get(1,100,'card'),k);});
 test('late clear cannot erase a newer intent',()=>{const a=new TopupIntents(store(),uuid);const old=a.get(1,100,'card');a.clear(1,100,'card',old);const fresh=a.get(1,100,'card');a.clear(1,100,'card',old);assert.equal(a.get(1,100,'card'),fresh);});
 test('invalid stored key is replaced',()=>{const s=store();s.setItem('pauru.topup.v1:1:100:card','bad');assert.notEqual(new TopupIntents(s,uuid).get(1,100,'card'),'bad');});
-test('Wallet wires both handlers through a synchronous gate and disables same method',()=>{const s=readFileSync(new URL('../src/app/screens/Wallet.tsx',import.meta.url),'utf8');assert.equal((s.match(/!gate.current.enter\(\)/g)||[]).length,2);assert.equal((s.match(/gate.current.leave\(\)/g)||[]).length,2);assert(s.includes('disabled={!valid || busy !== null}'));assert(s.includes('api.topup(chosen, method, intent)'));});
+test('Wallet wires both handlers through a synchronous gate and disables same method',()=>{const s=readFileSync(new URL('../src/app/screens/Wallet.tsx',import.meta.url),'utf8');assert.equal((s.match(/!gate.current.enter\(\)/g)||[]).length,3);assert.equal((s.match(/gate.current.leave\(\)/g)||[]).length,3);assert(s.includes('disabled={!valid || busy !== null}'));assert(s.includes('api.topup(chosen, method, intent)'));});
 
 // Execute the actual Wallet handlers with controlled hook/API seams, not just a copied gate.
 const {mkdtempSync,writeFileSync,rmSync}=await import('node:fs');
@@ -42,6 +42,7 @@ try {
  const Icon=()=>null,Button=()=>null,CountUp=()=>null,Screen=()=>null;
  // History read behavior is covered by wallet-history.test.mjs; this seam exercises payment handlers.
  export const WalletHistory=()=>null;
+ export const WalletTransfer=()=>null;
  export const Item=()=>null;
  `+source;
  writeFileSync(temp+'/Wallet.tsx',source);
@@ -54,10 +55,15 @@ try {
    const history=nodes.filter(n=>n.type===runtime.WalletHistory);
    assert.equal(history.length,1);assert.equal(history[0].key,'1:0');
    const redeem=nodes.find(n=>n.props.children==='redeem');assert.equal(methods.length,2);assert(redeem);
-   const first=methods[0].props.onClick();
+   const transfer=nodes.find(n=>n.type===runtime.WalletTransfer);assert(transfer);
+   const first=methods[0].props.onClick();assert.equal(transfer.props.acquire(),false);
    await methods[0].props.onClick();await methods[1].props.onClick();redeem.props.onClick();
    assert.equal(runtime.calls.length,1);assert.equal(runtime.calls[0][1],'card');assert.equal(runtime.calls[0][2],'controlled-intent-123');
    runtime.resolve();await first;
    const next=methods[1].props.onClick();assert.equal(runtime.calls.length,2);runtime.resolve();await next;
+   assert.equal(transfer.props.acquire(),true);
+   await methods[0].props.onClick();redeem.props.onClick();assert.equal(runtime.calls.length,2);
+   transfer.props.release();
+   const last=methods[0].props.onClick();assert.equal(runtime.calls.length,3);runtime.resolve();await last;
  });
 } finally {rmSync(temp,{recursive:true,force:true})}
