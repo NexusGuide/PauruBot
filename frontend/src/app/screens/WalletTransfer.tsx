@@ -53,7 +53,7 @@ export function WalletTransfer({ owner, disabled, acquire, release, onDone }: Pr
       if (alive.current) setMessage(describe(error));
     } finally { finish(); }
   };
-  const describe = (error: unknown) => {
+  const describe = (error: unknown): string => {
     const labels: Record<string, string> = {
       transfer_off: text("انتقال برای این فروشگاه غیرفعال است.", "Transfers are disabled for this shop."),
       transfer_no_recipient: text("گیرنده معتبر یا در دسترس نیست.", "Recipient is unavailable."),
@@ -63,7 +63,8 @@ export function WalletTransfer({ owner, disabled, acquire, release, onDone }: Pr
       insufficient_balance: text("موجودی کافی نیست.", "Insufficient balance."),
       transfer_quote_expired: text("تأیید منقضی شد؛ انتقالی با این تأیید ثبت نشده است.", "Consent expired; no transfer was posted for it."),
     };
-    return error instanceof ApiError && labels[error.code] ? labels[error.code] :
+    const label = error instanceof ApiError ? labels[error.code] : undefined;
+    return label ??
       text("نتیجه مشخص نیست یا درخواست انجام نشد. همان تأیید را دوباره بررسی کن؛ انتقال تازه نساز.", "Result unknown or request failed. Retry this same confirmation; do not start another transfer.");
   };
   const confirm = async () => {

@@ -58,3 +58,17 @@ test("disabled policy can still show and safely retry a previously attempted tok
  const store=storage();globalThis.sessionStorage=store;sessions.saveTransfer(1,{quote:q,attempted:true});const h=setup({store,policy:async()=>({enabled:false})});const tree=await ready(h);assert(button(tree,"Retry same confirmation"));assert.equal(button(tree,"Preview recipient and amount"),undefined);h.unmount();
 });
 test("cancel before confirmation has no financial call and clears saved quote",async()=>{const h=setup();const tree=await preview(h);button(tree,"Cancel").props.onClick();assert.equal(sessions.readTransfer(1),null);assert.equal(h.calls.confirm.length,0);h.unmount();});
+
+for (const phase of ["quote", "confirm"]) for (const code of ["transfer_off", "new_server_code"]) {
+ test(`${phase} errors always render a concrete string: ${code}`,async()=>{
+  const failure=async()=>{throw new ApiError(400,code)};
+  const h=setup(phase==="quote"?{quote:failure}:{confirm:failure});
+  if(phase==="quote") await preview(h);
+  else {const tree=await preview(h);await button(tree,"Confirm transfer").props.onClick();}
+  const messages=nodes(h.render(),n=>n.props.role==="status");
+  assert.equal(messages.length,1);assert.equal(typeof messages[0].props.children,"string");
+  assert(messages[0].props.children.length>0);
+  assert.equal(messages[0].props.children,code==="transfer_off"?"Transfers are disabled for this shop.":"Result unknown or request failed. Retry this same confirmation; do not start another transfer.");
+  h.unmount();
+ });
+}

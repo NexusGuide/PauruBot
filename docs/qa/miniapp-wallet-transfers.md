@@ -40,3 +40,16 @@ Local Node 24:
 ## Release checks still required
 
 Review #96/#105/#108 dependency stack, run exact-head CI and combined-candidate tests, stage signed-initData requests, test Telegram/mobile presentation, and exercise rollout/rollback. Keep the shop's existing transfer flag and limits under owner control. No merge, deployment, real customer transfer, provider call or financial policy decision was performed.
+
+## First Actions run and corrections
+
+Run `39122171709`, original head `384ffc05137ba8313a90ab78af9ff15a989565d7`:
+
+- The owner-supplied Python job log reports **1136 passed / 1 failed**, with all 38 new transfer tests passing. The only failure is `test_reference_docs_are_current`: `docs/reference/api.md` omitted the three new routes. This is an actual code/documentation integration failure, not a Billing/not-started failure.
+- The frontend screenshot shows `test:ux` passed, then `npm run lint` (`tsc --noEmit`) failed at the two `setMessage(describe(error))` calls. The repository enables `noUncheckedIndexedAccess`; the original scoped local compiler configuration omitted that flag, so its earlier success was insufficient.
+- `describe` now has an explicit `string` return contract and reads the optional dictionary label once, falling back with `??`. Repository compiler flags are unchanged. The failing compiler flag reproduced the original two errors locally before the fix; the scoped strict check passes after the fix with that flag, `isolatedModules` and `noFallthroughCasesInSwitch` enabled.
+- Four runtime cases cover known/unknown API errors during quote and confirmation. Updated UX command on **Node 22.23.3: 132 passed, zero fail/skip**, including 24 transfer cases. These are not additional unique backend tests.
+- Added precisely three API rows rendered from the actual new APIRoutes by the unchanged docgen access/summary/table functions, preserving every existing reference row. The full application `python -m paurubot.ops.docgen --check` still requires exact-head CI; the local check is an incremental reference validation, not a claim of booting the entire app.
+- A second isolated PostgreSQL run with the **entire unchanged ORM model package** (rather than the earlier six-class slice) also passes all 38 transfer tests. Customer/config/auth seams remain; this is not a local full migration/application test.
+
+The original failure remains in history. New-head Actions must pass before declaring the PR CI-green; no test, workflow, compiler flag or branch protection was disabled.
