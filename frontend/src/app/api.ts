@@ -2,6 +2,11 @@ import { request } from "@shared/http";
 import type { Body as AutoRenewBody } from "./autoRenew/model";
 import { initData } from "./telegram";
 
+export interface ServiceAlertPolicy {
+  warn_remaining_percent: number;
+  warn_days: number;
+}
+
 export interface Me {
   id: number;
   telegram_id: number;
@@ -21,6 +26,8 @@ export interface Me {
   staff: StaffAccess | null;
   preferences: MarketingPreference;
   alerts_muted: boolean;
+  /** Absent on older backends; never replace it with hard-coded UI thresholds. */
+  alert_policy?: ServiceAlertPolicy | null;
   profile: { phone_masked: string | null; member_since: string };
 }
 

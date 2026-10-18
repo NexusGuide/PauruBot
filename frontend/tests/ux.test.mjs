@@ -39,3 +39,4 @@ try {
 } finally {rmSync(temp,{recursive:true,force:true})}
 
 import "./wallet-history.test.mjs";
+import "./alert-policy.test.mjs";

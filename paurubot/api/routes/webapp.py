@@ -13,6 +13,7 @@ from sqlalchemy import select
 from paurubot.api.routes import webapp_auto_renew, webapp_receipts, webapp_staff
 from paurubot.api.webapp_auth import WebApp, forced_gate, forget_join_cache
 from paurubot.core import (
+    alert_policy,
     catalog,
     customer_help,
     customer_preferences,
@@ -204,6 +205,7 @@ async def me(ctx: WebApp) -> dict[str, Any]:
         "preferences": marketing.view(customer),
         "profile": customer_preferences.profile_view(customer),
         "alerts_muted": customer.alerts_muted,
+        "alert_policy": alert_policy.service_alert_policy(cfg),
     }
 
 
