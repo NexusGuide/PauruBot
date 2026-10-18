@@ -61,7 +61,13 @@ class _Invoice(PaymentProvider):
         )
 
     async def _cents(self, payment: Payment, cfg: dict[str, Any]) -> int:
-        if payment.provider_currency == "USD" and payment.provider_amount is not None:
+        attempt = (payment.meta or {}).get("hosted_attempt_v1")
+        if (
+            isinstance(attempt, dict)
+            and attempt.get("state") == "uncertain"
+            and payment.provider_currency == "USD"
+            and payment.provider_amount is not None
+        ):
             return payment.provider_amount
         return await invoice_cents(payment, cfg)
 

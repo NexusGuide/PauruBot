@@ -249,3 +249,11 @@ async def test_creation_consumes_the_frozen_conversion(hosted, monkeypatch, name
         customer = await caller.get(Customer, cid)
         await engine.start(caller, customer, name, 100_000, idempotency_key=KEY)
     conversion.assert_not_awaited()
+
+
+async def test_legacy_invoice_creation_does_not_reuse_unmarked_amount(monkeypatch):  # type: ignore[no-untyped-def]
+    quote = AsyncMock(return_value=345)
+    monkeypatch.setattr("paurubot.payments.providers.invoices.invoice_cents", quote)
+    payment = Payment(amount=100_000, provider_amount=123, provider_currency="USD", meta={})
+    assert await engine.provider("nowpayments")._cents(payment, {}) == 345
+    quote.assert_awaited_once_with(payment, {})
