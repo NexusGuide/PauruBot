@@ -103,3 +103,13 @@ Python run; do not substitute local success for GitHub success.
    provider sandbox + staging/Telegram-device race/outage tests.
 
 No migration, workflow weakening, merge, provider activation or deploy is included.
+
+
+## Official original-receipt boundary
+
+The custom Telegram tab at https://doc.tonpays.online/?mode=custom&sub=telegram
+restricts the original receipt endpoint to `pending`. Fresh receipt claims now
+reject legacy `need_action` and amount-mismatch states before committing an intent
+or sending provider HTTP. Exact completed-key replay is unchanged. Remainder
+receipts and refund-card operations remain separate, unimplemented contracts;
+no automatic refund/credit or uncertainty clearing is introduced.
