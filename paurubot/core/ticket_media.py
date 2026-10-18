@@ -84,7 +84,7 @@ async def quota(session: AsyncSession, ticket: Ticket, size: int) -> None:
     )
     if (
         count >= MAX_FILES
-        or int(total) + size > MAX_TICKET_BYTES
+        or int(total or 0) + size > MAX_TICKET_BYTES
         or int(owned_total or 0) + size > MAX_CUSTOMER_BYTES
     ):
         raise HTTPException(status_code=409, detail="ticket_file_quota")

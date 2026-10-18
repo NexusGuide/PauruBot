@@ -690,3 +690,29 @@ async def test_legacy_ticket_attachment_auth_precedes_provider_io(session, app_e
     response = await client.get(path, headers=h(81931))
     assert response.status_code == 503 and "PRIVATE_TELEGRAM_ID" not in response.text
     assert calls == [app_env["shop"].id]
+
+
+async def test_ticket_media_byte_quotas_across_tickets(app_env, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.core import ticket_media
+
+    client = app_env["client"]
+    paths = []
+    for subject in ("First", "Second"):
+        response = await client.post(
+            "/api/webapp/tickets", headers=h(81941), json={"subject": subject, "text": "Hi"}
+        )
+        assert response.status_code == 200, response.text
+        paths.append(f"/api/webapp/tickets/{response.json()['ticket']['id']}/attachments")
+    headers = {**h(81941), "content-type": "text/plain", "x-ticket-request-key": "quota-byte-test-0001"}
+    monkeypatch.setattr(ticket_media, "MAX_TICKET_BYTES", 3)
+    monkeypatch.setattr(ticket_media, "MAX_CUSTOMER_BYTES", 4)
+    # Empty aggregate is zero, and an exact boundary is allowed.
+    assert (await client.post(paths[0], content=b"log", headers=headers)).status_code == 200
+    response = await client.post(
+        paths[0], content=b"x", headers={**headers, "x-ticket-request-key": "quota-byte-test-0002"}
+    )
+    assert response.status_code == 409 and response.json()["error"] == "ticket_file_quota"
+    # The second ticket has space, but the customer's aggregate cannot exceed four bytes.
+    response = await client.post(paths[1], content=b"xx", headers=headers)
+    assert response.status_code == 409 and response.json()["error"] == "ticket_file_quota"
+    assert (await client.post(paths[1], content=b"x", headers=headers)).status_code == 200
