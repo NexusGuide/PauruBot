@@ -428,7 +428,12 @@ async def _owned_service(ctx: WebApp, service_id: int | None) -> Service | None:
     if not service_id:
         return None
     service = await ctx.session.get(Service, service_id)
-    if service is None or service.customer_id != ctx.customer.id or service.shop_id != ctx.shop.id or service.status == ServiceStatus.DELETED:
+    if (
+        service is None
+        or service.customer_id != ctx.customer.id
+        or service.shop_id != ctx.shop.id
+        or service.status == ServiceStatus.DELETED
+    ):
         raise HTTPException(status_code=404, detail="service_not_found")
     return service
 
@@ -440,8 +445,11 @@ async def create_order(body: OrderBody, ctx: WebApp) -> dict[str, Any]:
             order = await _create_order(body, ctx)
         else:
             order = await order_intents.create_once(
-                ctx.session, ctx.customer, body.intent_key,
-                body.model_dump(exclude={"intent_key"}), lambda: _create_order(body, ctx),
+                ctx.session,
+                ctx.customer,
+                body.intent_key,
+                body.model_dump(exclude={"intent_key"}),
+                lambda: _create_order(body, ctx),
             )
     except orders.OrderError as exc:
         status = 409 if exc.key in {"order_intent_conflict", "order_intent_closed"} else 400
