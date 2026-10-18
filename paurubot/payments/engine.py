@@ -117,6 +117,35 @@ async def _start(
     storage_key: str | None = None,
 ) -> Started:
     """Create a payment and ask the provider how the customer should pay it."""
+    payment, cfg = await _prepare(
+        session, customer, provider_name, amount, order=order, storage_key=storage_key
+    )
+    checkout = await provider(provider_name).create(payment, cfg)
+    payment.provider_ref = checkout.provider_ref
+    payment.provider_amount = checkout.provider_amount
+    payment.provider_currency = checkout.provider_currency
+    payment.status = PaymentStatus.PENDING
+    if (
+        order is not None
+        and order.expires_at
+        and payment.expires_at
+        and order.expires_at < payment.expires_at
+    ):
+        order.expires_at = payment.expires_at
+    await session.flush()
+    return Started(payment, checkout)
+
+
+async def _prepare(
+    session: AsyncSession,
+    customer: Customer,
+    provider_name: str,
+    amount: int,
+    *,
+    order: Order | None = None,
+    storage_key: str | None = None,
+) -> tuple[Payment, dict[str, Any]]:
+    """Validate and flush a payment without making a provider creation request."""
     cfg = await shop_settings.load(session, customer.shop_id)
     prov = provider(provider_name)
     if not await prov.enabled(cfg):
@@ -149,20 +178,7 @@ async def _start(
     )
     session.add(payment)
     await session.flush()
-    checkout = await prov.create(payment, cfg)
-    payment.provider_ref = checkout.provider_ref
-    payment.provider_amount = checkout.provider_amount
-    payment.provider_currency = checkout.provider_currency
-    payment.status = PaymentStatus.PENDING
-    if (
-        order is not None
-        and order.expires_at
-        and payment.expires_at
-        and order.expires_at < payment.expires_at
-    ):
-        order.expires_at = payment.expires_at  # keep the order alive while the payment is open
-    await session.flush()
-    return Started(payment, checkout)
+    return payment, cfg
 
 
 async def attach_receipt(
