@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../state";
 import { initData } from "../telegram";
-import { validFile } from "./model";
+import { fileMime, validFile } from "./model";
 
 export function TicketUpload({ id, disabled, onSaved, onBusy }: { id: number; disabled: boolean; onSaved: () => void; onBusy: (busy: boolean) => void }) {
   const { t } = useApp();
@@ -18,18 +18,20 @@ export function TicketUpload({ id, disabled, onSaved, onBusy }: { id: number; di
     current.timeout = 60000;
     current.setRequestHeader("X-Telegram-Init-Data", initData());
     current.setRequestHeader("X-Ticket-Request-Key", draft.key);
-    current.setRequestHeader("Content-Type", draft.file.type);
+    current.setRequestHeader("Content-Type", fileMime(draft.file));
     current.upload.onprogress = e => { if (e.lengthComputable) setProgress(Math.round(e.loaded / e.total * 100)); };
-    const finish = (ok: boolean) => {
+    const finish = (ok: boolean, reason = "tickets_file_uncertain") => {
       if (!live.current || xhr.current !== current) return;
       xhr.current = null; setProgress(null); onBusy(false);
       if (ok) { setDraft(null); onSaved(); }
-      else setError(t("tickets_file_uncertain"));
+      else setError(t(reason));
     };
     current.onload = () => {
       let confirmed = false;
-      try { const body = JSON.parse(current.responseText); confirmed = current.status === 200 && body.ticket?.id === id && Number.isSafeInteger(body.message_id); } catch { /* unknown response: keep replay key */ }
-      finish(confirmed);
+      let reason = "tickets_file_uncertain";
+      try { const body = JSON.parse(current.responseText); confirmed = current.status === 200 && body.ticket?.id === id && Number.isSafeInteger(body.message_id);
+        if (current.status >= 400 && current.status < 500) reason = body.error === "ticket_file_quota" ? "tickets_file_quota" : body.error === "ticket_request_conflict" ? "tickets_file_conflict" : "tickets_file_rejected"; } catch { /* unknown response: keep replay key */ }
+      finish(confirmed, reason);
     };
     current.onerror = current.ontimeout = current.onabort = () => finish(false);
     current.send(draft.file);

@@ -68,3 +68,10 @@ test('expired attachment projection is strict', () => {
   assert.equal(m.parseMessage({...message(),attachment_expired:true}).attachment_expired,true);
   assert.throws(()=>m.parseMessage({...message(),attachment_expired:'true'}));
 });
+
+test('empty browser MIME only falls back for bounded plain-text extensions', () => {
+  assert.equal(media.fileMime({type:'',name:'support.log'}),'text/plain');
+  assert(media.validFile({type:'',name:'support.TXT',size:16}));
+  assert.equal(media.validFile({type:'',name:'image.png',size:16}),false);
+  assert.equal(media.validFile({type:'application/octet-stream',name:'support.txt',size:16}),false);
+});
