@@ -18,6 +18,7 @@ from paurubot.db.session import get_sessionmaker
 from paurubot.payments import engine
 from paurubot.payments.base import PaymentError
 from paurubot.payments.intents import META_KEY, replay
+from paurubot.payments.providers.invoices import invoice_cents
 
 ATTEMPT_KEY = "hosted_attempt_v1"
 
@@ -54,6 +55,9 @@ async def start_hosted(
             # Uncommitted/new principals must be committed by their owning workflow first.
             raise PaymentError("payment_intent_conflict")
         payment, cfg = await engine._prepare(session, owner, provider_name, amount, storage_key=storage_key)
+        # Freeze outgoing USD units before the durable pre-call commit, not after I/O.
+        payment.provider_amount = await invoice_cents(payment, cfg)
+        payment.provider_currency = "USD"
         payment.meta = {
             META_KEY: {"request": fingerprint},
             ATTEMPT_KEY: {"state": "uncertain", "started_at": utcnow().isoformat()},

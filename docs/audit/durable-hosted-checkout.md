@@ -16,7 +16,8 @@ S09 solution. Staging and operator recovery acceptance are release gates.
 The owning principal must already be committed. A separate session reloads the owner,
 validates the method/amount and creates a Payment under the existing scoped unique
 key and PostgreSQL advisory transaction lock. Its fingerprint and an `uncertain`
-attempt marker are committed BEFORE provider creation. The request session is never
+attempt marker and outgoing USD amount/currency are committed BEFORE provider creation.
+Creation consumes the frozen conversion instead of requoting after the commit. The request session is never
 committed or rolled back by this service, and its unrelated writes remain its own.
 
 Only the request which inserted the attempt may call invoice creation. Other requests

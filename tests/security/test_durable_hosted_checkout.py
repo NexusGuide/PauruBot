@@ -36,6 +36,7 @@ async def hosted(intent_engine, monkeypatch):  # type: ignore[no-untyped-def]
         customer = await factories.customer(session, shop)
         cid = customer.id
         await session.commit()
+    monkeypatch.setattr("paurubot.payments.durable_checkout.invoice_cents", AsyncMock(return_value=200))
     for name in ("nowpayments", "plisio"):
         monkeypatch.setattr(engine.provider(name), "enabled", AsyncMock(return_value=True))
     yield maker, cid
@@ -61,6 +62,8 @@ async def test_attempt_visible_before_remote_call_and_survives_caller_rollback(h
             durable = await observer.get(Payment, payment.id)
             assert durable is not None
             assert durable.status == PaymentStatus.CREATED
+            assert durable.provider_amount == 200
+            assert durable.provider_currency == "USD"
             assert durable.meta[ATTEMPT_KEY]["state"] == "uncertain"
         return checkout()
 
@@ -228,3 +231,21 @@ async def test_commit_failure_before_or_after_external_acceptance(hosted, monkey
             with pytest.raises(PaymentError, match="gateway_error"):
                 await engine.start(caller, customer, "plisio", 100_000, idempotency_key=KEY)
         remote.assert_awaited_once()
+
+
+@pytest.mark.parametrize("name", ["nowpayments", "plisio"])
+async def test_creation_consumes_the_frozen_conversion(hosted, monkeypatch, name):  # type: ignore[no-untyped-def]
+    maker, cid = hosted
+    conversion = AsyncMock(side_effect=AssertionError("must not requote after durable commit"))
+    monkeypatch.setattr("paurubot.payments.providers.invoices.invoice_cents", conversion)
+    provider = engine.provider(name)
+
+    async def create(payment, cfg):  # type: ignore[no-untyped-def]
+        assert await provider._cents(payment, cfg) == 200
+        return checkout()
+
+    monkeypatch.setattr(provider, "create", AsyncMock(side_effect=create))
+    async with maker() as caller:
+        customer = await caller.get(Customer, cid)
+        await engine.start(caller, customer, name, 100_000, idempotency_key=KEY)
+    conversion.assert_not_awaited()
