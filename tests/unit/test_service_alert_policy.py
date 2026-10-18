@@ -9,9 +9,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from paurubot.db.models import ServiceStatus
 
 from paurubot.core import alert_policy, settings
+from paurubot.db.models import ServiceStatus
 from paurubot.provisioning import sync
 
 CASES = json.loads((Path(__file__).parents[1] / "fixtures" / "alert_policy_cases.json").read_text())
