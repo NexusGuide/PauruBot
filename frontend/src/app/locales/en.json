@@ -505,5 +505,15 @@
   "err_payment_intent_invalid": "Invalid payment request identifier.",
   "err_order_intent_conflict": "This draft changed. Return to the plan to start a deliberate new order.",
   "err_order_intent_closed": "This draft is closed or expired. Return to the plan to start a new order.",
-  "err_order_intent_invalid": "Invalid order request identifier."
+  "err_order_intent_invalid": "Invalid order request identifier.",
+  "pending_payments": "Pending payments",
+  "pending_hint": "Continue only the saved checkout. Uncertain attempts need support; no new invoice is created here.",
+  "pending_refresh": "Refresh pending payments",
+  "pending_empty": "No pending payments on this page.",
+  "pending_resume": "Continue saved payment",
+  "pending_status": "View status (no saved checkout to reopen)",
+  "pending_review": "Unconfirmed provider attempt — contact support before paying again",
+  "pending_older": "Older payments",
+  "pending_latest": "Latest payments",
+  "err_payment_resume_unavailable": "This payment cannot be resumed. Refresh its status or contact support; no new payment was created."
 }

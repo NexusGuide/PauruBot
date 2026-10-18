@@ -18,7 +18,7 @@ from paurubot.worker import queue
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select
 
-from paurubot.api.routes import webapp_auto_renew, webapp_receipts, webapp_staff
+from paurubot.api.routes import webapp_auto_renew, webapp_payment_inbox, webapp_receipts, webapp_staff
 from paurubot.core import (
     catalog,
     customer_help,
@@ -56,6 +56,7 @@ from paurubot.payments.base import PaymentError
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/webapp", tags=["webapp"])
 router.include_router(webapp_receipts.router)
+router.include_router(webapp_payment_inbox.router)
 MAX_RECEIPT = 8 * 1024 * 1024
 
 

@@ -87,7 +87,7 @@ jobs:
       - run: npm run test:usage
       - run: npm run test:ux
       - name: Order draft contracts
-        run: node --experimental-strip-types --test tests/order-draft.test.mjs
+        run: node --experimental-strip-types --test tests/order-draft.test.mjs tests/payment-resume.test.mjs
       - run: npm run lint
       - run: npm run build
       - run: npm run test:reseller-hub
