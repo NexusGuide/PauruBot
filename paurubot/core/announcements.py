@@ -16,7 +16,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, true
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -176,7 +176,7 @@ def _visible(customer: Customer, now: datetime) -> Any:
         Announcement.revoked_at.is_(None),
         Announcement.starts_at <= now,
         or_(Announcement.expires_at.is_(None), Announcement.expires_at > now),
-        Announcement.kind != "marketing" if customer.marketing_opt_out else True,
+        Announcement.kind != "marketing" if customer.marketing_opt_out else true(),
     )
 
 
