@@ -373,3 +373,26 @@ async def test_cancel_during_image_validation_never_uploads(monkeypatch):  # typ
     finally:
         release.set()
     assert not calls
+
+
+@pytest.mark.parametrize("operation", ["create", "check", "change_card", "submit_receipt"])
+@pytest.mark.parametrize("length", [20, 21])
+async def test_documented_order_id_boundary(operation, length):  # type: ignore[no-untyped-def]
+    order = "o" * length
+    api, calls = client(invoice(order_id=order, receipt_received=True))
+
+    async def invoke():  # type: ignore[no-untyped-def]
+        if operation == "create":
+            return await api.create(order, 100_000, 123, CALLBACK)
+        if operation == "submit_receipt":
+            return await api.submit_receipt("invoice_42", order, 100_000, pixels())
+        return await getattr(api, operation)("invoice_42", order, 100_000)
+
+    if length == 20:
+        assert (await invoke()).order_id == order
+        assert len(calls) == 1
+    else:
+        with pytest.raises(CustomAPIError) as exc:
+            await invoke()
+        assert exc.value.code == "invalid_identity"
+        assert not calls
