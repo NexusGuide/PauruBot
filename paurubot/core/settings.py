@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -139,6 +140,15 @@ SPECS: dict[str, Spec] = {
     "cubepay_fee_percent": Spec(int, 0, "gateways"),
     "tonpay_enabled": Spec(bool, False, "gateways"),
     "tonpay_api_key": Spec(str, "", "gateways", secret=True),
+    # Custom checkout is a distinct credential and explicit owner-approved policy.
+    "tonpay_custom_enabled": Spec(bool, False, "gateways"),
+    "tonpay_custom_api_key": Spec(str, "", "gateways", secret=True),
+    "tonpay_custom_credential_epoch": Spec(str, "", "gateways"),
+    "tonpay_custom_policy_approved": Spec(bool, False, "gateways"),
+    "tonpay_custom_confirm_enabled": Spec(bool, False, "gateways"),
+    "tonpay_custom_receipt_wait": Spec(int, 0, "gateways"),
+    "tonpay_custom_card_cooldown": Spec(int, 0, "gateways"),
+    "tonpay_custom_review_window": Spec(int, 0, "gateways"),
     "atlaspay_enabled": Spec(bool, False, "gateways"),
     "atlaspay_api_key": Spec(str, "", "gateways", secret=True),
     # crypto (PAY-11, PAY-13)
@@ -303,6 +313,34 @@ def coerce(key: str, value: Any) -> Any:
 
 async def set_many(session: AsyncSession, shop_id: int, values: dict[str, Any]) -> dict[str, Any]:
     clean = {key: coerce(key, value) for key, value in values.items()}
+    if any(key.startswith("tonpay_custom_") for key in clean):
+        from paurubot.payments.base import PaymentError
+        from paurubot.payments.tonpay_custom_runtime import configuration
+
+        for key in (
+            "tonpay_custom_receipt_wait",
+            "tonpay_custom_card_cooldown",
+            "tonpay_custom_review_window",
+        ):
+            if key in values:
+                raw = values[key]
+                if isinstance(raw, bool) or not (
+                    isinstance(raw, int) or isinstance(raw, str) and raw.isascii() and raw.isdigit()
+                ):
+                    raise SettingError("tonpay_custom_policy_invalid")
+        current = await load(session, shop_id, fresh=True)
+        if "tonpay_custom_api_key" in clean and clean["tonpay_custom_api_key"] != current.get(
+            "tonpay_custom_api_key"
+        ):
+            clean["tonpay_custom_credential_epoch"] = uuid.uuid4().hex
+        merged = {**current, **clean}
+        if merged.get("tonpay_custom_enabled"):
+            if merged.get("tonpay_custom_confirm_enabled") is not True:
+                raise SettingError("tonpay_custom_confirmation_required")
+            try:
+                configuration(shop_id, merged, int(merged["min_topup"]), int(merged["max_topup"]))
+            except (PaymentError, TypeError, ValueError):
+                raise SettingError("tonpay_custom_configuration_invalid") from None
     for key, value in clean.items():
         stored = value
         if SPECS[key].secret and value:

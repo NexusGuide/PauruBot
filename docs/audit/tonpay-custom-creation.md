@@ -1,4 +1,11 @@
-# Unwired durable custom Tonpay invoice creation
+# Durable custom Tonpay invoice creation — original design record
+
+> This records the original unwired creator commit `8c0ef8b4`. Its statements
+> about missing adapters describe that commit only. The same PR #116 now adds
+> gated API/UI/settings/confirmation and GET-only diagnostics. See
+> [current integration scope and remaining recovery gates](tonpay-custom-integration.md).
+> The creator invariants below remain applicable; production is still disabled.
+
 
 ## Scope and dependency
 

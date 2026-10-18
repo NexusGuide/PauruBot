@@ -43,8 +43,10 @@ export function Wallet() {
     try {
       intent = topupIntents().get(me.id, chosen, method);
       const { payment } = await api.topup(chosen, method, intent);
-      topupIntents().clear(me.id, chosen, method, intent);
-      if (payment.accounts) {
+      if (!payment.uncertain) topupIntents().clear(me.id, chosen, method, intent);
+      if (payment.provider === "tonpay_custom") {
+        navigate(`/payment/${payment.payment_id}`);
+      } else if (payment.accounts) {
         rememberCard(payment.payment_id, payment.accounts, payment.amount);
         navigate(`/payment/${payment.payment_id}`);
       } else if (payment.crypto) {
@@ -149,18 +151,18 @@ export function Wallet() {
 
       <p className="app-lbl">{t("topup_method")}</p>
       <div className="app-card">
-        {me.payment_methods.map((method) => (
+        {[...me.payment_methods, ...(me.tonpay_custom_available ? ["tonpay_custom"] : [])].map((method) => (
           <Item
             key={method}
             icon={<Icon name={method === "card" ? "card" : "coin"} />}
             tone={method === "card" ? undefined : "green"}
-            title={t(`method_${method}`)}
+            title={method === "tonpay_custom" ? (locale === "fa" ? "کارت به کارت تون‌پی" : "Tonpay card transfer") : t(`method_${method}`)}
             sub={method === "card" ? t("method_card_sub") : undefined}
             onClick={() => topup(method)}
             disabled={!valid || busy !== null}
           />
         ))}
-        {me.payment_methods.length === 0 && <div className="app-empty">{t("no_methods")}</div>}
+        {me.payment_methods.length === 0 && !me.tonpay_custom_available && <div className="app-empty">{t("no_methods")}</div>}
       </div>
 
       <p className="app-lbl">{t("gift_code")}</p>

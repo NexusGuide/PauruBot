@@ -237,6 +237,8 @@ async def write_settings(
     unknown = [k for k in body.values if k not in shop_settings.SPECS]
     if unknown:
         raise HTTPException(status_code=422, detail=f"unknown_settings:{','.join(sorted(unknown))}")
+    if any(key.startswith("tonpay_custom_") for key in body.values) and not ctx.can("panels.secrets"):
+        raise HTTPException(status_code=403, detail="secrets_need_owner")
     secret_keys = [k for k in body.values if shop_settings.SPECS[k].secret]
     if secret_keys and not ctx.can("panels.secrets"):
         # Payment merchant keys follow the same owner-only rule as panel credentials (AUTHZ rule 4).

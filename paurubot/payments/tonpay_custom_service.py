@@ -148,6 +148,7 @@ def _state(payment: Payment) -> dict[str, Any]:
 
 
 def _save(payment: Payment, state: dict[str, Any]) -> None:
+    state["version"] = _integer(state.get("version", 0), minimum=0) + 1
     payment.meta = {**(payment.meta or {}), STATE_KEY: state}
 
 
@@ -297,6 +298,9 @@ async def _finish(
         state["paid"] = state["paid"] or invoice.paid
         state["change_card_exhausted"] = state["change_card_exhausted"] or invoice.change_card_exhausted
         if operation == "change_card":
+            state["card_fingerprint"] = hashlib.sha256(
+                (invoice.card_number + "\0" + invoice.card_name).encode()
+            ).hexdigest()
             state["last_change_at"] = _now()
         else:
             state["receipt_received"] = True
