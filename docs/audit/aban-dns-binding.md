@@ -24,8 +24,9 @@ No live rebinding exploit, real bank API call or metadata request was performed.
   transport for its configured URL. No shop URL/key is stored on shared providers.
 - Validate URL syntax/static ranges and reject credentials, query or fragment API
   prefixes before sending the bearer key. Retain valid nested API prefixes and the
-  existing HTTPS requirement. Errors expose `gateway_error`, not addresses, keys or
-  backend exception text in customer responses/logs.
+  existing HTTPS requirement. Customer failures retain `gateway_error`; the gateway
+  failure logger records the exception class rather than the destination, API key
+  or backend exception text. Normal HTTPX request logging/redaction policy is unchanged.
 - Resolve/validate the complete DNS answer in the transport and dial only those
   numeric addresses. Keep original Host/port, SNI and certificate hostname checks.
 - Enforce public gateway addresses even when global private-panel approval is on.
