@@ -4,6 +4,7 @@ import { ApiError } from "@shared/http";
 import { dateTime, money } from "@shared/format";
 import { api, type HistoryItem } from "../api";
 import { Icon } from "../icons";
+import { PendingPayments } from "../payments/PendingPayments";
 import { errorText, useApp } from "../state";
 import { haptic, openExternal, openInvoice } from "../telegram";
 import { actionGate, topupIntents } from "../topup-intents";
@@ -179,6 +180,7 @@ export function Wallet() {
         </Button>
       </div>
 
+      <div className="mt-6"><PendingPayments /></div>
       <p className="app-lbl mt-6">{t("transactions")}</p>
       <div className="app-card">
         {history === null ? null : history.length === 0 ? (

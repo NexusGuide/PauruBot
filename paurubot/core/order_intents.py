@@ -3,6 +3,7 @@
 Only keyed callers opt in. This does not create invoices or promise provider
 exactly-once behavior. The customer index bounds the JSON metadata lookup.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -23,7 +24,9 @@ KEY = re.compile(r"[A-Za-z0-9._:-]{8,128}\Z")
 
 
 def request_digest(payload: dict[str, Any]) -> str:
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    ).hexdigest()
 
 
 async def create_once(
@@ -38,15 +41,15 @@ async def create_once(
     scoped = hashlib.sha256(f"order:v1:{customer.shop_id}:{customer.id}:{key}".encode()).hexdigest()
     fingerprint = request_digest(payload)
     # Held through the request's commit/rollback; another connection must wait.
-    await session.execute(
-        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": scoped}
-    )
+    await session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": scoped})
     order = await session.scalar(
-        select(Order).where(
+        select(Order)
+        .where(
             Order.shop_id == customer.shop_id,
             Order.customer_id == customer.id,
             Order.params[META_KEY]["key"].as_string() == scoped,
-        ).execution_options(populate_existing=True)
+        )
+        .execution_options(populate_existing=True)
     )
     if order is not None:
         if (order.params or {}).get(META_KEY, {}).get("request") != fingerprint:

@@ -39,7 +39,7 @@ try {
  topup:(...args:any[])=>{calls.push(args);return new Promise(r=>{finish=()=>r({payment:{}})})}};
  const haptic=()=>{},openExternal=()=>{},openInvoice=async()=> 'paid';
  const errorText=()=>'',dateTime=()=>'',money=()=>'',rememberCard=()=>{},rememberPayment=()=>{};
- const Icon=()=>null,Button=()=>null,CountUp=()=>null,Screen=()=>null;
+ const Icon=()=>null,Button=()=>null,CountUp=()=>null,Screen=()=>null,PendingPayments=()=>null;
  export const Item=()=>null;
  `+source;
  writeFileSync(temp+'/Wallet.tsx',source);

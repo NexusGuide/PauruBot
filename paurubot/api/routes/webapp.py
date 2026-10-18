@@ -18,7 +18,7 @@ from paurubot.worker import queue
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select
 
-from paurubot.api.routes import webapp_auto_renew, webapp_receipts, webapp_staff
+from paurubot.api.routes import webapp_auto_renew, webapp_payment_inbox, webapp_receipts, webapp_staff
 from paurubot.core import (
     catalog,
     customer_help,
@@ -56,6 +56,7 @@ from paurubot.payments.base import PaymentError
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/webapp", tags=["webapp"])
 router.include_router(webapp_receipts.router)
+router.include_router(webapp_payment_inbox.router)
 MAX_RECEIPT = 8 * 1024 * 1024
 
 
@@ -428,7 +429,12 @@ async def _owned_service(ctx: WebApp, service_id: int | None) -> Service | None:
     if not service_id:
         return None
     service = await ctx.session.get(Service, service_id)
-    if service is None or service.customer_id != ctx.customer.id or service.shop_id != ctx.shop.id or service.status == ServiceStatus.DELETED:
+    if (
+        service is None
+        or service.customer_id != ctx.customer.id
+        or service.shop_id != ctx.shop.id
+        or service.status == ServiceStatus.DELETED
+    ):
         raise HTTPException(status_code=404, detail="service_not_found")
     return service
 
@@ -440,8 +446,11 @@ async def create_order(body: OrderBody, ctx: WebApp) -> dict[str, Any]:
             order = await _create_order(body, ctx)
         else:
             order = await order_intents.create_once(
-                ctx.session, ctx.customer, body.intent_key,
-                body.model_dump(exclude={"intent_key"}), lambda: _create_order(body, ctx),
+                ctx.session,
+                ctx.customer,
+                body.intent_key,
+                body.model_dump(exclude={"intent_key"}),
+                lambda: _create_order(body, ctx),
             )
     except orders.OrderError as exc:
         status = 409 if exc.key in {"order_intent_conflict", "order_intent_closed"} else 400
