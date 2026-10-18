@@ -7,17 +7,25 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from paurubot.api.webapp_auth import WebApp, forced_gate, forget_join_cache
+from paurubot.ledger import wallet
+from paurubot.ledger.accounts import wallet_balance
+from paurubot.panels import PanelError
+from paurubot.payments.chains import NETWORKS
+from paurubot.provisioning import lifecycle
+from paurubot.provisioning.subscription import customer_link
+from paurubot.worker import queue
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select
 
 from paurubot.api.routes import webapp_auto_renew, webapp_receipts, webapp_staff
-from paurubot.api.webapp_auth import WebApp, forced_gate, forget_join_cache
 from paurubot.core import (
     catalog,
     customer_help,
     customer_preferences,
     customers,
     marketing,
+    order_intents,
     orders,
     panel_accounts,
     pricing,
@@ -42,15 +50,8 @@ from paurubot.db.models import (
     Ticket,
     TicketMessage,
 )
-from paurubot.ledger import wallet
-from paurubot.ledger.accounts import wallet_balance
-from paurubot.panels import PanelError
 from paurubot.payments import engine as payments
 from paurubot.payments.base import PaymentError
-from paurubot.payments.chains import NETWORKS
-from paurubot.provisioning import lifecycle
-from paurubot.provisioning.subscription import customer_link
-from paurubot.worker import queue
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/webapp", tags=["webapp"])
@@ -397,6 +398,7 @@ async def account_refresh(account_id: int, ctx: WebApp) -> dict[str, Any]:
 
 
 class OrderBody(BaseModel):
+    intent_key: str | None = Field(default=None, min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
     kind: Literal[
         "purchase",
         "renew",
@@ -426,19 +428,33 @@ async def _owned_service(ctx: WebApp, service_id: int | None) -> Service | None:
     if not service_id:
         return None
     service = await ctx.session.get(Service, service_id)
-    if service is None or service.customer_id != ctx.customer.id or service.status == ServiceStatus.DELETED:
+    if service is None or service.customer_id != ctx.customer.id or service.shop_id != ctx.shop.id or service.status == ServiceStatus.DELETED:
         raise HTTPException(status_code=404, detail="service_not_found")
     return service
 
 
 @router.post("/orders")
 async def create_order(body: OrderBody, ctx: WebApp) -> dict[str, Any]:
+    try:
+        if body.intent_key is None:
+            order = await _create_order(body, ctx)
+        else:
+            order = await order_intents.create_once(
+                ctx.session, ctx.customer, body.intent_key,
+                body.model_dump(exclude={"intent_key"}), lambda: _create_order(body, ctx),
+            )
+    except orders.OrderError as exc:
+        status = 409 if exc.key in {"order_intent_conflict", "order_intent_closed"} else 400
+        raise HTTPException(status_code=status, detail=exc.key) from exc
+    balance = await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id)
+    return {"order": order_view(order), "balance": balance, "due": payments.amount_due(order, balance)}
+
+
+async def _create_order(body: OrderBody, ctx: WebApp) -> Order:
     kind = OrderKind(body.kind)
     if kind in panel_accounts.KINDS:
         # Panel admin accounts (TEN-14): priced by the account rules, no discount codes.
-        order = await _account_order(body, ctx, kind)
-        balance = await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id)
-        return {"order": order_view(order), "balance": balance, "due": payments.amount_due(order, balance)}
+        return await _account_order(body, ctx, kind)
     plan = None
     if body.plan_id:
         plan = await catalog.get_plan(ctx.session, ctx.shop.id, body.plan_id, ctx.customer)
@@ -473,8 +489,7 @@ async def create_order(body: OrderBody, ctx: WebApp) -> dict[str, Any]:
             order = await orders.create(ctx.session, ctx.customer, draft, source="webapp")
     except (orders.OrderError, pricing.DiscountError) as exc:
         raise HTTPException(status_code=400, detail=exc.key) from exc
-    balance = await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id)
-    return {"order": order_view(order), "balance": balance, "due": payments.amount_due(order, balance)}
+    return order
 
 
 async def _account_order(body: OrderBody, ctx: WebApp, kind: OrderKind) -> Order:
@@ -510,7 +525,7 @@ async def _account_order(body: OrderBody, ctx: WebApp, kind: OrderKind) -> Order
 
 async def _own_order(ctx: WebApp, order_id: int) -> Order:
     order = await ctx.session.get(Order, order_id)
-    if order is None or order.customer_id != ctx.customer.id:
+    if order is None or order.customer_id != ctx.customer.id or order.shop_id != ctx.shop.id:
         raise HTTPException(status_code=404, detail="order_not_found")
     return order
 
@@ -531,7 +546,6 @@ async def _payment_view(ctx: WebApp, started: payments.Started) -> dict[str, Any
         view["accounts"] = checkout.instructions.get("accounts", [])
     elif payment.provider == "stars":
         from aiogram.types import LabeledPrice
-
         from paurubot.notifications.telegram import get_bot
 
         view["invoice_link"] = await get_bot().create_invoice_link(
@@ -631,7 +645,6 @@ async def upload_receipt(
 async def _store_receipt(ctx: WebApp, data: bytes) -> str | None:
     """Store with the same shop bot used to deliver the photo to its staff reviewers."""
     from aiogram.types import BufferedInputFile
-
     from paurubot.notifications import telegram
 
     try:

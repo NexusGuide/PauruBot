@@ -284,6 +284,7 @@ export const api = {
   accountLogin: (id: number) => get<{ url: string; username: string; password: string }>(`/accounts/${id}/login`),
   refreshAccount: (id: number) => post<{ account: PanelAccount }>(`/accounts/${id}/refresh`),
   createOrder: (body: {
+    intent_key?: string;
     kind: string;
     plan_id?: number;
     service_id?: number;
