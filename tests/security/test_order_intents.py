@@ -8,12 +8,12 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
-from paurubot.db.base import utcnow
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from paurubot.core import order_intents
 from paurubot.core.orders import OrderError
+from paurubot.db.base import utcnow
 from paurubot.db.models import Customer, Order, OrderKind, OrderStatus
 from tests import factories
 from tests.security import test_payment_intents as fixtures
