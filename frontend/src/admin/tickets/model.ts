@@ -16,6 +16,8 @@ export interface Ticket {
     updated_at: string;
     awaiting: boolean;
     customer?: string | null;
+    service_id?: number | null;
+    service_context?: { id: number; status: string } | null;
 }
 export interface Message {
     id: number;
@@ -24,6 +26,7 @@ export interface Message {
     text: string | null;
     attachment_kind: string | null;
     has_attachment: boolean;
+    attachment_expired?: boolean;
     is_internal: boolean;
     created_at: string;
 }
@@ -60,12 +63,16 @@ function invalid(): never { throw new Error("ticket_response_invalid"); }
 export function parseTicket(v: unknown): Ticket {
     if (!record(v) || !positive(v.id) || typeof v.subject !== "string" || typeof v.status !== "string" || typeof v.source !== "string" || !positive(v.customer_id) || !nullableId(v.department_id) || !PRIORITIES.includes(v.priority as Priority) || (v.is_complaint !== undefined && typeof v.is_complaint !== "boolean") || !nullableId(v.assigned_staff_id) || !nullableDate(v.last_customer_at) || !nullableDate(v.last_staff_at) || !iso(v.created_at) || !iso(v.updated_at) || typeof v.awaiting !== "boolean" || (v.customer !== undefined && !nullableString(v.customer)))
         return invalid();
-    return { id: v.id, subject: v.subject, status: v.status, source: v.source, customer_id: v.customer_id, department_id: v.department_id as number | null, priority: v.priority as Priority, is_complaint: v.is_complaint === true, assigned_staff_id: v.assigned_staff_id as number | null, last_customer_at: v.last_customer_at as string | null, last_staff_at: v.last_staff_at as string | null, created_at: v.created_at as string, updated_at: v.updated_at as string, awaiting: v.awaiting, customer: v.customer as string | null | undefined };
+    if (v.service_id !== undefined && !nullableId(v.service_id)) return invalid();
+    if (v.service_context != null && (!record(v.service_context) || !positive(v.service_context.id) || typeof v.service_context.status !== "string")) return invalid();
+    const context = record(v.service_context) ? { id: v.service_context.id as number, status: v.service_context.status as string } : null;
+    return { service_id: v.service_id as number | null | undefined, service_context: context, id: v.id, subject: v.subject, status: v.status, source: v.source, customer_id: v.customer_id, department_id: v.department_id as number | null, priority: v.priority as Priority, is_complaint: v.is_complaint === true, assigned_staff_id: v.assigned_staff_id as number | null, last_customer_at: v.last_customer_at as string | null, last_staff_at: v.last_staff_at as string | null, created_at: v.created_at as string, updated_at: v.updated_at as string, awaiting: v.awaiting, customer: v.customer as string | null | undefined };
 }
 export function parseMessage(v: unknown): Message {
     if (!record(v) || !positive(v.id) || typeof v.author_type !== "string" || !nullableId(v.author_id) || !nullableString(v.text) || !nullableString(v.attachment_kind) || typeof v.has_attachment !== "boolean" || typeof v.is_internal !== "boolean" || !iso(v.created_at) || v.is_internal && v.author_type !== "staff")
         return invalid();
-    return { id: v.id, author_type: v.author_type, author_id: v.author_id as number | null, text: v.text as string | null, attachment_kind: v.attachment_kind as string | null, has_attachment: v.has_attachment, is_internal: v.is_internal, created_at: v.created_at as string };
+    if (v.attachment_expired !== undefined && typeof v.attachment_expired !== "boolean") return invalid();
+    return { attachment_expired: v.attachment_expired === true, id: v.id, author_type: v.author_type, author_id: v.author_id as number | null, text: v.text as string | null, attachment_kind: v.attachment_kind as string | null, has_attachment: v.has_attachment, is_internal: v.is_internal, created_at: v.created_at as string };
 }
 export function parseDetail(v: unknown): Detail {
     if (!record(v) || !nullableString(v.customer) || !Array.isArray(v.messages) || v.messages.length > 200)

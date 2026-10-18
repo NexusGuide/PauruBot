@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from paurubot.db.base import Base, TimestampMixin, UpdatedMixin, str_enum, utcnow
@@ -63,7 +63,14 @@ class Broadcast(Base, UpdatedMixin):
 
 class Ticket(Base, UpdatedMixin):
     __tablename__ = "tickets"
-    __table_args__ = (Index("ix_tickets_shop_status", "shop_id", "status"),)
+    __table_args__ = (
+        Index("ix_tickets_shop_status", "shop_id", "status"),
+        UniqueConstraint("customer_id", "request_key", name="uq_ticket_customer_request"),
+    )
+    service_id: Mapped[int | None] = mapped_column(ForeignKey("services.id", ondelete="SET NULL"))
+    service_context: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    request_key: Mapped[str | None] = mapped_column(String(64))
+    request_hash: Mapped[str | None] = mapped_column(String(64))
 
     id: Mapped[int] = mapped_column(primary_key=True)
     shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"))
@@ -87,6 +94,19 @@ class Ticket(Base, UpdatedMixin):
 
 class TicketMessage(Base, TimestampMixin):
     __tablename__ = "ticket_messages"
+    __table_args__ = (
+        UniqueConstraint(
+            "ticket_id", "author_type", "author_id", "request_key", name="uq_ticket_message_request"
+        ),
+    )
+    request_key: Mapped[str | None] = mapped_column(String(64))
+    request_hash: Mapped[str | None] = mapped_column(String(64))
+    # Deferred: listing a thread never loads all binary payloads into memory.
+    attachment_data: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
+    attachment_size: Mapped[int | None] = mapped_column(Integer)
+    attachment_mime: Mapped[str | None] = mapped_column(String(32))
+    attachment_name: Mapped[str | None] = mapped_column(String(64))
+    attachment_expired: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     id: Mapped[int] = mapped_column(primary_key=True)
     ticket_id: Mapped[int] = mapped_column(ForeignKey("tickets.id", ondelete="CASCADE"), index=True)

@@ -288,6 +288,7 @@ export function ServiceDetail() {
         </Panel>
       )}
 
+      {service.id === serviceId && <Button tone="quiet" onClick={() => navigate(`/tickets/new?service=${service.id}`)}>{t("tickets_service_report")}</Button>}
       <UsageChart key={service.id} serviceId={service.id} />
     </Screen>
   );

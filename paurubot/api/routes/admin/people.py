@@ -813,7 +813,11 @@ MESSAGE_FIELDS = ["id", "author_type", "author_id", "text", "attachment_kind", "
 
 
 def _ticket_row(ticket: Ticket) -> dict[str, Any]:
-    return plain(ticket, TICKET_FIELDS) | {"awaiting": tickets.awaiting_staff(ticket)}
+    return plain(ticket, TICKET_FIELDS) | {
+        "awaiting": tickets.awaiting_staff(ticket),
+        "service_context": ticket.service_context,
+        "service_id": ticket.service_id,
+    }
 
 
 async def _ticket(db: DB, ticket_id: int, ctx: StaffContext) -> Ticket:
@@ -837,7 +841,12 @@ async def ticket_detail(
         "ticket": _ticket_row(ticket),
         "customer": customer.display_name if customer else None,
         "messages": [
-            plain(m, MESSAGE_FIELDS) | {"has_attachment": bool(m.attachment_file_id)} for m in messages
+            plain(m, MESSAGE_FIELDS)
+            | {
+                "has_attachment": bool(m.attachment_file_id or m.attachment_size),
+                "attachment_expired": m.attachment_expired,
+            }
+            for m in messages
         ],
     }
 
@@ -1134,3 +1143,17 @@ async def delete_canned_reply(reply_id: int, ctx: DeskAdmin, db: DB) -> dict[str
         entity_id=reply_id,
     )
     return {"ok": True}
+
+
+@router.get("/tickets/{ticket_id}/messages/{message_id}/attachment")
+async def ticket_attachment(
+    ticket_id: int,
+    message_id: int,
+    ctx: Annotated[StaffContext, Depends(require("tickets.read"))],
+    db: DB,
+):
+    from paurubot.api.routes.webapp_ticket_media import media_response
+
+    ticket = await _ticket(db, ticket_id, ctx)
+    staff_view = await reseller_customer_id(db, ctx) is None
+    return await media_response(db, ticket, message_id, internal=staff_view)

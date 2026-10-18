@@ -746,3 +746,11 @@ async def worker_heartbeat() -> None:
     from paurubot.ops import doctor
 
     await doctor.heartbeat()
+
+
+@every(3600, "ticket_media.cleanup")
+async def cleanup_ticket_media() -> None:
+    from paurubot.core import ticket_media
+
+    async with session_scope() as session:
+        await ticket_media.prune(session)

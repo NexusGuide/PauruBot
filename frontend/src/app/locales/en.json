@@ -500,5 +500,18 @@
   "receipt_sent_text": "Once an admin approves it, the balance is added to your wallet.",
   "add_data": "Add data",
   "add_time": "Add time",
-  "buy_new_service": "Buy a new service"
+  "buy_new_service": "Buy a new service",
+  "tickets_media_hint": "Create the ticket first, then attach images or a plain-text file in its conversation.",
+  "tickets_service": "Linked service (snapshot at creation)",
+  "tickets_service_report": "Report a problem with this service",
+  "tickets_file": "Ticket attachment",
+  "tickets_file_hint": "PNG/JPEG up to 4 MiB; UTF-8 plain text up to 512 KiB. Each attachment is a separate message. Files are removed 30 days after a closed ticket’s last activity.",
+  "tickets_file_invalid": "Unsupported type, empty file or size limit exceeded.",
+  "tickets_file_open": "View / download attachment",
+  "tickets_file_expired": "Attachment removed under retention policy.",
+  "tickets_file_failed": "Could not load this attachment. Check access and retry.",
+  "tickets_file_send": "Send / safely retry this attachment",
+  "tickets_file_discard": "Discard selection",
+  "tickets_file_wait": "Waiting for server confirmation",
+  "tickets_file_uncertain": "Result not confirmed; cancellation does not undo a saved message. Refresh the conversation or retry the same file with the same key. Keep this screen open for safe retry; reselecting a file creates a new request."
 }

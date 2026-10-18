@@ -10,7 +10,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select
 
-from paurubot.api.routes import webapp_auto_renew, webapp_receipts, webapp_staff
+from paurubot.api.routes import webapp_auto_renew, webapp_receipts, webapp_staff, webapp_ticket_media
 from paurubot.api.webapp_auth import WebApp, forced_gate, forget_join_cache
 from paurubot.core import (
     alert_policy,
@@ -767,6 +767,8 @@ def _ticket_view(ticket: Ticket) -> dict[str, Any]:
         "department_id": ticket.department_id,
         "created_at": _iso(ticket.created_at),
         "updated_at": _iso(ticket.updated_at),
+        "service_id": ticket.service_id,
+        "service_context": ticket.service_context,
     }
 
 
@@ -803,23 +805,50 @@ class TicketBody(BaseModel):
     subject: str = Field(min_length=1, max_length=128)
     text: str = Field(min_length=1, max_length=4000)
     department_id: int | None = Field(None, ge=1, strict=True)
+    service_id: int | None = Field(None, ge=1, strict=True)
+    request_key: str | None = Field(None, min_length=16, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 @router.post("/tickets")
 async def new_ticket(body: TicketBody, ctx: WebApp) -> dict[str, Any]:
+    from paurubot.core import ticket_media
+
     # Serializes Mini App opens by this customer before checking the open-ticket limit.
     await ctx.session.refresh(ctx.customer, ["id"], with_for_update=True)
+    fingerprint = ticket_media.fingerprint(body.model_dump(exclude={"request_key"}))
+    if body.request_key:
+        previous = await ctx.session.scalar(
+            select(Ticket).where(
+                Ticket.customer_id == ctx.customer.id,
+                Ticket.shop_id == ctx.shop.id,
+                Ticket.request_key == body.request_key,
+            )
+        )
+        if previous is not None:
+            ticket_media.check_replay(previous.request_hash, fingerprint)
+            return {"ticket": _ticket_view(previous)}
+    service = await _owned_service(ctx, body.service_id)
+    if service is not None and service.shop_id != ctx.shop.id:
+        raise HTTPException(status_code=404, detail="service_not_found")
     try:
         ticket = await tickets.open_ticket(
             ctx.session, ctx.customer, body.subject, source="webapp", department_id=body.department_id
         )
-        await tickets.add_message(
+        ticket.request_key, ticket.request_hash = body.request_key, fingerprint
+        if service is not None:
+            ticket.service_id = service.id
+            ticket.service_context = ticket_media.service_context(service)
+        message = await tickets.add_message(
             ctx.session, ticket, author_type="customer", author_id=ctx.customer.id, text=body.text
         )
     except tickets.TicketError as exc:
         raise HTTPException(status_code=400, detail=exc.key) from exc
     await queue.enqueue(
-        ctx.session, "notify", "ticket_new_message", {"ticket_id": ticket.id}, shop_id=ctx.shop.id
+        ctx.session,
+        "notify",
+        "ticket_new_message",
+        {"ticket_id": ticket.id, "message_id": message.id},
+        shop_id=ctx.shop.id,
     )
     return {"ticket": _ticket_view(ticket)}
 
@@ -844,7 +873,8 @@ async def ticket_thread(
                 "id": row.id,
                 "from": "me" if row.author_type == "customer" else "support",
                 "text": row.text,
-                "has_attachment": bool(row.attachment_file_id),
+                "has_attachment": bool(row.attachment_file_id or row.attachment_size),
+                "attachment_expired": row.attachment_expired,
                 "created_at": _iso(row.created_at),
             }
             for row in reversed(page)
@@ -855,19 +885,30 @@ async def ticket_thread(
 class TicketReplyBody(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     text: str = Field(min_length=1, max_length=4000)
+    request_key: str | None = Field(None, min_length=16, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 @router.post("/tickets/{ticket_id}/reply")
 async def ticket_answer(ticket_id: int, body: TicketReplyBody, ctx: WebApp) -> dict[str, Any]:
+    from paurubot.core import ticket_media
+
     ticket = await _own_ticket(ctx, ticket_id, lock=True)
+    fingerprint = ticket_media.fingerprint({"text": body.text})
+    if await ticket_media.replayed(ctx.session, ticket, ctx.customer.id, body.request_key, fingerprint):
+        return {"ticket": _ticket_view(ticket)}
     try:
-        await tickets.add_message(
+        message = await tickets.add_message(
             ctx.session, ticket, author_type="customer", author_id=ctx.customer.id, text=body.text
         )
     except tickets.TicketError as exc:
         raise HTTPException(status_code=409, detail=exc.key) from exc
+    message.request_key, message.request_hash = body.request_key, fingerprint
     await queue.enqueue(
-        ctx.session, "notify", "ticket_new_message", {"ticket_id": ticket.id}, shop_id=ctx.shop.id
+        ctx.session,
+        "notify",
+        "ticket_new_message",
+        {"ticket_id": ticket.id, "message_id": message.id},
+        shop_id=ctx.shop.id,
     )
     return {"ticket": _ticket_view(ticket)}
 
@@ -920,3 +961,6 @@ async def reseller_renew(body: RenewManyBody, ctx: WebApp) -> dict[str, Any]:
 
 
 router.include_router(webapp_auto_renew.router)
+
+
+router.include_router(webapp_ticket_media.router)
