@@ -29,7 +29,7 @@ async function run() {
   const page=await browser.newPage({viewport:{width:390,height:844}});
   const localErrors=[];page.on('pageerror',e=>localErrors.push(e.message));
   page.setDefaultTimeout(7000);
-  let linksCalls=0;
+  let linksCalls=0; const listCalls=[];
   await page.route('**/*',async route=>{
    const url=new URL(route.request().url());
    if(url.hostname!=='127.0.0.1')return route.abort();
@@ -37,7 +37,19 @@ async function run() {
    const json=body=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(body)});
    const fail=()=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'panel_error'})});
    if(url.pathname==='/api/webapp/me')return json(profile(options.locale||'en'));
-   if(url.pathname==='/api/webapp/services')return json({items:[service(1),service(2)]});
+   if(url.pathname==='/api/webapp/services'){
+    const q=url.searchParams.get('q')||'',status=url.searchParams.get('status')||'',before=Number(url.searchParams.get('before')||0);
+    listCalls.push({q,status,before,limit:url.searchParams.get('limit')});
+    if(options.holdQueries?.[q])await options.holdQueries[q].promise;
+    if(options.holdMore&&before)await options.holdMore.promise;
+    if(options.failList||(options.failMore&&before))return fail();
+    let items=options.items||Array.from({length:45},(_,i)=>service(45-i,{label:45-i===1?'Needle تهران':45-i===2?'Needle active':`Service ${45-i}`,status:45-i===1?'expired':'active'}));
+    items=items.filter(s=>(!q||`${s.label} ${s.username}`.toLowerCase().includes(q.toLowerCase()))&&(!status||s.status===status)&&(!before||s.id<before));
+    if(!url.searchParams.has('limit'))return json({items});
+    const limit=Number(url.searchParams.get('limit'));
+    const page=items.slice(0,limit),next_before=items.length>limit?page.at(-1).id:null;
+    return json(options.malformed?{items:page,next_before:0}:{items:page,next_before});
+   }
    const match=url.pathname.match(/\/services\/(\d+)(.*)/);
    if(match){const id=Number(match[1]),suffix=match[2];
     if(!suffix){if(options.holdDetail&&id===1)await options.holdDetail.promise;if(options.failDetail)return fail();return json({service:service(id,options.serviceExtra||{})});}
@@ -51,9 +63,9 @@ async function run() {
   const go = p => page.goto(base+'/app'+p);
   const navigate = p => page.evaluate(p=>{history.pushState(null,'','/app'+p);dispatchEvent(new PopStateEvent('popstate'));},p);
   try {
-   await test({page,go,navigate,linksCalls:()=>linksCalls});
+   await test({page,go,navigate,linksCalls:()=>linksCalls,listCalls:()=>listCalls});
    assert.deepEqual(localErrors,[],'no unhandled page errors');cases.push(name);
-  }catch(e){errors.push({case:name,error:e.stack});}
+  }catch(e){errors.push({case:name,error:e.stack,url:page.url(),search:await page.locator('#service-search').inputValue().catch(()=>null),listCalls});}
   finally{await page.close();}
  }
  const detail={failDetail:true};
@@ -90,6 +102,55 @@ async function run() {
  const fa={locale:'fa',failDetail:true};
  await scenario('Persian RTL error and retry',fa,async({page,go})=>{
   await go('/services/1');await page.getByRole('alert').waitFor();assert.equal(await page.locator('html').getAttribute('dir'),'rtl');fa.failDetail=false;await page.getByRole('button',{name:'تلاش دوباره',exact:true}).click();await page.getByRole('heading',{name:'Service 1',exact:true}).waitFor();
+ });
+
+ const rowSelector='main ul > li.app-card';
+ async function countRows(page,count){await page.waitForFunction(([s,n])=>document.querySelectorAll(s).length===n,[rowSelector,count]);}
+ await scenario('bounded list loads 20/20/5 with monotonic cursors',{},async({page,go,listCalls})=>{
+  await go('/services');await countRows(page,20);await page.getByRole('button',{name:'Load more services',exact:true}).click();await countRows(page,40);await page.getByRole('button',{name:'Load more services',exact:true}).click();await countRows(page,45);assert.equal(await page.getByRole('button',{name:'Load more services',exact:true}).count(),0);
+  assert.deepEqual(listCalls().map(c=>c.before),[0,26,6]);assert(listCalls().every(c=>c.limit==='20'));
+ });
+ await scenario('deep-link search reaches older data and combines server-side status',{},async({page,go,listCalls})=>{
+  await go('/services?q=Needle&status=expired');await countRows(page,1);await page.getByText('Needle تهران',{exact:true}).waitFor();assert.equal(await page.getByLabel('Search services').inputValue(),'Needle');assert.equal(await page.getByLabel('Service status').inputValue(),'expired');assert.deepEqual(listCalls().map(c=>[c.q,c.status]),[['Needle','expired']]);
+ });
+ await scenario('debounced search requests only the final typed query',{},async({page,go,listCalls})=>{
+  await go('/services');await countRows(page,20);await page.getByLabel('Search services').pressSequentially('Needle',{delay:15});await countRows(page,2);assert.equal(await page.getByLabel('Search services').inputValue(),'Needle');assert.deepEqual(listCalls().filter(c=>c.q).map(c=>c.q),['Needle']);
+ });
+ await scenario('status changes reset accumulated pages instead of filtering a loaded subset',{},async({page,go,listCalls})=>{
+  await go('/services');await countRows(page,20);await page.getByRole('button',{name:'Load more services',exact:true}).click();await countRows(page,40);await page.getByLabel('Service status').selectOption('expired');await countRows(page,1);await page.getByText('Needle تهران',{exact:true}).waitFor();assert.equal(listCalls().at(-1).before,0);assert.equal(listCalls().at(-1).status,'expired');
+ });
+ const failedFirst={failList:true};
+ await scenario('initial list failure is retryable, not false empty success',failedFirst,async({page,go})=>{
+  await go('/services');await page.getByRole('alert').waitFor();assert.equal(await page.getByText('No matching services',{exact:true}).count(),0);failedFirst.failList=false;await page.getByRole('button',{name:'Try again',exact:true}).click();await countRows(page,20);
+ });
+ const failedMore={failMore:true};
+ await scenario('load-more failure retains the current page and retries the same cursor',failedMore,async({page,go,listCalls})=>{
+  await go('/services');await countRows(page,20);await page.getByRole('button',{name:'Load more services',exact:true}).click();await page.getByRole('alert').waitFor();assert.equal(await page.locator(rowSelector).count(),20);failedMore.failMore=false;await page.getByRole('button',{name:'Try again',exact:true}).click();await countRows(page,40);assert.deepEqual(listCalls().map(c=>c.before),[0,26,26]);
+ });
+ const heldMore=deferred();
+ await scenario('rapid load-more clicks do not send duplicate requests',{holdMore:heldMore},async({page,go,listCalls})=>{
+  await go('/services');await countRows(page,20);const button=page.getByRole('button',{name:'Load more services',exact:true});await button.click();assert(await button.isDisabled());await button.evaluate(el=>el.click());heldMore.release();await countRows(page,40);assert.equal(listCalls().filter(c=>c.before).length,1);
+ });
+ const oldQuery=deferred();
+ await scenario('late old search cannot replace the new filtered list',{holdQueries:{Service:oldQuery}},async({page,go,listCalls})=>{
+  await go('/services');await countRows(page,20);const requested=page.waitForRequest(r=>{const u=new URL(r.url());return u.pathname==='/api/webapp/services'&&u.searchParams.get('q')==='Service';});await page.getByLabel('Search services').fill('Service');await requested;
+  await page.getByLabel('Search services').fill('Needle');await countRows(page,2);oldQuery.release();await page.waitForTimeout(100);await countRows(page,2);await page.getByText('Needle تهران',{exact:true}).waitFor();
+ });
+ await scenario('detail in-app back preserves search and status',{},async({page,go})=>{
+  await go('/services?q=Needle&status=expired');await countRows(page,1);await page.locator(rowSelector).getByRole('button').click();await page.getByRole('heading',{name:'Service 1',exact:true}).waitFor();await page.getByRole('button',{name:'Back to parent page',exact:true}).click();await countRows(page,1);assert.equal(await page.getByLabel('Search services').inputValue(),'Needle');assert.equal(await page.getByLabel('Service status').inputValue(),'expired');assert(page.url().includes('q=Needle'));
+ });
+ await scenario('browser back preserves the list filter URL',{},async({page,go})=>{
+  await go('/services?q=Needle&status=expired');await countRows(page,1);await page.locator(rowSelector).getByRole('button').click();await page.getByRole('heading',{name:'Service 1',exact:true}).waitFor();await page.goBack();await countRows(page,1);assert.equal(await page.getByLabel('Search services').inputValue(),'Needle');
+ });
+ await scenario('filtered empty state offers clear without claiming no services',{},async({page,go})=>{
+  await go('/services?q=does-not-exist');await page.getByText('No matching services',{exact:true}).waitFor();await page.getByRole('button',{name:'Clear filters',exact:true}).click();await countRows(page,20);
+ });
+ const malformed={malformed:true};
+ await scenario('invalid pagination response fails visibly and can recover',malformed,async({page,go})=>{
+  await go('/services');await page.getByRole('alert').waitFor();malformed.malformed=false;await page.getByRole('button',{name:'Try again',exact:true}).click();await countRows(page,20);
+ });
+ await scenario('Persian RTL search and server status controls',{locale:'fa'},async({page,go})=>{
+  await go('/services?q='+encodeURIComponent('تهران')+'&status=expired');await countRows(page,1);assert.equal(await page.locator('html').getAttribute('dir'),'rtl');assert.equal(await page.getByLabel('جست‌وجوی سرویس‌ها').inputValue(),'تهران');assert.equal(await page.getByLabel('وضعیت سرویس').inputValue(),'expired');
  });
  console.log(JSON.stringify({passed:cases.length,failed:errors.length,cases,errors},null,2));
  if(errors.length)process.exitCode=1;

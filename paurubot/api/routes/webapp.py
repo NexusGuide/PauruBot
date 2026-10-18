@@ -676,13 +676,33 @@ async def history(ctx: WebApp, before: int | None = None) -> dict[str, Any]:
 
 
 @router.get("/services")
-async def services(ctx: WebApp) -> dict[str, Any]:
-    rows = await ctx.session.scalars(
-        select(Service)
-        .where(Service.customer_id == ctx.customer.id, Service.status != ServiceStatus.DELETED)
-        .order_by(Service.id.desc())
+async def services(
+    ctx: WebApp,
+    limit: int | None = Query(None, ge=1, le=50),
+    before: int | None = Query(None, ge=1, le=2**63 - 1),
+    q: str | None = Query(None, max_length=120),
+    status: ServiceStatus | None = None,
+) -> dict[str, Any]:
+    from paurubot.api import service_pages
+
+    if status == ServiceStatus.DELETED:
+        raise HTTPException(status_code=422, detail="unsupported_service_status")
+    # Preserve existing unparameterized Home/derived-alert clients. Explicit paging/search
+    # is bounded; silently truncating legacy callers would drop their older service alerts.
+    paged = any(value is not None for value in (limit, before, q, status))
+    rows, next_before = await service_pages.read(
+        ctx.session,
+        ctx.shop.id,
+        ctx.customer.id,
+        limit=(limit or 20) if paged else None,
+        before=before,
+        query=q,
+        status=status,
     )
-    return {"items": [service_view(s, ctx.cfg) for s in rows]}
+    result: dict[str, Any] = {"items": [service_view(s, ctx.cfg) for s in rows]}
+    if paged:
+        result["next_before"] = next_before
+    return result
 
 
 @router.get("/services/{service_id}")

@@ -40,3 +40,6 @@ try {
 
 // Service detail recovery regressions run in the existing CI UX suite.
 import "./service-read.test.mjs";
+
+// Bounded service search/paging contracts run in the existing CI UX suite.
+import "./service-pages.test.mjs";

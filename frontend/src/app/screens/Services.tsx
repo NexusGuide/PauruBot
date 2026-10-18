@@ -1,6 +1,6 @@
 import QRCode from "qrcode";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from "react-router-dom";
 import { date, daysLeft, money, size } from "@shared/format";
 import { api, type Service } from "../api";
 import { errorText, useApp } from "../state";
@@ -12,6 +12,7 @@ import { useResource } from "../useResource";
 import { AutoRenew } from "../autoRenew/AutoRenew";
 import { UsageChart } from "../usage/UsageChart";
 import { createActionGate, runServiceAction } from "../service-read";
+import { SERVICE_STATUSES, readServicePage, serviceFilter, servicesReturnTo, type ServiceFilter } from "../service-pages";
 
 /** Badge tone for a service status: green while healthy, saffron while settling, red once it is gone. */
 function statusTone(status: string) {
@@ -22,29 +23,111 @@ function statusTone(status: string) {
 }
 
 export function Services() {
+  const { t } = useApp();
+  const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const navigationType = useNavigationType();
+  const editor = useId();
+  const urlQuery = (params.get("q") ?? "").slice(0, 120);
+  // BrowserRouter transitions are deferred. Keep the controlled input synchronous,
+  // so a second keypress cannot be reset to the previous URL's value.
+  const [q, setQuery] = useState(urlQuery);
+  useEffect(() => {
+    if (navigationType !== "REPLACE" || location.state?.serviceFilterEditor !== editor) setQuery(urlQuery);
+  }, [urlQuery, location.key, location.state, navigationType, editor]);
+  const status = serviceFilter(params.get("status"));
+  const query = q.trim();
+  const returnTo = servicesReturnTo(`/services?${params}`);
+  const change = (nextQuery: string, nextStatus: ServiceFilter) => {
+    setQuery(nextQuery);
+    const next = new URLSearchParams();
+    if (nextQuery) next.set("q", nextQuery);
+    if (nextStatus) next.set("status", nextStatus);
+    setParams(next, { replace: true, state: { serviceFilterEditor: editor } });
+  };
+  return <Screen title={t("my_services")}>
+    <div className="mb-4 grid gap-3">
+      <label className="text-sm font-semibold" htmlFor="service-search">{t("services_search")}</label>
+      <input id="service-search" type="search" maxLength={120} value={q}
+        onChange={event => change(event.target.value, status)} placeholder={t("services_search_hint")}
+        className="min-h-12 w-full rounded-2xl bg-[var(--surface)] px-4 text-[var(--text)] outline-none ring-1 ring-[var(--line)] focus:ring-[var(--accent)]" />
+      <label className="text-sm font-semibold" htmlFor="service-status">{t("services_status")}</label>
+      <select id="service-status" value={status} onChange={event => change(q, serviceFilter(event.target.value))}
+        className="min-h-12 w-full rounded-2xl bg-[var(--surface)] px-4 text-[var(--text)] ring-1 ring-[var(--line)] focus:ring-[var(--accent)]">
+        <option value="">{t("all")}</option>
+        {SERVICE_STATUSES.map(value => <option key={value} value={value}>{t(`status_${value}`)}</option>)}
+      </select>
+      {(query || status) && <Button tone="quiet" onClick={() => change("", "")}>{t("services_clear")}</Button>}
+    </div>
+    <ServiceResults key={JSON.stringify([query, status])} q={query} status={status} returnTo={returnTo} />
+    <Button onClick={() => navigate("/buy")}>
+      <span className="inline-flex items-center gap-2"><Icon name="bag" />{t("buy_new_service")}</span>
+    </Button>
+  </Screen>;
+}
+
+function ServiceResults({ q, status, returnTo }: { q: string; status: ServiceFilter; returnTo: string }) {
   const { t, locale } = useApp();
   const navigate = useNavigate();
-  const { data, error, retry } = useResource(api.services);
-  const items = data?.items ?? null;
-  if (error) return <Screen title={t("my_services")}><ReadFailure error={error} retry={retry} /></Screen>;
-  if (!items) return <Loading />;
+  const [items, setItems] = useState<Service[] | null>(null);
+  const [nextBefore, setNextBefore] = useState<number | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [loading, setLoading] = useState(true);
+  const [attempt, setAttempt] = useState(0);
+  const active = useRef(true), busy = useRef(true), sequence = useRef(0);
+  const controller = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    active.current = true;
+    busy.current = true;
+    setLoading(true);
+    setError(null);
+    const id = ++sequence.current;
+    const current = new AbortController();
+    controller.current = current;
+    const valid = () => active.current && id === sequence.current && !current.signal.aborted;
+    const timer = window.setTimeout(() => {
+      void api.servicePage(q, status, undefined, current.signal).then(value => readServicePage(value))
+        .then(page => { if (valid()) { setItems(page.items); setNextBefore(page.next_before); } })
+        .catch(reason => { if (valid()) setError(reason); })
+        .finally(() => { if (valid()) { busy.current = false; setLoading(false); } });
+    }, q ? 250 : 0);
+    return () => { active.current = false; sequence.current++; window.clearTimeout(timer); current.abort(); controller.current?.abort(); };
+  }, [q, status, attempt]);
+
+  const more = async () => {
+    if (!active.current || busy.current || nextBefore === null) return;
+    busy.current = true;
+    setLoading(true);
+    setError(null);
+    const id = sequence.current;
+    const before = nextBefore;
+    const current = new AbortController();
+    controller.current = current;
+    const valid = () => active.current && id === sequence.current && !current.signal.aborted;
+    try {
+      const page = readServicePage(await api.servicePage(q, status, before, current.signal), before);
+      if (valid()) { setItems(previous => [...(previous ?? []), ...page.items]); setNextBefore(page.next_before); }
+    } catch (reason) {
+      if (valid()) setError(reason);
+    } finally {
+      if (valid()) { busy.current = false; setLoading(false); }
+    }
+  };
   const units = t("units").split(",");
-  if (!items.length) {
-    return (
-      <Screen title={t("my_services")}>
-        <Empty title={t("no_service_yet")} hint={t("no_service_hint")}
-          action={<Button onClick={() => navigate("/buy")}>{t("buy_plan")}</Button>} />
-      </Screen>
-    );
-  }
-  return (
-    <Screen title={t("my_services")}>
+  return <div aria-busy={loading}>
+    {Boolean(error) && <ReadFailure error={error} retry={() => { if (items === null) setAttempt(value => value + 1); else void more(); }} />}
+    {items === null && loading && <Loading />}
+    {items?.length === 0 && <Empty title={t(q || status ? "services_no_matches" : "no_service_yet")}
+      hint={t(q || status ? "services_no_matches_hint" : "no_service_hint")} />}
+    {items && <>
       <ul className="flex flex-col">
         {items.map((service) => {
           const left = daysLeft(service.expire_at);
           return (
             <li key={service.id} className="app-card">
-              <Row onClick={() => navigate(`/services/${service.id}`)}>
+              <Row onClick={() => navigate(`/services/${service.id}`, { state: { servicesReturnTo: returnTo } })}>
                 <Ring size={54} outer={usageRatio(service)} inner={timeRatio(service)} />
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-2 font-bold">
@@ -67,14 +150,9 @@ export function Services() {
           );
         })}
       </ul>
-      <Button onClick={() => navigate("/buy")}>
-        <span className="inline-flex items-center gap-2">
-          <Icon name="bag" />
-          {t("buy_new_service")}
-        </span>
-      </Button>
-    </Screen>
-  );
+      {nextBefore !== null && !error && <Button tone="quiet" busy={loading} onClick={() => { void more(); }}>{t("services_more")}</Button>}
+    </>}
+  </div>;
 }
 
 /** A QR failure never hides the copy/download fallback or escapes as an unhandled promise. */
@@ -94,11 +172,13 @@ function ServiceQr({ value, serviceId }: { value?: string; serviceId?: number })
 
 export function ServiceDetail() {
   const { id } = useParams();
+  const location = useLocation();
+  const backTo = servicesReturnTo(location.state?.servicesReturnTo);
   // A new resource must not inherit the old resource's links, QR, errors or action lock.
-  return <ServiceDetailBody key={id} serviceId={Number(id)} />;
+  return <ServiceDetailBody key={id} serviceId={Number(id)} backTo={backTo} />;
 }
 
-function ServiceDetailBody({ serviceId }: { serviceId: number }) {
+function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: string }) {
   const { t, locale, me, toast } = useApp();
   const navigate = useNavigate();
   const load = useCallback(() => api.service(serviceId, true), [serviceId]);
@@ -116,7 +196,7 @@ function ServiceDetailBody({ serviceId }: { serviceId: number }) {
     return () => current.close();
   }, []);
 
-  if (error) return <Screen title={t("my_services")}><ReadFailure error={error} retry={retry} /></Screen>;
+  if (error) return <Screen title={t("my_services")} backTo={backTo}><ReadFailure error={error} retry={retry} /></Screen>;
   if (loading || !service || !me) return <Loading />;
   const units = t("units").split(",");
   const left = daysLeft(service.expire_at);
@@ -181,7 +261,7 @@ function ServiceDetailBody({ serviceId }: { serviceId: number }) {
   const canRevoke = can("revoke");
 
   return (
-    <Screen title={service.label || service.username} subtitle={service.username}>
+    <Screen title={service.label || service.username} subtitle={service.username} backTo={backTo}>
       <section className="app-card p-5 text-center">
         <Ring size={190} outer={usageRatio(service)} inner={timeRatio(service)}>
           <span className="num text-3xl font-extrabold">
