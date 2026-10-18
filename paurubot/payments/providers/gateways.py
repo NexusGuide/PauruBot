@@ -20,6 +20,7 @@ import math
 import re
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -631,6 +632,156 @@ class AtlasPayProvider(Gateway):
         return Verification(True, provider_tx_id=f"atlas:{payment.provider_ref}", amount=payment.amount)
 
 
+# --- Tonpay standard (tonpays.online; not the TON blockchain SDK) -----------------------
+
+
+class TonpayProvider(Gateway):
+    """Source-derived standard invoice contract; callbacks are refresh hints only.
+
+    No custom receipt upload, automatic amount adjustment, or create retry. Credentials
+    go only to the fixed API origin, never to a returned checkout URL or redirect.
+    """
+
+    name = "tonpay"
+    required = ("tonpay_api_key",)
+    polls = True
+    host = "https://tonpays.online/api/v1/invoices"
+    response_limit = 64 * 1024
+
+    @staticmethod
+    def _amount(value: Any) -> int | None:
+        # Toman integers only: no bool, rounding, NaN/Infinity, or implausibly large value.
+        if not isinstance(value, (str, int)) or isinstance(value, bool):
+            return None
+        text = str(value)
+        if not re.fullmatch(r"[0-9]{1,18}", text):
+            return None
+        amount = int(text)
+        return amount if amount > 0 else None
+
+    @staticmethod
+    def _reference(value: Any) -> str:
+        # A single bounded, opaque path segment; do not allow dot-segment traversal.
+        if not isinstance(value, (str, int)) or isinstance(value, bool):
+            return ""
+        value = str(value)
+        return value if re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value) else ""
+
+    @staticmethod
+    def _checkout_url(value: Any) -> str:
+        if not isinstance(value, str) or len(value) > 2048 or re.search(r"[\s\\\x00-\x1f\x7f]", value):
+            return ""
+        try:
+            url = urlsplit(value)
+            # Conservative source-derived allowlist, including Telegram's invoice bot.
+            # Expanding it requires confirming the provider contract, not client input.
+            if (
+                url.scheme != "https"
+                or url.hostname not in {"tonpays.online", "t.me"}
+                or url.username is not None
+                or url.password is not None
+                or url.port not in (None, 443)
+            ):
+                return ""
+        except ValueError:
+            return ""
+        return value
+
+    async def _request(self, method: str, path: str, cfg: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        key = cfg.get("tonpay_api_key")
+        if not isinstance(key, str) or not key.strip():
+            raise PaymentError("gateway_error")
+        try:
+            async with self._client() as client:
+                async with client.stream(
+                    method,
+                    f"{self.host}/{path}",
+                    headers={"X-API-Key": key, "Accept": "application/json"},
+                    **kwargs,
+                ) as response:
+                    if not 200 <= response.status_code < 300:
+                        raise PaymentError("gateway_error")
+                    body = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        if len(body) + len(chunk) > self.response_limit:
+                            raise PaymentError("gateway_error")
+                        body.extend(chunk)
+            data = json.loads(body)
+            if not isinstance(data, dict) or data.get("success") is False or data.get("error"):
+                raise PaymentError("gateway_error")
+            return data
+        except (httpx.HTTPError, ValueError, RecursionError) as exc:
+            # Do not log raw response bodies, headers, credentials, or checkout tokens.
+            raise PaymentError("gateway_error") from exc
+
+    async def create(self, payment: Payment, cfg: dict[str, Any]) -> Checkout:
+        if self._amount(payment.amount) is None:
+            raise PaymentError("gateway_error")
+        data = await self._request(
+            "POST",
+            "create",
+            cfg,
+            json={
+                "amount": payment.amount,
+                "order_id": str(payment.id),
+                "callback_url": self.callback_url(payment),
+            },
+        )
+        reference = self._reference(data.get("invoice_id"))
+        url = self._checkout_url(data.get("invoice_url"))
+        if not reference or not url:
+            raise PaymentError("gateway_error")
+        return Checkout(
+            redirect_url=url,
+            provider_ref=reference,
+            provider_amount=payment.amount,
+            provider_currency="IRT",
+        )
+
+    @staticmethod
+    def locate(params: dict[str, Any]) -> tuple[str, str] | None:
+        order_id = field(params, "order_id")
+        if order_id:
+            return "id", order_id
+        reference = field(params, "invoice_id")
+        return ("ref", reference) if reference else None
+
+    async def verify(self, payment: Payment, cfg: dict[str, Any], params: dict[str, Any]) -> Verification:
+        reference = self._reference(payment.provider_ref)
+        if not reference:
+            return Verification(False, detail="waiting: missing invoice reference")
+        for name, expected in (("order_id", str(payment.id)), ("invoice_id", reference)):
+            sent = field(params, name)
+            if sent and sent != expected:
+                return Verification(False, detail="waiting: callback identity mismatch")
+        # The header is optional in the reference implementation, never sufficient to pay.
+        headers = params.get("headers") or {}
+        given = headers.get("x-api-key") if isinstance(headers, dict) else None
+        key = cfg.get("tonpay_api_key")
+        if given is not None and (
+            not isinstance(key, str)
+            or not isinstance(given, str)
+            or not hmac.compare_digest(key.encode(), given.encode())
+        ):
+            return Verification(False, detail="waiting: callback authentication mismatch")
+        data = await self._request("GET", f"check/{quote(reference, safe='')}", cfg)
+        remote_order = data.get("order_id")
+        if isinstance(remote_order, bool) or str(remote_order) != str(payment.id):
+            return Verification(False, detail="waiting: invoice order mismatch")
+        if "invoice_id" in data and self._reference(data["invoice_id"]) != reference:
+            return Verification(False, detail="waiting: invoice reference mismatch")
+        if data.get("paid") is not True or data.get("status") != "completed":
+            # No terminal transition based on callback or an unconfirmed invoice state.
+            return Verification(False, detail="waiting: invoice not completed")
+        if self._amount(data.get("request_amount")) != payment.amount:
+            return Verification(False, detail="waiting: invoice request amount mismatch")
+        actual = self._amount(data.get("final_amount"))
+        if actual is None or data.get("currency", "IRT") != "IRT":
+            return Verification(False, detail="waiting: invalid settlement amount or currency")
+        # Both overpayment and underpayment go through engine.mark_paid's dispute path.
+        return Verification(True, provider_tx_id=f"tonpay:{reference}", amount=actual, currency="IRT")
+
+
 GATEWAYS: dict[str, Gateway] = {
     gateway.name: gateway
     for gateway in (
@@ -642,6 +793,7 @@ GATEWAYS: dict[str, Gateway] = {
         TronadoProvider(),
         CubePayProvider(),
         AtlasPayProvider(),
+        TonpayProvider(),
     )
 }
 
