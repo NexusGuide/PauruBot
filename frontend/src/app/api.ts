@@ -1,3 +1,4 @@
+import type { Announcement, AnnouncementPage } from "@shared/announcements";
 import { request } from "@shared/http";
 import type { Body as AutoRenewBody } from "./autoRenew/model";
 import { initData } from "./telegram";
@@ -271,6 +272,8 @@ const post = <T>(path: string, body: unknown = {}) =>
   request<T>(`/api/webapp${path}`, { method: "POST", body, headers: auth() });
 
 export const api = {
+  announcements: (before?: number, unread = false) => get<AnnouncementPage>(`/announcements?unread=${unread}${before ? `&before=${before}` : ""}`),
+  announcementState: (id: number, action: "seen" | "read") => post<{ item: Announcement }>(`/announcements/${id}/state`, { action }),
   me: () => get<Me>("/me"),
   join: () => get<{ channels: JoinChannel[] }>("/join"),
   checkJoin: () => post<{ ok: boolean; channels: JoinChannel[] }>("/join/check"),

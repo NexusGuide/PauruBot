@@ -1,3 +1,4 @@
+import { Announcements } from "./screens/Announcements";
 import { lazy, Suspense, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Shell } from "./layout";
@@ -57,6 +58,7 @@ function Routed() {
         <Route path="/catalog" element={g("catalog.read", <Catalog />)} />
         <Route path="/panels" element={g("panels.read", <Panels />)} />
         <Route path="/discounts" element={g("discounts.write", <Discounts />)} />
+        <Route path="/announcements" element={g("broadcast.send", <Announcements />)} />
         <Route path="/broadcasts" element={g("broadcast.send", <Broadcasts />)} />
         <Route path="/lotteries" element={g("broadcast.send", <Lotteries />)} />
         <Route path="/resellers" element={g("resellers.manage", <Resellers />)} />
