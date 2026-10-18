@@ -198,3 +198,26 @@ not exist. Unknown-reference and uncertain-effect recovery remain unresolved unt
 official documentation or provider-attributed evidence supplies a valid contract.
 There is still no guessed endpoint, arbitrary reference binder, automatic re-POST,
 manual credit override, production activation, merge or deploy.
+
+
+## Public documentation / reference follow-up
+
+Official public custom Telegram documentation is now available at
+https://doc.tonpays.online/?mode=custom&sub=telegram . This supersedes the earlier
+public-search availability statement above; it is not sandbox or banking proof.
+The shared client enforces the documented 20-character order ID bound. Fresh
+original receipt claims and `can_receipt` require provider `pending`; amount-
+mismatch/remainder flows are not implemented through that original endpoint.
+No cancellation/refund/remainder endpoint, automatic retry or marker clearing is
+added. Existing custom enablement and confirmation gates remain false by default.
+
+The generated API/settings references had omitted this PR's eleven route-method
+entries and eight settings. Refreshed using repository formatter/access rules,
+source route constants/names and complete data-only SPECS with exact admin locale
+labels. Removing only the eight custom specs reproduces the previous settings
+reference byte-for-byte. The complete application/docgen check remains a CI gate.
+
+Earlier Python runs on #114/#115/#116 concluded cancelled; their logs are needed
+to attribute the original cancellation. These verified contract/reference fixes
+must not be represented as proof of that missing cancellation root cause. Fresh
+CI is required; no workflow, timeout, test assertion or check is weakened.

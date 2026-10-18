@@ -135,6 +135,7 @@ def projection(payment: Payment) -> dict[str, Any]:
             and active
             and review_open
             and consented
+            and state["remote_status"] == "pending"
             and now >= state["created_at"] + state["policy"]["receipt_wait"]
             and (
                 not state["receipt_received"]

@@ -111,6 +111,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/payments/{payment_id}/approve` | `payments.review` | Approve |
 | GET | `/api/admin/payments/{payment_id}/receipt` | `payments.read` | Receipt image |
 | POST | `/api/admin/payments/{payment_id}/reject` | `payments.review` | Reject |
+| POST | `/api/admin/payments/{payment_id}/tonpay-reconcile` | `payments.review` | Reconcile |
 | GET | `/api/admin/payments` | `payments.read` | List payments |
 | GET | `/api/admin/plans/panel-options/{panel_id}` | `catalog.write` | Groups or inbounds a plan can pick from on one panel (PNL-14). |
 | GET | `/api/admin/plans/{plan_id}/stock` | `catalog.write` | List stock |
@@ -196,6 +197,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/pay/gw/{name}` | gateway callback, verified with the provider | One entry point for the redirect gateways (PAY-08, PAY-09): the payer's browser coming |
 | POST | `/api/pay/nowpayments/ipn` | gateway callback, verified with the provider | Nowpayments ipn |
 | POST | `/api/pay/plisio/callback` | gateway callback, verified with the provider | Plisio callback |
+| GET | `/api/pay/tonpay-custom` | gateway callback, verified with the provider | Callback hint |
+| POST | `/api/pay/tonpay-custom` | gateway callback, verified with the provider | Callback hint |
 | GET | `/api/pay/zarinpal/callback` | gateway callback, verified with the provider | Zarinpal callback |
 
 ## `/api/setup`
@@ -258,6 +261,14 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/tickets/{ticket_id}` | Mini App initData | Ticket thread |
 | GET | `/api/webapp/tickets` | Mini App initData | My tickets |
 | POST | `/api/webapp/tickets` | Mini App initData | New ticket |
+| POST | `/api/webapp/tonpay/create` | Mini App initData | Create |
+| GET | `/api/webapp/tonpay/payments` | Mini App initData | Recent |
+| POST | `/api/webapp/tonpay/resume` | Mini App initData | Resume |
+| POST | `/api/webapp/tonpay/{payment_id}/change-card` | Mini App initData | Change card |
+| POST | `/api/webapp/tonpay/{payment_id}/consent` | Mini App initData | Consent |
+| POST | `/api/webapp/tonpay/{payment_id}/receipt` | Mini App initData | Receipt |
+| POST | `/api/webapp/tonpay/{payment_id}/refresh` | Mini App initData | Refresh |
+| GET | `/api/webapp/tonpay/{payment_id}` | Mini App initData | View |
 | POST | `/api/webapp/trial` | Mini App initData | Trial |
 | POST | `/api/webapp/wallet/gift` | Mini App initData | Redeem gift |
 | GET | `/api/webapp/wallet/history` | Mini App initData | History |

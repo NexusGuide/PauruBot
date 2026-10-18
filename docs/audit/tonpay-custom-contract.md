@@ -13,7 +13,8 @@ Source-derived from Faoxima snapshot `a96ccf23a6693bf52313e1f0f78ea000ef702111`:
 - [custom helper and lifecycle](https://github.com/Mmd-Amir/Faoxima/blob/a96ccf23a6693bf52313e1f0f78ea000ef702111/re/rx/function/tonpay_custom.php)
 - [owner-scoped API handler](https://github.com/Mmd-Amir/Faoxima/blob/a96ccf23a6693bf52313e1f0f78ea000ef702111/api/handlers/TonpayCustomHandler.php)
 
-No official/sandbox contract validation or real invoice/receipt upload has occurred.
+Official public documentation was subsequently inspected; see the follow-up below.
+No sandbox validation or real invoice/receipt upload has occurred.
 Do not describe this as full Tonpay custom support or a completed checkout flow.
 
 ## Important financial difference
@@ -94,3 +95,21 @@ input, and enforce public-origin/network policy. This module is not a public API
    provider sandbox. Unknown-reference recovery from #112 remains open.
 
 Keep draft/unregistered. No migration, merge or deployment was performed.
+
+
+## Official documentation follow-up
+
+Inspected https://doc.tonpays.online/?mode=custom&sub=telegram (custom Telegram tab).
+It confirms the custom origin/create/check/change-card/original-receipt paths,
+separate Telegram custom key, Toman amounts, a 20-character `order_id` maximum,
+and an original receipt only for the caller-created `pending` invoice. The client
+now enforces the 20-character order identity bound before every HTTP operation,
+with 20/21 boundary regressions. This is documentation conformance, not a live
+provider or bank-settlement test; the provider remains unregistered here.
+
+The docs separately describe `action_required_less`/`action_required_more`,
+remainder receipts, cancellation and refund-card submission. Those operations are
+NOT implemented by this low-level increment. In particular, original receipt
+upload must not be used as a remainder-receipt endpoint. No undocumented lookup
+by order or recovery of an ambiguous mutation is assumed. The documented
+60-second card cooldown does not silently approve other local timing/fee policy.

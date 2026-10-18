@@ -155,6 +155,14 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `cubepay_fee_percent` | int | 0 | CubePay fee added to the price (%). Added on top of what the customer pays at CubePay; the wallet gets the original amount |
 | `tonpay_enabled` | bool | false | Tonpay (standard invoices). Disabled by default. Requires PUBLIC_URL and a Tonpay key. Only server-verified Toman payments settle; amount differences require review. Custom receipt mode is not supported |
 | `tonpay_api_key` | str (secret) | — | Tonpay API key |
+| `tonpay_custom_enabled` | bool | false | — |
+| `tonpay_custom_api_key` | str (secret) | — | — |
+| `tonpay_custom_credential_epoch` | str | "" | — |
+| `tonpay_custom_policy_approved` | bool | false | — |
+| `tonpay_custom_confirm_enabled` | bool | false | — |
+| `tonpay_custom_receipt_wait` | int | 0 | — |
+| `tonpay_custom_card_cooldown` | int | 0 | — |
+| `tonpay_custom_review_window` | int | 0 | — |
 | `atlaspay_enabled` | bool | false | AtlasPay. AtlasPay has no callback; open orders are checked every minute. AtlasPay's own markup is shown to the customer before paying |
 | `atlaspay_api_key` | str (secret) | — | AtlasPay API key |
 

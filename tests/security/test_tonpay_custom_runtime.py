@@ -321,3 +321,22 @@ async def test_customer_blocked_during_get_cannot_receive_card_or_credit(live, p
     async with maker() as session:
         p = await session.get(Payment, pid)
         assert p.status == PaymentStatus.PENDING and not p.meta[mutations.STATE_KEY]["paid"]
+
+
+@pytest.mark.parametrize(
+    "remote_status", ["need_action", "action_required_less", "action_required_more", "processing"]
+)
+async def test_original_receipt_projection_disabled_outside_pending(live, remote_status):  # type: ignore[no-untyped-def]
+    _, owner, pid, *_ = live
+    await mutations.consent(owner, pid, 1, 103000)
+
+    def change_status(payment):  # type: ignore[no-untyped-def]
+        from copy import deepcopy
+
+        state = deepcopy(payment.meta[mutations.STATE_KEY])
+        state["remote_status"] = remote_status
+        state["created_at"] = mutations._now() - state["policy"]["receipt_wait"] - 1
+        payment.meta = {**payment.meta, mutations.STATE_KEY: state}
+
+    await change(live, change_status)
+    assert (await runtime.view(owner, pid))["can_receipt"] is False

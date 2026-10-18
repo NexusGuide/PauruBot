@@ -253,7 +253,7 @@ class TonpayCustomClient:
     async def create(
         self, order_id: str, amount: int, buyer_chat_id: int, callback_url: str
     ) -> CustomInvoice:
-        order_id = _identity(order_id, maximum=64)
+        order_id = _identity(order_id, maximum=20)
         # No random/guessed buyer identifier. Future service derives this from its
         # authenticated Telegram principal, never a Mini App body or query field.
         if (
@@ -280,14 +280,14 @@ class TonpayCustomClient:
 
     async def check(self, invoice_id: str, order_id: str, amount: int) -> CustomInvoice:
         invoice_id = _identity(invoice_id)
-        order_id = _identity(order_id, maximum=64)
+        order_id = _identity(order_id, maximum=20)
         amount = _positive(amount)
         data = await self._request("GET", f"invoices/check/{invoice_id}")
         return _invoice(data, order_id, amount, invoice_id=invoice_id, require_order=True)
 
     async def change_card(self, invoice_id: str, order_id: str, amount: int) -> CustomInvoice:
         invoice_id = _identity(invoice_id)
-        order_id = _identity(order_id, maximum=64)
+        order_id = _identity(order_id, maximum=20)
         amount = _positive(amount)
         data = await self._request("POST", f"invoices/{invoice_id}/change-card", json={})
         invoice = _invoice(data, order_id, amount, invoice_id=invoice_id)
@@ -300,7 +300,7 @@ class TonpayCustomClient:
         self, invoice_id: str, order_id: str, amount: int, content: bytes
     ) -> CustomInvoice:
         invoice_id = _identity(invoice_id)
-        order_id = _identity(order_id, maximum=64)
+        order_id = _identity(order_id, maximum=20)
         amount = _positive(amount)
         image = await asyncio.to_thread(receipt_image, content)
         data = await self._request(

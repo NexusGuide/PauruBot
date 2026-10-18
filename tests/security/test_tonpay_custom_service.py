@@ -540,3 +540,21 @@ async def test_new_card_can_receive_new_receipt_without_erasing_old_ack_or_exten
         state = (await session.get(Payment, pid)).meta[service.STATE_KEY]
         assert state["review_until"] == deadline and state["receipt_quote_revision"] == 2
         assert len(state["operations"]) == 3
+
+
+@pytest.mark.parametrize(
+    "remote_status", ["need_action", "action_required_less", "action_required_more", "processing"]
+)
+async def test_original_receipt_denied_outside_provider_pending(bound, remote_status):  # type: ignore[no-untyped-def]
+    maker, owner, pid, client = bound
+    await service.consent(owner, pid, 1, 103_000)
+    await update_state(bound, lambda state: state.update(remote_status=remote_status))
+    with pytest.raises(service.CustomStateError) as exc:
+        await service.submit_receipt(owner, pid, KEY, 1, image_bytes(), client=client)
+    assert exc.value.code == "action_unavailable"
+    client.submit_receipt.assert_not_awaited()
+    async with maker() as session:
+        payment = await session.get(Payment, pid)
+        state = payment.meta[service.STATE_KEY]
+        assert state["operations"] == {} and not state["receipt_received"]
+        assert payment.status == PaymentStatus.PENDING

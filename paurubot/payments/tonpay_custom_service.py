@@ -237,6 +237,10 @@ async def _claim(
         if state.get("review_until") is not None and now >= state["review_until"]:
             raise CustomStateError("review_expired")
         if operation == "receipt":
+            # Provider docs allow an original receipt only while pending. Amount-
+            # mismatch/remainder flows use a separate contract, never this endpoint.
+            if state["remote_status"] != "pending":
+                raise CustomStateError("action_unavailable")
             if state.get("consent_revision") != revision:
                 raise CustomStateError("consent_required")
             if now < state["created_at"] + state["policy"]["receipt_wait"]:
