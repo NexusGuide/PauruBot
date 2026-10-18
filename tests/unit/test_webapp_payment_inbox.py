@@ -4,7 +4,6 @@ from datetime import timedelta
 from unittest.mock import AsyncMock
 
 from paurubot.db.base import utcnow
-
 from paurubot.db.models import Payment
 from paurubot.payments import engine
 from tests.unit import test_webapp_api as fixtures

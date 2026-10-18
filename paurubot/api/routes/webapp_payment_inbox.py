@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Response
-from paurubot.api.webapp_auth import WebApp
-from paurubot.db.base import utcnow
 from sqlalchemy import select
 
+from paurubot.api.webapp_auth import WebApp
+from paurubot.db.base import utcnow
 from paurubot.db.models import Order, Payment, PaymentStatus
 from paurubot.payments import saved_checkout
 

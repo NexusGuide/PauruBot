@@ -7,18 +7,12 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
-from paurubot.api.webapp_auth import WebApp, forced_gate, forget_join_cache
-from paurubot.ledger import wallet
-from paurubot.ledger.accounts import wallet_balance
-from paurubot.panels import PanelError
-from paurubot.payments.chains import NETWORKS
-from paurubot.provisioning import lifecycle
-from paurubot.provisioning.subscription import customer_link
-from paurubot.worker import queue
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select
 
-from paurubot.api.routes import webapp_auto_renew, webapp_payment_inbox, webapp_receipts, webapp_staff
+import paurubot.api.routes.webapp_payment_inbox as webapp_payment_inbox
+from paurubot.api.routes import webapp_auto_renew, webapp_receipts, webapp_staff
+from paurubot.api.webapp_auth import WebApp, forced_gate, forget_join_cache
 from paurubot.core import (
     catalog,
     customer_help,
@@ -50,8 +44,15 @@ from paurubot.db.models import (
     Ticket,
     TicketMessage,
 )
+from paurubot.ledger import wallet
+from paurubot.ledger.accounts import wallet_balance
+from paurubot.panels import PanelError
 from paurubot.payments import engine as payments
 from paurubot.payments.base import PaymentError
+from paurubot.payments.chains import NETWORKS
+from paurubot.provisioning import lifecycle
+from paurubot.provisioning.subscription import customer_link
+from paurubot.worker import queue
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/webapp", tags=["webapp"])
@@ -555,6 +556,7 @@ async def _payment_view(ctx: WebApp, started: payments.Started) -> dict[str, Any
         view["accounts"] = checkout.instructions.get("accounts", [])
     elif payment.provider == "stars":
         from aiogram.types import LabeledPrice
+
         from paurubot.notifications.telegram import get_bot
 
         view["invoice_link"] = await get_bot().create_invoice_link(
@@ -654,6 +656,7 @@ async def upload_receipt(
 async def _store_receipt(ctx: WebApp, data: bytes) -> str | None:
     """Store with the same shop bot used to deliver the photo to its staff reviewers."""
     from aiogram.types import BufferedInputFile
+
     from paurubot.notifications import telegram
 
     try:

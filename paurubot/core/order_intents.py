@@ -12,11 +12,11 @@ import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from paurubot.db.base import utcnow
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core.orders import OrderError
+from paurubot.db.base import utcnow
 from paurubot.db.models import Customer, Order, OrderStatus
 
 META_KEY = "order_intent_v1"
