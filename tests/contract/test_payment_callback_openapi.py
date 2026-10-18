@@ -14,9 +14,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.routing import APIRoute
-from paurubot.payments.providers import gateways
 
 from paurubot.api.routes import pay
+from paurubot.payments.providers import gateways
 
 PATH = "/api/pay/gw/{name}"
 
