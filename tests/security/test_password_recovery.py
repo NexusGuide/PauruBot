@@ -108,7 +108,7 @@ async def test_state_changes_or_expiry_invalidate_token(session, recovery_env, c
         await kv.get_redis().delete(password_reset._key(token))
     await session.commit()
     response = await submit(env, token)
-    assert response.status_code == 400 and response.json()["detail"] == "invalid_reset"
+    assert response.status_code == 400 and response.json()["error"] == "invalid_reset"
     await session.refresh(staff)
     assert staff.password_hash == original or condition == "password"
 
@@ -181,7 +181,7 @@ async def test_legacy_cookie_cannot_rotate_secret_with_a_suffix_collision(sessio
             "new_password": "attacker-replacement",
         },
     )
-    assert result.status_code == 409 and result.json()["detail"] == "legacy_password_reset_required"
+    assert result.status_code == 409 and result.json()["error"] == "legacy_password_reset_required"
     await session.refresh(env["staff"])
     assert env["staff"].password_hash.startswith("$2b$")
 

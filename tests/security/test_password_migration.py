@@ -79,7 +79,7 @@ async def test_legacy_login_then_explicit_password_change(session) -> None:  # t
             json={"current_password": old, "new_password": replacement},
         )
         assert response.status_code == 409, response.text
-        assert response.json()["detail"] == "legacy_password_reset_required"
+        assert response.json()["error"] == "legacy_password_reset_required"
         await session.refresh(row)
         assert row.password_hash == legacy
         # An independently authorized administrator can still explicitly rotate the secret.
