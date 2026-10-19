@@ -17,6 +17,7 @@ from paurubot.audit.log import Actor, record
 from paurubot.auth import staff as staff_service
 from paurubot.db.base import utcnow
 from paurubot.db.models import Staff, StaffApiKey
+from paurubot.i18n import Texts
 from paurubot.notifications import telegram
 from paurubot.security import login_guard
 from paurubot.security.tokens import new_token, sha256_hex
@@ -54,6 +55,15 @@ def _binding(staff: Staff) -> str:
     )
 
 
+def _message(username: str, token: str) -> str:
+    # Fixed built-in security warnings, never per-shop editable overrides.
+    # Keep both languages: account recovery must not depend on an unknown locale.
+    notices = [
+        Texts(locale)("auth_password_reset_notice", username=escape(username)) for locale in ("en", "fa")
+    ]
+    return "\n\n".join(notices) + f"\n<code>{escape(token)}</code>"
+
+
 async def request(session: AsyncSession, username: str, ip: str) -> None:
     username = username.strip().lower()
     await login_guard.check(username, ip)
@@ -72,17 +82,7 @@ async def request(session: AsyncSession, username: str, ip: str) -> None:
     redis = kv.get_redis()
     await redis.set(_key(token), _binding(staff), ex=TTL)
     # No URL / Host header / new destination supplied by the requester is trusted.
-    message = (
-        "Password reset / بازنشانی رمز\n"
-        f"Account / حساب: <b>{escape(staff.username or '')}</b>\n"
-        "This token changes your password and revokes sessions and API keys. "
-        "Paste it only into the password recovery form on your own admin site. "
-        "Never send it to support. If not requested, ignore it. Valid for 5 minutes.\n"
-        "این توکن رمز را تغییر می‌دهد و نشست‌ها و کلیدهای API را لغو می‌کند. "
-        "فقط در فرم بازیابی پنل خودت وارد کن؛ برای پشتیبانی نفرست. "
-        "اگر درخواست ندادی نادیده بگیر. اعتبار: ۵ دقیقه.\n"
-        f"<code>{token}</code>"
-    )
+    message = _message(staff.username or "", token)
     try:
         delivered = await telegram.send_text(staff.telegram_id, message, shop_id=staff.shop_id)
         if delivered is None:

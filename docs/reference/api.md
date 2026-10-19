@@ -186,6 +186,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/auth/login` | public | Login |
 | POST | `/api/auth/logout` | staff session | Logout |
 | GET | `/api/auth/me` | staff session | Me |
+| POST | `/api/auth/password-reset/confirm` | public | Confirm password reset |
+| POST | `/api/auth/password-reset/request` | public | Request password reset |
 | POST | `/api/auth/password` | staff session | Change password |
 
 ## `/api/pay`
