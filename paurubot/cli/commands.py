@@ -216,8 +216,8 @@ async def _reseller_bots() -> tuple[list[Any], frozenset[tuple[int, str]]]:
     async with session_scope() as session:
         rows = await resale.bots(session)
     bots: list[Any] = []
-    for _shop, token in rows:
-        extra = make_bot(token)
+    for shop, token in rows:
+        extra = make_bot(token, shop_id=shop.id)
         try:
             await extra.delete_webhook(drop_pending_updates=False)
             await set_commands(extra, Texts("fa"), Texts("en"))

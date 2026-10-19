@@ -12,25 +12,44 @@ from typing import Any
 from urllib.parse import parse_qsl
 
 import bcrypt
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError
+from argon2.low_level import Type
+
+_PASSWORD_HASHER = PasswordHasher(
+    time_cost=3, memory_cost=65536, parallelism=1, hash_len=32, salt_len=16, type=Type.ID
+)
 
 
 def hash_password(password: str) -> str:
     if len(password) < 10:
         raise ValueError("password must be at least 10 characters")
-    return bcrypt.hashpw(password.encode()[:72], bcrypt.gensalt(rounds=12)).decode()
+    return _PASSWORD_HASHER.hash(password)
 
 
-_DUMMY_HASH = bcrypt.hashpw(b"timing-equaliser", bcrypt.gensalt(rounds=12))
+_DUMMY_HASH = _PASSWORD_HASHER.hash("timing-equaliser")
 
 
 def verify_password(password: str, hashed: str | None) -> bool:
+    """Read versioned hashes; legacy bcrypt retains its historical 72-byte semantics.
+
+    A legacy hash cannot tell us whether the original password had a suffix. Do not
+    silently rehash it on login: only an explicit password change establishes a new secret.
+    """
     if not hashed:
-        bcrypt.checkpw(password.encode()[:72], _DUMMY_HASH)
+        try:
+            _PASSWORD_HASHER.verify(_DUMMY_HASH, password)
+        except VerificationError:
+            pass
         return False
     try:
-        return bcrypt.checkpw(password.encode()[:72], hashed.encode())
-    except ValueError:
+        if hashed.startswith("$argon2id$"):
+            return _PASSWORD_HASHER.verify(hashed, password)
+        if hashed.startswith(("$2a$", "$2b$", "$2y$")):
+            return bcrypt.checkpw(password.encode()[:72], hashed.encode())
+    except (InvalidHashError, VerificationError, ValueError):
         return False
+    return False
 
 
 def constant_equals(a: str | bytes | None, b: str | bytes | None) -> bool:
