@@ -39,6 +39,19 @@ def test_reencodes_images_and_strips_metadata() -> None:
         (png()[:-20], "image/png"),
         (b"x" * (512 * 1024 + 1), "text/plain"),
     ],
+    ids=[
+        "svg",
+        "html",
+        "script",
+        "archive",
+        "pdf",
+        "nul-text",
+        "invalid-utf8",
+        "fake-png",
+        "mime-mismatch",
+        "truncated-png",
+        "oversized-text",
+    ],
 )
 def test_rejects_active_binary_mismatched_and_malformed_payloads(data: bytes, mime: str) -> None:
     with pytest.raises(HTTPException) as error:
@@ -46,7 +59,7 @@ def test_rejects_active_binary_mismatched_and_malformed_payloads(data: bytes, mi
     assert error.value.status_code == 415
 
 
-@pytest.mark.parametrize("data", [b"", b"x" * (files.MAX_BYTES + 1)])
+@pytest.mark.parametrize("data", [b"", b"x" * (files.MAX_BYTES + 1)], ids=["empty", "over-byte-limit"])
 def test_hard_byte_limit(data: bytes) -> None:
     with pytest.raises(HTTPException) as error:
         files.validate(data, "text/plain")
