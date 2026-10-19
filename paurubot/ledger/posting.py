@@ -54,7 +54,7 @@ async def post(
     actor: str | None = None,
     reverses_id: int | None = None,
 ) -> Posted:
-    """Post a balanced journal once. Re-posting with the same key returns the original journal."""
+    """Post once; replay a key only for the same financial effect and business reference."""
     merged: dict[int, int] = defaultdict(int)
     for line in lines:
         if not isinstance(line.amount, int) or isinstance(line.amount, bool):
@@ -89,7 +89,25 @@ async def post(
                 select(LedgerJournal).where(LedgerJournal.idempotency_key == idempotency_key)
             )
             assert existing is not None
-            if existing.shop_id != shop_id or existing.kind != kind:
+            if (
+                existing.shop_id != shop_id
+                or existing.kind != kind
+                or existing.reference_type != reference_type
+                or existing.reference_id != reference_id
+                or existing.reverses_id != reverses_id
+            ):
+                raise LedgerError("idempotency key reused for a different journal")
+            # Compare canonical effects against the immutable entries, including old
+            # journals: no fingerprint migration and no trust in retry-supplied amounts.
+            previous: dict[int, int] = defaultdict(int)
+            for account_id, amount in await session.execute(
+                select(LedgerEntry.account_id, LedgerEntry.amount).where(
+                    LedgerEntry.journal_id == existing.id
+                )
+            ):
+                previous[account_id] += amount
+            previous = {acc: amt for acc, amt in previous.items() if amt != 0}
+            if previous != merged:
                 raise LedgerError("idempotency key reused for a different journal")
             return Posted(existing, False)
 
