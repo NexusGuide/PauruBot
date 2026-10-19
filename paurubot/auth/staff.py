@@ -12,7 +12,12 @@ from paurubot.auth import sessions
 from paurubot.db.base import utcnow
 from paurubot.db.models import ResellerProfile, Staff, StaffApiKey, StaffRole
 from paurubot.security import login_guard
-from paurubot.security.tokens import constant_equals, hash_password, sha256_hex, verify_password
+from paurubot.security.tokens import (
+    constant_equals,
+    hash_password,
+    sha256_hex,
+    verify_password,
+)
 
 
 class AuthError(Exception):
@@ -84,6 +89,12 @@ async def create_staff(
 
 
 async def change_password(session: AsyncSession, staff: Staff, new_password: str) -> None:
+    locked = await session.scalar(
+        select(Staff).where(Staff.id == staff.id).with_for_update().execution_options(populate_existing=True)
+    )
+    if locked is None or not locked.is_active:
+        raise AuthError("invalid credentials")
+    staff = locked
     staff.password_hash = hash_password(new_password)
     staff.session_version += 1
     await session.flush()
@@ -118,7 +129,9 @@ async def reseller_allow_list(session: AsyncSession, staff: Staff) -> list[str] 
 async def by_telegram(session: AsyncSession, shop_id: int, telegram_id: int) -> Staff | None:
     return await session.scalar(
         select(Staff).where(
-            Staff.shop_id == shop_id, Staff.telegram_id == telegram_id, Staff.is_active.is_(True)
+            Staff.shop_id == shop_id,
+            Staff.telegram_id == telegram_id,
+            Staff.is_active.is_(True),
         )
     )
 
@@ -181,7 +194,8 @@ async def verify_code(session: AsyncSession, username: str, code: str, ip: str) 
         and staff.is_active
         and stored
         and constant_equals(
-            stored if isinstance(stored, str) else stored.decode(), _code_hash(staff.id, code.strip())
+            stored if isinstance(stored, str) else stored.decode(),
+            _code_hash(staff.id, code.strip()),
         )
     )
     if not ok or staff is None:
@@ -224,7 +238,12 @@ def _key_hash(secret: str) -> str:
 
 
 async def create_api_key(
-    session: AsyncSession, staff: Staff, name: str, *, read_only: bool, expires_at: datetime | None
+    session: AsyncSession,
+    staff: Staff,
+    name: str,
+    *,
+    read_only: bool,
+    expires_at: datetime | None,
 ) -> tuple[StaffApiKey, str]:
     """Return the new key row and the full key, which is never stored or shown again."""
     prefix = secrets.token_hex(6)
