@@ -9,6 +9,7 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 
+from paurubot.api.deps import current_staff, get_db
 from paurubot.api.routes import tonpay_custom as api
 
 pytestmark = pytest.mark.security
@@ -136,19 +137,59 @@ async def test_uncertain_receipt_denied_before_body_decode(adapter, monkeypatch)
     submit.assert_not_awaited()
 
 
-async def test_operator_route_does_not_allow_scoped_staff(adapter, monkeypatch):  # type: ignore[no-untyped-def]
+@pytest.mark.parametrize("has_permission", [True, False])
+async def test_operator_route_does_not_allow_scoped_staff(adapter, monkeypatch, has_permission):  # type: ignore[no-untyped-def]
     client, _, _, app, _ = adapter
-    route = next(r for r in api.router.routes if r.path.endswith("/tonpay-reconcile"))
-    dependency = next(d.call for d in route.dependant.dependencies if d.name == "ctx")
+    # Override the stable principal dependency, not require(...)'s generated closure:
+    # postponed annotations can evaluate that factory again when a router is mounted.
+    # Keep the actual permission checker and endpoint scoped-staff guard active.
+    principal = AsyncMock(
+        return_value=SimpleNamespace(
+            scoped=True, can=lambda permission: has_permission and permission == "payments.review"
+        )
+    )
 
     async def staff():  # type: ignore[no-untyped-def]
-        return SimpleNamespace(scoped=True)
+        return await principal()
 
-    app.dependency_overrides[dependency] = staff
-    refresh = AsyncMock()
+    database = SimpleNamespace(scalar=AsyncMock(), commit=AsyncMock())
+
+    async def db():  # type: ignore[no-untyped-def]
+        yield database
+
+    app.dependency_overrides[current_staff] = staff
+    app.dependency_overrides[get_db] = db
+    refresh, audit = AsyncMock(), AsyncMock()
     monkeypatch.setattr(api.service, "refresh", refresh)
+    monkeypatch.setattr(api, "record", audit)
     r = await client.post(
         "/api/admin/payments/13/tonpay-reconcile", json={"reason": "Synthetic review reason"}
     )
-    assert r.status_code == 403
+    assert r.status_code == 403 and r.json()["detail"] == "forbidden"
+    principal.assert_awaited_once()
+    database.scalar.assert_not_awaited()
+    database.commit.assert_not_awaited()
+    audit.assert_not_awaited()
+    refresh.assert_not_awaited()
+
+
+async def test_operator_route_requires_authentication(adapter, monkeypatch):  # type: ignore[no-untyped-def]
+    client, _, _, app, _ = adapter
+    database = SimpleNamespace(scalar=AsyncMock(), commit=AsyncMock())
+
+    async def db():  # type: ignore[no-untyped-def]
+        yield database
+
+    # Do not override current_staff or require: unauthenticated requests must stay 401.
+    app.dependency_overrides[get_db] = db
+    refresh, audit = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(api.service, "refresh", refresh)
+    monkeypatch.setattr(api, "record", audit)
+    r = await client.post(
+        "/api/admin/payments/13/tonpay-reconcile", json={"reason": "Synthetic review reason"}
+    )
+    assert r.status_code == 401 and r.json()["detail"] == "not_authenticated"
+    database.scalar.assert_not_awaited()
+    database.commit.assert_not_awaited()
+    audit.assert_not_awaited()
     refresh.assert_not_awaited()
