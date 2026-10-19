@@ -28,12 +28,14 @@ _bot: Bot | None = None
 
 
 def make_bot(token: str | None = None, shop_id: int | None = None) -> Bot:
+    from paurubot.bot.polling import PollingRetryMiddleware
     from paurubot.bot.premium_emoji import PremiumEmojiMiddleware
 
     bot = Bot(
         token or get_settings().bot_token.get_secret_value(),
         default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True),
     )
+    bot.session.middleware(PollingRetryMiddleware(shop_id))
     bot.session.middleware(PremiumEmojiMiddleware(shop_id))  # BOT-10
     return bot
 
