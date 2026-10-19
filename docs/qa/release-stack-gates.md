@@ -5,7 +5,9 @@ configuration activation, provider call, Telegram staging session or migration r
 
 ## Dependency inspection
 
-Observed open stack: #96 → #112 → #120 → #122 → #123 → #124 → #125.
+Observed checkout stack: #96 → #112 → #120 → #122 → #123 → #124.
+#125 renewal preview and #127 signed guest checkout are siblings on #124.
+#126 independent password recovery is stacked on #91, not the checkout branch.
 #91 is a separate password-hashing prerequisite for independent recovery.
 #105 → #108 is another line; #117 wallet transfers, #118 notifications and #119 ticket media
 are sibling feature branches from #108, NOT automatically included in the checkout stack.
@@ -23,13 +25,41 @@ A child's earlier CI success is not evidence that all current parent fixes are i
 - #119, 5f8f40f: python + frontend success, run 39218141739.
 - #123, 3bc281b: python + frontend success, run 39225739643.
 - #124, 20e9771: python + frontend success, run 39229051643.
-- #125, 7b98341: frontend success; **python failure**, run 39233739049.
-  Failure logs were not exposed by current MCP tools; no root cause or fix is claimed.
+- #125, 95271d6: python + frontend success, run 39241711331. The user log showed
+  stale API reference documentation (one failure / 1236 passed); the missing renewal-preview
+  row was added. This is read-only forecast coverage, not a binding delayed-renewal contract.
+- #126, 58bc5d3: python + frontend success, run 39241192242. The user log showed
+  a hard-coded Persian source string and stale API reference (two failures / 1071 passed).
+  Fixed built-in bilingual reset notices, exact access classification and both reference rows.
+  These checks cover that functional head; a subsequent documentation-only audit commit is
+  not retrospectively certified by the earlier run.
+- #127, 81ed5f0: frontend success; python still in progress at last inspection,
+  run 39242375742. The two nullable replay-variable mypy assignments were fixed.
+  No full-suite success claim until the exact-head job completes.
 - Other PRs: current-head CI was not revalidated in this pass. Pending is not success.
+
+## Confirmed static integration blockers
+
+This pass inspected GitHub changed-file patches for #117/#118/#119/#125/#127, the
+#124 migration directory/card revision, and the guest migration. It did NOT construct
+or execute the full combined application. See `release-stack-static-audit.md` for details.
+
+- The combined post-0025 graph has THREE heads: `0026_announcements`,
+  `0026_ticket_media`, `0027_guest_checkout` (the latter follows `0026_card_verification`).
+  Distinct revision IDs are valid; the repeated filename prefix `0026` is not itself
+  a duplicate revision error. A singular `upgrade head` becomes ambiguous on the union.
+  An Alembic RevisionMap topology-only reproduction raised MultipleHeads. A simulated
+  three-parent merge produced one head; no real merge migration or DDL was executed.
+- #117/#118/#125 each replace the same `test:ux` command. Taking one side would omit
+  feature regressions. Preserve wallet-transfer, announcements, card-verification and
+  renewal-preview suites along with the existing UX/top-up tests.
+- Shared routes/API client/locales/reference/model-export files require semantic integration,
+  not a blanket ours/theirs resolution. Changed-file overlap alone is not proof of conflict.
 
 ## Required execution order
 
-1. Obtain #125 failure logs; reproduce/fix the precise error and rerun its exact-head checks.
+1. Confirm completion of #127 exact-head Python checks; retain the passing #125/#126
+   functional-head evidence above, and revalidate any changed integration/documentation heads.
 2. Freeze chosen head SHAs and compare every stack delta, not only titles or green badges.
 3. Build a disposable integration branch containing selected canonical security/payment/UI commits
    and the three sibling features. Resolve shared webapp routes, API client, locales, package.json,
@@ -47,7 +77,9 @@ A child's earlier CI success is not evidence that all current parent fixes are i
 
 ## Still requires implementation or an explicit decision
 
-- Guest/Bot/legacy/unkeyed checkout deduplication across real caller paths.
+- #127 implements durable reservation for signed public POST /buy/{shop} forms only.
+  Bot/legacy/internal core.guest.start callers and unkeyed top-ups remain unchanged.
+  Deliberately new form identities are not globally deduplicated or a hard purchase cap.
 - Provider-authenticated recovery when a creation result/reference is unknown. Do not trust a user
   supplied transaction ID, retry a possibly-created invoice, or infer success from amount/address alone.
 - A binding renewal contract through delayed payment and queue execution: decide price/plan/usage
