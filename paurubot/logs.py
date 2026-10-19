@@ -9,13 +9,18 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
-from paurubot.security.redact import RedactingFilter
+from paurubot.security.redact import RedactingFilter, redact
 
 correlation_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("correlation_id", default=None)
 # Extra fields added to every log line of the current task: job, queue, shop, customer (ARC-04).
 log_tags: contextvars.ContextVar[dict[str, object] | None] = contextvars.ContextVar("log_tags", default=None)
 
 _RESERVED = set(vars(logging.makeLogRecord({}))) | {"message", "asctime"}
+
+
+def error_shop_id(value: object) -> int | None:
+    """Only an explicit positive integer is tenant provenance; never coerce user text/bools."""
+    return value if type(value) is int and value > 0 else None
 
 
 class JsonFormatter(logging.Formatter):
@@ -84,14 +89,18 @@ class TelegramErrorHandler(logging.Handler):
         try:
             entry = {
                 "process": self.process,
-                "logger": record.name,
-                "msg": record.getMessage()[:500],
-                "exc": (record.exc_text or "")[-1500:] if record.exc_info or record.exc_text else "",
+                "logger": redact(record.name),
+                "shop_id": error_shop_id((log_tags.get() or {}).get("shop")),
+                "msg": redact(record.getMessage())[:500],
+                "exc": record.exc_text or "",
                 "cid": correlation_id.get(),
                 "ts": record.created,
             }
             if record.exc_info and not entry["exc"]:
-                entry["exc"] = logging.Formatter().formatException(record.exc_info)[-1500:]
+                entry["exc"] = logging.Formatter().formatException(record.exc_info)
+            entry["exc"] = redact(str(entry["exc"]))[-1500:]
+            if entry["cid"]:
+                entry["cid"] = redact(str(entry["cid"]))
             client = self._redis()
             pipe = client.pipeline()
             pipe.rpush(self.KEY, json.dumps(entry, default=str))

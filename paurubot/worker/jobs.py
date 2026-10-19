@@ -704,40 +704,45 @@ async def draw_lotteries() -> None:
 
 @every(30, "errors.flush")
 async def flush_errors() -> None:
-    """Post logged errors from every process to the "errors" log channel, grouped (ARC-04)."""
+    """Group errors within one tenant only; unscoped/legacy records go to platform owners."""
     import json as _json
 
     from paurubot import kv
     from paurubot.core.formatting import esc
-    from paurubot.logs import TelegramErrorHandler
-    from paurubot.notifications.handlers import report
+    from paurubot.logs import TelegramErrorHandler, error_shop_id
+    from paurubot.notifications.handlers import report_error
+    from paurubot.security.redact import redact
 
     redis = kv.get_redis()
     raw = await redis.lpop(TelegramErrorHandler.KEY, 50)
     if not raw:
         return
-    groups: dict[tuple[str, str], list[dict]] = {}
+    groups: dict[tuple[int | None, str, str], list[dict]] = {}
     for item in raw if isinstance(raw, list) else [raw]:
         try:
             entry = _json.loads(item)
-        except ValueError:
+        except (TypeError, ValueError):
             continue
-        groups.setdefault((entry.get("logger", ""), entry.get("msg", "")), []).append(entry)
+        if not isinstance(entry, dict):
+            continue
+        logger_name, message = entry.get("logger", ""), entry.get("msg", "")
+        if not isinstance(logger_name, str) or not isinstance(message, str):
+            continue
+        shop_id = error_shop_id(entry.get("shop_id"))
+        groups.setdefault((shop_id, logger_name, message), []).append(entry)
     async with session_scope() as session:
-        shop_ids = list(await session.scalars(select(Shop.id)))
-        for (logger_name, message), entries in groups.items():
+        for (shop_id, logger_name, message), entries in groups.items():
             first = entries[0]
             text = (
-                f"⚠️ <b>{esc(first.get('process') or '?')}</b> · {esc(logger_name)}"
+                f"⚠️ <b>{esc(redact(str(first.get('process') or '?')))}</b> · {esc(redact(logger_name))}"
                 + (f" ×{len(entries)}" if len(entries) > 1 else "")
-                + f"\n{esc(message)}"
+                + f"\n{esc(redact(message))}"
             )
             if first.get("cid"):
-                text += f"\n<code>{esc(first['cid'])}</code>"
+                text += f"\n<code>{esc(redact(str(first['cid'])))}</code>"
             if first.get("exc"):
-                text += f"\n<pre>{esc(str(first['exc'])[-900:])}</pre>"
-            for shop_id in shop_ids:
-                await report(session, shop_id, "errors", text)
+                text += f"\n<pre>{esc(redact(str(first['exc']))[-900:])}</pre>"
+            await report_error(session, shop_id, text)
 
 
 @every(30, "worker.heartbeat")
