@@ -74,9 +74,9 @@ async def reserve(shop_id: int, plan_id: int, method: str, locale: str, token: s
                 raise guest.GuestError(exc.key) from exc
             intent.customer_id, intent.order_id = customer.id, order.id
         else:
-            customer = await session.get(Customer, intent.customer_id) if intent.customer_id else None
-            order = await session.get(Order, intent.order_id) if intent.order_id else None
-            if not owns(customer, order, shop_id):
+            saved_customer = await session.get(Customer, intent.customer_id) if intent.customer_id else None
+            saved_order = await session.get(Order, intent.order_id) if intent.order_id else None
+            if not owns(saved_customer, saved_order, shop_id):
                 raise guest.GuestError("payment_intent_closed")
         assert intent.customer_id is not None and intent.order_id is not None
         result = intent.customer_id, intent.order_id

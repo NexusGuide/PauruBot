@@ -60,21 +60,12 @@ def _with_intent(response: HTMLResponse, shop_id: int, token: str) -> HTMLRespon
 
 def _intent_notice(t: Texts, error: str) -> str:
     known = {
-        "payment_intent_invalid": (
-            "این فرم منقضی یا نامعتبر است؛ صفحه را دوباره باز کن.",
-            "This form expired or is invalid. Open the store again.",
-        ),
-        "payment_intent_conflict": (
-            "این درخواست قبلاً با پلن یا روش دیگری ثبت شده است؛ پرداخت دیگری ساخته نشد.",
-            "This request already uses another plan or method. No replacement payment was created.",
-        ),
-        "payment_intent_closed": (
-            "این درخواست بسته یا به تلگرام منتقل شده است؛ پرداخت دیگری ساخته نشد.",
-            "This request is closed or claimed in Telegram. No replacement payment was created.",
-        ),
+        "payment_intent_invalid": "guest_checkout_form_invalid",
+        "payment_intent_conflict": "guest_checkout_form_conflict",
+        "payment_intent_closed": "guest_checkout_form_closed",
     }
     if error in known:
-        return known[error][0 if t.locale == "fa" else 1]
+        return t(known[error])
     text = t(error)
     return text if text != error else t("gateway_error")
 
