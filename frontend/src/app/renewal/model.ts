@@ -46,3 +46,10 @@ export function decodePreview(v: unknown, expected: Expected): Preview {
 export function fresh(preview: Preview, now = Date.now()): boolean {
   return Date.parse(preview.valid_until) > now && Date.parse(preview.computed_at) <= now + 30_000;
 }
+
+/** Include year and device timezone; month/day alone can hide a year-long renewal. */
+export function previewTime(iso: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale === "fa" ? "fa-IR-u-ca-persian" : "en-GB", {
+    year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short",
+  }).format(new Date(iso));
+}

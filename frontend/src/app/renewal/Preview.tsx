@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { dateTime, money } from "@shared/format";
+import { size } from "@shared/format";
 import { api, type Order } from "../api";
 import { useApp } from "../state";
 import { Button, Panel } from "../ui";
-import { decodePreview, fresh, type Preview, type Snapshot } from "./model";
+import { decodePreview, fresh, previewTime, type Preview, type Snapshot } from "./model";
 
 export function RenewalPreview({ order, onReady }: { order: Order; onReady: (id: number | null) => void }) {
   const { t, locale } = useApp();
@@ -30,12 +30,12 @@ export function RenewalPreview({ order, onReady }: { order: Order; onReady: (id:
     return () => { active = false; abort.abort(); clearTimeout(timer); onReady(null); };
   }, [order.id, order.service_id, order.plan_id, order.amount, onReady, retry]);
   const value = data?.order_id === order.id ? data : null;
-  const bytes = (n: number) => `${money(n / 1024 ** 3, locale)} ${t("gb")}`;
+  const bytes = (n: number) => size(n, locale, t("units").split(","));
   const view = (s: Snapshot, title: string) => (
     <section className="mt-3" aria-label={title}>
       <h3 className="font-semibold">{title}</h3>
       <dl className="mt-2 space-y-2">
-        <div className="app-ln"><dt>{t("expires")}</dt><dd>{s.expire_at ? dateTime(s.expire_at, locale) : t("never_expires")}</dd></div>
+        <div className="app-ln"><dt>{t("expires")}</dt><dd>{s.expire_at ? previewTime(s.expire_at, locale) : t("never_expires")}</dd></div>
         <div className="app-ln"><dt>{t("renew_preview_limit")}</dt><dd>{s.data_limit === 0 ? t("unlimited_data") : bytes(s.data_limit)}</dd></div>
         <div className="app-ln"><dt>{t("used")}</dt><dd>{bytes(s.used_bytes)}</dd></div>
         <div className="app-ln"><dt>{t("data_left_label")}</dt><dd>{s.remaining_bytes === null ? t("unlimited_data") : bytes(s.remaining_bytes)}</dd></div>
@@ -49,14 +49,14 @@ export function RenewalPreview({ order, onReady }: { order: Order; onReady: (id:
       {failed && <p role="alert">{t("renew_preview_failed")}</p>}
       {expired && <p role="alert">{t("renew_preview_expired")}</p>}
       {value && <>
-        <p className="app-hint mt-2 text-sm">{t("renew_preview_basis", { date: dateTime(value.computed_at, locale) })}</p>
+        <p className="app-hint mt-2 text-sm">{t("renew_preview_basis", { date: previewTime(value.computed_at, locale) })}</p>
         {value.timing === "immediate" && <>
           <p className="mt-2">{t(`renew_preview_time_${value.policy.time}`)}</p>
           <p>{t(`renew_preview_volume_${value.policy.volume}`)}</p>
           <p>{t(value.resets_usage ? "renew_preview_reset" : "renew_preview_keep_usage")}</p>
         </>}
         {view(value.before, t("renew_preview_before"))}
-        {value.after ? view(value.after, t("renew_preview_after")) : <p className="mt-3">{t("renew_preview_queued", { date: dateTime(value.queued_until!, locale) })}</p>}
+        {value.after ? view(value.after, t("renew_preview_after")) : <p className="mt-3">{t("renew_preview_queued", { date: previewTime(value.queued_until!, locale) })}</p>}
         <p className="app-hint mt-3 text-sm">{t("renew_preview_notice")}</p>
       </>}
     </div>

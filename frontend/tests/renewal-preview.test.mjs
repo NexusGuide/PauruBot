@@ -3,7 +3,7 @@ import test from 'node:test';
 import {readFileSync, mkdtempSync, writeFileSync, rmSync} from 'node:fs';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {execFileSync} from 'node:child_process';
-import {decodePreview, fresh} from '../src/app/renewal/model.ts';
+import {decodePreview, fresh, previewTime} from '../src/app/renewal/model.ts';
 const expected={id:10,service_id:20,plan_id:30,amount:90000};
 function sample(){const now=Date.now();return {order_id:10,service_id:20,plan_id:30,amount:90000,
  computed_at:new Date(now).toISOString(),valid_until:new Date(now+60000).toISOString(),basis:'stored_service_snapshot',
@@ -29,6 +29,12 @@ for(const [name,change] of Object.entries({
  'too long validity':v=>v.valid_until=new Date(Date.parse(v.computed_at)+61000).toISOString(),
  'expired interval':v=>v.valid_until=v.computed_at,
 })) test(`decoder rejects ${name}`,()=>{const v=sample();change(v);assert.throws(()=>decodePreview(v,expected));});
+test('timestamps distinguish years and include the device timezone in both locales',()=>{
+ for(const locale of ['en','fa']) assert.notEqual(previewTime('2026-01-10T13:45:00Z',locale),previewTime('2027-01-10T13:45:00Z',locale));
+ assert.match(previewTime('2026-01-10T13:45:00Z','en'),/2026/);
+ const source=readFileSync(new URL('../src/app/renewal/Preview.tsx',import.meta.url),'utf8');
+ assert(source.includes('size(n, locale, t("units").split(","))')); // small byte counts must not round to 0 GB
+});
 test('freshness fails for expired or implausibly future previews',()=>{
  const v=sample(),now=Date.now();assert(fresh(v,now));assert(!fresh(v,now+61000));assert(!fresh(v,now-60000));
 });
@@ -52,14 +58,14 @@ test('checkout gates wallet and every external method on this order preview, wit
 const temp=mkdtempSync(new URL('./.renewal-',import.meta.url));
 try{
  let source=readFileSync(new URL('../src/app/renewal/Preview.tsx',import.meta.url),'utf8').replace(/^import .*;\n/gm,'');
- const prelude=`import {decodePreview,fresh} from './model.js';
+ const prelude=`import {decodePreview,fresh,previewTime} from './model.js';
  let states:any[]=[],index=0,effect:any;
  const useState=(initial:any)=>{const i=index++;if(!(i in states))states[i]=initial;return[states[i],(v:any)=>{states[i]=typeof v==='function'?v(states[i]):v}]};
  const useEffect=(fn:any)=>{effect=fn};
  export const pending:any[]=[];export const timers:any[]=[];
  const api={renewalPreview:(id:any,signal:any)=>new Promise((resolve,reject)=>pending.push({id,signal,resolve,reject}))};
  const setTimeout=(fn:any)=>{timers.push(fn);return timers.length};const clearTimeout=()=>{};
- const useApp=()=>({t:(key:any)=>key,locale:'en'});const dateTime=(v:any)=>v,money=(v:any)=>String(v);
+ const useApp=()=>({t:(key:any)=>key,locale:'en'});const size=(v:any)=>String(v);
  const Button=()=>null,Panel=()=>null;
  export function mount(order:any,onReady:any){states=[];index=0;RenewalPreview({order,onReady});return effect()}
  `;
