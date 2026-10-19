@@ -70,8 +70,8 @@ def replay(payment: Payment, customer: Customer, fingerprint: dict[str, str | in
         or snapshot.get("request") != fingerprint
     ):
         raise PaymentError("payment_intent_conflict")
-    attempt = (payment.meta or {}).get("hosted_attempt_v1")
-    if isinstance(attempt, dict) and attempt.get("state") == "uncertain":
+    attempts = [(payment.meta or {}).get(key) for key in ("hosted_attempt_v1", "order_attempt_v1")]
+    if any(isinstance(attempt, dict) and attempt.get("state") == "uncertain" for attempt in attempts):
         # Existing clients retain their key on gateway_error; closed/conflict clears it.
         # Never tell a client to replace the key for an ambiguous remote creation.
         raise PaymentError("gateway_error")

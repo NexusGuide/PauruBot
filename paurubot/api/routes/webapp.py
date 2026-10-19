@@ -49,6 +49,7 @@ from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.panels import PanelError
 from paurubot.payments import engine as payments
+from paurubot.payments import order_checkout
 from paurubot.payments.base import PaymentError
 from paurubot.payments.chains import NETWORKS
 from paurubot.provisioning import lifecycle
@@ -556,6 +557,10 @@ async def _payment_view(ctx: WebApp, started: payments.Started) -> dict[str, Any
     view: dict[str, Any] = {"payment_id": payment.id, "provider": payment.provider, "amount": payment.amount}
     if payment.provider == "card":
         view["accounts"] = checkout.instructions.get("accounts", [])
+    elif payment.provider == "stars" and checkout.instructions.get("invoice_link"):
+        # Durable order checkout already created this link once. A response retry
+        # must not ask Telegram to generate another independently payable link.
+        view["invoice_link"] = checkout.instructions["invoice_link"]
     elif payment.provider == "stars":
         from aiogram.types import LabeledPrice
 
@@ -591,9 +596,13 @@ async def pay_order(order_id: int, body: PayBody, ctx: WebApp) -> dict[str, Any]
             raise HTTPException(status_code=400, detail=exc.key) from exc
         return {"order": order_view(order)}
     try:
-        started = await payments.pay_order(ctx.session, ctx.customer, order, body.method)
+        started = await order_checkout.start(ctx.session, ctx.customer, order, body.method)
     except PaymentError as exc:
-        raise HTTPException(status_code=400, detail=exc.key) from exc
+        status = (
+            409 if exc.key in {"payment_intent_conflict", "payment_intent_closed", "order_expired"} else 400
+        )
+        raise HTTPException(status_code=status, detail=exc.key) from exc
+    await ctx.session.refresh(order)
     await ctx.session.commit()
     return {"order": order_view(order), "payment": await _payment_view(ctx, started)}
 
