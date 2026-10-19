@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core import orders
 from paurubot.db.base import utcnow
-from paurubot.db.models import Job, JobStatus, Order, Panel, Service, Shop
+from paurubot.db.models import Job, JobStatus, Order, Panel, Service, ServiceStatus, Shop
 from paurubot.db.session import session_scope
 from paurubot.panels import PanelError, PanelUnavailable
 from paurubot.payments import engine as payments
@@ -40,6 +40,9 @@ async def provision_order(session: AsyncSession, job: queue.Claimed) -> None:
 
 
 async def provision_dead(session: AsyncSession, job: queue.Claimed, error: str) -> None:
+    if job.kind == "refresh_service":
+        log.warning("panel refresh exhausted for service %s", job.payload.get("service_id"))
+        return
     if job.kind != "order":
         log.warning("gave up removing a moved account: %s", error[:200])
         return
@@ -56,10 +59,38 @@ async def cleanup_panel_user(session: AsyncSession, job: queue.Claimed) -> None:
         raise Retry(str(exc)) from exc
 
 
+async def refresh_panel_hint(session: AsyncSession, job: queue.Claimed) -> None:
+    """Fetch current provider state, never replay the webhook's stale payload."""
+    if job.shop_id is None:
+        raise Permanent("panel refresh requires a shop")
+    service = await session.scalar(
+        select(Service)
+        .where(Service.id == int(job.payload["service_id"]))
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if service is None:
+        return
+    if service.shop_id != job.shop_id or service.panel_id != int(job.payload["panel_id"]):
+        raise Permanent("panel refresh scope mismatch")
+    if service.status == ServiceStatus.DELETED:
+        return
+    panel = await session.get(Panel, service.panel_id)
+    if panel is None or panel.shop_id != job.shop_id:
+        raise Permanent("panel refresh scope mismatch")
+    if not panel.is_active:
+        return
+    previous = service.status
+    # Panel failures roll back through the existing retry/dead-letter runner.
+    await lifecycle.refresh(session, service)
+    if service.status != ServiceStatus.DELETED:
+        await sync.evaluate_alerts(session, service, previous)
+
+
 register_queue(
     "provision",
     QueueSpec(
-        {"order": provision_order, "cleanup_user": cleanup_panel_user},
+        {"order": provision_order, "cleanup_user": cleanup_panel_user, "refresh_service": refresh_panel_hint},
         on_dead=provision_dead,
         batch=5,
         lease_seconds=180,
@@ -704,40 +735,45 @@ async def draw_lotteries() -> None:
 
 @every(30, "errors.flush")
 async def flush_errors() -> None:
-    """Post logged errors from every process to the "errors" log channel, grouped (ARC-04)."""
+    """Group errors within one tenant only; unscoped/legacy records go to platform owners."""
     import json as _json
 
     from paurubot import kv
     from paurubot.core.formatting import esc
-    from paurubot.logs import TelegramErrorHandler
-    from paurubot.notifications.handlers import report
+    from paurubot.logs import TelegramErrorHandler, error_shop_id
+    from paurubot.notifications.handlers import report_error
+    from paurubot.security.redact import redact
 
     redis = kv.get_redis()
     raw = await redis.lpop(TelegramErrorHandler.KEY, 50)
     if not raw:
         return
-    groups: dict[tuple[str, str], list[dict]] = {}
+    groups: dict[tuple[int | None, str, str], list[dict]] = {}
     for item in raw if isinstance(raw, list) else [raw]:
         try:
             entry = _json.loads(item)
-        except ValueError:
+        except (TypeError, ValueError):
             continue
-        groups.setdefault((entry.get("logger", ""), entry.get("msg", "")), []).append(entry)
+        if not isinstance(entry, dict):
+            continue
+        logger_name, message = entry.get("logger", ""), entry.get("msg", "")
+        if not isinstance(logger_name, str) or not isinstance(message, str):
+            continue
+        shop_id = error_shop_id(entry.get("shop_id"))
+        groups.setdefault((shop_id, logger_name, message), []).append(entry)
     async with session_scope() as session:
-        shop_ids = list(await session.scalars(select(Shop.id)))
-        for (logger_name, message), entries in groups.items():
+        for (shop_id, logger_name, message), entries in groups.items():
             first = entries[0]
             text = (
-                f"⚠️ <b>{esc(first.get('process') or '?')}</b> · {esc(logger_name)}"
+                f"⚠️ <b>{esc(redact(str(first.get('process') or '?')))}</b> · {esc(redact(logger_name))}"
                 + (f" ×{len(entries)}" if len(entries) > 1 else "")
-                + f"\n{esc(message)}"
+                + f"\n{esc(redact(message))}"
             )
             if first.get("cid"):
-                text += f"\n<code>{esc(first['cid'])}</code>"
+                text += f"\n<code>{esc(redact(str(first['cid'])))}</code>"
             if first.get("exc"):
-                text += f"\n<pre>{esc(str(first['exc'])[-900:])}</pre>"
-            for shop_id in shop_ids:
-                await report(session, shop_id, "errors", text)
+                text += f"\n<pre>{esc(redact(str(first['exc']))[-900:])}</pre>"
+            await report_error(session, shop_id, text)
 
 
 @every(30, "worker.heartbeat")
