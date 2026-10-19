@@ -3,22 +3,54 @@
 from __future__ import annotations
 
 import re
+from uuid import uuid4
 
 import httpx
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from paurubot import kv
 from paurubot.core import guest
 from paurubot.core import settings as shop_settings
+from paurubot.db import session as db_session
 from paurubot.db.models import Customer, Job, JobStatus, Order, OrderStatus, Service
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.notifications import telegram as notify_telegram
 from paurubot.panels import registry
 from tests import factories
+from tests.conftest import _migrate
 from tests.fakes.panels import FakeTokenPanel, transport
 from tests.unit.test_gateways import CONFIG, fake  # noqa: F401  (gateway mock fixture)
 from tests.unit.test_provisioning import drain
+
+
+@pytest.fixture
+async def session(engine):  # type: ignore[no-untyped-def]
+    """Real independent commits in a fresh schema; never nest sessions on one connection.
+
+    The global savepoint fixture cannot model durable guest/order payment sessions:
+    closing the read-only caller rolls back savepoints released by its inner writer.
+    A unique per-test schema permits real commits without leaking rows to other tests.
+    """
+    schema = f"test_guest_{uuid4().hex}"
+    async with engine.begin() as conn:
+        await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
+    isolated = create_async_engine(engine.url, connect_args={"server_settings": {"search_path": schema}})
+    try:
+        async with isolated.begin() as conn:
+            await conn.run_sync(_migrate)
+        maker = async_sessionmaker(isolated, expire_on_commit=False)
+        db_session.set_sessionmaker(maker)
+        shop_settings.invalidate()
+        async with maker() as actual:
+            yield actual
+    finally:
+        db_session.set_sessionmaker(None)  # type: ignore[arg-type]
+        await isolated.dispose()
+        async with engine.begin() as conn:
+            await conn.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        shop_settings.invalidate()
 
 
 @pytest.fixture
@@ -95,7 +127,8 @@ async def test_web_purchase_end_to_end_and_claim(session, store) -> None:  # typ
     assert notify_telegram.is_guest_chat(customer.telegram_id) and not notify_telegram.is_guest_chat(
         -1001234567890
     )
-    payment_id = (await guest.status(session, customer))["payment"].id
+    purchase = await guest.status(session, customer)
+    payment_id = purchase["payment"].id
 
     back = await client.get(
         "/api/pay/gw/aqayepardakht",
@@ -111,7 +144,12 @@ async def test_web_purchase_end_to_end_and_claim(session, store) -> None:  # typ
     assert lost.status_code != 303 and token not in lost.text  # another browser learns nothing
     building = await client.get(f"/buy/t/{token}?lang=en")
     assert "being set up" in building.text
+    # HTTP callbacks committed on other connections; refresh the observer's cached
+    # order/payment before using that same session to run the provisioning worker.
+    await session.refresh(purchase["order"])
+    await session.refresh(purchase["payment"])
     await drain(session, "provision")
+    await session.refresh(customer)
     ready = await client.get(f"/buy/t/{token}?lang=en")
     assert "Your service is ready" in ready.text and f"start=claim_{token}" in ready.text
     service = await session.scalar(select(Service).where(Service.customer_id == customer.id))
@@ -266,3 +304,51 @@ async def test_changed_order_price_never_resumes_guest_invoice(session, store): 
     changed = await client.get(first.headers["location"])
     assert changed.status_code == 200 and "0;url=" not in changed.text
     assert 'class="btn primary" href=' not in changed.text
+
+
+async def test_guest_attempt_visible_before_provider_and_survives_observer_rollback(
+    session, store, monkeypatch
+):  # type: ignore[no-untyped-def]
+    from unittest.mock import AsyncMock
+
+    from sqlalchemy import func
+
+    from paurubot.db.models import GuestCheckoutIntent, Payment, Shop
+    from paurubot.payments import engine, order_checkout
+    from paurubot.security import guest_form
+
+    shop, plan, client = store
+    sid, pid, original_title = shop.id, plan.id, shop.title
+    payload = await form(client, sid, pid)
+    maker = db_session.get_sessionmaker()
+    provider = engine.provider("aqayepardakht")
+    actual_create = provider.create
+
+    async def create(payment, cfg):  # type: ignore[no-untyped-def]
+        # A separate connection must see the durable attempt BEFORE remote I/O.
+        async with maker() as observer:
+            stored = await observer.get(Payment, payment.id)
+            intent = await observer.get(GuestCheckoutIntent, guest_form.digest(payload["intent"]))
+            assert stored is not None and intent is not None
+            assert (intent.customer_id, intent.order_id) == (stored.customer_id, stored.order_id)
+            assert stored.meta[order_checkout.ATTEMPT_KEY]["state"] == "uncertain"
+        return await actual_create(payment, cfg)
+
+    remote = AsyncMock(side_effect=create)
+    monkeypatch.setattr(provider, "create", remote)
+    shop.title = "observer-only change must not be committed"
+    first = await client.post(f"/buy/{sid}", data=payload)
+    assert first.status_code == 303
+    await session.rollback()
+    async with maker() as observer:
+        assert (await observer.get(Shop, sid)).title == original_title
+        for model in (Customer, Order, Payment, GuestCheckoutIntent):
+            assert (
+                await observer.scalar(select(func.count()).select_from(model).where(model.shop_id == sid))
+                == 1
+            )
+    ready = await client.get(first.headers["location"])
+    assert 'http-equiv="refresh" content="0;url=' in ready.text
+    again = await client.post(f"/buy/{sid}", data=payload)
+    assert again.status_code == 303 and again.headers["location"] == first.headers["location"]
+    remote.assert_awaited_once()

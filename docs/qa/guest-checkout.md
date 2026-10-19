@@ -2,7 +2,7 @@
 
 ## Scope
 
-This change routes the public `POST /buy/{shop}` through one durable guest/order reservation and the existing per-order payment attempt. It is stacked on PR124, not the currently failing renewal/password branches. It does not merge or deploy the stack, enable gateways, select financial policy, or contact real providers during validation.
+This change routes the public `POST /buy/{shop}` through one durable guest/order reservation and the existing per-order payment attempt. It is stacked on PR124, independently of the renewal-preview and password-recovery branches. It does not merge or deploy the stack, enable gateways, select financial policy, or contact real providers during validation.
 
 A signed form and matching HttpOnly cookie are required; old tokenless bookmarks/scripts POSTing directly must first GET the store. A normal GET/reload preserves the same form identity. An explicit `new=1` / Buy again action starts another intentional purchase; independent browser identities are not globally deduplicated. Two different deliberate intents can buy the same plan.
 
@@ -27,6 +27,30 @@ A user can deliberately request another identity; this is not a hard global purc
 - Local validation: 11 actual-helper SQLite scenarios, 13 signed-token tests, 11 actual-router HTTP scenarios and one isolated Alembic SQLite migration test passed. Ruff, format, compile and dependency-skipping targeted mypy also passed. Catalogue/order-draft, authentication and unrelated provider dependencies use controlled seams; this is NOT real PostgreSQL concurrency or full-app QA.
 - Committed security regressions use independent PostgreSQL commits and the existing disposable-schema fixture: visible reservation/attempt before provider I/O, in-flight and simultaneous-first retries, immutable plan/method, timeout/cancellation, reservation gap, claim/delete tombstones, invalid choice rollback. Existing full-app guest tests obtain real form tokens; added HTTP cookie/replay/uncertain-page checks.
 - Do not report CI green until the exact pushed head has passed. No real Telegram, mobile browser, provider, PostgreSQL/full-chain migration or staging QA has run locally.
+
+## Full-app CI fixture correction
+
+The user-supplied log for head `81ed5f0` contains 4 failures / 1236 passes, all in
+`tests/unit/test_guest.py`. The shared global test fixture binds all sessions to one
+connection and nests their "commits" inside savepoints. A read-only caller rollback can
+then undo the inner payment writer's released savepoint; that is not independent durability.
+A controlled actual-router/SQLAlchemy reproduction with that transaction topology yielded
+customer/order/payment/intent counts `[1, 1, 0, 1]` and no gateway redirect, matching the
+observed missing-payment symptoms. No production provider request was made.
+
+The guest HTTP module now uses a fresh UUID-named PostgreSQL schema per test, migrated
+with the existing `_migrate` helper, and a maker bound to its engine (not one connection).
+The sessionmaker is reset and that specific schema is dropped during teardown. Other
+modules keep their original rollback fixture. No payment implementation or safety checks
+were relaxed. The full purchase/claim observer refreshes its cached order/payment/customer
+after separate HTTP connections commit, before running provisioning/checking spent totals.
+
+A new HTTP regression checks independent visibility of reservation/payment before mock
+provider I/O, preservation through observer rollback, no accidental observer writes, and
+one provider call across replay. It passed locally using the actual test body with the
+SQLite/router/model/provider seams; the previous 11 actual-router scenarios passed again.
+Ruff/format and compile passed. These are NOT a local run of the PostgreSQL fixture or the
+full 1240-test app suite; the new exact-head GitHub run is required for that evidence.
 
 ## Migration / staging gates
 
