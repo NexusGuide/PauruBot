@@ -52,7 +52,13 @@ async def owned_order(intent_engine, monkeypatch):  # type: ignore[no-untyped-de
         session.add(shop)
         await session.flush()
         await shop_settings.set_many(
-            session, shop.id, {"card_accounts": [{"number": "6037990000000000"}], "stars_rate": 1000}
+            session,
+            shop.id,
+            {
+                "card_accounts": [{"number": "6037990000000000"}],
+                "stars_rate": 1000,
+                "card_random_tail": False,
+            },
         )
         customer = await factories.customer(session, shop)
         order = Order(
@@ -440,3 +446,29 @@ async def test_payment_expiring_during_create_is_not_reopened(owned_order, monke
         row = await observer.scalar(select(Payment).where(Payment.order_id == oid))
         assert row.status == PaymentStatus.EXPIRED and row.provider_ref == "synthetic-ref"
     remote.assert_awaited_once()
+
+
+async def test_api_stars_response_reuses_link_instead_of_legacy_serializer_io(session, app_env, monkeypatch):  # type: ignore[no-untyped-def]
+    from paurubot.notifications import telegram
+
+    client, plan, shop = app_env["client"], app_env["plan"], app_env["shop"]
+    await shop_settings.set_many(session, shop.id, {"stars_enabled": True, "stars_rate": 1000})
+    await session.commit()
+    bot = AsyncMock()
+    bot.create_invoice_link.return_value = "https://t.me/$same-order-link"
+    monkeypatch.setattr(telegram, "bot_for", AsyncMock(return_value=bot))
+
+    def legacy_bot():
+        raise AssertionError("order response must not create another invoice link")
+
+    monkeypatch.setattr(telegram, "get_bot", legacy_bot)
+    created = await client.post(
+        "/api/webapp/orders", headers=h(89103), json={"kind": "purchase", "plan_id": plan.id}
+    )
+    oid = created.json()["order"]["id"]
+    first = await client.post(f"/api/webapp/orders/{oid}/pay", headers=h(89103), json={"method": "stars"})
+    again = await client.post(f"/api/webapp/orders/{oid}/pay", headers=h(89103), json={"method": "stars"})
+    assert first.status_code == again.status_code == 200, (first.text, again.text)
+    assert first.json()["payment"] == again.json()["payment"]
+    assert first.json()["payment"]["invoice_link"] == "https://t.me/$same-order-link"
+    bot.create_invoice_link.assert_awaited_once()
