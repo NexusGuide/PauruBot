@@ -36,7 +36,9 @@ from paurubot.db.models import (
     TicketDepartment,
 )
 from paurubot.i18n import Texts, texts_for
+from paurubot.logs import error_shop_id
 from paurubot.notifications import review_sync, telegram
+from paurubot.security.redact import redact
 from paurubot.worker import queue
 from paurubot.worker.runner import Permanent, QueueSpec, Retry, register_queue
 
@@ -123,6 +125,24 @@ async def report(session: AsyncSession, shop_id: int, topic: str, text: str) -> 
         await telegram.send_text(channel.chat_id, text, message_thread_id=channel.thread_id, shop_id=shop_id)
     except telegram.Undeliverable:
         log.warning("log channel %s for %s is unreachable", channel.chat_id, topic)
+
+
+async def report_error(session: AsyncSession, shop_id: int | None, text: str) -> None:
+    """Never infer a tenant or enumerate shops for an operational error.
+
+    Unscoped, legacy and deleted-shop errors are platform-only, using the main bot and
+    explicitly configured OWNER_TELEGRAM_IDS. No owners configured means no Telegram
+    delivery; the process's normal log sinks remain authoritative.
+    """
+    scoped_id = error_shop_id(shop_id)
+    if scoped_id is not None and await session.get(Shop, scoped_id) is not None:
+        await report(session, scoped_id, "errors", text)
+        return
+    for chat_id in sorted(set(get_settings().owner_telegram_ids)):
+        try:
+            await telegram.send_text(chat_id, text, shop_id=None)
+        except Exception:  # delivery is best-effort and must not create another error alert
+            log.warning("platform error notification could not be delivered to %s", chat_id)
 
 
 # --- handlers -------------------------------------------------------------------------
@@ -806,20 +826,25 @@ async def report_job(session: AsyncSession, job: queue.Claimed) -> None:
 
 async def job_dead(session: AsyncSession, job: queue.Claimed) -> None:
     """A job ran out of retries (JOB-05): tell the errors log channel so nothing fails silently."""
-    shop_ids = [job.shop_id] if job.shop_id else list(await session.scalars(select(Shop.id)))
-    for shop_id in shop_ids:
-        shop = await session.get(Shop, shop_id)
-        if shop is None:
-            continue
+    shop = await session.get(Shop, job.shop_id) if job.shop_id is not None else None
+    error = esc(redact(str(job.payload.get("error") or "-")))
+    if shop is not None:
         t = await texts_for(session, shop.id, shop.default_locale)
         text = t(
             "report_job_dead",
             id=job.payload.get("job_id"),
             queue=esc(str(job.payload.get("queue"))),
             kind=esc(str(job.payload.get("kind"))),
-            error=esc(str(job.payload.get("error") or "-")),
+            error=error,
         )
-        await report(session, shop.id, "errors", text)
+    else:
+        text = (
+            "⚠️ <b>Background job exhausted retries</b>"
+            f"\n#{esc(str(job.payload.get('job_id')))}"
+            f" · {esc(str(job.payload.get('queue')))} / {esc(str(job.payload.get('kind')))}"
+            f"\n{error}"
+        )
+    await report_error(session, job.shop_id, text)
 
 
 async def panel_alert(session: AsyncSession, job: queue.Claimed) -> None:

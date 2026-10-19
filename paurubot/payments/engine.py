@@ -183,19 +183,38 @@ async def attach_receipt(
     return duplicate
 
 
-async def auto_approvable(session: AsyncSession, payment: Payment, cfg: dict[str, Any]) -> bool:
-    """Card auto-approve rules (PAY-05): small amounts from customers with a clean card history."""
-    if payment.receipt_file_id is None:
-        return False
+async def auto_review_customer(session: AsyncSession, payment: Payment) -> Customer | None:
+    """Shared exclusions for immediate and timed approval; never replace a requested human review."""
+    if (
+        payment.provider != "card"
+        or payment.status != PaymentStatus.VERIFYING
+        or not payment.receipt_file_id
+        or payment.duplicate_of_id is not None
+        or (payment.meta or {}).get("fix_requests")
+    ):
+        return None
     customer = await session.get(Customer, payment.customer_id)
-    if customer is not None and customer.card_trust == "trusted":
+    if (
+        customer is None
+        or customer.shop_id != payment.shop_id
+        or customer.card_trust == "blocked"
+        or customer.risk in {"medium", "high"}
+    ):
+        return None
+    return customer
+
+
+async def auto_approvable(session: AsyncSession, payment: Payment, cfg: dict[str, Any]) -> bool:
+    """PAY-05 history/amount rules, with the explicit PAY-17 trusted-customer exception."""
+    customer = await auto_review_customer(session, payment)
+    if customer is None:
+        return False
+    if customer.card_trust == "trusted":
         return True  # the shop vouched for this customer (PAY-17)
     if not cfg.get("card_auto_approve"):
         return False
     if payment.amount > int(cfg.get("card_auto_max_amount") or 0):
         return False
-    if customer is not None and customer.risk in {"medium", "high"}:
-        return False  # risky customers always get a human look (BOT-08)
     history = await session.scalar(
         select(func.count(Payment.id)).where(
             Payment.customer_id == payment.customer_id,

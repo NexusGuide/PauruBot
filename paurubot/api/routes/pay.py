@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from sqlalchemy import select
 
 from paurubot import kv
+from paurubot.api.body import BodyTooLarge, read_limited_body
 from paurubot.api.deps import DB
 from paurubot.db.models import Payment, PaymentStatus, Shop
 from paurubot.payments import engine
@@ -61,8 +62,9 @@ MAX_CALLBACK = 64 * 1024
 
 @router.post("/nowpayments/ipn")
 async def nowpayments_ipn(request: Request, db: DB) -> Response:
-    raw = await request.body()
-    if len(raw) > MAX_CALLBACK:
+    try:
+        raw = await read_limited_body(request, MAX_CALLBACK)
+    except BodyTooLarge:
         return Response("too large", status_code=413, media_type="text/plain")
     try:
         order_id = int(json.loads(raw).get("order_id"))
@@ -75,8 +77,9 @@ async def nowpayments_ipn(request: Request, db: DB) -> Response:
 
 @router.post("/plisio/callback")
 async def plisio_callback(request: Request, db: DB) -> Response:
-    raw = await request.body()
-    if len(raw) > MAX_CALLBACK:
+    try:
+        raw = await read_limited_body(request, MAX_CALLBACK)
+    except BodyTooLarge:
         return Response("too large", status_code=413, media_type="text/plain")
     try:
         order_id = int(json.loads(raw).get("order_number"))
@@ -117,11 +120,9 @@ async def gateway_callback(name: str, request: Request, db: DB) -> Response:
     gateway = GATEWAYS.get(name)
     if gateway is None or engine.PROVIDERS.get(name) is not gateway:
         return Response("unknown gateway", status_code=404, media_type="text/plain")
-    declared = request.headers.get("content-length", "")
-    if declared.isdigit() and int(declared) > MAX_CALLBACK:
-        return Response("too large", status_code=413, media_type="text/plain")
-    raw = await request.body()
-    if len(raw) > MAX_CALLBACK:
+    try:
+        raw = await read_limited_body(request, MAX_CALLBACK)
+    except BodyTooLarge:
         return Response("too large", status_code=413, media_type="text/plain")
     data, form = parse_body(raw, request.headers.get("content-type", ""))
     query = dict(request.query_params)
