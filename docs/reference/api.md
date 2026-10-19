@@ -233,6 +233,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/me` | Mini App initData | Me |
 | POST | `/api/webapp/orders/{order_id}/cancel` | Mini App initData | Cancel order |
 | POST | `/api/webapp/orders/{order_id}/pay` | Mini App initData | Pay order |
+| GET | `/api/webapp/orders/{order_id}/renewal-preview` | Mini App initData | Get renewal preview |
 | GET | `/api/webapp/orders/{order_id}` | Mini App initData | Get order |
 | POST | `/api/webapp/orders` | Mini App initData | Create order |
 | GET | `/api/webapp/payments/{payment_id}/receipt-state` | Mini App initData | State |
