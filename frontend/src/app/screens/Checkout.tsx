@@ -6,6 +6,7 @@ import { api, type Order } from "../api";
 import { Icon } from "../icons";
 import { prepareDraft, reviseDraft } from "../order-draft";
 import { actionGate } from "../topup-intents";
+import { RenewalPreview } from "../renewal/Preview";
 import { errorText, useApp } from "../state";
 import { haptic, openExternal, openInvoice } from "../telegram";
 import { ActionBar, Button, Loading, Panel, Screen, Steps } from "../ui";
@@ -34,6 +35,7 @@ export function Checkout() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [order, setOrder] = useState<Order | null>(null);
+  const [previewedOrderId, setPreviewedOrderId] = useState<number | null>(null);
   const [due, setDue] = useState(0);
   const [balance, setBalance] = useState(0);
   const [code, setCode] = useState("");
@@ -138,7 +140,9 @@ export function Checkout() {
     }
   };
 
+  const renewalReady = order.kind !== "renew" || previewedOrderId === order.id;
   const pay = async (selected: string) => {
+    if (!renewalReady) return;
     if (!gate.current.enter()) return;
     setBusy(selected);
     try {
@@ -204,6 +208,8 @@ export function Checkout() {
           )}
         </>
       )}
+
+      {order.kind === "renew" && <RenewalPreview order={order} onReady={setPreviewedOrderId} />}
 
       <div className="app-card mt-4 p-4">
         {order.kind === "account_purchase" && (
@@ -276,7 +282,7 @@ export function Checkout() {
           {methods.length > 1 && (
             <div className="mt-3 flex flex-col gap-3">
               {methods.slice(1).map((option) => (
-                <Button key={option} tone="quiet" busy={busy === option} disabled={busy !== null} onClick={() => pay(option)}>
+                <Button key={option} tone="quiet" busy={busy === option} disabled={busy !== null || !renewalReady} onClick={() => pay(option)}>
                   {t(`method_${option}`)}
                 </Button>
               ))}
@@ -290,7 +296,7 @@ export function Checkout() {
         price={`${money(order.amount, locale)} ${t("currency")}`}
         action={due === 0 ? t("pay_from_wallet") : t(`method_${method}`)}
         busy={busy !== null}
-        disabled={due > 0 && methods.length === 0}
+        disabled={!renewalReady || (due > 0 && methods.length === 0)}
         onClick={() => pay(due === 0 ? "wallet" : method)}
       />
     </Screen>

@@ -318,6 +318,7 @@ export const api = {
   renewMany: (ids: number[]) =>
     post<{ renewed: number[]; failed: { id: number; error: string }[]; balance: number }>("/reseller/renew", { service_ids: ids }),
   order: (id: number) => get<{ order: Order }>(`/orders/${id}`),
+  renewalPreview: (id: number, signal?: AbortSignal) => get<unknown>(`/orders/${id}/renewal-preview`, signal),
   payOrder: (id: number, method: string) =>
     post<{ order: Order; payment?: PaymentStart }>(`/orders/${id}/pay`, { method }),
   cancelOrder: (id: number) => post<{ ok: boolean }>(`/orders/${id}/cancel`),

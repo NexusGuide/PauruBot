@@ -24,6 +24,7 @@ from paurubot.core import (
     orders,
     panel_accounts,
     pricing,
+    renewal_preview,
     reseller_desk,
     tickets,
     trials,
@@ -546,6 +547,16 @@ async def _own_order(ctx: WebApp, order_id: int) -> Order:
 @router.get("/orders/{order_id}")
 async def get_order(order_id: int, ctx: WebApp) -> dict[str, Any]:
     return {"order": order_view(await _own_order(ctx, order_id))}
+
+
+@router.get("/orders/{order_id}/renewal-preview")
+async def get_renewal_preview(order_id: int, ctx: WebApp) -> dict[str, Any]:
+    order = await _own_order(ctx, order_id)
+    try:
+        return await renewal_preview.for_order(ctx.session, ctx.customer, order)
+    except orders.OrderError as exc:
+        status = 404 if exc.key in {"order_not_found", "service_not_found"} else 409
+        raise HTTPException(status_code=status, detail=exc.key) from exc
 
 
 class PayBody(BaseModel):
