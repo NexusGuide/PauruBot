@@ -42,6 +42,7 @@ from paurubot.db.models.enums import (
     UsernameMethod,
 )
 from paurubot.db.models.growth import BusinessConnection, Lottery, LotteryEntry, WheelSpin
+from paurubot.db.models.guest_checkout import GuestCheckoutIntent
 from paurubot.db.models.ops import (
     AuditLog,
     BotText,
@@ -73,6 +74,7 @@ from paurubot.db.models.tenancy import (
 from paurubot.db.models.usage import ServiceUsage
 
 __all__ = [
+    "GuestCheckoutIntent",
     "AccountPlan",
     "PanelAccount",
     "ApplicationStatus",
