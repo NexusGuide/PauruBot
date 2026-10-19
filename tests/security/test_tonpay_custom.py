@@ -246,6 +246,7 @@ async def test_receipt_ack_must_be_explicit_boolean(received):  # type: ignore[n
 @pytest.mark.parametrize(
     "body",
     [b"", b"<svg></svg>", b"%PDF-1.7", b"not an image", b"\x89PNG\r\n\x1a\n", b"x" * (RECEIPT_LIMIT + 1)],
+    ids=["empty", "svg", "pdf", "non-image", "truncated-png", "over-byte-limit"],
 )
 async def test_invalid_receipt_never_leaves_server(body):  # type: ignore[no-untyped-def]
     api, calls = client()
@@ -288,7 +289,11 @@ async def test_http_failure_never_redirects_or_retries_mutation(status):  # type
     assert len(calls) == 1 and calls[0].url.host == "tonpays.online"
 
 
-@pytest.mark.parametrize("body", [b"[]", b"null", b"not json", b'{"paid":false,"paid":true}', b" " * 65537])
+@pytest.mark.parametrize(
+    "body",
+    [b"[]", b"null", b"not json", b'{"paid":false,"paid":true}', b" " * 65537],
+    ids=["array", "null", "invalid-json", "duplicate-key", "oversized-json"],
+)
 async def test_invalid_or_ambiguous_json_never_accepted(body):  # type: ignore[no-untyped-def]
     api = TonpayCustomClient(KEY, transport=httpx.MockTransport(lambda _: httpx.Response(200, content=body)))
     with pytest.raises(CustomAPIError):
