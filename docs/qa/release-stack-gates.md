@@ -33,9 +33,10 @@ A child's earlier CI success is not evidence that all current parent fixes are i
   Fixed built-in bilingual reset notices, exact access classification and both reference rows.
   These checks cover that functional head; a subsequent documentation-only audit commit is
   not retrospectively certified by the earlier run.
-- #127, 81ed5f0: frontend success; python still in progress at last inspection,
-  run 39242375742. The two nullable replay-variable mypy assignments were fixed.
-  No full-suite success claim until the exact-head job completes.
+- #127, 81ed5f0: frontend success; **python failure**, run 39242375742
+  (Python job 118026024541). The prior two nullable replay-variable mypy assignments
+  were fixed, but this new job failure has no exposed logs in the current MCP tool.
+  Its failing step/root cause is NOT known; obtain the new job log before patching.
 - Other PRs: current-head CI was not revalidated in this pass. Pending is not success.
 
 ## Confirmed static integration blockers
@@ -58,7 +59,8 @@ or execute the full combined application. See `release-stack-static-audit.md` fo
 
 ## Required execution order
 
-1. Confirm completion of #127 exact-head Python checks; retain the passing #125/#126
+1. Obtain the NEW #127 failed Python job log, fix its demonstrated cause and rerun;
+   retain the passing #125/#126
    functional-head evidence above, and revalidate any changed integration/documentation heads.
 2. Freeze chosen head SHAs and compare every stack delta, not only titles or green badges.
 3. Build a disposable integration branch containing selected canonical security/payment/UI commits
