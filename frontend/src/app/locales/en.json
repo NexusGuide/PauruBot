@@ -329,6 +329,8 @@
   "tickets_refresh": "Refresh",
   "tickets_retry": "Try again",
   "tickets_loading": "Loading…",
+  "tickets_no_matches": "No tickets match these filters on this page.",
+  "tickets_clear_filters": "Clear ticket filters",
   "tickets_empty": "No tickets on this page.",
   "tickets_older": "Older tickets",
   "tickets_latest": "Newest tickets",

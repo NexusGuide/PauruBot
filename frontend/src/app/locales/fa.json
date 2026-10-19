@@ -329,6 +329,8 @@
   "tickets_refresh": "به‌روزرسانی",
   "tickets_retry": "تلاش دوباره",
   "tickets_loading": "در حال دریافت…",
+  "tickets_no_matches": "در این صفحه تیکتی مطابق این فیلترها نیست.",
+  "tickets_clear_filters": "پاک کردن فیلترهای تیکت",
   "tickets_empty": "در این صفحه تیکتی وجود ندارد.",
   "tickets_older": "تیکت‌های قدیمی‌تر",
   "tickets_latest": "جدیدترین تیکت‌ها",
