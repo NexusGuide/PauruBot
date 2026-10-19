@@ -28,7 +28,7 @@ async def authenticate(session: AsyncSession, username: str, password: str, ip: 
     await login_guard.check(username, ip)
     staff = await session.scalar(select(Staff).where(func.lower(Staff.username) == username.lower()))
     shop_id = staff.shop_id if staff else None
-    # Always run bcrypt so a missing account costs the same time as a wrong password.
+    # Missing accounts still run a password KDF; legacy bcrypt remains readable.
     password_ok = verify_password(password, staff.password_hash if staff else None)
     if staff is None or not staff.is_active or not password_ok:
         await login_guard.failed(username, ip)

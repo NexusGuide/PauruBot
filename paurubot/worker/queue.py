@@ -160,14 +160,22 @@ def backoff(attempt: int, base: float = 15.0, cap: float = 3600.0) -> float:
     return delay * random.uniform(0.8, 1.2)
 
 
-async def fail(session: AsyncSession, job: Claimed, error: str, *, retry: bool = True) -> bool | None:
+async def fail(
+    session: AsyncSession,
+    job: Claimed,
+    error: str,
+    *,
+    retry: bool = True,
+    retry_after: float | None = None,
+) -> bool | None:
     """True=dead, False=retry, None=lost claim (no mutation and no dead-letter hooks)."""
     dead = not retry or job.attempts >= job.max_attempts
     values: dict[str, Any] = {"last_error": error[:2000], "lease_until": None}
     if dead:
         values.update(status=JobStatus.DEAD, finished_at=utcnow())
     else:
-        values.update(status=JobStatus.QUEUED, run_at=utcnow() + timedelta(seconds=backoff(job.attempts)))
+        delay = max(backoff(job.attempts), retry_after or 0.0)
+        values.update(status=JobStatus.QUEUED, run_at=utcnow() + timedelta(seconds=delay))
     result = await session.execute(update(Job).where(*_owned(job)).values(**values))
     return dead if affected(result) else None
 

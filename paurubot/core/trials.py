@@ -1,7 +1,8 @@
 """Trial policy with generations, daily quota and race-free reservations (CAT-04).
 
-A reservation is the unique (shop, customer, generation) row in `trial_grants`: two concurrent
-requests cannot both get a trial. Raising `trial_generation` lets every customer try again.
+A reservation is the unique (shop, customer, generation) row in `trial_grants`. A transaction
+advisory lock also serializes the shared shop quota across different customers. Raising
+`trial_generation` lets every customer try again without resetting the rolling 24-hour quota.
 """
 
 from __future__ import annotations
@@ -16,6 +17,9 @@ from paurubot.core import settings as shop_settings
 from paurubot.db.base import utcnow
 from paurubot.db.models import Customer, Order, OrderKind, OrderStatus, Panel, TrialGrant
 from paurubot.worker import queue
+
+# Stable namespaced key; hashing to bigint also supports the full bigint Shop.id range.
+_QUOTA_LOCK_NAMESPACE = "paurubot:trial-quota:"
 
 
 class TrialError(Exception):
@@ -90,6 +94,14 @@ async def _trial_panel(session: AsyncSession, shop_id: int, panel_id: int | None
 
 async def request(session: AsyncSession, customer: Customer) -> Order:
     """Reserve a trial and queue its provisioning as a zero-amount order."""
+    reason = await eligibility(session, customer)
+    if reason:
+        raise TrialError(reason)
+    # Keep the eligibility count and grant insertion in one serialized transaction. The
+    # customer uniqueness constraint alone cannot protect a shop-wide quota. The lock lasts
+    # until the caller commits/rolls back, not just until this function returns.
+    lock_key = func.hashtextextended(f"{_QUOTA_LOCK_NAMESPACE}{customer.shop_id}", 0)
+    await session.execute(select(func.pg_advisory_xact_lock(lock_key)))
     reason = await eligibility(session, customer)
     if reason:
         raise TrialError(reason)
