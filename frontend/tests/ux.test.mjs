@@ -38,5 +38,8 @@ try {
  test('Button keeps explicit submit type and caller class',()=>{const html=renderToStaticMarkup(createElement(Button,{type:'submit',className:'custom'},'Save'));assert(html.includes('type="submit"'));assert(html.includes('custom'))});
 } finally {rmSync(temp,{recursive:true,force:true})}
 
+// Customer ticket filter regressions share the existing CI UX suite.
+import "./ticket-pages.test.mjs";
+
 // Service detail recovery regressions run in the existing CI UX suite.
 import "./service-read.test.mjs";
