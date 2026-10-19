@@ -20,7 +20,7 @@ A signed form and matching HttpOnly cookie are required; old tokenless bookmarks
 
 Legacy internal `core.guest.start`, bot checkout, unkeyed top-ups and non-participating callers are unchanged. Do not claim all-channel exactly-once charging. Unknown-reference recovery from authenticated provider evidence, manual resolution of uncertain invoices, late renewal guarantees, trusted caps and step-up rules are separate work. No invoice is auto-refunded/cancelled/replaced. Provider I/O and PostgreSQL are not distributed-atomic.
 
-A user can deliberately request another identity; this is not a hard global purchase cap. An uncertain first payment must be reviewed before instructing a customer to buy again. No availability promise is made for a lost/expired browser form or a disabled shop; the saved private purchase link/return cookie remains the status route where available.
+A user can deliberately request another identity; this is not a hard global purchase cap. The store page for a retained reservation shows only its status/resume actions, not a Buy again invitation. An uncertain first payment must be reviewed before instructing a customer to buy again. No availability promise is made for a lost/expired browser form or a disabled shop; the saved private purchase link/return cookie remains the status route where available.
 
 ## Validation evidence
 

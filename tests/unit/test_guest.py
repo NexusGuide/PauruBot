@@ -244,6 +244,9 @@ async def test_uncertain_guest_page_never_exposes_stale_gateway_link(session, st
     page = await client.get(first.headers["location"] + "&lang=en")
     assert page.status_code == 200 and "must-not-show" not in page.text
     assert "new=1" not in page.text and "0;url=" not in page.text
+    store_page = await client.get(f"/buy/{shop.id}")
+    assert form_identity(store_page) == payload["intent"]
+    assert "new=1" not in store_page.text  # no invitation to replace an unresolved purchase
     again = await client.post(f"/buy/{shop.id}", data=payload)
     assert again.status_code == 303 and again.headers["location"] == first.headers["location"]
     create.assert_awaited_once()

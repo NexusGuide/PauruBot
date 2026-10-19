@@ -121,8 +121,7 @@ async def _store(db: DB, request: Request, shop: Shop, t: Texts, error: str = ""
 <input type="hidden" name="intent" value="{escape(intent_token)}">
 <input type="hidden" name="plan_id" value="{intent.plan_id}">
 <input type="hidden" name="method" value="{escape(intent.method)}">
-<button type="submit" class="btn primary">{escape(t("guest_go_pay"))}</button></form>
-<a class="btn ghost" href="{new_link}">{escape(t("guest_buy_again"))}</a></section>'''
+<button type="submit" class="btn primary">{escape(t("guest_go_pay"))}</button></form></section>'''
         else:
             body = f'<section class="card"><p>{escape(_intent_notice(t, "payment_intent_closed"))}</p><a href="{new_link}">{escape(t("guest_buy_again"))}</a></section>'
         return _with_intent(_page(t, title, body, status=400 if error else 200), shop.id, intent_token)
