@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core import orders
 from paurubot.db.base import utcnow
-from paurubot.db.models import Job, JobStatus, Order, Panel, Service, Shop
+from paurubot.db.models import Job, JobStatus, Order, Panel, Service, ServiceStatus, Shop
 from paurubot.db.session import session_scope
 from paurubot.panels import PanelError, PanelUnavailable
 from paurubot.payments import engine as payments
@@ -40,6 +40,9 @@ async def provision_order(session: AsyncSession, job: queue.Claimed) -> None:
 
 
 async def provision_dead(session: AsyncSession, job: queue.Claimed, error: str) -> None:
+    if job.kind == "refresh_service":
+        log.warning("panel refresh exhausted for service %s", job.payload.get("service_id"))
+        return
     if job.kind != "order":
         log.warning("gave up removing a moved account: %s", error[:200])
         return
@@ -56,10 +59,38 @@ async def cleanup_panel_user(session: AsyncSession, job: queue.Claimed) -> None:
         raise Retry(str(exc)) from exc
 
 
+async def refresh_panel_hint(session: AsyncSession, job: queue.Claimed) -> None:
+    """Fetch current provider state, never replay the webhook's stale payload."""
+    if job.shop_id is None:
+        raise Permanent("panel refresh requires a shop")
+    service = await session.scalar(
+        select(Service)
+        .where(Service.id == int(job.payload["service_id"]))
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if service is None:
+        return
+    if service.shop_id != job.shop_id or service.panel_id != int(job.payload["panel_id"]):
+        raise Permanent("panel refresh scope mismatch")
+    if service.status == ServiceStatus.DELETED:
+        return
+    panel = await session.get(Panel, service.panel_id)
+    if panel is None or panel.shop_id != job.shop_id:
+        raise Permanent("panel refresh scope mismatch")
+    if not panel.is_active:
+        return
+    previous = service.status
+    # Panel failures roll back through the existing retry/dead-letter runner.
+    await lifecycle.refresh(session, service)
+    if service.status != ServiceStatus.DELETED:
+        await sync.evaluate_alerts(session, service, previous)
+
+
 register_queue(
     "provision",
     QueueSpec(
-        {"order": provision_order, "cleanup_user": cleanup_panel_user},
+        {"order": provision_order, "cleanup_user": cleanup_panel_user, "refresh_service": refresh_panel_hint},
         on_dead=provision_dead,
         batch=5,
         lease_seconds=180,
