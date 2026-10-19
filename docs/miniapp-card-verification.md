@@ -2,7 +2,7 @@
 
 ## Scope
 
-The wallet's **Card verification** screen registers card evidence for the existing shop staff review flow. A `card_verify_required` response from wallet top-up or order checkout opens the same screen. After approval the customer must deliberately return to checkout and retry; no payment is automatically created, resumed, credited or approved by registration.
+The wallet's **Card verification** screen registers card evidence for the existing shop staff review flow. A `card_verify_required` response from wallet top-up or order checkout opens the same screen. The checkout link retains the same owner-scoped draft URL; arbitrary/cross-owner return redirects fall back to the wallet. After approval the customer must deliberately return to checkout and retry; no payment is automatically created, resumed, credited or approved by registration.
 
 - `GET /api/webapp/cards/verification`: current policy, independent approved flag, submit eligibility and up to 20 recent own masked rows.
 - `POST /api/webapp/cards/verification`: strict JSON `{intent_key, number, image}`; `image` is base64, not a URL/data URI. Success returns `{card: {id, masked, status}}`.

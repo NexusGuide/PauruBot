@@ -9,7 +9,7 @@ const en = {
   failed: "The result could not be confirmed. Refresh status or retry the same submission. Do not submit a different card yet.",
   load_failed: "Could not load verification status. Refresh to try again.",
   privacy: "The photograph is sent through the shop bot for staff review. Card numbers and photos are not saved in browser storage. Hide unrelated sensitive information in the photo.",
-  back: "Back to wallet", sent: "Sent for review. Approval is not automatic; return to checkout and deliberately retry payment after approval.",
+  back: "Back to wallet", checkout: "Return to the same checkout", sent: "Sent for review. Approval is not automatic; return to checkout and deliberately retry payment after approval.",
 };
 const fa: typeof en = {
   title: "تأیید کارت", intro: "کارت خود را برای بررسی کارکنان ثبت کنید. این بخش رسید پرداخت نیست و پرداختی ایجاد یا تأیید نمی‌کند.",
@@ -22,6 +22,6 @@ const fa: typeof en = {
   failed: "نتیجه درخواست مشخص نیست. وضعیت را تازه کنید یا همان درخواست را دوباره بفرستید؛ فعلاً کارت دیگری ثبت نکنید.",
   load_failed: "دریافت وضعیت ناموفق بود؛ دوباره وضعیت را تازه کنید.",
   privacy: "عکس از طریق ربات فروشگاه برای بررسی کارکنان ارسال می‌شود. شماره و عکس کارت در حافظهٔ پایدار مرورگر ذخیره نمی‌شوند. اطلاعات حساس نامرتبط را در عکس بپوشانید.",
-  back: "بازگشت به کیف پول", sent: "برای بررسی ارسال شد. تأیید خودکار نیست؛ پس از تأیید، به تسویه برگردید و پرداخت را خودتان دوباره انتخاب کنید.",
+  back: "بازگشت به کیف پول", checkout: "بازگشت به همان سفارش", sent: "برای بررسی ارسال شد. تأیید خودکار نیست؛ پس از تأیید، به تسویه برگردید و پرداخت را خودتان دوباره انتخاب کنید.",
 };
 export const cardCopy = (locale: string) => locale.startsWith("fa") ? fa : en;

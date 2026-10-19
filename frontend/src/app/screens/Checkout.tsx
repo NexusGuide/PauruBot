@@ -164,7 +164,9 @@ export function Checkout() {
       navigate(`/payment/${payment.payment_id}?order=${order.id}`, { replace: payment.provider !== "card" });
     } catch (err) {
       haptic("error");
-      if (err instanceof ApiError && err.code === "card_verify_required") navigate("/card-verification");
+      if (err instanceof ApiError && err.code === "card_verify_required") {
+        navigate("/card-verification", { state: { customerId: me.id, returnTo: `/checkout?${params.toString()}` } });
+      }
       toast(errorText(t, err), "error");
     } finally {
       gate.current.leave();

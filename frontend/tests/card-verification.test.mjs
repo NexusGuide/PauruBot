@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseCard, parseVerification, normalizeNumber, validFile, MAX_PHOTO, submissionGate } from "../src/app/cards/model.ts";
+import { parseCard, parseVerification, returnPath, normalizeNumber, validFile, MAX_PHOTO, submissionGate } from "../src/app/cards/model.ts";
 import { cardCopy } from "../src/app/cards/copy.ts";
 import { tabForPath, parentForPath } from "../src/app/navigation.ts";
 const card = () => ({ id: 1, masked: "4242-42**-****-4242", status: "pending" });
@@ -53,7 +53,7 @@ try {
   let source = readFileSync(new URL("../src/app/screens/CardVerification.tsx", import.meta.url), "utf8").replace(/^import .*;\n/gm, "");
   writeFileSync(temp + "/model.ts", readFileSync(new URL("../src/app/cards/model.ts", import.meta.url), "utf8"));
   writeFileSync(temp + "/copy.ts", readFileSync(new URL("../src/app/cards/copy.ts", import.meta.url), "utf8"));
-  source = `import { normalizeNumber, parseCard, parseVerification, submissionGate, validFile, type Verification } from './model.js';
+  source = `import { normalizeNumber, parseCard, parseVerification, returnPath, submissionGate, validFile, type Verification } from './model.js';
 import { cardCopy } from './copy.js';
 let hooks:any[]=[], cursor=0, effects:(()=>void)[]=[];
 const same=(a:any[],b:any[])=>a&&a.length===b.length&&a.every((x,i)=>x===b[i]);
@@ -62,7 +62,7 @@ const useRef=(value:any)=>{const i=cursor++;return hooks[i]??=( {current:value} 
 const useCallback=(fn:any,deps:any[])=>{const i=cursor++;if(!hooks[i]||!same(hooks[i].deps,deps))hooks[i]={fn,deps};return hooks[i].fn;};
 const useEffect=(fn:any,deps:any[])=>{const i=cursor++;if(!hooks[i]||!same(hooks[i].deps,deps)){effects.push(()=>{hooks[i]?.cleanup?.();hooks[i]={deps,cleanup:fn()}})}};
 export let locale='en';export const setLocale=(v:string)=>{locale=v};
-const useApp=()=>({me:{id:1},locale});const useNavigate=()=>()=>{};
+const useApp=()=>({me:{id:1},locale});const useNavigate=()=>()=>{};const useLocation=()=>({state:null});
 const Button=()=>null,Panel=()=>null,Screen=()=>null,money=()=>'';
 class ApiError extends Error {status=0;}
 let pending:any={enabled:true,min_amount:0,trusted:false,blocked:false,approved:false,can_submit:true,items:[]};
@@ -118,3 +118,12 @@ export function reset(){cleanup();hooks=[];cursor=0;effects=[];calls.length=0;pe
     assert.equal(runtime.calls.length, 0);
   });
 } finally { rmSync(temp, { recursive: true, force: true }); }
+
+test("return path preserves only the same owner checkout, not external redirects", () => {
+  assert.equal(returnPath({ customerId: 1, returnTo: "/checkout?draft=stable&kind=renew&service=4" }, 1), "/checkout?draft=stable&kind=renew&service=4");
+  for (const value of [null, {}, { customerId: 2, returnTo: "/checkout?draft=other" },
+    { customerId: 1, returnTo: "https://evil.test" }, { customerId: 1, returnTo: "//evil.test" },
+    { customerId: 1, returnTo: "/checkout?x=1\n" }, { customerId: 1, returnTo: "/admin" }]) {
+    assert.equal(returnPath(value, 1), "/wallet");
+  }
+});

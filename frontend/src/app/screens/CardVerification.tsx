@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ApiError } from "@shared/http";
 import { money } from "@shared/format";
 import { api } from "../api";
 import { cardCopy } from "../cards/copy";
-import { normalizeNumber, parseCard, parseVerification, submissionGate, validFile, type Verification } from "../cards/model";
+import { normalizeNumber, parseCard, parseVerification, returnPath, submissionGate, validFile, type Verification } from "../cards/model";
 import { useApp } from "../state";
 import { Button, Panel, Screen } from "../ui";
 
@@ -23,7 +23,8 @@ export function CardVerification() {
 }
 
 function CardForm() {
-  const { locale } = useApp();
+  const { locale, me } = useApp();
+  const back = returnPath(useLocation().state, me!.id);
   const c = cardCopy(locale);
   const navigate = useNavigate();
   const [state, setState] = useState<Verification | null>(null);
@@ -106,6 +107,6 @@ function CardForm() {
         <Button type="submit" disabled={busy}>{uncertain ? c.retry : c.send}</Button>
       </form>}
     </>}
-    <Button disabled={busy} onClick={() => navigate("/wallet")}>{c.back}</Button>
+    <Button disabled={busy} onClick={() => navigate(back)}>{back === "/wallet" ? c.back : c.checkout}</Button>
   </Screen>;
 }

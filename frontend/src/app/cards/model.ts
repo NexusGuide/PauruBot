@@ -61,3 +61,11 @@ export function submissionGate() {
     clear() { payload = null; },
   };
 }
+/** Preserve only this customer's checkout URL; never follow an arbitrary return redirect. */
+export function returnPath(value: unknown, customerId: number): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "/wallet";
+  const state = value as Record<string, unknown>;
+  return state.customerId === customerId && typeof state.returnTo === "string" &&
+    state.returnTo.length <= 4096 && /^\/checkout\?[^\r\n]*$/.test(state.returnTo)
+    ? state.returnTo : "/wallet";
+}
