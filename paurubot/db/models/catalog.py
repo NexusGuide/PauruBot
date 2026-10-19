@@ -287,7 +287,10 @@ class VerifiedCard(Base, TimestampMixin):
     """A bank card a customer registered before paying card to card (PAY-18)."""
 
     __tablename__ = "verified_cards"
-    __table_args__ = (Index("ix_verified_cards_customer", "customer_id", "status"),)
+    __table_args__ = (
+        Index("ix_verified_cards_customer", "customer_id", "status"),
+        UniqueConstraint("shop_id", "customer_id", "client_intent_key", name="uq_verified_cards_intent"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"))
@@ -299,3 +302,5 @@ class VerifiedCard(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(12), default="pending")  # pending | approved | rejected
     reviewed_by_staff_id: Mapped[int | None] = mapped_column(ForeignKey("staff.id", ondelete="SET NULL"))
     reviewed_at: Mapped[datetime | None] = mapped_column()
+    client_intent_key: Mapped[str | None] = mapped_column(String(64))
+    request_fingerprint: Mapped[str | None] = mapped_column(String(64))

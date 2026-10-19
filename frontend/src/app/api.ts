@@ -275,6 +275,11 @@ const post = <T>(path: string, body: unknown = {}) =>
   request<T>(`/api/webapp${path}`, { method: "POST", body, headers: auth() });
 
 export const api = {
+  cardVerification: () => get<unknown>("/cards/verification"),
+  submitCardVerification: (body: { intent_key: string; number: string; image: string }) =>
+    request<unknown>("/api/webapp/cards/verification", {
+      method: "POST", body, headers: auth(), signal: AbortSignal.timeout(25_000),
+    }),
   me: () => get<Me>("/me"),
   join: () => get<{ channels: JoinChannel[] }>("/join"),
   checkJoin: () => post<{ ok: boolean; channels: JoinChannel[] }>("/join/check"),

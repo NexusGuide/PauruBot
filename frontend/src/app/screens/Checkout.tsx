@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ApiError } from "@shared/http";
 import { dateTime, money } from "@shared/format";
 import { api, type Order } from "../api";
 import { Icon } from "../icons";
@@ -163,6 +164,7 @@ export function Checkout() {
       navigate(`/payment/${payment.payment_id}?order=${order.id}`, { replace: payment.provider !== "card" });
     } catch (err) {
       haptic("error");
+      if (err instanceof ApiError && err.code === "card_verify_required") navigate("/card-verification");
       toast(errorText(t, err), "error");
     } finally {
       gate.current.leave();
