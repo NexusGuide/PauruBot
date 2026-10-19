@@ -60,10 +60,10 @@ restrict what an already-approved panel can do internally or make HTTP encrypted
 
 This PR covers SafeHttpClient users (panel drivers and subscription fetches) and
 certificate inspection. It does not claim to secure every outbound HTTP call.
-In particular AbanGatewayProvider._safe_base separately validates a configurable
-URL and then uses the generic payment HTTP client: its check/connect binding is
-still a separate payment-provider follow-up. Fixed vendor endpoints and other
-integrations are outside this panel transport change.
+At the PR97 boundary, AbanGatewayProvider._safe_base still used a separate
+validate-then-generic-client path. The stacked follow-up documented in
+`docs/audit/aban-dns-binding.md` extends the shared connector to that gateway;
+it does not automatically cover fixed vendor endpoints or all integrations.
 
 Existing networks relying on ambient proxy variables must be reviewed before rollout;
 they are intentionally not silently honored. Live panel/provider networking, proxy
