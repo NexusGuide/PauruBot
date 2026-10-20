@@ -21,7 +21,6 @@ import re
 import ssl
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
-
 from urllib.parse import quote, urlsplit
 
 import httpx
@@ -424,7 +423,7 @@ class BlupalProvider(Gateway):
             "GET", f"{self.host}/invoices/{payment.provider_ref}", headers=self._headers(cfg)
         )
         if status != 200 or not _truthy(data.get("success")):
-            return Verification(False, detail=f"waiting: lookup {status}")
+            return Verification(False, detail=f"waiting: verify {status}")
         if str(data.get("invoice_id")) != str(payment.provider_ref):
             return Verification(False, detail="reference mismatch")
         state = str(data.get("status") or "").upper()
@@ -483,7 +482,7 @@ class TronadoProvider(Gateway):
             raise self._rejected(self.name)
         link = str(data.get("FullPaymentUrl") or "")
         if not link.startswith("https://"):
-            link = f"https://t.me/tronado_robot/customerpayment?startapp={token}"
+            link = f"{{https://t.me/tronado_robot/customerpayment?startapp={token}}}"
         return Checkout(
             redirect_url=link,
             provider_ref=token,
@@ -603,7 +602,7 @@ class CubePayProvider(Gateway):
         if status in {"expired", "failed"}:
             return Verification(False, detail=f"canceled: {status}")
         if status != "paid":
-            return Verification(False, detail=f"waiting: {status}")
+            return Verification(False, detail="waiting: not paid")
         tx = f"cube:crypto:{field(params, 'payment_id') or order}"
         return settle(payment, tx, _int(amount), payment.provider_amount)
 
