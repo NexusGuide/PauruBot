@@ -1,0 +1,76 @@
+name: Repair PR 113 gateway import collision
+on:
+  push:
+    branches: [feat/mender-tonpay-standard]
+    paths: [.github/workflows/repair-113-imports.yml]
+permissions:
+  contents: read
+jobs:
+  reconcile-gateway-imports:
+    if: github.repository == 'MenderBaga/PauruBot' && github.ref == 'refs/heads/feat/mender-tonpay-standard'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Temporary branch-only repair. Only trusted parsing/git run; never repository code.
+      - name: Merge independent gateway changes and assert existing provider ASTs unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git merge --no-ff --no-commit 0b6dcbee429c44ad7ac4c6e7b9bbe60225a27f51 || git rev-parse --verify MERGE_HEAD
+          python3 - <<'PY'
+          import ast, subprocess, tempfile
+          from pathlib import Path
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True)
+          name = 'paurubot/payments/providers/gateways.py'
+          assert set(git('diff', '--name-only', '--diff-filter=U').splitlines()) == {name}
+          left = git('show', f':2:{name}')
+          right = git('show', f':3:{name}')
+          base = git('show', f'875592376ab1888fb3f8953d571a26dd5dcc34a7:{name}')
+          imports = set()
+          def strip(text):
+              lines = text.splitlines(keepends=True)
+              spans = []
+              for node in ast.parse(text).body:
+                  if isinstance(node, ast.ImportFrom) and node.module == 'urllib.parse' and node.level == 0:
+                      for item in node.names:
+                          assert item.asname is None and item.name.isidentifier()
+                          imports.add(item.name)
+                      spans.append((node.lineno - 1, node.end_lineno))
+              for start, end in reversed(spans):
+                  del lines[start:end]
+              return ''.join(lines)
+          sources = list(map(strip, (left, base, right)))
+          with tempfile.TemporaryDirectory() as directory:
+              paths = []
+              for index, source in enumerate(sources):
+                  path = Path(directory) / str(index)
+                  path.write_text(source)
+                  paths.append(str(path))
+              result = subprocess.run(['git', 'merge-file', '-p', *paths], capture_output=True, text=True)
+              assert result.returncode == 0, 'Non-import gateway conflict requires manual review'
+              merged = result.stdout
+          assert merged.count('import httpx\n') == 1
+          merged = merged.replace('import httpx\n', 'from urllib.parse import ' + ', '.join(sorted(imports)) + '\n\nimport httpx\n', 1)
+          before = {n.name: ast.dump(n, include_attributes=False) for n in ast.parse(right).body if isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))}
+          after = {n.name: ast.dump(n, include_attributes=False) for n in ast.parse(merged).body if isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))}
+          assert all(after.get(key) == value for key, value in before.items()), 'Existing provider semantics changed'
+          expected = next(n for n in ast.parse(left).body if isinstance(n, ast.ClassDef) and n.name == 'TonpayProvider')
+          assert after['TonpayProvider'] == ast.dump(expected, include_attributes=False)
+          assert 'TonpayProvider(),' in merged
+          compile(merged, name, 'exec')
+          Path(name).write_text(merged)
+          subprocess.run(['git', 'add', '--', name], check=True)
+          assert not git('diff', '--name-only', '--diff-filter=U').strip()
+          assert '"tonpay_enabled": Spec(bool, False, "gateways")' in Path('paurubot/core/settings.py').read_text()
+          PY
+          git diff --cached --check
+          git commit -m 'Merge main gateway security and Tonpay with import-only conflict resolution'
+          git push origin HEAD:refs/heads/feat/mender-tonpay-standard
