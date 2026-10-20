@@ -1,0 +1,53 @@
+name: Repair independent-session test observations
+on:
+  push:
+    branches: [feat/mender-durable-guest-checkout]
+    paths: [.github/workflows/repair-127-observers.yml]
+permissions:
+  contents: read
+jobs:
+  repair-test-observers:
+    if: github.repository == 'MenderBaga/PauruBot' && github.ref == 'refs/heads/feat/mender-durable-guest-checkout'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      # Temporary branch-only patcher. AST parsing/compilation do not execute repository code.
+      - shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import ast, collections
+          from pathlib import Path
+          guest = Path('tests/unit/test_guest.py')
+          monitor = Path('tests/unit/test_monitor.py')
+          previous = {p: p.read_text() for p in (guest, monitor)}
+          source = previous[guest]
+          old = '    await drain(session, "provision")\n    await session.refresh(customer)\n'
+          new = '    await drain(session, "provision")\n    # The worker commits on another connection; refresh the observer identity map.\n    await session.refresh(purchase["order"])\n    assert purchase["order"].status == OrderStatus.COMPLETED\n    await session.refresh(customer)\n'
+          assert source.count(old) == 1
+          guest.write_text(source.replace(old, new, 1))
+          source = previous[monitor]
+          old = '    jobs = await session.scalars(select(Job).where(Job.kind == "panel_alert", Job.status == JobStatus.QUEUED))\n'
+          new = '    # PostgreSQL does not promise insertion order without ORDER BY.\n    jobs = await session.scalars(\n        select(Job).where(Job.kind == "panel_alert", Job.status == JobStatus.QUEUED).order_by(Job.id)\n    )\n'
+          assert source.count(old) == 1
+          source = source.replace(old, new, 1)
+          old = '    checks = list(await session.scalars(select(PanelCheck).where(PanelCheck.panel_id == panel.id)))\n'
+          new = '    checks = list(\n        await session.scalars(\n            select(PanelCheck)\n            .where(PanelCheck.panel_id == panel.id)\n            .order_by(PanelCheck.checked_at, PanelCheck.id)\n        )\n    )\n'
+          assert source.count(old) == 1
+          monitor.write_text(source.replace(old, new, 1))
+          for path, before in previous.items():
+              after = path.read_text()
+              def assertions(text):
+                  return collections.Counter(ast.dump(n, include_attributes=False) for n in ast.walk(ast.parse(text)) if isinstance(n, ast.Assert))
+              assert not (assertions(before) - assertions(after)), 'An existing assertion was removed or weakened'
+              compile(after, str(path), 'exec')
+          PY
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- tests/unit/test_guest.py tests/unit/test_monitor.py
+          git commit -m 'test: observe committed guest provisioning and order monitor results explicitly'
+          git push origin HEAD:refs/heads/feat/mender-durable-guest-checkout
