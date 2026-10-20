@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import test from 'node:test';
+import "./wallet-history.test.mjs";
 const {tabForPath,parentForPath}=await import(new URL('../src/app/navigation.ts',import.meta.url));
 for (const [path,tab,parent] of [
  ['/', 'home',null],['/buy','buy',null],['/custom','buy','/buy'],['/checkout','buy','/buy'],['/done/12','buy','/services'],
@@ -39,4 +40,11 @@ try {
  test('Button keeps explicit submit type and caller class',()=>{const html=renderToStaticMarkup(createElement(Button,{type:'submit',className:'custom'},'Save'));assert(html.includes('type="submit"'));assert(html.includes('custom'))});
 } finally {rmSync(temp,{recursive:true,force:true})}
 
-import "./wallet-history.test.mjs";
+// Customer ticket filter regressions share the existing CI UX suite.
+import "./ticket-pages.test.mjs";
+
+// Service detail recovery regressions run in the existing CI UX suite.
+import "./service-read.test.mjs";
+
+// Bounded service search/paging contracts run in the existing CI UX suite.
+import "./service-pages.test.mjs";
