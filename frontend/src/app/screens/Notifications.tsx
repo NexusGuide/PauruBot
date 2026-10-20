@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { dateTime, money } from "@shared/format";
 import { api } from "../api";
-import { buildAlerts, markAlertsRead, readAlertIds } from "../alerts";
+import { buildAlerts, markAlertsRead, parseAlertPolicy, readAlertIds } from "../alerts";
 import { Icon } from "../icons";
 import { useApp } from "../state";
 import { haptic } from "../telegram";
@@ -12,7 +12,13 @@ import { useResource } from "../useResource";
 type Filter = "all" | "unread" | "service" | "wallet";
 
 export function Notifications() {
-  const { t, locale, toast } = useApp();
+  const { me } = useApp();
+  return me ? <NotificationFeed key={me.id} /> : <Loading />;
+}
+
+function NotificationFeed() {
+  const { me, t, locale, toast } = useApp();
+  const policy = parseAlertPolicy(me?.alert_policy);
   const navigate = useNavigate();
   const load = useCallback(async () => {
     const [services, history] = await Promise.all([api.services(), api.history()]);
@@ -22,7 +28,7 @@ export function Notifications() {
   const [read, setRead] = useState<Set<string>>(readAlertIds);
   const [filter, setFilter] = useState<Filter>("all");
 
-  const alerts = useMemo(() => (data ? buildAlerts(data.services, data.history, t, locale) : []), [data, t, locale]);
+  const alerts = useMemo(() => (data ? buildAlerts(data.services, data.history, t, locale, policy) : []), [data, t, locale, policy]);
   const unread = alerts.filter((alert) => !read.has(alert.id));
   const visible =
     filter === "all" ? alerts : filter === "unread" ? unread : alerts.filter((alert) => alert.kind === filter);
@@ -62,6 +68,7 @@ export function Notifications() {
         <Loading />
       ) : (
         <>
+          {!policy && <p className="app-hint" role="status">{t("alerts_policy_unavailable")}</p>}
           <div className="app-chips" role="group" aria-label={t("notifications")}>
             {filters.map((item) => (
               <button

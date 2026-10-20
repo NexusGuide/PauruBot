@@ -1,6 +1,6 @@
-import { daysLeft, money, size } from "@shared/format";
+import { money, size } from "@shared/format";
 import type { Translate } from "@shared/i18n";
-import type { HistoryItem, Service } from "./api";
+import type { HistoryItem, Service, ServiceAlertPolicy } from "./api";
 
 /**
  * Client-derived notification feed.
@@ -49,9 +49,26 @@ const WALLET_KINDS: Record<string, { icon: AlertItem["icon"]; tone: AlertItem["t
   charge: { icon: "wallet", tone: "blue", body: "alert_charge_body" },
 };
 
-export function buildAlerts(services: Service[], history: HistoryItem[], t: Translate, locale: string): AlertItem[] {
+/** Older/malformed backends do not silently reintroduce the old 3-day / 15% policy. */
+export function parseAlertPolicy(value: unknown): ServiceAlertPolicy | null {
+  if (!value || typeof value !== "object") return null;
+  const policy = value as Record<string, unknown>;
+  return Number.isSafeInteger(policy.warn_remaining_percent) && Number.isSafeInteger(policy.warn_days)
+    ? value as ServiceAlertPolicy : null;
+}
+
+export function lowVolumeWarning(service: Service, policy: ServiceAlertPolicy | null): boolean {
+  return !!policy && service.status === "active" && service.data_limit > 0 &&
+    Math.max(0, service.data_limit - service.used_bytes) * 100 <= policy.warn_remaining_percent * service.data_limit;
+}
+
+export function buildAlerts(
+  services: Service[], history: HistoryItem[], t: Translate, locale: string,
+  policy: ServiceAlertPolicy | null = null,
+): AlertItem[] {
   const units = t("units").split(",");
   const serviceAlerts: AlertItem[] = [];
+  const now = Date.now();
   for (const service of services) {
     if (service.status === "deleted") continue;
     const label = service.label || service.username;
@@ -62,22 +79,22 @@ export function buildAlerts(services: Service[], history: HistoryItem[], t: Tran
         id: `s${service.id}-data`, kind: "service", tone: "red", icon: "gauge", at: service.expire_at, href,
         title: t("alert_data_title"), body: t("alert_data_body", { label }),
       });
-    } else if (service.status === "active" && service.data_limit > 0) {
+    } else if (lowVolumeWarning(service, policy)) {
       const left = service.data_limit - service.used_bytes;
-      if (left / service.data_limit < 0.15) {
-        serviceAlerts.push({
-          id: `s${service.id}-low`, kind: "service", tone: "orange", icon: "gauge", at: service.expire_at, href,
-          title: t("alert_low_data_title"), body: t("alert_low_data_body", { label, value: size(left, locale, units) }),
-        });
-      }
+      serviceAlerts.push({
+        id: `s${service.id}-low`, kind: "service", tone: "orange", icon: "gauge", at: service.expire_at, href,
+        title: t("alert_low_data_title"), body: t("alert_low_data_body", { label, value: size(left, locale, units) }),
+      });
     }
-    const days = daysLeft(service.expire_at);
-    if (days !== null && days <= 0) {
+    const seconds = service.expire_at ? (Date.parse(service.expire_at) - now) / 1000 : NaN;
+    if (seconds <= 0) {
       serviceAlerts.push({
         id: `s${service.id}-expired`, kind: "service", tone: "red", icon: "clock", at: service.expire_at, href,
         title: t("alert_expired_title"), body: t("alert_expired_body", { label }),
       });
-    } else if (days !== null && days <= 3) {
+    } else if (policy && service.status === "active" && seconds > 0 && seconds <= policy.warn_days * 86400) {
+      // Match the existing worker payload, including its exact-day boundary convention.
+      const days = Math.max(1, Math.floor(seconds / 86400) + 1);
       serviceAlerts.push({
         id: `s${service.id}-expiring`, kind: "service", tone: "orange", icon: "clock", at: service.expire_at, href,
         title: t("alert_expiring_title"), body: t("alert_expiring_body", { label, days: money(days, locale) }),
