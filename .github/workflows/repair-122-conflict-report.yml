@@ -1,0 +1,41 @@
+name: repair-122-conflict-report
+on:
+  push:
+    branches: [feat/mender-owned-payment-inbox]
+    paths: [.github/workflows/repair-122-conflict-report.yml]
+permissions:
+  contents: write
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Record conflict paths only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, pathlib, subprocess
+          def git(*args, check=True):
+              return subprocess.run(['git', *args], check=check, capture_output=True, text=True)
+          head = git('rev-parse', 'HEAD').stdout.strip()
+          parent = '094f38880cbe8042d60eb13e9a0ce4139f923a58'
+          branch = 'feat/mender-owned-payment-inbox'
+          assert os.environ['GITHUB_REF'] == 'refs/heads/' + branch
+          git('config', 'user.name', 'PauruBot integration diagnostics')
+          git('config', 'user.email', '155055819+mehdialij@users.noreply.github.com')
+          result = git('merge', '--no-commit', '--no-ff', parent, check=False)
+          report = {'head': head, 'parent': parent, 'exit': result.returncode,
+                    'conflicts': git('diff', '--name-only', '--diff-filter=U').stdout.splitlines()}
+          git('reset', '--hard', head)
+          path = '.github/repair-122-conflicts.json'
+          pathlib.Path(path).write_text(json.dumps(report, indent=2) + '\n')
+          git('add', '--', path)
+          git('commit', '-m', 'Record exact integration conflict paths for review')
+          credential = base64.b64encode(('x-access-token:' + os.environ['GH_TOKEN']).encode()).decode()
+          os.environ.update(GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0='AUTHORIZATION: basic ' + credential)
+          git('push', 'origin', 'HEAD:refs/heads/' + branch)
+          PY
