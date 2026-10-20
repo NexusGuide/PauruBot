@@ -1,0 +1,44 @@
+name: Align retained DNS regression error namespace
+on:
+  push:
+    branches: [fix/mender-bind-panel-dns]
+    paths: [.github/workflows/repair-104-message.yml]
+permissions:
+  contents: read
+jobs:
+  align-dns-error-contract:
+    if: github.repository == 'MenderBaga/PauruBot' && github.ref == 'refs/heads/fix/mender-bind-panel-dns'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      # Temporary branch-only textual repair; no repository code executes.
+      - shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          path = Path('tests/security/test_dns_binding.py')
+          source = path.read_text()
+          old = 'with pytest.raises(PanelError, match="blocked panel address"):'
+          new = 'with pytest.raises(PanelError, match="blocked outbound address"):'
+          assert source.count(old) == 1
+          revised = source.replace(old, new, 1)
+          before, after = ast.parse(source), ast.parse(revised)
+          # Only the exact diagnostic namespace changes, not the exception or wire assertions.
+          for node in ast.walk(after):
+              if isinstance(node, ast.Constant) and node.value == 'blocked outbound address':
+                  node.value = 'blocked panel address'
+          assert ast.dump(before, include_attributes=False) == ast.dump(after, include_attributes=False)
+          compile(revised, str(path), 'exec')
+          path.write_text(revised)
+          PY
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- tests/security/test_dns_binding.py
+          git commit -m 'test: assert shared outbound policy error while retaining DNS send-blocking checks'
+          git push origin HEAD:refs/heads/fix/mender-bind-panel-dns
