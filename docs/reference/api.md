@@ -13,6 +13,9 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | PUT | `/api/admin/account-plans/{row_id}` | `resellers.manage` | Update account plan |
 | GET | `/api/admin/account-plans` | `resellers.manage` | Account plans |
 | POST | `/api/admin/account-plans` | `resellers.manage` | Create account plan |
+| POST | `/api/admin/announcements/{row_id}/revoke` | `broadcast.send` | Staff revoke |
+| GET | `/api/admin/announcements` | `broadcast.send` | Staff inbox |
+| POST | `/api/admin/announcements` | `broadcast.send` | Staff publish |
 | GET | `/api/admin/audit` | `audit.read` | Audit log |
 | GET | `/api/admin/backups/{name}` | `backups.manage` | Download backup |
 | GET | `/api/admin/backups` | `backups.manage` | List backups |
@@ -225,6 +228,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/webapp/accounts/{account_id}/refresh` | Mini App initData | Account refresh |
 | GET | `/api/webapp/accounts/{account_id}` | Mini App initData | Account detail |
 | GET | `/api/webapp/accounts` | Mini App initData | Accounts view |
+| POST | `/api/webapp/announcements/{row_id}/state` | Mini App initData | Customer state |
+| GET | `/api/webapp/announcements` | Mini App initData | Customer inbox |
 | GET | `/api/webapp/cards/verification` | Mini App initData | Own masked card verification status and the current shop policy. |
 | POST | `/api/webapp/cards/verification` | Mini App initData | Register one card photograph for existing staff review; never start a payment. |
 | GET | `/api/webapp/catalog` | Mini App initData | Catalog view |

@@ -1,4 +1,5 @@
 {
+  "nav_announcements": "Announcement inbox",
   "nav_reseller_hub": "Reseller hub",
   "err_staff_not_found": "That staff member was not found.",
   "err_ticket_department_unknown": "That department does not exist.",

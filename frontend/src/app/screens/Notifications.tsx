@@ -1,3 +1,5 @@
+import { announcementCopy } from "@shared/announcements";
+import { AnnouncementInbox } from "./AnnouncementInbox";
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { dateTime, money } from "@shared/format";
@@ -62,6 +64,8 @@ function NotificationFeed() {
         ) : undefined
       }
     >
+      <AnnouncementInbox key={`${me?.id}:${Boolean(me?.preferences.marketing_opt_out)}`} />
+      <h2>{announcementCopy(locale).alerts}</h2>
       {error ? (
         <ReadFailure error={error} retry={retry} />
       ) : !data ? (

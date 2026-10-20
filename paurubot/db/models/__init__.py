@@ -1,3 +1,4 @@
+from paurubot.db.models.announcements import Announcement, AnnouncementRead
 from paurubot.db.models.catalog import (
     AccountPlan,
     Category,
@@ -73,6 +74,8 @@ from paurubot.db.models.tenancy import (
 from paurubot.db.models.usage import ServiceUsage
 
 __all__ = [
+    "Announcement",
+    "AnnouncementRead",
     "AccountPlan",
     "PanelAccount",
     "ApplicationStatus",
