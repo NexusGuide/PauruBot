@@ -43,6 +43,14 @@ def _same_amount(value: Any, cents: int | None) -> bool:
         return False
 
 
+async def invoice_cents(payment: Payment, cfg: dict[str, Any]) -> int:
+    """Freeze the same conversion used by creation before persisting a hosted attempt."""
+    try:
+        return usd_cents(payment.amount, await fx.rate(cfg, "usdt"))
+    except fx.RateUnavailable as exc:
+        raise PaymentError("rate_unavailable") from exc
+
+
 class _Invoice(PaymentProvider):
     def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
         self._transport = transport
@@ -53,10 +61,15 @@ class _Invoice(PaymentProvider):
         )
 
     async def _cents(self, payment: Payment, cfg: dict[str, Any]) -> int:
-        try:
-            return usd_cents(payment.amount, await fx.rate(cfg, "usdt"))
-        except fx.RateUnavailable as exc:
-            raise PaymentError("rate_unavailable") from exc
+        attempt = (payment.meta or {}).get("hosted_attempt_v1")
+        if (
+            isinstance(attempt, dict)
+            and attempt.get("state") == "uncertain"
+            and payment.provider_currency == "USD"
+            and payment.provider_amount is not None
+        ):
+            return payment.provider_amount
+        return await invoice_cents(payment, cfg)
 
 
 class NowPaymentsProvider(_Invoice):
