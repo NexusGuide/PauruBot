@@ -149,6 +149,9 @@ async def test_web_purchase_end_to_end_and_claim(session, store) -> None:  # typ
     await session.refresh(purchase["order"])
     await session.refresh(purchase["payment"])
     await drain(session, "provision")
+    # The worker commits on another connection; refresh the observer identity map.
+    await session.refresh(purchase["order"])
+    assert purchase["order"].status == OrderStatus.COMPLETED
     await session.refresh(customer)
     ready = await client.get(f"/buy/t/{token}?lang=en")
     assert "Your service is ready" in ready.text and f"start=claim_{token}" in ready.text
