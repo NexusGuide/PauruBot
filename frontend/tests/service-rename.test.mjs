@@ -89,3 +89,12 @@ behavior("the same gate prevents a config read from overlapping rename", async (
   h.find(busy, n => n.type === "Button" && n.props.children === "show_configs").props.onClick();
   assert.deepEqual(h.reads, []); assert.equal(h.calls.length, 1); h.unmount(); p.reject(new Error("late")); await tick();
 });
+
+behavior("service-linked support is available when idle and disabled during rename", async () => {
+  const p = deferred(), h = setup(() => p.promise);
+  const support = tree => h.find(tree, n => n.type === "Button" && n.props.children === "tickets_service_report");
+  assert.equal(support(h.render()).props.disabled, false);
+  h.open(); h.submit(h.fill("Draft"));
+  assert.equal(support(h.render()).props.disabled, true);
+  h.unmount(); p.reject(new Error("late")); await tick();
+});
