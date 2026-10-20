@@ -1,13 +1,14 @@
 name: integrate-order-intents
 on:
-  pull_request:
+  push:
+    branches: [fix/mender-miniapp-order-intents]
     paths:
       - .github/workflows/repair-120-integration.yml
 permissions:
   contents: write
 jobs:
   integrate:
-    if: github.repository == 'mehdialij/PauruBot' && github.event.pull_request.number == 120 && github.head_ref == 'fix/mender-miniapp-order-intents'
+    if: github.repository == 'mehdialij/PauruBot' && github.ref == 'refs/heads/fix/mender-miniapp-order-intents'
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
