@@ -13,9 +13,6 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | PUT | `/api/admin/account-plans/{row_id}` | `resellers.manage` | Update account plan |
 | GET | `/api/admin/account-plans` | `resellers.manage` | Account plans |
 | POST | `/api/admin/account-plans` | `resellers.manage` | Create account plan |
-| POST | `/api/admin/announcements/{row_id}/revoke` | `broadcast.send` | Staff revoke |
-| GET | `/api/admin/announcements` | `broadcast.send` | Staff inbox |
-| POST | `/api/admin/announcements` | `broadcast.send` | Staff publish |
 | GET | `/api/admin/audit` | `audit.read` | Audit log |
 | GET | `/api/admin/backups/{name}` | `backups.manage` | Download backup |
 | GET | `/api/admin/backups` | `backups.manage` | List backups |
@@ -189,6 +186,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/auth/login` | public | Login |
 | POST | `/api/auth/logout` | staff session | Logout |
 | GET | `/api/auth/me` | staff session | Me |
+| POST | `/api/auth/password-reset/confirm` | public | Confirm password reset |
+| POST | `/api/auth/password-reset/request` | public | Request password reset |
 | POST | `/api/auth/password` | staff session | Change password |
 
 ## `/api/pay`
@@ -196,6 +195,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | Method | Path | Access | What it does |
 |---|---|---|---|
 | GET | `/api/pay/gw/{name}` | gateway callback, verified with the provider | One entry point for the redirect gateways (PAY-08, PAY-09): the payer's browser coming |
+| GET | `/api/pay/gw/{name}` | gateway callback, verified with the provider | One entry point for the redirect gateways (PAY-08, PAY-09): the payer's browser coming |
+| POST | `/api/pay/gw/{name}` | gateway callback, verified with the provider | One entry point for the redirect gateways (PAY-08, PAY-09): the payer's browser coming |
 | POST | `/api/pay/gw/{name}` | gateway callback, verified with the provider | One entry point for the redirect gateways (PAY-08, PAY-09): the payer's browser coming |
 | POST | `/api/pay/nowpayments/ipn` | gateway callback, verified with the provider | Nowpayments ipn |
 | POST | `/api/pay/plisio/callback` | gateway callback, verified with the provider | Plisio callback |
@@ -224,8 +225,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/webapp/accounts/{account_id}/refresh` | Mini App initData | Account refresh |
 | GET | `/api/webapp/accounts/{account_id}` | Mini App initData | Account detail |
 | GET | `/api/webapp/accounts` | Mini App initData | Accounts view |
-| POST | `/api/webapp/announcements/{row_id}/state` | Mini App initData | Customer state |
-| GET | `/api/webapp/announcements` | Mini App initData | Customer inbox |
+| GET | `/api/webapp/cards/verification` | Mini App initData | Own masked card verification status and the current shop policy. |
+| POST | `/api/webapp/cards/verification` | Mini App initData | Register one card photograph for existing staff review; never start a payment. |
 | GET | `/api/webapp/catalog` | Mini App initData | Catalog view |
 | GET | `/api/webapp/help` | Mini App initData | Customer help view |
 | POST | `/api/webapp/join/check` | Mini App initData | Ask Telegram again after the customer joined; the answer is never cached. |
@@ -241,7 +242,9 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/payments/{payment_id}/receipt-state` | Mini App initData | State |
 | POST | `/api/webapp/payments/{payment_id}/receipt-upload` | Mini App initData | Upload |
 | POST | `/api/webapp/payments/{payment_id}/receipt` | Mini App initData | Upload receipt |
+| GET | `/api/webapp/payments/{payment_id}/resume` | Mini App initData | Resume payment |
 | GET | `/api/webapp/payments/{payment_id}` | Mini App initData | Payment status |
+| GET | `/api/webapp/payments` | Mini App initData | Pending payments |
 | GET | `/api/webapp/receipts` | Mini App initData | Inbox |
 | GET | `/api/webapp/reseller/desk` | Mini App initData | Reseller desk view |
 | POST | `/api/webapp/reseller/renew` | Mini App initData | Reseller renew |
@@ -267,6 +270,9 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/webapp/wallet/gift` | Mini App initData | Redeem gift |
 | GET | `/api/webapp/wallet/history` | Mini App initData | History |
 | POST | `/api/webapp/wallet/topup` | Mini App initData | Topup |
+| GET | `/api/webapp/wallet/transfer-policy` | Mini App initData | Policy |
+| POST | `/api/webapp/wallet/transfers/confirm` | Mini App initData | Confirm |
+| POST | `/api/webapp/wallet/transfers/quote` | Mini App initData | Quote |
 
 ## `/api/webhooks`
 
