@@ -53,7 +53,7 @@ async def test_rebinding_between_requests_is_rejected_before_second_send(monkeyp
     client = SafeHttpClient("https://panel.example")
     try:
         await client.request("GET", "/")
-        with pytest.raises(PanelError, match="blocked panel address"):
+        with pytest.raises(PanelError, match="blocked outbound address"):
             await client.request("POST", "/", content=b"secret")
         assert len(wire) == 1
     finally:
