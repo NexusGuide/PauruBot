@@ -1,0 +1,249 @@
+[
+  {
+    "name": "outside_default",
+    "policy": {
+      "warn_remaining_percent": 10,
+      "warn_days": 2
+    },
+    "data_limit": 100,
+    "remaining": 11,
+    "seconds": 172801,
+    "status": "active",
+    "low_volume": false,
+    "expiring": false
+  },
+  {
+    "name": "exact_defaults",
+    "policy": {
+      "warn_remaining_percent": 10,
+      "warn_days": 2
+    },
+    "data_limit": 100,
+    "remaining": 10,
+    "seconds": 172800,
+    "status": "active",
+    "low_volume": true,
+    "expiring": true
+  },
+  {
+    "name": "inside_defaults",
+    "policy": {
+      "warn_remaining_percent": 10,
+      "warn_days": 2
+    },
+    "data_limit": 100,
+    "remaining": 9,
+    "seconds": 172799,
+    "status": "active",
+    "low_volume": true,
+    "expiring": true
+  },
+  {
+    "name": "shop_custom",
+    "policy": {
+      "warn_remaining_percent": 30,
+      "warn_days": 4
+    },
+    "data_limit": 100,
+    "remaining": 20,
+    "seconds": 259200,
+    "status": "active",
+    "low_volume": true,
+    "expiring": true
+  },
+  {
+    "name": "zero_disabled_positive",
+    "policy": {
+      "warn_remaining_percent": 0,
+      "warn_days": 0
+    },
+    "data_limit": 100,
+    "remaining": 1,
+    "seconds": 1,
+    "status": "active",
+    "low_volume": false,
+    "expiring": false
+  },
+  {
+    "name": "zero_at_empty",
+    "policy": {
+      "warn_remaining_percent": 0,
+      "warn_days": 0
+    },
+    "data_limit": 100,
+    "remaining": 0,
+    "seconds": 1,
+    "status": "active",
+    "low_volume": true,
+    "expiring": false
+  },
+  {
+    "name": "negative_thresholds",
+    "policy": {
+      "warn_remaining_percent": -1,
+      "warn_days": -1
+    },
+    "data_limit": 100,
+    "remaining": 0,
+    "seconds": 1,
+    "status": "active",
+    "low_volume": false,
+    "expiring": false
+  },
+  {
+    "name": "larger_percent",
+    "policy": {
+      "warn_remaining_percent": 120,
+      "warn_days": 2
+    },
+    "data_limit": 100,
+    "remaining": 100,
+    "seconds": 1,
+    "status": "active",
+    "low_volume": true,
+    "expiring": true
+  },
+  {
+    "name": "usage_over_limit",
+    "policy": {
+      "warn_remaining_percent": 10,
+      "warn_days": 2
+    },
+    "data_limit": 100,
+    "remaining": -5,
+    "seconds": 1,
+    "status": "active",
+    "low_volume": true,
+    "expiring": true
+  },
+  {
+    "name": "expiry_now",
+    "policy": {
+      "warn_remaining_percent": 10,
+      "warn_days": 2
+    },
+    "data_limit": 100,
+    "remaining": 20,
+    "seconds": 0,
+    "status": "active",
+    "low_volume": false,
+    "expiring": false
+  },
+  {
+    "name": "past_expiry",
+    "policy": {
+      "warn_remaining_percent": 10,
+      "warn_days": 2
+    },
+    "data_limit": 100,
+    "remaining": 20,
+    "seconds": -1,
+    "status": "active",
+    "low_volume": false,
+    "expiring": false
+  },
+  {
+    "name": "no_expiry",
+    "policy": {
+      "warn_remaining_percent": 10,
+      "warn_days": 2
+    },
+    "data_limit": 100,
+    "remaining": 20,
+    "seconds": null,
+    "status": "active",
+    "low_volume": false,
+    "expiring": false
+  },
+  {
+    "name": "on_hold",
+    "policy": {
+      "warn_remaining_percent": 10,
+      "warn_days": 2
+    },
+    "data_limit": 100,
+    "remaining": 1,
+    "seconds": 1,
+    "status": "on_hold",
+    "low_volume": false,
+    "expiring": false
+  },
+  {
+    "name": "disabled",
+    "policy": {
+      "warn_remaining_percent": 10,
+      "warn_days": 2
+    },
+    "data_limit": 100,
+    "remaining": 1,
+    "seconds": 1,
+    "status": "disabled",
+    "low_volume": false,
+    "expiring": false
+  },
+  {
+    "name": "expired",
+    "policy": {
+      "warn_remaining_percent": 10,
+      "warn_days": 2
+    },
+    "data_limit": 100,
+    "remaining": 1,
+    "seconds": -1,
+    "status": "expired",
+    "low_volume": false,
+    "expiring": false
+  },
+  {
+    "name": "limited",
+    "policy": {
+      "warn_remaining_percent": 10,
+      "warn_days": 2
+    },
+    "data_limit": 100,
+    "remaining": 1,
+    "seconds": 1,
+    "status": "limited",
+    "low_volume": false,
+    "expiring": false
+  },
+  {
+    "name": "far_future",
+    "policy": {
+      "warn_remaining_percent": 10,
+      "warn_days": 2
+    },
+    "data_limit": 100,
+    "remaining": 20,
+    "seconds": 864000,
+    "status": "active",
+    "low_volume": false,
+    "expiring": false
+  },
+  {
+    "name": "one_second",
+    "policy": {
+      "warn_remaining_percent": 10,
+      "warn_days": 2
+    },
+    "data_limit": 100,
+    "remaining": 20,
+    "seconds": 1,
+    "status": "active",
+    "low_volume": false,
+    "expiring": true
+  },
+  {
+    "name": "unlimited",
+    "policy": {
+      "warn_remaining_percent": 10,
+      "warn_days": 2
+    },
+    "data_limit": 0,
+    "remaining": 0,
+    "seconds": null,
+    "status": "active",
+    "low_volume": false,
+    "expiring": false
+  }
+]

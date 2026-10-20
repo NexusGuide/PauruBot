@@ -32,7 +32,10 @@ async def _panel(session, kind=PanelKind.MARZBAN):  # type: ignore[no-untyped-de
 
 
 async def _alerts(session) -> list[dict]:  # type: ignore[no-untyped-def]
-    jobs = await session.scalars(select(Job).where(Job.kind == "panel_alert", Job.status == JobStatus.QUEUED))
+    # PostgreSQL does not promise insertion order without ORDER BY.
+    jobs = await session.scalars(
+        select(Job).where(Job.kind == "panel_alert", Job.status == JobStatus.QUEUED).order_by(Job.id)
+    )
     return [j.payload for j in jobs]
 
 
@@ -56,7 +59,13 @@ async def test_down_alert_after_two_failures_and_recovery(session) -> None:  # t
     assert (await _alerts(session))[-1]["minutes"] == 10
     up = await monitor.uptime(session, [panel.id])
     assert up[panel.id]["day"] == 50.0
-    checks = list(await session.scalars(select(PanelCheck).where(PanelCheck.panel_id == panel.id)))
+    checks = list(
+        await session.scalars(
+            select(PanelCheck)
+            .where(PanelCheck.panel_id == panel.id)
+            .order_by(PanelCheck.checked_at, PanelCheck.id)
+        )
+    )
     assert [c.ok for c in checks] == [True, False, False, True]
 
 

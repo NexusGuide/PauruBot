@@ -14,6 +14,7 @@ import paurubot.api.routes.webapp_payment_inbox as webapp_payment_inbox
 from paurubot.api.routes import webapp_auto_renew, webapp_receipts, webapp_staff
 from paurubot.api.webapp_auth import WebApp, forced_gate, forget_join_cache
 from paurubot.core import (
+    alert_policy,
     catalog,
     customer_help,
     customer_preferences,
@@ -42,7 +43,9 @@ from paurubot.db.models import (
     Service,
     ServiceStatus,
     Ticket,
+    TicketDepartment,
     TicketMessage,
+    TicketStatus,
 )
 from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
@@ -207,6 +210,7 @@ async def me(ctx: WebApp) -> dict[str, Any]:
         "preferences": marketing.view(customer),
         "profile": customer_preferences.profile_view(customer),
         "alerts_muted": customer.alerts_muted,
+        "alert_policy": alert_policy.service_alert_policy(cfg),
     }
 
 
@@ -705,13 +709,33 @@ async def history(ctx: WebApp, before: int | None = None) -> dict[str, Any]:
 
 
 @router.get("/services")
-async def services(ctx: WebApp) -> dict[str, Any]:
-    rows = await ctx.session.scalars(
-        select(Service)
-        .where(Service.customer_id == ctx.customer.id, Service.status != ServiceStatus.DELETED)
-        .order_by(Service.id.desc())
+async def services(
+    ctx: WebApp,
+    limit: int | None = Query(None, ge=1, le=50),
+    before: int | None = Query(None, ge=1, le=2**63 - 1),
+    q: str | None = Query(None, max_length=120),
+    status: ServiceStatus | None = None,
+) -> dict[str, Any]:
+    from paurubot.api import service_pages
+
+    if status == ServiceStatus.DELETED:
+        raise HTTPException(status_code=422, detail="unsupported_service_status")
+    # Preserve existing unparameterized Home/derived-alert clients. Explicit paging/search
+    # is bounded; silently truncating legacy callers would drop their older service alerts.
+    paged = any(value is not None for value in (limit, before, q, status))
+    rows, next_before = await service_pages.read(
+        ctx.session,
+        ctx.shop.id,
+        ctx.customer.id,
+        limit=(limit or 20) if paged else None,
+        before=before,
+        query=q,
+        status=status,
     )
-    return {"items": [service_view(s, ctx.cfg) for s in rows]}
+    result: dict[str, Any] = {"items": [service_view(s, ctx.cfg) for s in rows]}
+    if paged:
+        result["next_before"] = next_before
+    return result
 
 
 @router.get("/services/{service_id}")
@@ -806,18 +830,48 @@ async def _own_ticket(ctx: WebApp, ticket_id: int, *, lock: bool = False) -> Tic
 
 
 @router.get("/tickets")
-async def my_tickets(ctx: WebApp, before: int | None = Query(None, ge=1)) -> dict[str, Any]:
+async def my_tickets(
+    ctx: WebApp,
+    before: int | None = Query(None, ge=1, le=2**63 - 1),
+    status: TicketStatus | None = None,
+    department_id: int | None = Query(None, ge=0, le=2**63 - 1),
+) -> dict[str, Any]:
     # Stable ID cursor: updates/replies cannot move a row between pages.
     stmt = select(Ticket).where(Ticket.customer_id == ctx.customer.id, Ticket.shop_id == ctx.shop.id)
+    if status is not None:
+        stmt = stmt.where(Ticket.status == status)
+    if department_id == 0:
+        stmt = stmt.where(Ticket.department_id.is_(None))
+    elif department_id is not None:
+        # Unknown/foreign departments both yield an empty owned page. Even inconsistent
+        # historical ticket->department links cannot make a foreign desk filter valid.
+        own_desks = select(TicketDepartment.id).where(
+            TicketDepartment.shop_id == ctx.shop.id, TicketDepartment.id == department_id
+        )
+        stmt = stmt.where(Ticket.department_id.in_(own_desks))
     if before is not None:
         stmt = stmt.where(Ticket.id < before)
     rows = list(await ctx.session.scalars(stmt.order_by(Ticket.id.desc()).limit(21)))
     page = rows[:20]
     desks = await tickets.departments(ctx.session, ctx.shop.id)
+    owned_history = select(Ticket.department_id).where(
+        Ticket.shop_id == ctx.shop.id, Ticket.customer_id == ctx.customer.id
+    )
+    history_desks = await ctx.session.scalars(
+        select(TicketDepartment)
+        .where(
+            TicketDepartment.shop_id == ctx.shop.id,
+            TicketDepartment.is_active.is_(True) | TicketDepartment.id.in_(owned_history),
+        )
+        .order_by(TicketDepartment.sort, TicketDepartment.id)
+    )
     return {
         "items": [_ticket_view(row) for row in page],
         "next_before": page[-1].id if len(rows) > 20 else None,
+        # New-ticket choices stay active-only. History can include a closed desk,
+        # but never staff routing fields or unrelated inactive department names.
         "departments": [{"id": desk.id, "title": desk.title} for desk in desks],
+        "filter_departments": [{"id": desk.id, "title": desk.title} for desk in history_desks],
     }
 
 
