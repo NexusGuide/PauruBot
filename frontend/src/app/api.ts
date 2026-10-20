@@ -1,3 +1,4 @@
+import type { Announcement, AnnouncementPage } from "@shared/announcements";
 import { ticketListPath, type TicketFilters } from "./ticket-pages";
 import { request } from "@shared/http";
 import type { Body as AutoRenewBody } from "./autoRenew/model";
@@ -288,6 +289,8 @@ const post = <T>(path: string, body: unknown = {}) =>
   request<T>(`/api/webapp${path}`, { method: "POST", body, headers: auth() });
 
 export const api = {
+  announcements: (before?: number, unread = false) => get<AnnouncementPage>(`/announcements?unread=${unread}${before ? `&before=${before}` : ""}`),
+  announcementState: (id: number, action: "seen" | "read") => post<{ item: Announcement }>(`/announcements/${id}/state`, { action }),
   cardVerification: () => get<unknown>("/cards/verification"),
   submitCardVerification: (body: { intent_key: string; number: string; image: string }) =>
     request<unknown>("/api/webapp/cards/verification", {
