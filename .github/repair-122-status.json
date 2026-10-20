@@ -1,0 +1,8 @@
+{
+  "head": "eade5dce5e1b75ca6f2cc6d4796be7ce16d9dc44",
+  "parent": "094f38880cbe8042d60eb13e9a0ce4139f923a58",
+  "stage": "push non-forced integration",
+  "error_type": "CalledProcessError",
+  "message": "Command '['git', 'push', 'origin', 'HEAD:refs/heads/feat/mender-owned-payment-inbox']' returned non-zero exit status 1.",
+  "conflicts": []
+}
