@@ -1,0 +1,80 @@
+name: Repair PR 106 integration
+on:
+  push:
+    branches: [feat/mender-service-display-rename]
+    paths: [.github/workflows/repair-106-integration.yml]
+permissions:
+  contents: read
+jobs:
+  integrate-rename-with-main:
+    if: github.repository == 'MenderBaga/PauruBot' && github.ref == 'refs/heads/feat/mender-service-display-rename'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Only trusted inline parsing and git operations execute here, never repository code.
+      # This branch-only maintenance workflow must be removed before the PR is merged.
+      - name: Integrate reviewed main and resolve narrowly allowlisted conflicts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git merge --no-ff --no-commit 994eed9481c4f9ca836adc878c7cf4751320af74 || git rev-parse --verify MERGE_HEAD
+          python3 - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True)
+          conflicts = git('diff', '--name-only', '--diff-filter=U').splitlines()
+          allowed = {'frontend/src/app/locales/en.json', 'frontend/src/app/locales/fa.json', 'frontend/tests/ux.test.mjs', 'frontend/tests/browser/screen-browser.cjs'}
+          assert set(conflicts) <= allowed, 'Unexpected conflicts; manual review required'
+          missing = object()
+          for name in conflicts:
+              path = Path(name)
+              ours, theirs = git('show', f':2:{name}'), git('show', f':3:{name}')
+              if name.endswith('.json'):
+                  base = json.loads(git('show', f':1:{name}'))
+                  left, right = json.loads(ours), json.loads(theirs)
+                  merged = {}
+                  for key in dict.fromkeys([*right, *left, *base]):
+                      a, b, old = left.get(key, missing), right.get(key, missing), base.get(key, missing)
+                      if a == b:
+                          value = a
+                      elif a == old:
+                          value = b
+                      elif b == old:
+                          value = a
+                      else:
+                          raise AssertionError(f'Conflicting locale meaning: {key}')
+                      if value is not missing:
+                          merged[key] = value
+                  for key in ('err_payment_intent_conflict', 'err_payment_intent_closed', 'err_payment_intent_invalid', 'service_rename', 'service_label', 'service_rename_hint', 'service_rename_save', 'service_renamed'):
+                      assert isinstance(merged[key], str) and merged[key]
+                  path.write_text(json.dumps(merged, ensure_ascii=False, indent=2) + '\n')
+              elif name.endswith('/ux.test.mjs'):
+                  base = git('show', f':1:{name}')
+                  registration = 'import "./service-rename.test.mjs";\n'
+                  assert ours.count(registration) == 1
+                  assert ours.replace(registration, '') == base, 'Unexpected UX changes; manual review required'
+                  assert registration not in theirs
+                  assert all(f'./{test}.test.mjs' in theirs for test in ('ticket-pages', 'service-read', 'service-pages', 'wallet-history'))
+                  anchor = "import test from 'node:test';\n"
+                  assert theirs.count(anchor) == 1
+                  path.write_text(theirs.replace(anchor, anchor + registration, 1))
+              else:
+                  assert ours.rstrip() == theirs.rstrip(), 'Browser harness differs; manual review required'
+                  path.write_text(theirs)
+              subprocess.run(['git', 'add', '--', name], check=True)
+          assert not git('diff', '--name-only', '--diff-filter=U').strip()
+          source = Path('frontend/src/app/screens/Services.tsx').read_text()
+          assert all(symbol in source for symbol in ('readServicePage', 'runServiceAction', 'normalizedServiceLabel', 'api.rename(service.id, normalized)'))
+          PY
+          git diff --cached --check
+          git commit -m 'Merge main into service rename, preserving paging, wallet history, translations and UX regressions'
+          git push origin HEAD:refs/heads/feat/mender-service-display-rename
