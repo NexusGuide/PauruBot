@@ -423,7 +423,7 @@ class BlupalProvider(Gateway):
             "GET", f"{self.host}/invoices/{payment.provider_ref}", headers=self._headers(cfg)
         )
         if status != 200 or not _truthy(data.get("success")):
-            return Verification(False, detail=f"waiting: verify {status}")
+            return Verification(False, detail=f"waiting: lookup {status}")
         if str(data.get("invoice_id")) != str(payment.provider_ref):
             return Verification(False, detail="reference mismatch")
         state = str(data.get("status") or "").upper()
@@ -602,7 +602,7 @@ class CubePayProvider(Gateway):
         if status in {"expired", "failed"}:
             return Verification(False, detail=f"canceled: {status}")
         if status != "paid":
-            return Verification(False, detail="waiting: not paid")
+            return Verification(False, detail=f"waiting: {status}")
         tx = f"cube:crypto:{field(params, 'payment_id') or order}"
         return settle(payment, tx, _int(amount), payment.provider_amount)
 
