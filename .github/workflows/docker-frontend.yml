@@ -1,0 +1,17 @@
+name: Frontend Docker build
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  docker-frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the actual frontend stage with its declared Node and Alpine image
+        run: docker build --pull --target frontend --tag paurubot-frontend:ci .
