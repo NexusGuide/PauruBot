@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { BrowserRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { Agency, AgencyAccount } from "./screens/Agency";
 import { Buy, Custom, PanelStep, PlanStep } from "./screens/Buy";
+import { CardVerification } from "./screens/CardVerification";
 import { Checkout, Done } from "./screens/Checkout";
 import { Desk } from "./screens/Desk";
 import { Help } from "./screens/Help";
@@ -132,6 +133,7 @@ function Shell() {
         <Route path="/services/:id" element={<ServiceDetail />} />
         <Route path="/extra/:id/:unit" element={<Extra />} />
         <Route path="/wallet" element={<Wallet />} />
+        <Route path="/card-verification" element={<CardVerification />} />
         <Route path="/more" element={<More />} />
         <Route path="/help" element={<Help />} />
         <Route path="/tickets" element={<Tickets />} />

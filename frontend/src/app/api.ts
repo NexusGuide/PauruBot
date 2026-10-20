@@ -1,3 +1,4 @@
+import type { Announcement, AnnouncementPage } from "@shared/announcements";
 import { ticketListPath, type TicketFilters } from "./ticket-pages";
 import { request } from "@shared/http";
 import type { Body as AutoRenewBody } from "./autoRenew/model";
@@ -55,6 +56,8 @@ export interface UsageHistory {
 }
 
 export interface Ticket {
+  service_id?: number | null;
+  service_context?: { id: number; status: string; used_bytes: number; data_limit: number; expire_at: string | null } | null;
   id: number;
   subject: string;
   status: "open" | "answered" | "closed";
@@ -67,6 +70,7 @@ export interface TicketMessage {
   from: "me" | "support";
   text: string | null;
   has_attachment: boolean;
+  attachment_expired?: boolean;
   created_at: string | null;
 }
 export interface TicketList {
@@ -251,6 +255,17 @@ export interface PaymentStart {
   uncertain?: boolean;
 }
 
+export interface PendingPayment {
+  id: number;
+  provider: string;
+  amount: number;
+  status: string;
+  order_id: number | null;
+  expires_at: string | null;
+  action: "resume" | "status" | "review";
+}
+export interface PendingPaymentList { items: PendingPayment[]; next_before: number | null }
+
 export interface CryptoInstructions {
   network: string;
   label: string;
@@ -280,6 +295,13 @@ const post = <T>(path: string, body: unknown = {}) =>
   request<T>(`/api/webapp${path}`, { method: "POST", body, headers: auth() });
 
 export const api = {
+  announcements: (before?: number, unread = false) => get<AnnouncementPage>(`/announcements?unread=${unread}${before ? `&before=${before}` : ""}`),
+  announcementState: (id: number, action: "seen" | "read") => post<{ item: Announcement }>(`/announcements/${id}/state`, { action }),
+  cardVerification: () => get<unknown>("/cards/verification"),
+  submitCardVerification: (body: { intent_key: string; number: string; image: string }) =>
+    request<unknown>("/api/webapp/cards/verification", {
+      method: "POST", body, headers: auth(), signal: AbortSignal.timeout(25_000),
+    }),
   transferPolicy: () => get<TransferPolicy>("/wallet/transfer-policy"),
   transferQuote: (recipient: string, amount: number) => post<TransferQuote>("/wallet/transfers/quote", { recipient, amount }),
   transferConfirm: (token: string) => post<{ journal_id: number; amount: number; replayed: boolean; balance: number }>("/wallet/transfers/confirm", { token }),
@@ -293,8 +315,8 @@ export const api = {
   help: (signal?: AbortSignal) => get<CustomerHelp>("/help", signal),
   tickets: (before?: number, signal?: AbortSignal, filters?: TicketFilters) => get<TicketList>(ticketListPath(before, filters), signal),
   ticket: (id: number, before?: number, signal?: AbortSignal) => get<TicketThreadData>(`/tickets/${id}${before ? `?before=${before}` : ""}`, signal),
-  newTicket: (body: { subject: string; text: string; department_id: number | null }) => post<{ ticket: Ticket }>("/tickets", body),
-  replyTicket: (id: number, text: string) => post<{ ticket: Ticket }>(`/tickets/${id}/reply`, { text }),
+  newTicket: (body: { subject: string; text: string; department_id: number | null; service_id?: number | null; request_key?: string }) => post<{ ticket: Ticket }>("/tickets", body),
+  replyTicket: (id: number, text: string, request_key?: string) => post<{ ticket: Ticket }>(`/tickets/${id}/reply`, { text, request_key }),
   closeTicket: (id: number) => post<{ ticket: Ticket }>(`/tickets/${id}/close`),
   catalog: () => get<Catalog>("/catalog"),
   accountPlans: (signal?: AbortSignal) => get<AccountPlans>("/account-plans", signal),
@@ -321,6 +343,7 @@ export const api = {
   renewMany: (ids: number[]) =>
     post<{ renewed: number[]; failed: { id: number; error: string }[]; balance: number }>("/reseller/renew", { service_ids: ids }),
   order: (id: number) => get<{ order: Order }>(`/orders/${id}`),
+  renewalPreview: (id: number, signal?: AbortSignal) => get<unknown>(`/orders/${id}/renewal-preview`, signal),
   payOrder: (id: number, method: string) =>
     post<{ order: Order; payment?: PaymentStart }>(`/orders/${id}/pay`, { method }),
   cancelOrder: (id: number) => post<{ ok: boolean }>(`/orders/${id}/cancel`),
@@ -333,6 +356,8 @@ export const api = {
     return post<{ payment: PaymentStart }>("/wallet/topup", { amount, method, intent_key });
   },
   payment: (id: number) => get<{ id: number; status: string; amount: number; fulfilled: boolean; provider: string; order_id: number | null }>(`/payments/${id}`),
+  pendingPayments: (before?: number) => get<PendingPaymentList>(`/payments${before ? `?before=${before}` : ""}`),
+  resumePayment: (id: number) => get<{ payment: PaymentStart }>(`/payments/${id}/resume`),
   receiptState: (id: number) => get<unknown>(`/payments/${id}/receipt-state`),
   receipts: (before?: number) => get<unknown>(`/receipts${before ? `?before=${before}` : ""}`),
   sendReceipt: (id: number, file: File, revision: string) => {

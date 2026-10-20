@@ -4,6 +4,7 @@ import { ApiError } from "@shared/http";
 import { money } from "@shared/format";
 import { api } from "../api";
 import { Icon } from "../icons";
+import { PendingPayments } from "../payments/PendingPayments";
 import { errorText, useApp } from "../state";
 import { haptic, openExternal, openInvoice } from "../telegram";
 import { actionGate, topupIntents } from "../topup-intents";
@@ -70,6 +71,7 @@ export function Wallet() {
           ["payment_intent_closed", "payment_intent_conflict"].includes(err.code)) {
         topupIntents().clear(me.id, chosen, method, intent);
       }
+      if (err instanceof ApiError && err.code === "card_verify_required") navigate("/card-verification");
       toast(errorText(t, err), "error");
     } finally {
       gate.current.leave();
@@ -118,6 +120,7 @@ export function Wallet() {
         </div>
       </div>
 
+      <Button disabled={busy !== null} onClick={() => navigate("/card-verification")}>{locale.startsWith("fa") ? "تأیید کارت" : "Card verification"}</Button>
       <p className="app-lbl">{t("topup_amount")}</p>
       <div className="app-chips" role="group">
         {presets.map((preset) => (
@@ -166,6 +169,7 @@ export function Wallet() {
         {me.payment_methods.length === 0 && !me.tonpay_custom_available && <div className="app-empty">{t("no_methods")}</div>}
       </div>
 
+      <div className="mt-6"><PendingPayments /></div>
       <p className="app-lbl">{t("gift_code")}</p>
       <div className="app-dc">
         <input

@@ -1,3 +1,7 @@
+import { TicketAttachment } from "@shared/TicketAttachment";
+import { TicketUpload } from "../ticketMedia/TicketUpload";
+import { intent } from "../ticketMedia/model";
+import { initData } from "../telegram";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApiError } from "@shared/http";
@@ -60,6 +64,8 @@ function ReadError({ error, retry }: { error: unknown; retry: () => void }) {
     </div>
   );
 }
+
+
 
 const DEPT_ICONS: IconName[] = ["chat", "globe", "wallet", "bag", "headset"];
 
@@ -171,24 +177,36 @@ export function Tickets() {
 }
 
 export function NewTicket() {
+  const [params] = useSearchParams();
+  const raw = params.get("service");
+  const service = raw === null ? null : /^\d+$/.test(raw) && Number.isSafeInteger(Number(raw)) && Number(raw) > 0 ? Number(raw) : -1;
+  return <NewTicketForm key={String(service)} serviceId={service} />;
+}
+
+function NewTicketForm({ serviceId }: { serviceId: number | null }) {
   const { t, toast } = useApp();
   const navigate = useNavigate();
   const read = useCallback((signal: AbortSignal) => api.tickets(undefined, signal), []);
   const { data, error, busy, reload } = useRead<TicketList>("departments", read);
   const [subject, setSubject] = useState("");
+  const request = useRef<{ body: string; key: string } | null>(null);
+  const serviceRead = useCallback((signal: AbortSignal) => serviceId === null ? Promise.resolve(null) : api.service(serviceId).then(r => { if (signal.aborted) throw new Error("aborted"); return r.service; }), [serviceId]);
+  const linked = useRead(String(serviceId), serviceRead);
   const [text, setText] = useState("");
   const [department, setDepartment] = useState("");
   const [saving, setSaving] = useState(false);
   const [writeError, setWriteError] = useState<string | null>(null);
   const guard = useRef(false);
   const live = useLive();
-  const blocked = saving || busy || !data || !subject.trim() || !text.trim();
+  const blocked = saving || busy || !data || !subject.trim() || !text.trim() || (serviceId !== null && (linked.busy || !!linked.error || !linked.data));
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (guard.current || busy || !data || !subject.trim() || !text.trim()) return;
+    if (guard.current || blocked) return;
     guard.current = true; setSaving(true); setWriteError(null);
     try {
-      const result = await api.newTicket({ subject: subject.trim(), text: text.trim(), department_id: department ? Number(department) : null });
+      const body = { subject: subject.trim(), text: text.trim(), department_id: department ? Number(department) : null, service_id: serviceId };
+      request.current = intent(request.current, JSON.stringify(body));
+      const result = await api.newTicket({ ...body, request_key: request.current.key });
       if (!live.current) return;
       toast(t("tickets_created"));
       navigate(`/tickets/${result.ticket.id}`, { replace: true });
@@ -200,9 +218,10 @@ export function NewTicket() {
     <Screen title={t("tickets_new")}>
       <div className="app-note">
         <Icon name="help" size={20} />
-        <span>{t("tickets_text_only")}</span>
+        <span>{t("tickets_media_hint")}</span>
       </div>
       <ReadError error={error} retry={() => void reload()} />
+      {serviceId !== null && <div className="app-note"><span>{t("tickets_service")} #{serviceId} {linked.data ? `— ${linked.data.label}` : ""}</span><ReadError error={linked.error} retry={() => void linked.reload()} /></div>}
       <form onSubmit={(event) => void submit(event)}>
         <fieldset disabled={saving} className="min-w-0">
           <p className="app-lbl">{t("tickets_department")}</p>
@@ -267,7 +286,9 @@ function Thread({ id, backTo }: { id: number; backTo: string }) {
   const guard = useRef(false);
   const live = useLive();
   const ticket = confirmed ?? data?.ticket;
-  const unavailable = saving || busy;
+  const [mediaBusy, setMediaBusy] = useState(false);
+  const replyIntent = useRef<{ body: string; key: string } | null>(null);
+  const unavailable = saving || busy || mediaBusy;
   const run = async (action: "reply" | "close" | "older") => {
     if (guard.current || unavailable || !data || (action === "reply" && (!text.trim() || ticket?.status === "closed"))) return;
     guard.current = true; setSaving(true); setWriteError(null);
@@ -279,10 +300,11 @@ function Thread({ id, backTo }: { id: number; backTo: string }) {
         if (!live.current) return;
         setOlder(previous => [...result.messages, ...previous]); setCursor(result.next_before);
       } else {
-        const result = action === "close" ? await api.closeTicket(id) : await api.replyTicket(id, text.trim());
+        if (action === "reply") replyIntent.current = intent(replyIntent.current, text.trim());
+        const result = action === "close" ? await api.closeTicket(id) : await api.replyTicket(id, text.trim(), replyIntent.current?.key);
         if (!live.current) return;
         setConfirmed(result.ticket); setConfirmClose(false);
-        if (action === "reply") setText("");
+        if (action === "reply") { setText(""); replyIntent.current = null; }
         toast(t(action === "close" ? "tickets_closed_ok" : "tickets_replied"));
         setOlder([]); setCursor(undefined);
         await reload();
@@ -339,6 +361,7 @@ function Thread({ id, backTo }: { id: number; backTo: string }) {
         </div>
       )}
 
+      {ticket?.service_context && <p className="app-note">{t("tickets_service")} #{ticket.service_context.id} — {ticket.service_context.status}</p>}
       <ReadError error={error} retry={refresh} />
       {(cursor === undefined ? data?.next_before : cursor) != null && (
         <Button tone="quiet" className="mt-3" disabled={unavailable} onClick={() => void run("older")}>
@@ -350,7 +373,7 @@ function Thread({ id, backTo }: { id: number; backTo: string }) {
         {messages.map((message) => (
           <li key={message.id} className="app-msg" data-from={message.from}>
             <span className="whitespace-pre-wrap break-words" dir="auto">{message.text}</span>
-            {message.has_attachment && <span className="app-hint mt-1 block text-xs">{t("tickets_attachment")}</span>}
+            {message.has_attachment && (message.attachment_expired ? <p>{t("tickets_file_expired")}</p> : <TicketAttachment key={`${id}-${message.id}`} path={`/api/webapp/tickets/${id}/messages/${message.id}/attachment`} headers={{ "X-Telegram-Init-Data": initData() }} label={t("tickets_file_open")} failure={t("tickets_file_failed")} loading={t("tickets_loading")} />)}
             <time className="num">
               {message.from === "support" ? `${t("tickets_support")} · ` : ""}
               {message.created_at ? new Date(message.created_at).toLocaleString(locale) : ""}
@@ -388,6 +411,7 @@ function Thread({ id, backTo }: { id: number; backTo: string }) {
           </button>
         </form>
       )}
+      {data && ticket?.status !== "closed" && <TicketUpload key={id} id={id} disabled={saving || busy || confirmClose} onBusy={setMediaBusy} onSaved={() => { setOlder([]); setCursor(undefined); void reload(); }} />}
       {saving && <p role="status" className="sr-only">{t("tickets_loading")}</p>}
     </Screen>
   );

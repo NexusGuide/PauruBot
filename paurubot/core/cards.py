@@ -68,7 +68,9 @@ def random_tail(amount: int, high: int) -> int:
 async def has_verified(session: AsyncSession, customer: Customer) -> bool:
     found = await session.scalar(
         select(VerifiedCard.id).where(
-            VerifiedCard.customer_id == customer.id, VerifiedCard.status == "approved"
+            VerifiedCard.shop_id == customer.shop_id,
+            VerifiedCard.customer_id == customer.id,
+            VerifiedCard.status == "approved",
         )
     )
     return found is not None
@@ -90,9 +92,17 @@ async def register(
     number = digits(number_text)
     if len(number) != 16 or not luhn_ok(number):
         raise CardError("card_number_invalid")
+    # Shared with Telegram registration: serialize pending checks across entry points.
+    await session.scalar(
+        select(Customer)
+        .where(Customer.id == customer.id, Customer.shop_id == customer.shop_id)
+        .with_for_update()
+    )
     pending = await session.scalar(
         select(VerifiedCard.id).where(
-            VerifiedCard.customer_id == customer.id, VerifiedCard.status == "pending"
+            VerifiedCard.shop_id == customer.shop_id,
+            VerifiedCard.customer_id == customer.id,
+            VerifiedCard.status == "pending",
         )
     )
     if pending is not None:
@@ -101,7 +111,11 @@ async def register(
     other = await session.scalar(
         select(Customer)
         .join(VerifiedCard, VerifiedCard.customer_id == Customer.id)
-        .where(VerifiedCard.digest == digest, VerifiedCard.customer_id != customer.id)
+        .where(
+            VerifiedCard.shop_id == customer.shop_id,
+            VerifiedCard.digest == digest,
+            VerifiedCard.customer_id != customer.id,
+        )
         .limit(1)
     )
     card = VerifiedCard(
