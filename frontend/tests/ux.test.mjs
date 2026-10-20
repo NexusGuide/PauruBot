@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import test from 'node:test';
+import "./wallet-history.test.mjs";
 const {tabForPath,parentForPath}=await import(new URL('../src/app/navigation.ts',import.meta.url));
 for (const [path,tab,parent] of [
  ['/', 'home',null],['/buy','buy',null],['/custom','buy','/buy'],['/checkout','buy','/buy'],['/done/12','buy','/services'],
@@ -8,6 +9,7 @@ for (const [path,tab,parent] of [
  ['/wallet','wallet',null],['/payment/12','wallet','/wallet'],['/more','more',null],['/profile','more','/more'],['/help','more','/more'],
  ['/tickets','more','/more'],['/tickets/new','more','/tickets'],['/tickets/12','more','/tickets'],['/manage','more','/more'],['/desk','more','/more'],['/unknown','home',null]
 ]) test(`route ${path} has stable tab and safe parent`,()=>{assert.equal(tabForPath(path),tab);assert.equal(parentForPath(path),parent)});
+import "./alert-policy.test.mjs";
 const css=readFileSync(new URL('../src/app/app.css',import.meta.url),'utf8');
 function luminance(hex) {const v=hex.match(/[0-9a-f]{2}/gi).map(x=>parseInt(x,16)/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4);return .2126*v[0]+.7152*v[1]+.0722*v[2]}
 function contrast(a,b){const x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05)}
@@ -37,3 +39,13 @@ try {
  test(`Button busy=${busy} disabled=${disabled}`,()=>{const html=renderToStaticMarkup(createElement(Button,{busy,disabled},'Submit ticket'));assert.equal(html.includes('disabled=""'),wanted);assert(html.includes('Submit ticket'));assert.equal(html.includes('aria-busy="true"'),!!busy);if(busy){assert(html.includes('aria-hidden="true"'));assert(!html.includes('role="status"'))}});
  test('Button keeps explicit submit type and caller class',()=>{const html=renderToStaticMarkup(createElement(Button,{type:'submit',className:'custom'},'Save'));assert(html.includes('type="submit"'));assert(html.includes('custom'))});
 } finally {rmSync(temp,{recursive:true,force:true})}
+
+// Customer ticket filter regressions share the existing CI UX suite.
+import "./ticket-pages.test.mjs";
+
+// Service detail recovery regressions run in the existing CI UX suite.
+import "./service-read.test.mjs";
+
+import "./service-rename.test.mjs";
+// Bounded service search/paging contracts run in the existing CI UX suite.
+import "./service-pages.test.mjs";

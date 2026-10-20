@@ -28,12 +28,14 @@ _bot: Bot | None = None
 
 
 def make_bot(token: str | None = None, shop_id: int | None = None) -> Bot:
+    from paurubot.bot.polling import PollingRetryMiddleware
     from paurubot.bot.premium_emoji import PremiumEmojiMiddleware
 
     bot = Bot(
         token or get_settings().bot_token.get_secret_value(),
         default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True),
     )
+    bot.session.middleware(PollingRetryMiddleware(shop_id))
     bot.session.middleware(PremiumEmojiMiddleware(shop_id))  # BOT-10
     return bot
 
@@ -109,7 +111,7 @@ async def deliver[R](call: Callable[[], Awaitable[R]]) -> R:
             raise Undeliverable(str(exc)) from exc
         raise
     except TelegramRetryAfter as exc:
-        raise Retry(f"flood control, retry after {exc.retry_after}s") from exc
+        raise Retry(f"flood control, retry after {exc.retry_after}s", retry_after=exc.retry_after) from exc
     except (TelegramNetworkError, TelegramServerError) as exc:
         raise Retry(f"telegram unavailable: {exc.__class__.__name__}") from exc
 
