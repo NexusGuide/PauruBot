@@ -1,8 +1,9 @@
-"""One durable provider-creation attempt per committed Mini App order.
+"""One durable provider-creation attempt per participating committed order.
 
 Only the private session is committed. Uncertain/closed/legacy attempts never
 trigger another creation or a switch to another provider on the same order.
-Bot/guest/unkeyed top-up workflows are deliberately not rerouted here.
+The signed guest form uses this after reservation. Bot/legacy/unkeyed top-up
+workflows are deliberately not rerouted here.
 """
 
 from __future__ import annotations
@@ -79,7 +80,7 @@ async def _create(name: str, payment: Payment, cfg: dict[str, Any]) -> Checkout:
 
 
 async def start(caller: AsyncSession, customer: Customer, order: Order, provider_name: str) -> engine.Started:
-    """Called only for authenticated, already committed Mini App orders, not new guest drafts."""
+    """For committed Mini App / signed guest reservations; caller must establish ownership."""
     if order in caller.new or order in caller.deleted or caller.is_modified(order):
         raise PaymentError("payment_intent_conflict")
     maker = get_sessionmaker()

@@ -1,0 +1,5 @@
+{
+  "guest_checkout_form_invalid": "This form expired or is invalid. Open the store again.",
+  "guest_checkout_form_conflict": "This request already uses another plan or method. No replacement payment was created.",
+  "guest_checkout_form_closed": "This request is closed or claimed in Telegram. No replacement payment was created."
+}
