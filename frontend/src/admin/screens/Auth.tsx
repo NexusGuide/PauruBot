@@ -1,3 +1,4 @@
+import { PasswordRecovery } from "../password-recovery/PasswordRecovery";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { ApiError, call } from "../api";
 import { useSession } from "../session";
@@ -121,6 +122,7 @@ export function Login() {
           {mode === "password" ? t("login_use_code") : t("login_use_password")}
         </button>
       </form>
+      <PasswordRecovery />
     </Frame>
   );
 }

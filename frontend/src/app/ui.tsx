@@ -8,15 +8,18 @@ export function Screen({
   subtitle,
   children,
   action,
+  backTo,
 }: {
   title?: string;
   subtitle?: string;
   children: ReactNode;
   action?: ReactNode;
+  backTo?: string;
 }) {
   const { t } = useApp();
   const navigate = useNavigate();
-  const parent = parentForPath(useLocation().pathname);
+  const defaultParent = parentForPath(useLocation().pathname);
+  const parent = backTo ?? defaultParent;
   return (
     <main id="app-content" tabIndex={-1} className="app-screen">
       {(title || parent) && (
