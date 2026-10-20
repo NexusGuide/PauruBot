@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApiError } from "@shared/http";
 import { api, type Ticket, type TicketList, type TicketThreadData } from "../api";
 import { Icon, type IconName } from "../icons";
 import { errorText, useApp } from "../state";
 import { tg } from "../telegram";
 import { ActionBar, Button, Item, Screen, Spinner } from "../ui";
+import { readTicketPage, ticketListPath, ticketNumber, ticketStatus, ticketsReturnTo, type TicketFilter } from "../ticket-pages";
 
 // Abort + generation guard: a previous route/page/read never replaces a newer result.
 function useRead<T>(key: string, read: (signal: AbortSignal) => Promise<T>) {
@@ -28,7 +29,7 @@ function useRead<T>(key: string, read: (signal: AbortSignal) => Promise<T>) {
     }
   }, [key, read]);
   useEffect(() => { void reload(); return () => { controller.current?.abort(); sequence.current += 1; }; }, [reload]);
-  return { ...state, data: state.key === key ? state.data : null, busy: state.key !== key || state.busy, reload };
+  return { ...state, error: state.key === key ? state.error : null, data: state.key === key ? state.data : null, busy: state.key !== key || state.busy, reload };
 }
 
 function useLive() {
@@ -65,14 +66,25 @@ const DEPT_ICONS: IconName[] = ["chat", "globe", "wallet", "bag", "headset"];
 export function Tickets() {
   const { me, t, locale } = useApp();
   const navigate = useNavigate();
-  const [before, setBefore] = useState<number | undefined>();
-  const [status, setStatus] = useState<string | null>(null);
-  const [department, setDepartment] = useState<number | null>(null);
-  const read = useCallback((signal: AbortSignal) => api.tickets(before, signal), [before]);
-  const { data, error, busy, reload } = useRead<TicketList>(String(before ?? "latest"), read);
-  const items = (data?.items ?? []).filter(
-    (ticket) => (status === null || ticket.status === status) && (department === null || ticket.department_id === department),
-  );
+  const [params, setParams] = useSearchParams();
+  const before = ticketNumber(params.get("before"));
+  const status = ticketStatus(params.get("status"));
+  const department = ticketNumber(params.get("department_id"), true);
+  const requestKey = JSON.stringify([before ?? null, status, department ?? null]);
+  const returnTo = ticketListPath(before, { status, department });
+  const read = useCallback(async (signal: AbortSignal) => readTicketPage(
+    await api.tickets(before, signal, { status, department }), before, { status, department },
+  ), [before, status, department]);
+  const { data, error, busy, reload } = useRead<TicketList>(requestKey, read);
+  const [knownDesks, setKnownDesks] = useState<TicketList["departments"]>([]);
+  useEffect(() => { if (data) setKnownDesks(data.filter_departments ?? data.departments); }, [data]);
+  const desks = data?.filter_departments ?? data?.departments ?? knownDesks;
+  const items = data?.items ?? [];
+  const filtered = Boolean(status || department !== undefined);
+  const change = (nextStatus: TicketFilter, nextDepartment: number | undefined, nextBefore?: number) => {
+    const path = ticketListPath(nextBefore, { status: nextStatus, department: nextDepartment });
+    setParams(path.includes("?") ? path.slice(path.indexOf("?") + 1) : "", { replace: true });
+  };
 
   return (
     <Screen
@@ -83,6 +95,7 @@ export function Tickets() {
           type="button"
           className="app-iconbtn app-rip-host"
           data-busy={busy}
+          disabled={busy}
           aria-label={t("tickets_refresh")}
           onClick={() => void reload()}
         >
@@ -103,21 +116,21 @@ export function Tickets() {
       </div>
 
       <div className="app-chips" role="group" aria-label={t("tickets_status_label")}>
-        {[{ id: null, label: t("all") }, ...(["open", "answered", "closed"] as const).map((value) => ({ id: value, label: t(`ticket_status_${value}`) }))].map((chip) => (
-          <button key={chip.id ?? "all"} type="button" aria-pressed={status === chip.id} className="app-chip" onClick={() => setStatus(chip.id)}>
+        {[{ id: "" as TicketFilter, label: t("all") }, ...(["open", "answered", "closed"] as const).map((value) => ({ id: value, label: t(`ticket_status_${value}`) }))].map((chip) => (
+          <button key={chip.id ?? "all"} type="button" aria-pressed={status === chip.id} className="app-chip" onClick={() => change(chip.id, department)}>
             {chip.label}
           </button>
         ))}
       </div>
-      {data && data.departments.length > 0 && (
-        <div className="app-chips" role="group" aria-label={t("tickets_department")}>
-          {[{ id: null, title: t("all") }, ...data.departments].map((chip) => (
-            <button key={chip.id ?? "all"} type="button" aria-pressed={department === chip.id} className="app-chip" onClick={() => setDepartment(chip.id)}>
+      <div className="app-chips" role="group" aria-label={t("tickets_department")}>
+          {[{ id: undefined, title: t("all") }, { id: 0, title: t("tickets_general") }, ...desks, ...(department !== undefined && department > 0 && !desks.some(desk => desk.id === department) ? [{ id: department, title: `#${department}` }] : [])].map((chip) => (
+            <button key={chip.id ?? "all"} type="button" aria-pressed={department === chip.id} className="app-chip" onClick={() => change(status, chip.id)}>
               {chip.title}
             </button>
           ))}
-        </div>
-      )}
+      </div>
+
+      {filtered && <Button tone="quiet" className="mt-2" onClick={() => change("", undefined)}>{t("tickets_clear_filters")}</Button>}
 
       <ReadError error={error} retry={() => void reload()} />
 
@@ -126,7 +139,7 @@ export function Tickets() {
           <Spinner /> <span className="text-sm">{t("tickets_loading")}</span>
         </div>
       )}
-      {!busy && data && items.length === 0 && <div className="app-card"><div className="app-empty">{t("tickets_empty")}</div></div>}
+      {!busy && !error && data && items.length === 0 && <div className="app-card"><div className="app-empty">{t(filtered ? "tickets_no_matches" : "tickets_empty")}</div></div>}
       {items.length > 0 && (
         <div className="app-card">
           {items.map((ticket) => (
@@ -137,19 +150,19 @@ export function Tickets() {
               title={`#${ticket.id} — ${ticket.subject}`}
               sub={ticket.updated_at ? new Date(ticket.updated_at).toLocaleString(locale) : ""}
               badge={<StatusBadge status={ticket.status} />}
-              onClick={() => navigate(`/tickets/${ticket.id}`)}
+              onClick={() => navigate(`/tickets/${ticket.id}`, { state: { ticketsReturnTo: returnTo } })}
             />
           ))}
         </div>
       )}
 
       {data?.next_before != null && (
-        <Button tone="quiet" className="mt-3" disabled={busy} onClick={() => setBefore(data?.next_before ?? undefined)}>
+        <Button tone="quiet" className="mt-3" disabled={busy} onClick={() => change(status, department, data?.next_before ?? undefined)}>
           {t("tickets_older")}
         </Button>
       )}
       {before !== undefined && (
-        <Button tone="quiet" className="mt-2" disabled={busy} onClick={() => setBefore(undefined)}>
+        <Button tone="quiet" className="mt-2" disabled={busy} onClick={() => change(status, department)}>
           {t("tickets_latest")}
         </Button>
       )}
@@ -230,15 +243,17 @@ export function TicketThread() {
   const { id } = useParams();
   const { t } = useApp();
   const navigate = useNavigate();
+  const location = useLocation();
+  const backTo = ticketsReturnTo(location.state?.ticketsReturnTo);
   const value = Number(id);
   if (!id || !/^\d+$/.test(id) || !Number.isSafeInteger(value) || value <= 0) {
-    return <Screen title={t("tickets_title")}><p role="alert">{t("err_ticket_not_found")}</p><Button tone="quiet" onClick={() => navigate("/tickets")}>{t("tickets_back")}</Button></Screen>;
+    return <Screen title={t("tickets_title")} backTo={backTo}><p role="alert">{t("err_ticket_not_found")}</p><Button tone="quiet" onClick={() => navigate(backTo)}>{t("tickets_back")}</Button></Screen>;
   }
   // A route change discards the former ticket's draft/confirmation and all local response state.
-  return <Thread key={value} id={value} />;
+  return <Thread key={value} id={value} backTo={backTo} />;
 }
 
-function Thread({ id }: { id: number }) {
+function Thread({ id, backTo }: { id: number; backTo: string }) {
   const { t, locale, toast } = useApp();
   const read = useCallback((signal: AbortSignal) => api.ticket(id, undefined, signal), [id]);
   const { data, error, busy, reload } = useRead<TicketThreadData>(String(id), read);
@@ -286,6 +301,7 @@ function Thread({ id }: { id: number }) {
   const messages = [...new Map([...older, ...(data?.messages ?? [])].map(message => [message.id, message])).values()].sort((a, b) => a.id - b.id);
   return (
     <Screen
+      backTo={backTo}
       title={ticket?.subject ?? t("tickets_title")}
       subtitle={ticket ? `#${ticket.id}` : undefined}
       action={
