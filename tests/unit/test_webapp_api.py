@@ -467,3 +467,38 @@ async def test_miniapp_help_is_authenticated_shop_scoped_and_local_only(
     assert set(body) == {"articles", "apps", "bot_url"}
     assert "pattern" not in response.text and "file_id" not in response.text
     no_network.assert_not_awaited()
+
+
+async def test_topup_intent_replay_conflict_and_scoped_response(session, app_env) -> None:  # type: ignore[no-untyped-def]
+    client = app_env["client"]
+    body = {"amount": 100_000, "method": "card", "intent_key": "api-topup-intent-1"}
+    first = await client.post("/api/webapp/wallet/topup", headers=h(8701), json=body)
+    second = await client.post("/api/webapp/wallet/topup", headers=h(8701), json=body)
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json()
+    assert "meta" not in first.json()["payment"]
+    assert "intent_key" not in first.text and "checkout_intent_v1" not in first.text
+    different = await client.post(
+        "/api/webapp/wallet/topup", headers=h(8701), json={**body, "amount": 200_000}
+    )
+    assert different.status_code == 409 and different.json()["error"] == "payment_intent_conflict"
+    other = await client.post("/api/webapp/wallet/topup", headers=h(8702), json=body)
+    assert (
+        other.status_code == 200
+        and other.json()["payment"]["payment_id"] != first.json()["payment"]["payment_id"]
+    )
+    payment = await session.get(Payment, first.json()["payment"]["payment_id"])
+    payment.status = PaymentStatus.EXPIRED
+    await session.commit()
+    closed = await client.post("/api/webapp/wallet/topup", headers=h(8701), json=body)
+    assert closed.status_code == 409 and closed.json()["error"] == "payment_intent_closed"
+
+
+@pytest.mark.parametrize("key", ["tiny", "with spaces", "x" * 129])
+async def test_topup_intent_key_validation(app_env, key) -> None:  # type: ignore[no-untyped-def]
+    response = await app_env["client"].post(
+        "/api/webapp/wallet/topup",
+        headers=h(8703),
+        json={"amount": 100_000, "method": "card", "intent_key": key},
+    )
+    assert response.status_code == 422

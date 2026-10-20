@@ -17,13 +17,13 @@
     "test:reseller-hub": "node --test tests/reseller-hub.test.mjs",
     "test:tickets": "node --test tests/ticket-desk.test.mjs",
     "test:usage": "node --test tests/usage-data.test.mjs",
-    "test:ux": "node --test tests/ux.test.mjs"
+    "test:ux": "node --test tests/ux.test.mjs tests/topup-intents.test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/vazirmatn": "^5.3.0",
     "qrcode": "^1.5.4",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "react-router-dom": "^7.9.0"
   },
   "devDependencies": {

@@ -216,7 +216,7 @@ async def test_sync_alerts_once_and_detects_deleted(session, fakes) -> None:  # 
     assert service.status == ServiceStatus.DELETED
 
 
-async def test_panel_webhook_requires_secret_and_updates_service(session, fakes) -> None:  # type: ignore[no-untyped-def]
+async def test_panel_webhook_requires_secret_and_queues_authoritative_refresh(session, fakes) -> None:  # type: ignore[no-untyped-def]
     from paurubot.api.app import create_app
 
     shop, panel, plan, cust, fake = await _setup(session, fakes)
@@ -239,6 +239,7 @@ async def test_panel_webhook_requires_secret_and_updates_service(session, fakes)
             },
         }
     ]
+    event += [event[0], {"user": {"username": 123}}]
     app_transport = httpx.ASGITransport(app=create_app())
     async with httpx.AsyncClient(transport=app_transport, base_url="http://t") as client:
         bad = await client.post(
@@ -250,7 +251,11 @@ async def test_panel_webhook_requires_secret_and_updates_service(session, fakes)
             content=json.dumps(event),
             headers={"x-webhook-secret": "hook-secret-123"},
         )
-        assert ok.status_code == 200 and ok.json()["applied"] == 1
+        assert ok.status_code == 200 and ok.json() == {"received": 3, "applied": 0, "queued": 1}
+    await session.refresh(service)
+    assert service.status == ServiceStatus.ACTIVE
+    fake.users[service.panel_username].update(status="limited", used_traffic=50 * GB)
+    assert await drain(session, "provision") == 1
     await session.refresh(service)
     assert service.status == ServiceStatus.LIMITED
 

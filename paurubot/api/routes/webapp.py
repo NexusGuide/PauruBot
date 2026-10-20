@@ -40,7 +40,9 @@ from paurubot.db.models import (
     Service,
     ServiceStatus,
     Ticket,
+    TicketDepartment,
     TicketMessage,
+    TicketStatus,
 )
 from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
@@ -581,14 +583,18 @@ async def cancel_order(order_id: int, ctx: WebApp) -> dict[str, Any]:
 class TopupBody(BaseModel):
     amount: int = Field(gt=0, le=10**12)
     method: str = Field(min_length=2, max_length=32, pattern=r"^[a-z0-9_]+$")
+    intent_key: str | None = Field(default=None, min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
 
 
 @router.post("/wallet/topup")
 async def topup(body: TopupBody, ctx: WebApp) -> dict[str, Any]:
     try:
-        started = await payments.start(ctx.session, ctx.customer, body.method, body.amount)
+        started = await payments.start(
+            ctx.session, ctx.customer, body.method, body.amount, idempotency_key=body.intent_key
+        )
     except PaymentError as exc:
-        raise HTTPException(status_code=400, detail=exc.key) from exc
+        status = 409 if exc.key in {"payment_intent_conflict", "payment_intent_closed"} else 400
+        raise HTTPException(status_code=status, detail=exc.key) from exc
     await ctx.session.commit()
     return {"payment": await _payment_view(ctx, started)}
 
@@ -777,18 +783,48 @@ async def _own_ticket(ctx: WebApp, ticket_id: int, *, lock: bool = False) -> Tic
 
 
 @router.get("/tickets")
-async def my_tickets(ctx: WebApp, before: int | None = Query(None, ge=1)) -> dict[str, Any]:
+async def my_tickets(
+    ctx: WebApp,
+    before: int | None = Query(None, ge=1, le=2**63 - 1),
+    status: TicketStatus | None = None,
+    department_id: int | None = Query(None, ge=0, le=2**63 - 1),
+) -> dict[str, Any]:
     # Stable ID cursor: updates/replies cannot move a row between pages.
     stmt = select(Ticket).where(Ticket.customer_id == ctx.customer.id, Ticket.shop_id == ctx.shop.id)
+    if status is not None:
+        stmt = stmt.where(Ticket.status == status)
+    if department_id == 0:
+        stmt = stmt.where(Ticket.department_id.is_(None))
+    elif department_id is not None:
+        # Unknown/foreign departments both yield an empty owned page. Even inconsistent
+        # historical ticket->department links cannot make a foreign desk filter valid.
+        own_desks = select(TicketDepartment.id).where(
+            TicketDepartment.shop_id == ctx.shop.id, TicketDepartment.id == department_id
+        )
+        stmt = stmt.where(Ticket.department_id.in_(own_desks))
     if before is not None:
         stmt = stmt.where(Ticket.id < before)
     rows = list(await ctx.session.scalars(stmt.order_by(Ticket.id.desc()).limit(21)))
     page = rows[:20]
     desks = await tickets.departments(ctx.session, ctx.shop.id)
+    owned_history = select(Ticket.department_id).where(
+        Ticket.shop_id == ctx.shop.id, Ticket.customer_id == ctx.customer.id
+    )
+    history_desks = await ctx.session.scalars(
+        select(TicketDepartment)
+        .where(
+            TicketDepartment.shop_id == ctx.shop.id,
+            TicketDepartment.is_active.is_(True) | TicketDepartment.id.in_(owned_history),
+        )
+        .order_by(TicketDepartment.sort, TicketDepartment.id)
+    )
     return {
         "items": [_ticket_view(row) for row in page],
         "next_before": page[-1].id if len(rows) > 20 else None,
+        # New-ticket choices stay active-only. History can include a closed desk,
+        # but never staff routing fields or unrelated inactive department names.
         "departments": [{"id": desk.id, "title": desk.title} for desk in desks],
+        "filter_departments": [{"id": desk.id, "title": desk.title} for desk in history_desks],
     }
 
 

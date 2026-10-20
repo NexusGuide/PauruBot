@@ -109,6 +109,9 @@
   "payment_failed": "این پرداخت تأیید نشد.",
   "price": "قیمت",
   "qr_alt": "کد QR لینک اشتراک",
+  "service_qr_loading": "در حال ساخت کد QR…",
+  "wireguard_qr_alt": "کد QR تنظیمات وایرگارد",
+  "service_qr_empty": "داده‌ای برای ساخت کد QR در دسترس نیست.",
   "receipt_hint": "بعد از واریز، عکس رسید رو بفرست تا بررسی بشه.",
   "receipt_under_review": "رسید در حال بررسیه",
   "receipt_under_review_hint": "بعد از تأیید، مبلغ خودکار به کیف پولت اضافه می‌شه و سفارشت انجام می‌شه.",
@@ -319,6 +322,8 @@
   "tickets_refresh": "به‌روزرسانی",
   "tickets_retry": "تلاش دوباره",
   "tickets_loading": "در حال دریافت…",
+  "tickets_no_matches": "در این صفحه تیکتی مطابق این فیلترها نیست.",
+  "tickets_clear_filters": "پاک کردن فیلترهای تیکت",
   "tickets_empty": "در این صفحه تیکتی وجود ندارد.",
   "tickets_older": "تیکت‌های قدیمی‌تر",
   "tickets_latest": "جدیدترین تیکت‌ها",
@@ -499,5 +504,8 @@
   "receipt_sent_text": "بعد از تأیید ادمین، موجودی به کیف پول اضافه می‌شود.",
   "add_data": "افزایش حجم",
   "add_time": "افزایش زمان",
-  "buy_new_service": "خرید سرویس جدید"
+  "buy_new_service": "خرید سرویس جدید",
+  "err_payment_intent_conflict": "این درخواست پرداخت تغییر کرده است. مبلغ و روش را بررسی و دوباره اقدام کنید.",
+  "err_payment_intent_closed": "این درخواست پرداخت بسته یا منقضی شده است. برای پرداخت جدید دوباره اقدام کنید.",
+  "err_payment_intent_invalid": "شناسهٔ درخواست پرداخت نامعتبر است."
 }
