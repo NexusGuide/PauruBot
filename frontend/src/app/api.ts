@@ -288,6 +288,11 @@ const post = <T>(path: string, body: unknown = {}) =>
   request<T>(`/api/webapp${path}`, { method: "POST", body, headers: auth() });
 
 export const api = {
+  cardVerification: () => get<unknown>("/cards/verification"),
+  submitCardVerification: (body: { intent_key: string; number: string; image: string }) =>
+    request<unknown>("/api/webapp/cards/verification", {
+      method: "POST", body, headers: auth(), signal: AbortSignal.timeout(25_000),
+    }),
   transferPolicy: () => get<TransferPolicy>("/wallet/transfer-policy"),
   transferQuote: (recipient: string, amount: number) => post<TransferQuote>("/wallet/transfers/quote", { recipient, amount }),
   transferConfirm: (token: string) => post<{ journal_id: number; amount: number; replayed: boolean; balance: number }>("/wallet/transfers/confirm", { token }),
