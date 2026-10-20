@@ -24,6 +24,7 @@ class Service(Base, UpdatedMixin):
     __table_args__ = (
         UniqueConstraint("panel_id", "panel_username"),
         Index("ix_services_customer_status", "customer_id", "status"),
+        Index("ix_services_owner_page", "shop_id", "customer_id", "id"),
         Index("ix_services_shop_status_expire", "shop_id", "status", "expire_at"),
     )
 

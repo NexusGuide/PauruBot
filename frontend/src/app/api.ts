@@ -1,6 +1,8 @@
+import { ticketListPath, type TicketFilters } from "./ticket-pages";
 import { request } from "@shared/http";
 import type { Body as AutoRenewBody } from "./autoRenew/model";
 import { initData } from "./telegram";
+import { servicePageUrl, type ServiceFilter } from "./service-pages";
 
 export interface ServiceAlertPolicy {
   warn_remaining_percent: number;
@@ -68,6 +70,7 @@ export interface TicketMessage {
 export interface TicketList {
   items: Ticket[];
   departments: { id: number; title: string }[];
+  filter_departments?: { id: number; title: string }[];
   next_before: number | null;
 }
 export interface TicketThreadData {
@@ -285,7 +288,7 @@ export const api = {
     post<MarketingPreference>("/me/marketing", { marketing_opt_out: optOut }),
   setLocale: (locale: string) => post<{ locale: string }>("/me/locale", { locale }),
   help: (signal?: AbortSignal) => get<CustomerHelp>("/help", signal),
-  tickets: (before?: number, signal?: AbortSignal) => get<TicketList>(`/tickets${before ? `?before=${before}` : ""}`, signal),
+  tickets: (before?: number, signal?: AbortSignal, filters?: TicketFilters) => get<TicketList>(ticketListPath(before, filters), signal),
   ticket: (id: number, before?: number, signal?: AbortSignal) => get<TicketThreadData>(`/tickets/${id}${before ? `?before=${before}` : ""}`, signal),
   newTicket: (body: { subject: string; text: string; department_id: number | null }) => post<{ ticket: Ticket }>("/tickets", body),
   replyTicket: (id: number, text: string) => post<{ ticket: Ticket }>(`/tickets/${id}/reply`, { text }),
@@ -337,6 +340,8 @@ export const api = {
   redeemGift: (code: string) => post<{ amount: number; balance: number }>("/wallet/gift", { code }),
   history: (before?: number) => get<{ items: HistoryItem[] }>(`/wallet/history${before ? `?before=${before}` : ""}`),
   services: () => get<{ items: Service[] }>("/services"),
+  servicePage: (q: string, status: ServiceFilter, before: number | undefined, signal: AbortSignal) =>
+    request<unknown>(`/api/webapp${servicePageUrl(q, status, before)}`, { headers: auth(), signal }),
   service: (id: number, refresh = false) => get<{ service: Service }>(`/services/${id}${refresh ? "?refresh=true" : ""}`),
   usage: (id: number, days: 7 | 30, signal?: AbortSignal) =>
     request<UsageHistory>(`/api/webapp/services/${id}/usage?days=${days}`, { headers: auth(), signal }),

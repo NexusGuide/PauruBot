@@ -13,6 +13,7 @@ import httpx
 
 from paurubot.config import get_settings
 from paurubot.panels.base import PanelError, PanelUnavailable
+from paurubot.panels.transport import ValidatedTransport
 from paurubot.security import ssrf
 from paurubot.security.redact import redact
 
@@ -53,36 +54,27 @@ class SafeHttpClient:
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=httpx.Timeout(total, connect=settings.http_connect_timeout),
-            verify=ssl_context(pinned_pem),
             follow_redirects=False,
-            transport=transport,
+            trust_env=False,
+            transport=transport
+            if transport is not None
+            else ValidatedTransport(
+                self.base_url, context=ssl_context(pinned_pem), allow_private=self.allow_private
+            ),
             headers={"User-Agent": "PauruBot"},
         )
-        self._checked_until = 0.0
         self._failures = 0
         self._open_until = 0.0
-        self.skip_ssrf_check = transport is not None  # mocked transports in tests
 
     @property
     def cookies(self) -> httpx.Cookies:
         return self._client.cookies
 
-    async def _guard(self) -> None:
-        if self.skip_ssrf_check:
-            return
-        now = time.monotonic()
-        if now < self._checked_until:
-            return
-        try:
-            await ssrf.assert_safe_url(self.base_url, allow_private=self.allow_private)
-        except ssrf.UnsafeUrl as exc:
-            raise PanelError(f"blocked panel address: {exc}") from exc
-        self._checked_until = now + 60
-
     async def request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         if time.monotonic() < self._open_until:
             raise PanelUnavailable("panel temporarily unavailable (circuit open)")
-        await self._guard()
+        # No caller may turn a panel response into a redirected mutation.
+        kwargs["follow_redirects"] = False
         try:
             response = await self._client.request(method, path, **kwargs)
         except httpx.HTTPError as exc:
@@ -121,22 +113,39 @@ async def fetch_certificate(url: str, *, allow_private: bool = False) -> tuple[s
     parts = urlsplit(url)
     if parts.scheme != "https" or not parts.hostname:
         raise PanelError("certificate pinning needs an https URL")
-    await ssrf.assert_safe_url(url, allow_private=allow_private or get_settings().allow_private_panel_hosts)
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE  # inspection only; the result is never used to send data
     port = parts.port or 443
     try:
-        _, writer = await asyncio.wait_for(
-            asyncio.open_connection(parts.hostname, port, ssl=ctx, server_hostname=parts.hostname), timeout=8
-        )
+        # One bounded operation: resolve/validate once, then dial only numeric results.
+        async with asyncio.timeout(8):
+            addresses = await ssrf.assert_safe_url(
+                url, allow_private=allow_private or get_settings().allow_private_panel_hosts
+            )
+            writer = None
+            for index, address in enumerate(addresses):
+                try:
+                    _, writer = await asyncio.open_connection(
+                        address, port, ssl=ctx, server_hostname=parts.hostname
+                    )
+                    break
+                except OSError:
+                    if index == len(addresses) - 1:
+                        raise
+            if writer is None:
+                raise PanelUnavailable("panel resolved to no addresses")
+            try:
+                ssl_object = writer.get_extra_info("ssl_object")
+                der = ssl_object.getpeercert(binary_form=True) if ssl_object else None
+            finally:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except (OSError, ssl.SSLError):
+                    pass
     except (OSError, TimeoutError) as exc:
         raise PanelUnavailable(f"cannot connect to {parts.hostname}:{port}") from exc
-    try:
-        ssl_object = writer.get_extra_info("ssl_object")
-        der = ssl_object.getpeercert(binary_form=True) if ssl_object else None
-    finally:
-        writer.close()
     if not der:
         raise PanelError("server presented no certificate")
     fingerprint = ":".join(f"{b:02X}" for b in hashlib.sha256(der).digest())
