@@ -1,0 +1,42 @@
+name: verify-113-source
+on:
+  pull_request:
+    paths:
+      - .github/workflows/repair-113-source.yml
+permissions:
+  contents: write
+jobs:
+  normalize-source:
+    if: github.repository == 'mehdialij/PauruBot' && github.event.pull_request.number == 113 && github.head_ref == 'feat/mender-tonpay-standard'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/mender-tonpay-standard
+          fetch-depth: 0
+      - name: Restore exact original source except import whitespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import pathlib
+          import subprocess
+          path = 'paurubot/payments/providers/gateways.py'
+          original = subprocess.check_output(['git', 'show', 'c9d124a43d9df11fc40802c7f1cb9d45caeef66f:' + path])
+          old = b'from typing import Any\n\nfrom urllib.parse import quote, urlsplit'
+          new = b'from typing import Any\nfrom urllib.parse import quote, urlsplit'
+          assert original.count(old) == 1
+          fixed = original.replace(old, new, 1)
+          assert ast.dump(ast.parse(original)) == ast.dump(ast.parse(fixed))
+          pathlib.Path(path).write_bytes(fixed)
+          changed = subprocess.check_output(['git', 'diff', '--name-only']).decode().splitlines()
+          assert changed in ([], [path]), changed
+          PY
+          if git diff --quiet -- paurubot/payments/providers/gateways.py; then exit 0; fi
+          git config user.name 'mehdialij'
+          git config user.email '155055819+mehdialij@users.noreply.github.com'
+          git add -- paurubot/payments/providers/gateways.py
+          git commit -m 'fix(payments): preserve exact gateway source with import-only cleanup'
+          git push origin HEAD:feat/mender-tonpay-standard
