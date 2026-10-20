@@ -97,6 +97,24 @@ async def start(
     amount: int,
     *,
     order: Order | None = None,
+    idempotency_key: str | None = None,
+) -> Started:
+    """Resume a caller-scoped top-up intent, or create an unkeyed legacy payment."""
+    if idempotency_key is not None:
+        from paurubot.payments.intents import start_once
+
+        return await start_once(session, customer, provider_name, amount, idempotency_key, order=order)
+    return await _start(session, customer, provider_name, amount, order=order)
+
+
+async def _start(
+    session: AsyncSession,
+    customer: Customer,
+    provider_name: str,
+    amount: int,
+    *,
+    order: Order | None = None,
+    storage_key: str | None = None,
 ) -> Started:
     """Create a payment and ask the provider how the customer should pay it."""
     cfg = await shop_settings.load(session, customer.shop_id)
@@ -126,7 +144,7 @@ async def start(
         provider=prov.name,
         status=PaymentStatus.CREATED,
         amount=amount,
-        idempotency_key=f"{prov.name}:{uuid.uuid4().hex}",
+        idempotency_key=storage_key or f"{prov.name}:{uuid.uuid4().hex}",
         expires_at=utcnow() + timedelta(minutes=minutes),
     )
     session.add(payment)
@@ -183,19 +201,38 @@ async def attach_receipt(
     return duplicate
 
 
-async def auto_approvable(session: AsyncSession, payment: Payment, cfg: dict[str, Any]) -> bool:
-    """Card auto-approve rules (PAY-05): small amounts from customers with a clean card history."""
-    if payment.receipt_file_id is None:
-        return False
+async def auto_review_customer(session: AsyncSession, payment: Payment) -> Customer | None:
+    """Shared exclusions for immediate and timed approval; never replace a requested human review."""
+    if (
+        payment.provider != "card"
+        or payment.status != PaymentStatus.VERIFYING
+        or not payment.receipt_file_id
+        or payment.duplicate_of_id is not None
+        or (payment.meta or {}).get("fix_requests")
+    ):
+        return None
     customer = await session.get(Customer, payment.customer_id)
-    if customer is not None and customer.card_trust == "trusted":
+    if (
+        customer is None
+        or customer.shop_id != payment.shop_id
+        or customer.card_trust == "blocked"
+        or customer.risk in {"medium", "high"}
+    ):
+        return None
+    return customer
+
+
+async def auto_approvable(session: AsyncSession, payment: Payment, cfg: dict[str, Any]) -> bool:
+    """PAY-05 history/amount rules, with the explicit PAY-17 trusted-customer exception."""
+    customer = await auto_review_customer(session, payment)
+    if customer is None:
+        return False
+    if customer.card_trust == "trusted":
         return True  # the shop vouched for this customer (PAY-17)
     if not cfg.get("card_auto_approve"):
         return False
     if payment.amount > int(cfg.get("card_auto_max_amount") or 0):
         return False
-    if customer is not None and customer.risk in {"medium", "high"}:
-        return False  # risky customers always get a human look (BOT-08)
     history = await session.scalar(
         select(func.count(Payment.id)).where(
             Payment.customer_id == payment.customer_id,
