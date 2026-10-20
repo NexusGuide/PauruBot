@@ -511,5 +511,8 @@
   "receipt_sent_text": "Once an admin approves it, the balance is added to your wallet.",
   "add_data": "Add data",
   "add_time": "Add time",
-  "buy_new_service": "Buy a new service"
+  "buy_new_service": "Buy a new service",
+  "err_payment_intent_conflict": "This payment request changed. Check the amount and method before trying again.",
+  "err_payment_intent_closed": "This payment request is closed or expired. Try again to start a new payment.",
+  "err_payment_intent_invalid": "Invalid payment request identifier."
 }

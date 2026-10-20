@@ -97,6 +97,24 @@ async def start(
     amount: int,
     *,
     order: Order | None = None,
+    idempotency_key: str | None = None,
+) -> Started:
+    """Resume a caller-scoped top-up intent, or create an unkeyed legacy payment."""
+    if idempotency_key is not None:
+        from paurubot.payments.intents import start_once
+
+        return await start_once(session, customer, provider_name, amount, idempotency_key, order=order)
+    return await _start(session, customer, provider_name, amount, order=order)
+
+
+async def _start(
+    session: AsyncSession,
+    customer: Customer,
+    provider_name: str,
+    amount: int,
+    *,
+    order: Order | None = None,
+    storage_key: str | None = None,
 ) -> Started:
     """Create a payment and ask the provider how the customer should pay it."""
     cfg = await shop_settings.load(session, customer.shop_id)
@@ -126,7 +144,7 @@ async def start(
         provider=prov.name,
         status=PaymentStatus.CREATED,
         amount=amount,
-        idempotency_key=f"{prov.name}:{uuid.uuid4().hex}",
+        idempotency_key=storage_key or f"{prov.name}:{uuid.uuid4().hex}",
         expires_at=utcnow() + timedelta(minutes=minutes),
     )
     session.add(payment)

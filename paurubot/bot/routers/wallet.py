@@ -330,7 +330,16 @@ async def pay(
         if order is not None:
             started = await payments.pay_order(session, customer, order, callback_data.method)
         else:
-            started = await payments.start(session, customer, callback_data.method, callback_data.amount)
+            # A Telegram callback ID changes on each click; the source message does not.
+            source = (
+                f"{call.message.chat.id}:{call.message.message_id}"
+                if isinstance(call.message, Message)
+                else call.id
+            )
+            key = f"bot:{source}:{callback_data.method}:{callback_data.amount}"
+            started = await payments.start(
+                session, customer, callback_data.method, callback_data.amount, idempotency_key=key
+            )
     except PaymentError as exc:
         await session.rollback()
         if exc.key == "card_verify_required" and isinstance(call.message, Message):
