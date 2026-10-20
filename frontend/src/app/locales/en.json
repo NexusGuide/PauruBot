@@ -428,6 +428,7 @@
   "notif_empty_hint": "Low-data, expiry and wallet events will show up here.",
   "alert_data_title": "Service data is used up",
   "alert_data_body": "“{label}” has no data left; add volume to keep it running.",
+  "alerts_policy_unavailable": "Warning thresholds are unavailable. Only current status and wallet activity are shown.",
   "alert_low_data_title": "Service data is running low",
   "alert_low_data_body": "Only {value} left on “{label}”; renew or upgrade before it stops.",
   "alert_expired_title": "Service expired",

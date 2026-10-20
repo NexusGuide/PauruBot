@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from paurubot.core import orders
+from paurubot.core import alert_policy, orders
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import utcnow
 from paurubot.db.models import Panel, Service, ServiceStatus
@@ -56,11 +56,11 @@ async def evaluate_alerts(
     if service.status == ServiceStatus.ACTIVE:
         if service.data_limit:
             remaining = max(0, service.data_limit - service.used_bytes)
-            if remaining * 100 <= int(cfg["warn_remaining_percent"] or 0) * service.data_limit:
+            if remaining * 100 <= alert_policy.warn_remaining_percent(cfg) * service.data_limit:
                 once("low_volume", f"{service.data_limit}", {"remaining": remaining})
         if service.expire_at:
             seconds = (service.expire_at - datetime.now(UTC)).total_seconds()
-            if 0 < seconds <= int(cfg["warn_days"] or 0) * 86400:
+            if 0 < seconds <= alert_policy.warn_days(cfg) * 86400:
                 once("expiring", period, {"days": max(1, int(seconds // 86400) + 1)})
     if service.status == ServiceStatus.EXPIRED and previous != ServiceStatus.EXPIRED:
         once("expired", period, {})
