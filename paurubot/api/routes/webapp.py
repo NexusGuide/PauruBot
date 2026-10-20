@@ -6,9 +6,12 @@ import logging
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from sqlalchemy import select
+
 import paurubot.api.routes.webapp_cards as webapp_cards
 import paurubot.api.routes.webapp_payment_inbox as webapp_payment_inbox
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from paurubot.api.routes import (
     webapp_auto_renew,
     webapp_receipts,
@@ -62,8 +65,6 @@ from paurubot.payments.chains import NETWORKS
 from paurubot.provisioning import lifecycle
 from paurubot.provisioning.subscription import customer_link
 from paurubot.worker import queue
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
-from sqlalchemy import select
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/webapp", tags=["webapp"])
@@ -584,6 +585,7 @@ async def _payment_view(ctx: WebApp, started: payments.Started) -> dict[str, Any
         view["invoice_link"] = checkout.instructions["invoice_link"]
     elif payment.provider == "stars":
         from aiogram.types import LabeledPrice
+
         from paurubot.notifications.telegram import get_bot
 
         view["invoice_link"] = await get_bot().create_invoice_link(
@@ -687,6 +689,7 @@ async def upload_receipt(
 async def _store_receipt(ctx: WebApp, data: bytes) -> str | None:
     """Store with the same shop bot used to deliver the photo to its staff reviewers."""
     from aiogram.types import BufferedInputFile
+
     from paurubot.notifications import telegram
 
     try:
