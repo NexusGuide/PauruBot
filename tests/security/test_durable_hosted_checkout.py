@@ -37,7 +37,7 @@ async def hosted(intent_engine, monkeypatch):  # type: ignore[no-untyped-def]
         cid = customer.id
         await session.commit()
     monkeypatch.setattr("paurubot.payments.durable_checkout.invoice_cents", AsyncMock(return_value=200))
-    for name in ("nowpayments", "plisio"):
+    for name in ("nowpayments", "plisio", "tonpay"):
         monkeypatch.setattr(engine.provider(name), "enabled", AsyncMock(return_value=True))
     yield maker, cid
     shop_settings.invalidate()
@@ -53,7 +53,7 @@ def checkout():  # type: ignore[no-untyped-def]
     )
 
 
-@pytest.mark.parametrize("name", ["nowpayments", "plisio"])
+@pytest.mark.parametrize("name", ["nowpayments", "plisio", "tonpay"])
 async def test_attempt_visible_before_remote_call_and_survives_caller_rollback(hosted, monkeypatch, name):  # type: ignore[no-untyped-def]
     maker, cid = hosted
 
@@ -62,9 +62,16 @@ async def test_attempt_visible_before_remote_call_and_survives_caller_rollback(h
             durable = await observer.get(Payment, payment.id)
             assert durable is not None
             assert durable.status == PaymentStatus.CREATED
-            assert durable.provider_amount == 200
-            assert durable.provider_currency == "USD"
+            assert durable.provider_amount == (100_000 if name == "tonpay" else 200)
+            assert durable.provider_currency == ("IRT" if name == "tonpay" else "USD")
             assert durable.meta[ATTEMPT_KEY]["state"] == "uncertain"
+        if name == "tonpay":
+            return Checkout(
+                redirect_url="https://tonpays.online/pay/test",
+                provider_ref="synthetic-ref",
+                provider_amount=payment.amount,
+                provider_currency="IRT",
+            )
         return checkout()
 
     remote = AsyncMock(side_effect=create)
@@ -86,24 +93,34 @@ async def test_attempt_visible_before_remote_call_and_survives_caller_rollback(h
         customer = await caller.get(Customer, cid)
         again = await engine.start(caller, customer, name, 100_000, idempotency_key=KEY)
         assert again.payment.id == pid
-        assert again.checkout == checkout()
+        assert again.checkout == (
+            Checkout(
+                redirect_url="https://tonpays.online/pay/test",
+                provider_ref="synthetic-ref",
+                provider_amount=100_000,
+                provider_currency="IRT",
+            )
+            if name == "tonpay"
+            else checkout()
+        )
     remote.assert_awaited_once()
 
 
+@pytest.mark.parametrize("name", ["nowpayments", "tonpay"])
 @pytest.mark.parametrize("failure", [PaymentError("gateway_error"), asyncio.CancelledError(), TimeoutError()])
-async def test_ambiguous_failure_never_sends_creation_again(hosted, monkeypatch, failure):  # type: ignore[no-untyped-def]
+async def test_ambiguous_failure_never_sends_creation_again(hosted, monkeypatch, failure, name):  # type: ignore[no-untyped-def]
     maker, cid = hosted
     remote = AsyncMock(side_effect=failure)
-    monkeypatch.setattr(engine.provider("nowpayments"), "create", remote)
+    monkeypatch.setattr(engine.provider(name), "create", remote)
     async with maker() as caller:
         customer = await caller.get(Customer, cid)
         with pytest.raises(type(failure)):
-            await engine.start(caller, customer, "nowpayments", 100_000, idempotency_key=KEY)
+            await engine.start(caller, customer, name, 100_000, idempotency_key=KEY)
         await caller.rollback()
     async with maker() as caller:
         customer = await caller.get(Customer, cid)
         with pytest.raises(PaymentError, match="gateway_error"):
-            await engine.start(caller, customer, "nowpayments", 100_000, idempotency_key=KEY)
+            await engine.start(caller, customer, name, 100_000, idempotency_key=KEY)
         rows = list(await caller.scalars(select(Payment).where(Payment.customer_id == cid)))
         assert len(rows) == 1
         assert rows[0].meta[ATTEMPT_KEY]["state"] == "uncertain"
@@ -257,3 +274,58 @@ async def test_legacy_invoice_creation_does_not_reuse_unmarked_amount(monkeypatc
     payment = Payment(amount=100_000, provider_amount=123, provider_currency="USD", meta={})
     assert await engine.provider("nowpayments")._cents(payment, {}) == 345
     quote.assert_awaited_once_with(payment, {})
+
+
+@pytest.mark.parametrize("difference", [-1, 0, 1])
+async def test_tonpay_actual_engine_settlement_and_repeated_callback(hosted, monkeypatch, difference):  # type: ignore[no-untyped-def]
+    import httpx
+
+    maker, cid = hosted
+    calls = []
+    order_id = ""
+
+    def handle(request):  # type: ignore[no-untyped-def]
+        import json
+
+        nonlocal order_id
+        calls.append(request.method)
+        if request.method == "POST":
+            order_id = json.loads(request.content)["order_id"]
+            return httpx.Response(
+                200, json={"invoice_id": "synthetic-ref", "invoice_url": "https://tonpays.online/pay/test"}
+            )
+        return httpx.Response(
+            200,
+            json={
+                "order_id": order_id,
+                "invoice_id": "synthetic-ref",
+                "status": "completed",
+                "paid": True,
+                "request_amount": 100_000,
+                "final_amount": 100_000 + difference,
+            },
+        )
+
+    monkeypatch.setattr(engine.provider("tonpay"), "_transport", httpx.MockTransport(handle))
+    monkeypatch.setattr(engine.provider("tonpay"), "public_url", lambda: "https://shop.invalid")
+    async with maker() as session:
+        customer = await session.get(Customer, cid)
+        await shop_settings.set_many(session, customer.shop_id, {"tonpay_api_key": "synthetic-key"})
+        await session.commit()
+    shop_settings.invalidate()
+    async with maker() as caller:
+        customer = await caller.get(Customer, cid)
+        started = await engine.start(caller, customer, "tonpay", 100_000, idempotency_key=KEY)
+        pid = started.payment.id
+        await caller.rollback()
+    async with maker() as session:
+        assert await engine.verify(session, pid, {"source": "poll"}) is (difference == 0)
+        await session.commit()
+    async with maker() as session:
+        payment = await session.get(Payment, pid)
+        assert payment.status == (PaymentStatus.PAID if difference == 0 else PaymentStatus.DISPUTED)
+        if difference:
+            assert payment.meta["disputed_amount"] == 100_000 + difference
+            assert payment.meta["disputed_tx"] == "tonpay:synthetic-ref"
+        assert await engine.verify(session, pid, {"json": {"paid": True}}) is (difference == 0)
+    assert calls == ["POST", "GET"]

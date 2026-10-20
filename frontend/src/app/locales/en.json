@@ -221,6 +221,7 @@
   "method_blupal": "BluPal gateway",
   "method_tronado": "TRX via Tronado",
   "method_cubepay": "CubePay gateway",
+  "method_tonpay": "Tonpay gateway",
   "method_atlaspay": "AtlasPay gateway",
   "manage": "Manage",
   "manage_hint": "Sales figures and payments waiting for you",

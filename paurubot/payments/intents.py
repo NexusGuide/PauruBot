@@ -38,7 +38,7 @@ async def start_once(
         raise PaymentError("payment_intent_invalid")
     digest = hashlib.sha256(f"{customer.shop_id}:{customer.id}:{key}".encode()).hexdigest()
     storage_key = f"topup:v1:{digest}"
-    if provider_name in {"nowpayments", "plisio"}:
+    if provider_name in {"nowpayments", "plisio", "tonpay"}:
         from paurubot.payments.durable_checkout import start_hosted
 
         return await start_hosted(session, customer, provider_name, amount, storage_key)
