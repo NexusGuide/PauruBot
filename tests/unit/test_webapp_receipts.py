@@ -76,14 +76,18 @@ async def send(fixture, *, data=None, token=None):  # type: ignore[no-untyped-de
         )
 
 
-async def test_read_only_projection_no_secret_history(receipt_api):  # type: ignore[no-untyped-def]
+@pytest.mark.parametrize(
+    "requested_at",
+    ["2026-10-20T12:31:27.123456+00:00", "2026-10-20T12:31:27.759666+00:00"],
+)
+async def test_read_only_projection_no_secret_history(receipt_api, requested_at):  # type: ignore[no-untyped-def]
     app, payment, ctx, owned, store, attach, notify = receipt_api
     payment.meta = {
         "fix_requests": [
             {
                 "kind": "amount",
                 "note": "<script>literal</script>",
-                "at": datetime.now(UTC).isoformat(),
+                "at": requested_at,
                 "by": 666,
                 "receipt_file_id": "private",
             }
@@ -94,7 +98,28 @@ async def test_read_only_projection_no_secret_history(receipt_api):  # type: ign
         result = (await client.get("/api/webapp/payments/19/receipt-state")).json()
     assert result["phase"] == "correction_required" and result["can_upload"]
     assert result["correction"]["note"] == "<script>literal</script>"
-    assert "private" not in str(result) and "666" not in str(result)
+    # Match the public contract, not substrings in timestamps or opaque revision hashes.
+    # In particular, legitimate microseconds may contain the private actor's numeric ID.
+    assert result == {
+        "id": payment.id,
+        "provider": "card",
+        "status": "pending",
+        "amount": payment.amount,
+        "currency": payment.currency,
+        "order_id": payment.order_id,
+        "fulfilled": False,
+        "expires_at": payment.expires_at.isoformat(),
+        "revision": route.revision(payment),
+        "correction": {
+            "kind": "amount",
+            "note": "<script>literal</script>",
+            "requested_at": requested_at,
+        },
+        "receipt_submitted": False,
+        "phase": "correction_required",
+        "can_upload": True,
+    }
+    assert "private" not in str(result)
     owned.assert_awaited_once_with(ctx, 19)
     store.assert_not_awaited()
     attach.assert_not_awaited()
