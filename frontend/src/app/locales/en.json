@@ -521,5 +521,8 @@
   "service_label": "Service display name",
   "service_rename_save": "Save name",
   "service_renamed": "Service name saved.",
-  "service_rename_hint": "1–48 characters. Only the display name changes; your username, connection link and plan stay the same."
+  "service_rename_hint": "1–48 characters. Only the display name changes; your username, connection link and plan stay the same.",
+  "err_order_intent_conflict": "This draft changed. Return to the plan to start a deliberate new order.",
+  "err_order_intent_closed": "This draft is closed or expired. Return to the plan to start a new order.",
+  "err_order_intent_invalid": "Invalid order request identifier."
 }
