@@ -1,0 +1,74 @@
+name: Existing CI failure diagnostics
+on:
+  push:
+    branches: [dependabot/docker/node-26-alpine]
+    paths: [.github/workflows/review-failure-diagnostics.yml]
+permissions: {}
+jobs:
+  collect-existing-failure-diagnostics:
+    if: github.repository == 'MenderBaga/PauruBot' && github.ref == 'refs/heads/dependabot/docker/node-26-alpine'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      # No checkout or repository code execution. Diagnostic success is NOT test success.
+      - name: Read selected failed jobs and report sanitized failure summaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: python
+        run: |
+          import json, os, re, urllib.error, urllib.parse, urllib.request
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+          opener = urllib.request.build_opener(NoRedirect)
+          origin = 'https://api.github.com/repos/MenderBaga/PauruBot'
+          token = os.environ['GH_TOKEN']
+          def api(path, data=None):
+              request = urllib.request.Request(origin + path, data=data, headers={'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'})
+              return opener.open(request, timeout=30)
+          def logs(job):
+              try:
+                  with api(f'/actions/jobs/{job}/logs') as response:
+                      return response.read(8 * 1024 * 1024).decode('utf8', 'replace')
+              except urllib.error.HTTPError as error:
+                  if error.code not in (301, 302, 303, 307, 308):
+                      raise
+                  location = error.headers['Location']
+                  url = urllib.parse.urlsplit(location)
+                  assert url.scheme == 'https' and not url.username and not url.password and url.port in (None, 443)
+                  assert url.hostname and (url.hostname.endswith('.blob.core.windows.net') or url.hostname.endswith('.actions.githubusercontent.com'))
+                  # Never forward the GitHub credential to the log storage redirect.
+                  with urllib.request.urlopen(location, timeout=30) as response:
+                      return response.read(8 * 1024 * 1024).decode('utf8', 'replace')
+          def clean(line):
+              line = re.sub(r'https?://\S+', '<url>', line)
+              line = re.sub(r'\b[A-Za-z0-9_-]{32,}\b', '<long-value>', line)
+              line = re.sub(r'([\"\']).*?\1', '<quoted-value>', line)
+              line = re.sub(r'[\w.+-]+@[\w.-]+', '<email>', line)
+              return line.replace('`', "'")[:220]
+          for pr, job in ((109, 118503423615), (104, 118503495672), (127, 118034295357)):
+              try:
+                  with api(f'/actions/jobs/{job}') as response:
+                      info = json.load(response)
+                  failed = [clean(s['name']) for s in info.get('steps', []) if s.get('conclusion') == 'failure']
+                  text = logs(job)
+                  selected = []
+                  for raw in text.splitlines():
+                      line = re.sub(r'^\d{4}-\d\d-\d\dT\S+\s*', '', raw)
+                      line = re.sub(r'\x1b\[[0-9;]*m', '', line)
+                      if re.match(r'^(FAILED|ERROR) tests/', line):
+                          line = re.sub(r'\[[^\]]*\]', '[case]', line)
+                      elif not (re.match(r'^E\s+', line) or re.match(r'^(paurubot|tests)/[A-Za-z0-9_./-]+\.py:\d+', line) or line.startswith('Would reformat:') or 'failed, ' in line or 'Test timed out' in line):
+                          continue
+                      value = clean(line)
+                      if value not in selected:
+                          selected.append(value)
+                  summary = '\n'.join(selected[:65])[:7500] or 'No supported failure lines were found; inspect the linked job logs.'
+                  body = f'### Existing failed CI job diagnostics\n\nJob: {job}; failed steps: ' + ', '.join(failed) + '\n\n```text\n' + summary + '\n```\n\nThis is a bounded sanitized read of an existing failed run, not a passing test result. No assertions, required checks, protections or production settings were changed.'
+              except Exception as error:
+                  body = f'Existing CI diagnostic retrieval stopped safely for job {job}: {type(error).__name__}. No tokens, URLs or raw error values are published; no test result is inferred.'
+              with api(f'/issues/{pr}/comments', json.dumps({'body': body}).encode()) as response:
+                  assert response.status == 201
