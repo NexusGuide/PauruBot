@@ -68,7 +68,9 @@ def random_tail(amount: int, high: int) -> int:
 async def has_verified(session: AsyncSession, customer: Customer) -> bool:
     found = await session.scalar(
         select(VerifiedCard.id).where(
-            VerifiedCard.customer_id == customer.id, VerifiedCard.status == "approved"
+            VerifiedCard.shop_id == customer.shop_id,
+            VerifiedCard.customer_id == customer.id,
+            VerifiedCard.status == "approved",
         )
     )
     return found is not None
@@ -90,9 +92,17 @@ async def register(
     number = digits(number_text)
     if len(number) != 16 or not luhn_ok(number):
         raise CardError("card_number_invalid")
+    # Shared with Telegram registration: serialize pending checks across entry points.
+    await session.scalar(
+        select(Customer)
+        .where(Customer.id == customer.id, Customer.shop_id == customer.shop_id)
+        .with_for_update()
+    )
     pending = await session.scalar(
         select(VerifiedCard.id).where(
-            VerifiedCard.customer_id == customer.id, VerifiedCard.status == "pending"
+            VerifiedCard.shop_id == customer.shop_id,
+            VerifiedCard.customer_id == customer.id,
+            VerifiedCard.status == "pending",
         )
     )
     if pending is not None:
@@ -101,7 +111,11 @@ async def register(
     other = await session.scalar(
         select(Customer)
         .join(VerifiedCard, VerifiedCard.customer_id == Customer.id)
-        .where(VerifiedCard.digest == digest, VerifiedCard.customer_id != customer.id)
+        .where(
+            VerifiedCard.shop_id == customer.shop_id,
+            VerifiedCard.digest == digest,
+            VerifiedCard.customer_id != customer.id,
+        )
         .limit(1)
     )
     card = VerifiedCard(
@@ -134,7 +148,7 @@ async def review(session: AsyncSession, card: VerifiedCard, approve: bool, staff
 async def approve_late(session: AsyncSession) -> int:
     """Approve card receipts left unreviewed past the shop's limit (PAY-17), within its amount cap.
 
-    Duplicates, risky and blocked customers always wait for a person.
+    Duplicates, corrections requested by staff, risky and blocked customers wait for a person.
     """
     from paurubot.payments import engine
 
@@ -156,13 +170,19 @@ async def approve_late(session: AsyncSession) -> int:
         if minutes <= 0:
             continue
         sent = (payment.meta or {}).get("receipt_at")
-        if not sent or datetime.fromisoformat(str(sent)) > now - timedelta(minutes=minutes):
+        # Corrupt/legacy timestamps must not abort the entire shop batch or guess an age.
+        if not isinstance(sent, str):
+            continue
+        try:
+            received_at = datetime.fromisoformat(sent)
+        except ValueError:
+            continue
+        if received_at.utcoffset() is None or received_at > now - timedelta(minutes=minutes):
             continue
         cap = int(cfg["card_auto_max_amount"] or 0)
         if cap and payment.amount > cap:
             continue
-        customer = await session.get(Customer, payment.customer_id)
-        if customer is None or customer.risk in {"medium", "high"} or customer.card_trust == "blocked":
+        if await engine.auto_review_customer(session, payment) is None:
             continue
         payment.review_note = f"auto-approved after {minutes} minutes"
         if await engine.mark_paid(session, payment.id, provider_tx_id=f"card:{payment.id}"):
