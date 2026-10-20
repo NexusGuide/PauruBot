@@ -9,6 +9,9 @@ export interface ServiceAlertPolicy {
   warn_days: number;
 }
 
+export interface TransferPolicy { enabled: boolean; minimum: number; maximum: number; daily_maximum: number; currency: string }
+export interface TransferQuote { token: string; amount: number; currency: string; expires_at: number; recipient: { telegram_id: number; name: string | null; username: string | null } }
+
 export interface Me {
   id: number;
   telegram_id: number;
@@ -285,6 +288,9 @@ const post = <T>(path: string, body: unknown = {}) =>
   request<T>(`/api/webapp${path}`, { method: "POST", body, headers: auth() });
 
 export const api = {
+  transferPolicy: () => get<TransferPolicy>("/wallet/transfer-policy"),
+  transferQuote: (recipient: string, amount: number) => post<TransferQuote>("/wallet/transfers/quote", { recipient, amount }),
+  transferConfirm: (token: string) => post<{ journal_id: number; amount: number; replayed: boolean; balance: number }>("/wallet/transfers/confirm", { token }),
   me: () => get<Me>("/me"),
   join: () => get<{ channels: JoinChannel[] }>("/join"),
   checkJoin: () => post<{ ok: boolean; channels: JoinChannel[] }>("/join/check"),

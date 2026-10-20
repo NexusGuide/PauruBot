@@ -268,6 +268,9 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/webapp/wallet/gift` | Mini App initData | Redeem gift |
 | GET | `/api/webapp/wallet/history` | Mini App initData | History |
 | POST | `/api/webapp/wallet/topup` | Mini App initData | Topup |
+| GET | `/api/webapp/wallet/transfer-policy` | Mini App initData | Policy |
+| POST | `/api/webapp/wallet/transfers/confirm` | Mini App initData | Confirm |
+| POST | `/api/webapp/wallet/transfers/quote` | Mini App initData | Quote |
 
 ## `/api/webhooks`
 
