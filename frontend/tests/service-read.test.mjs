@@ -53,7 +53,8 @@ test('QR uses a caught resource read, keyed by its actual link and refreshed aft
 });
 test('links failure has a retry and both remote-action controls disable while busy',()=>{
  assert.match(source,/ReadFailure error=\{linksError\} retry=/);
- assert.equal([...source.matchAll(/disabled=\{busy !== null\}/g)].length,2);
+ assert.match(source, /<Button[^>]*disabled=\{busy !== null\}[^>]*onClick=\{showLinks\}/);
+ assert.match(source, /<Button[^>]*disabled=\{busy !== null\}[^>]*onClick=\{revoke\}/);
  assert.match(source,/const showLinks = \(\) => runServiceAction/);
 });
 for(const locale of ['fa','en'])test(`QR loading and WireGuard alt are translated in ${locale}`,()=>{
