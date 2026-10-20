@@ -65,3 +65,11 @@ test("both feed callers pass policy and remount their read subtree by authentica
  const source=readFileSync(new URL("screens/Notifications.tsx",root),"utf8");
  assert.match(source,/alerts_policy_unavailable/);
 });
+
+// Integration regression: alert policy must preserve payment-intent translations.
+for (const locale of ["en", "fa"]) test(`alert policy preserves ${locale} payment-intent messages`, () => {
+ const messages = JSON.parse(readFileSync(new URL(`../src/app/locales/${locale}.json`, import.meta.url), "utf8"));
+ for (const key of ["err_payment_intent_conflict", "err_payment_intent_closed", "err_payment_intent_invalid"]) {
+  assert.equal(typeof messages[key], "string", key); assert(messages[key].trim().length > 0, key);
+ }
+});
