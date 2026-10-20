@@ -3,22 +3,54 @@
 from __future__ import annotations
 
 import re
+from uuid import uuid4
 
 import httpx
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from paurubot import kv
 from paurubot.core import guest
 from paurubot.core import settings as shop_settings
+from paurubot.db import session as db_session
 from paurubot.db.models import Customer, Job, JobStatus, Order, OrderStatus, Service
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.notifications import telegram as notify_telegram
 from paurubot.panels import registry
 from tests import factories
+from tests.conftest import _migrate
 from tests.fakes.panels import FakeTokenPanel, transport
 from tests.unit.test_gateways import CONFIG, fake  # noqa: F401  (gateway mock fixture)
 from tests.unit.test_provisioning import drain
+
+
+@pytest.fixture
+async def session(engine):  # type: ignore[no-untyped-def]
+    """Real independent commits in a fresh schema; never nest sessions on one connection.
+
+    The global savepoint fixture cannot model durable guest/order payment sessions:
+    closing the read-only caller rolls back savepoints released by its inner writer.
+    A unique per-test schema permits real commits without leaking rows to other tests.
+    """
+    schema = f"test_guest_{uuid4().hex}"
+    async with engine.begin() as conn:
+        await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
+    isolated = create_async_engine(engine.url, connect_args={"server_settings": {"search_path": schema}})
+    try:
+        async with isolated.begin() as conn:
+            await conn.run_sync(_migrate)
+        maker = async_sessionmaker(isolated, expire_on_commit=False)
+        db_session.set_sessionmaker(maker)
+        shop_settings.invalidate()
+        async with maker() as actual:
+            yield actual
+    finally:
+        db_session.set_sessionmaker(None)  # type: ignore[arg-type]
+        await isolated.dispose()
+        async with engine.begin() as conn:
+            await conn.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        shop_settings.invalidate()
 
 
 @pytest.fixture
@@ -51,6 +83,17 @@ def _app():  # type: ignore[no-untyped-def]
     return create_app()
 
 
+def form_identity(page):  # type: ignore[no-untyped-def]
+    match = re.search(r'name="intent" value="([^"<>]+)"', page.text)
+    assert page.status_code == 200 and match is not None, page.text
+    return match.group(1)
+
+
+async def form(client, shop_id, plan_id, method="aqayepardakht"):  # type: ignore[no-untyped-def]
+    page = await client.get(f"/buy/{shop_id}?new=1&lang=en")
+    return {"plan_id": plan_id, "method": method, "intent": form_identity(page)}
+
+
 async def test_closed_unless_switched_on(session, store) -> None:  # type: ignore[no-untyped-def]
     shop, plan, client = store
     assert (await client.get(f"/buy/{shop.id}")).status_code == 200
@@ -70,7 +113,8 @@ async def test_web_purchase_end_to_end_and_claim(session, store) -> None:  # typ
     assert "style=" not in page.text  # the CSP allows no inline styles
 
     started = await client.post(
-        f"/buy/{shop.id}?lang=en", data={"plan_id": plan.id, "method": "aqayepardakht"}
+        f"/buy/{shop.id}?lang=en",
+        data={"plan_id": plan.id, "method": "aqayepardakht", "intent": form_identity(page)},
     )
     assert started.status_code == 303
     location = started.headers["location"]
@@ -83,7 +127,8 @@ async def test_web_purchase_end_to_end_and_claim(session, store) -> None:  # typ
     assert notify_telegram.is_guest_chat(customer.telegram_id) and not notify_telegram.is_guest_chat(
         -1001234567890
     )
-    payment_id = (await guest.status(session, customer))["payment"].id
+    purchase = await guest.status(session, customer)
+    payment_id = purchase["payment"].id
 
     back = await client.get(
         "/api/pay/gw/aqayepardakht",
@@ -99,7 +144,15 @@ async def test_web_purchase_end_to_end_and_claim(session, store) -> None:  # typ
     assert lost.status_code != 303 and token not in lost.text  # another browser learns nothing
     building = await client.get(f"/buy/t/{token}?lang=en")
     assert "being set up" in building.text
+    # HTTP callbacks committed on other connections; refresh the observer's cached
+    # order/payment before using that same session to run the provisioning worker.
+    await session.refresh(purchase["order"])
+    await session.refresh(purchase["payment"])
     await drain(session, "provision")
+    # The worker commits on another connection; refresh the observer identity map.
+    await session.refresh(purchase["order"])
+    assert purchase["order"].status == OrderStatus.COMPLETED
+    await session.refresh(customer)
     ready = await client.get(f"/buy/t/{token}?lang=en")
     assert "Your service is ready" in ready.text and f"start=claim_{token}" in ready.text
     service = await session.scalar(select(Service).where(Service.customer_id == customer.id))
@@ -123,17 +176,13 @@ async def test_web_purchase_end_to_end_and_claim(session, store) -> None:  # typ
 
 async def test_bad_choices_and_rate_limit(session, store) -> None:  # type: ignore[no-untyped-def]
     shop, plan, client = store
-    wrong = await client.post(f"/buy/{shop.id}?lang=en", data={"plan_id": plan.id, "method": "card"})
+    wrong = await client.post(f"/buy/{shop.id}?lang=en", data=await form(client, shop.id, plan.id, "card"))
     assert wrong.status_code == 400 and "That payment method" in wrong.text
-    missing = await client.post(
-        f"/buy/{shop.id}?lang=en", data={"plan_id": 999999, "method": "aqayepardakht"}
-    )
+    missing = await client.post(f"/buy/{shop.id}?lang=en", data=await form(client, shop.id, 999999))
     assert missing.status_code == 400 and "That plan" in missing.text
     for _ in range(guest_limit() - 2):
-        await client.post(f"/buy/{shop.id}", data={"plan_id": plan.id, "method": "aqayepardakht"})
-    blocked = await client.post(
-        f"/buy/{shop.id}?lang=en", data={"plan_id": plan.id, "method": "aqayepardakht"}
-    )
+        await client.post(f"/buy/{shop.id}", data=await form(client, shop.id, plan.id))
+    blocked = await client.post(f"/buy/{shop.id}?lang=en", data=await form(client, shop.id, plan.id))
     assert blocked.status_code == 400 and "Too many attempts" in blocked.text
     guests = await session.scalars(
         select(Customer).where(Customer.shop_id == shop.id, Customer.guest_token.is_not(None))
@@ -191,3 +240,118 @@ async def test_unpaid_guests_are_cleaned_up(session, store) -> None:  # type: ig
     await session.commit()
     left = set(await session.scalars(select(Customer.id).where(Customer.guest_token.is_not(None))))
     assert old_unpaid.id not in left and {old_open.id, fresh.id} <= left
+
+
+async def test_form_cookie_required_and_replay_keeps_one_purchase(session, store):  # type: ignore[no-untyped-def]
+    from sqlalchemy import func
+
+    from paurubot.db.models import GuestCheckoutIntent, Payment
+
+    shop, plan, client = store
+    payload = await form(client, shop.id, plan.id)
+    no_token = await client.post(f"/buy/{shop.id}", data={"plan_id": plan.id, "method": "aqayepardakht"})
+    assert no_token.status_code == 403
+    first = await client.post(f"/buy/{shop.id}", data=payload)
+    second = await client.post(f"/buy/{shop.id}", data=payload)
+    assert first.status_code == second.status_code == 303
+    assert first.headers["location"] == second.headers["location"]
+    refreshed = await client.get(f"/buy/{shop.id}")
+    assert form_identity(refreshed) == payload["intent"]
+    for model in (Customer, Order, Payment, GuestCheckoutIntent):
+        assert (
+            await session.scalar(select(func.count()).select_from(model).where(model.shop_id == shop.id)) == 1
+        )
+    client.cookies.clear()
+    assert (await client.post(f"/buy/{shop.id}", data=payload)).status_code == 403
+
+
+async def test_uncertain_guest_page_never_exposes_stale_gateway_link(session, store, monkeypatch):  # type: ignore[no-untyped-def]
+    from unittest.mock import AsyncMock
+
+    from paurubot.payments import engine
+    from paurubot.payments.base import PaymentError
+
+    shop, plan, client = store
+    create = AsyncMock(side_effect=PaymentError("gateway_error"))
+    monkeypatch.setattr(engine.provider("aqayepardakht"), "create", create)
+    payload = await form(client, shop.id, plan.id)
+    first = await client.post(f"/buy/{shop.id}", data=payload)
+    assert first.status_code == 303
+    token = re.match(r"/buy/t/([\w-]+)\?go=1$", first.headers["location"]).group(1)
+    customer = await guest.by_token(session, token)
+    payment = (await guest.status(session, customer))["payment"]
+    payment.meta = {**payment.meta, "redirect_url": "https://must-not-show.invalid"}
+    await session.commit()
+    page = await client.get(first.headers["location"] + "&lang=en")
+    assert page.status_code == 200 and "must-not-show" not in page.text
+    assert "new=1" not in page.text and "0;url=" not in page.text
+    store_page = await client.get(f"/buy/{shop.id}")
+    assert form_identity(store_page) == payload["intent"]
+    assert "new=1" not in store_page.text  # no invitation to replace an unresolved purchase
+    again = await client.post(f"/buy/{shop.id}", data=payload)
+    assert again.status_code == 303 and again.headers["location"] == first.headers["location"]
+    create.assert_awaited_once()
+
+
+async def test_changed_order_price_never_resumes_guest_invoice(session, store):  # type: ignore[no-untyped-def]
+    shop, plan, client = store
+    payload = await form(client, shop.id, plan.id)
+    first = await client.post(f"/buy/{shop.id}", data=payload)
+    assert first.status_code == 303
+    ready = await client.get(first.headers["location"])
+    assert 'http-equiv="refresh" content="0;url=' in ready.text
+    order = await session.scalar(select(Order).where(Order.shop_id == shop.id))
+    assert order is not None
+    order.amount += 1
+    await session.commit()
+    changed = await client.get(first.headers["location"])
+    assert changed.status_code == 200 and "0;url=" not in changed.text
+    assert 'class="btn primary" href=' not in changed.text
+
+
+async def test_guest_attempt_visible_before_provider_and_survives_observer_rollback(
+    session, store, monkeypatch
+):  # type: ignore[no-untyped-def]
+    from unittest.mock import AsyncMock
+
+    from sqlalchemy import func
+
+    from paurubot.db.models import GuestCheckoutIntent, Payment, Shop
+    from paurubot.payments import engine, order_checkout
+    from paurubot.security import guest_form
+
+    shop, plan, client = store
+    sid, pid, original_title = shop.id, plan.id, shop.title
+    payload = await form(client, sid, pid)
+    maker = db_session.get_sessionmaker()
+    provider = engine.provider("aqayepardakht")
+    actual_create = provider.create
+
+    async def create(payment, cfg):  # type: ignore[no-untyped-def]
+        # A separate connection must see the durable attempt BEFORE remote I/O.
+        async with maker() as observer:
+            stored = await observer.get(Payment, payment.id)
+            intent = await observer.get(GuestCheckoutIntent, guest_form.digest(payload["intent"]))
+            assert stored is not None and intent is not None
+            assert (intent.customer_id, intent.order_id) == (stored.customer_id, stored.order_id)
+            assert stored.meta[order_checkout.ATTEMPT_KEY]["state"] == "uncertain"
+        return await actual_create(payment, cfg)
+
+    remote = AsyncMock(side_effect=create)
+    monkeypatch.setattr(provider, "create", remote)
+    shop.title = "observer-only change must not be committed"
+    first = await client.post(f"/buy/{sid}", data=payload)
+    assert first.status_code == 303
+    await session.rollback()
+    async with maker() as observer:
+        assert (await observer.get(Shop, sid)).title == original_title
+        for model in (Customer, Order, Payment, GuestCheckoutIntent):
+            assert (
+                await observer.scalar(select(func.count()).select_from(model).where(model.shop_id == sid))
+                == 1
+            )
+    ready = await client.get(first.headers["location"])
+    assert 'http-equiv="refresh" content="0;url=' in ready.text
+    again = await client.post(f"/buy/{sid}", data=payload)
+    assert again.status_code == 303 and again.headers["location"] == first.headers["location"]
+    remote.assert_awaited_once()

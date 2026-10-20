@@ -13,12 +13,15 @@ from paurubot import kv
 from paurubot.api.deps import DB, request_ip
 from paurubot.bot.views import qr_base64
 from paurubot.config import get_settings
-from paurubot.core import guest
+from paurubot.core import guest, guest_checkout
 from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import days_left, jdate, money, size
-from paurubot.db.models import OrderStatus, PaymentStatus, Shop
+from paurubot.db.base import utcnow
+from paurubot.db.models import Customer, GuestCheckoutIntent, Order, OrderStatus, PaymentStatus, Shop
 from paurubot.i18n import LOCALES, Texts, texts_for
+from paurubot.payments import saved_checkout
 from paurubot.provisioning import subscription
+from paurubot.security import guest_form
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["guest"])
@@ -29,6 +32,42 @@ STARTS_PER_IP = 5
 STARTS_WINDOW = 600
 STARTS_PER_SHOP_HOUR = 200
 OPEN = (PaymentStatus.CREATED, PaymentStatus.PENDING, PaymentStatus.VERIFYING)
+
+
+def _intent_cookie(shop_id: int) -> tuple[str, bool]:
+    settings = get_settings()
+    secure = settings.is_production or settings.public_url.startswith("https://")
+    # Host-only + Secure prevents sibling subdomains planting a matching form cookie.
+    prefix = "__Host-pb_guest_intent_" if secure else "pb_guest_intent_"
+    return f"{prefix}{shop_id}", secure
+
+
+def _form_identity(request: Request, shop_id: int) -> str:
+    name, _ = _intent_cookie(shop_id)
+    previous = request.cookies.get(name, "")
+    if request.query_params.get("new") != "1" and guest_form.valid(previous, shop_id):
+        return previous
+    return guest_form.issue(shop_id)
+
+
+def _with_intent(response: HTMLResponse, shop_id: int, token: str) -> HTMLResponse:
+    name, secure = _intent_cookie(shop_id)
+    response.set_cookie(
+        name, token, max_age=guest_form.TTL, httponly=True, secure=secure, samesite="strict", path="/"
+    )
+    return response
+
+
+def _intent_notice(t: Texts, error: str) -> str:
+    known = {
+        "payment_intent_invalid": "guest_checkout_form_invalid",
+        "payment_intent_conflict": "guest_checkout_form_conflict",
+        "payment_intent_closed": "guest_checkout_form_closed",
+    }
+    if error in known:
+        return t(known[error])
+    text = t(error)
+    return text if text != error else t("gateway_error")
 
 
 def _not_found() -> Response:
@@ -58,6 +97,25 @@ def _page(t: Texts, title: str, body: str, *, refresh: str = "", status: int = 2
 
 async def _store(db: DB, request: Request, shop: Shop, t: Texts, error: str = "") -> HTMLResponse:
     title = shop.title or "PauruBot"
+    intent_token = _form_identity(request, shop.id)
+    notice = f'<p class="err" role="alert">{escape(error)}</p>' if error else ""
+    intent = await db.get(GuestCheckoutIntent, guest_form.digest(intent_token))
+    if intent is not None:
+        customer = await db.get(Customer, intent.customer_id) if intent.customer_id else None
+        order = await db.get(Order, intent.order_id) if intent.order_id else None
+        new_link = f"/buy/{shop.id}?lang={escape(t.locale)}&amp;new=1"
+        if guest_checkout.owns(customer, order, shop.id):
+            assert customer is not None
+            body = f'''{notice}<section class="card"><p>{escape(t("guest_waiting"))}</p>
+<a class="btn ghost" href="/buy/t/{escape(str(customer.guest_token))}">{escape(t("guest_keep_link"))}</a>
+<form method="post" action="/buy/{shop.id}?lang={escape(t.locale)}">
+<input type="hidden" name="intent" value="{escape(intent_token)}">
+<input type="hidden" name="plan_id" value="{intent.plan_id}">
+<input type="hidden" name="method" value="{escape(intent.method)}">
+<button type="submit" class="btn primary">{escape(t("guest_go_pay"))}</button></form></section>'''
+        else:
+            body = f'<section class="card"><p>{escape(_intent_notice(t, "payment_intent_closed"))}</p><a href="{new_link}">{escape(t("guest_buy_again"))}</a></section>'
+        return _with_intent(_page(t, title, body, status=400 if error else 200), shop.id, intent_token)
     plans = await guest.plans(db, shop.id)
     methods = await guest.methods(db, shop.id)
     if not plans or not methods:
@@ -82,12 +140,13 @@ async def _store(db: DB, request: Request, shop: Shop, t: Texts, error: str = ""
     )
     body = f"""{notice}
 <form method="post" action="/buy/{shop.id}?lang={escape(t.locale)}">
+<input type="hidden" name="intent" value="{escape(intent_token)}">
 <section class="card"><h2>{escape(t("guest_pick_plan"))}</h2>{options}</section>
 <section class="card"><h2>{escape(t("guest_pick_method"))}</h2>{ways}
 <button type="submit" class="btn primary">{escape(t("guest_pay"))}</button></section>
 </form>
 <p class="note">{escape(t("guest_how"))}</p>{bot}"""
-    return _page(t, title, body, status=400 if error else 200)
+    return _with_intent(_page(t, title, body, status=400 if error else 200), shop.id, intent_token)
 
 
 @router.get("/buy", include_in_schema=False)
@@ -108,28 +167,35 @@ async def buy(
     ip: Annotated[str, Depends(request_ip)],
     plan_id: Annotated[int, Form(gt=0)],
     method: Annotated[str, Form(max_length=32)],
+    intent: Annotated[str, Form(max_length=160)] = "",
 ) -> Response:
     shop = await guest.shop_for(db, shop_id)
     if shop is None:
         return _not_found()
     t = await texts_for(db, shop.id, _locale(request, shop))
+    cookie_name, _ = _intent_cookie(shop.id)
+    cookie = request.cookies.get(cookie_name, "")
+    if not guest_form.matches(intent, cookie, shop.id):
+        return _page(
+            t,
+            shop.title or "PauruBot",
+            f'<section class="card"><p>{escape(_intent_notice(t, "payment_intent_invalid"))}</p></section>',
+            status=403,
+        )
     allowed, _ = await kv.hit(f"guest:start:{guest.visitor_key(ip)}", STARTS_PER_IP, STARTS_WINDOW)
     if allowed:  # many addresses at once still cannot flood the shop with half-made purchases
         allowed, _ = await kv.hit(f"guest:start:shop:{shop.id}", STARTS_PER_SHOP_HOUR, 3600)
     if not allowed:
         return await _store(db, request, shop, t, t("guest_too_many"))
     try:
-        async with db.begin_nested():  # a refused attempt leaves no half-made guest behind
-            checkout = await guest.start(db, shop.id, plan_id, method, t.locale)
+        token = await guest_checkout.start(shop.id, plan_id, method, t.locale, intent)
     except guest.GuestError as exc:
-        text = t(exc.key)
-        return await _store(db, request, shop, t, text if text != exc.key else t("gateway_error"))
-    await db.commit()
-    response = RedirectResponse(f"/buy/t/{checkout.customer.guest_token}?go=1", status_code=303)
+        return await _store(db, request, shop, t, _intent_notice(t, exc.key))
+    response = RedirectResponse(f"/buy/t/{token}?go=1", status_code=303)
     settings = get_settings()
     response.set_cookie(
         GUEST_COOKIE,
-        str(checkout.customer.guest_token),
+        token,
         max_age=GUEST_COOKIE_AGE,
         httponly=True,
         secure=settings.is_production or settings.public_url.startswith("https://"),
@@ -169,7 +235,7 @@ async def purchase(token: str, request: Request, db: DB) -> Response:
     state = await guest.status(db, customer)
     order, payment, service = state["order"], state["payment"], state["service"]
     keep = f'<p class="note">{escape(t("guest_keep_link"))}</p>'
-    again = f'<a class="btn ghost" href="/buy/{shop.id}?lang={escape(t.locale)}">{escape(t("guest_buy_again"))}</a>'
+    again = f'<a class="btn ghost" href="/buy/{shop.id}?lang={escape(t.locale)}&amp;new=1">{escape(t("guest_buy_again"))}</a>'
 
     if service is not None and order is not None and order.status == OrderStatus.COMPLETED:
         cfg = await shop_settings.load(db, shop.id)
@@ -204,9 +270,32 @@ async def purchase(token: str, request: Request, db: DB) -> Response:
         return _page(t, title, body)
 
     if payment is not None and payment.status in OPEN:
-        url = str((payment.meta or {}).get("redirect_url") or "")
-        if not url.startswith("https://"):
-            url = ""  # never a javascript: or plain-http link on the page, whatever a gateway returned
+        if saved_checkout.uncertain(payment):
+            # No new-purchase button, stale redirect, or provider I/O on an ambiguous attempt.
+            body = f'<section class="card"><p class="name">{escape(t("guest_review"))}</p></section>{keep}'
+            return _page(t, title, body, refresh="10")
+        if "order_attempt_v1" in (payment.meta or {}):
+            # Never resume an invoice whose recorded order price/identity changed.
+            saved = (payment.meta or {}).get("checkout_intent_v1")
+            expected = (
+                {
+                    "provider": payment.provider,
+                    "order_id": order.id,
+                    "order_amount": order.amount,
+                    "currency": "IRT",
+                }
+                if order is not None
+                else None
+            )
+            same_request = isinstance(saved, dict) and saved.get("request") == expected
+            snapshot = saved_checkout.saved_payment(payment, utcnow(), order) if same_request else None
+            url = str((snapshot or {}).get("redirect_url") or "")
+        else:
+            # Historical guests are status-only; preserve their existing safe link,
+            # but do not adopt legacy rows into the new payment-creation protocol.
+            url = saved_checkout.safe_https((payment.meta or {}).get("redirect_url")) or ""
+            if payment.expires_at and payment.expires_at <= utcnow():
+                url = ""
         go = request.query_params.get("go") == "1" and bool(url)
         button = f'<a class="btn primary" href="{escape(url)}">{escape(t("guest_go_pay"))}</a>' if url else ""
         body = f"""<section class="card"><p class="name">{escape(t("guest_waiting"))}</p>
