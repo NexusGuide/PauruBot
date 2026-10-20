@@ -1,27 +1,29 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { dateTime, money } from "@shared/format";
-import { api, type HistoryItem } from "../api";
+import { ApiError } from "@shared/http";
+import { money } from "@shared/format";
+import { api } from "../api";
 import { Icon } from "../icons";
 import { errorText, useApp } from "../state";
 import { haptic, openExternal, openInvoice } from "../telegram";
+import { actionGate, topupIntents } from "../topup-intents";
 import { Button, CountUp, Item, Screen } from "../ui";
 import { rememberCard, rememberPayment } from "./Payment";
+
+import { WalletHistory } from "./WalletHistory";
 
 const PRESETS = [50_000, 100_000, 200_000, 500_000];
 
 export function Wallet() {
   const { me, t, locale, toast, reload } = useApp();
   const navigate = useNavigate();
-  const [history, setHistory] = useState<HistoryItem[] | null>(null);
+  const [historyVersion, setHistoryVersion] = useState(0);
   const [amount, setAmount] = useState<number | null>(null);
   const [custom, setCustom] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [gift, setGift] = useState("");
+  const gate = useRef(actionGate());
 
-  useEffect(() => {
-    api.history().then((r) => setHistory(r.items));
-  }, []);
   useEffect(() => {
     if (!me || amount !== null || custom !== "") return;
     const [low, high] = me.topup_bounds;
@@ -34,10 +36,13 @@ export function Wallet() {
   const valid = chosen !== null && chosen >= low && chosen <= high;
 
   const topup = async (method: string) => {
-    if (!valid || chosen === null) return;
+    if (!valid || chosen === null || !gate.current.enter()) return;
     setBusy(method);
+    let intent: string | undefined;
     try {
-      const { payment } = await api.topup(chosen, method);
+      intent = topupIntents().get(me.id, chosen, method);
+      const { payment } = await api.topup(chosen, method, intent);
+      topupIntents().clear(me.id, chosen, method, intent);
       if (payment.accounts) {
         rememberCard(payment.payment_id, payment.accounts, payment.amount);
         navigate(`/payment/${payment.payment_id}`);
@@ -56,26 +61,35 @@ export function Wallet() {
         }
       }
     } catch (err) {
+      // A network/5xx error is uncertain: retry the SAME key, never a fresh invoice.
+      // A closed/conflicting intent needs another deliberate click, not an automatic retry.
+      if (intent && err instanceof ApiError && err.status === 409 &&
+          ["payment_intent_closed", "payment_intent_conflict"].includes(err.code)) {
+        topupIntents().clear(me.id, chosen, method, intent);
+      }
       toast(errorText(t, err), "error");
     } finally {
+      gate.current.leave();
       setBusy(null);
     }
   };
 
   const redeem = async () => {
-    if (!gift.trim()) return;
+    if (!gift.trim() || !gate.current.enter()) return;
     setBusy("gift");
     try {
       const result = await api.redeemGift(gift.trim());
       haptic("success");
       setGift("");
       toast(t("gift_redeemed", { amount: money(result.amount, locale) }));
+      // Refresh only the read: a history failure must never replay the gift.
+      setHistoryVersion(value => value + 1);
       await reload();
-      api.history().then((r) => setHistory(r.items));
     } catch (err) {
       haptic("error");
       toast(errorText(t, err), "error");
     } finally {
+      gate.current.leave();
       setBusy(null);
     }
   };
@@ -108,6 +122,7 @@ export function Wallet() {
             key={preset}
             type="button"
             aria-pressed={amount === preset}
+            disabled={busy !== null}
             className="app-chip num"
             onClick={() => {
               setAmount(preset);
@@ -122,6 +137,7 @@ export function Wallet() {
       <input
         aria-label={t("custom_amount", { low: money(low, locale), high: money(high, locale) })}
         inputMode="numeric"
+        disabled={busy !== null}
         value={custom}
         onChange={(e) => {
           setCustom(e.target.value);
@@ -141,7 +157,7 @@ export function Wallet() {
             title={t(`method_${method}`)}
             sub={method === "card" ? t("method_card_sub") : undefined}
             onClick={() => topup(method)}
-            disabled={!valid || (busy !== null && busy !== method)}
+            disabled={!valid || busy !== null}
           />
         ))}
         {me.payment_methods.length === 0 && <div className="app-empty">{t("no_methods")}</div>}
@@ -152,40 +168,19 @@ export function Wallet() {
         <input
           aria-label={t("gift_code")}
           value={gift}
+          disabled={busy !== null}
           onChange={(e) => setGift(e.target.value)}
           placeholder={t("gift_code_placeholder")}
           dir="ltr"
           maxLength={32}
         />
-        <Button tone="quiet" className="w-auto px-5" busy={busy === "gift"} disabled={!gift.trim()} onClick={() => void redeem()}>
+        <Button tone="quiet" className="w-auto px-5" busy={busy === "gift"} disabled={!gift.trim() || busy !== null} onClick={() => void redeem()}>
           {t("redeem")}
         </Button>
       </div>
 
       <p className="app-lbl mt-6">{t("transactions")}</p>
-      <div className="app-card">
-        {history === null ? null : history.length === 0 ? (
-          <div className="app-empty">{t("no_transactions")}</div>
-        ) : (
-          history.map((item) => (
-            <div key={item.id} className="app-row flex items-center gap-3 px-4">
-              <span className="app-ico" data-tone={item.amount > 0 ? "green" : undefined}>
-                <Icon name={item.amount > 0 ? "coin" : "wallet"} size={21} />
-              </span>
-              <span className="app-grow">
-                <b className="block text-[0.93rem] font-bold leading-7">{t(`tx_${item.kind}`)}</b>
-                <small className="num mt-0.5 block text-[0.75rem] font-medium text-[var(--hint)]">
-                  {dateTime(item.created_at, locale)}
-                </small>
-              </span>
-              <b className={`num text-[0.93rem] font-bold ${item.amount > 0 ? "text-pista-700" : ""}`} dir="ltr">
-                {item.amount > 0 ? "+" : "−"}
-                {money(Math.abs(item.amount), locale)}
-              </b>
-            </div>
-          ))
-        )}
-      </div>
+      <WalletHistory key={`${me.id}:${historyVersion}`} />
     </Screen>
   );
 }

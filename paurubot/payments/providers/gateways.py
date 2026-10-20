@@ -18,8 +18,10 @@ import json
 import logging
 import math
 import re
+import ssl
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -27,6 +29,7 @@ from paurubot.config import get_settings
 from paurubot.db.models import Payment
 from paurubot.payments.base import Checkout, PaymentError, PaymentProvider, Verification
 from paurubot.security import ssrf
+from paurubot.security.http import ValidatedTransport
 
 log = logging.getLogger(__name__)
 
@@ -105,6 +108,10 @@ class Gateway(PaymentProvider):
             timeout=httpx.Timeout(20, connect=5), transport=self._transport, follow_redirects=False
         )
 
+    def _request_client(self, url: str) -> httpx.AsyncClient:
+        """Select HTTP plumbing without storing per-shop state on shared providers."""
+        return self._client()
+
     @staticmethod
     def public_url() -> str:
         return str(get_settings().public_url or "").rstrip("/")
@@ -121,7 +128,7 @@ class Gateway(PaymentProvider):
     async def call(self, method: str, url: str, **kwargs: Any) -> tuple[int, dict[str, Any]]:
         """(HTTP status, flattened JSON body); network and parse errors become `gateway_error`."""
         try:
-            async with self._client() as client:
+            async with self._request_client(url) as client:
                 resp = await client.request(method, url, **kwargs)
             data = resp.json() if resp.content else {}
         except (httpx.HTTPError, ValueError) as exc:
@@ -312,14 +319,30 @@ class AbanGatewayProvider(Gateway):
     def _headers(self, cfg: dict[str, Any]) -> dict[str, str]:
         return {"Authorization": f"Bearer {cfg['abangateway_api_key']}", "Accept": "application/json"}
 
+    def _request_client(self, url: str) -> httpx.AsyncClient:
+        if self._transport is not None:
+            return super()._request_client(url)  # explicit, trusted provider-test seam
+        return httpx.AsyncClient(
+            timeout=httpx.Timeout(20, connect=5),
+            transport=ValidatedTransport(url, context=ssl.create_default_context(), allow_private=False),
+            trust_env=False,
+            follow_redirects=False,
+        )
+
     async def _safe_base(self, cfg: dict[str, Any]) -> str:
         url = self.base(cfg)
-        if self._transport is None:
-            try:
-                await ssrf.assert_safe_url(url)
-            except ssrf.UnsafeUrl as exc:
-                log.warning("abangateway address refused: %s", exc)
-                raise PaymentError("gateway_error") from exc
+        try:
+            httpx.URL(url)  # reject control characters and malformed HTTP URL syntax
+            ssrf.check_static(url)
+            # This is an API path prefix, not a query/fragment or credential carrier.
+            parts = urlsplit(url)
+            if parts.query or parts.fragment:
+                raise ssrf.UnsafeUrl("gateway base must be a plain API path")
+        except (ValueError, httpx.InvalidURL) as exc:
+            log.warning("abangateway address refused: %s", exc.__class__.__name__)
+            raise PaymentError("gateway_error") from exc
+        # DNS resolution and the socket handoff happen together in ValidatedTransport.
+        # Never inherit the panel-private-host override for a payment gateway.
         return url
 
     async def create(self, payment: Payment, cfg: dict[str, Any]) -> Checkout:
