@@ -10,7 +10,9 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select
 
-from paurubot.api.routes import webapp_auto_renew, webapp_receipts, webapp_staff, webapp_ticket_media
+import paurubot.api.routes.webapp_cards as webapp_cards
+import paurubot.api.routes.webapp_payment_inbox as webapp_payment_inbox
+from paurubot.api.routes import webapp_auto_renew, webapp_receipts, webapp_staff, webapp_transfers
 from paurubot.api.webapp_auth import WebApp, forced_gate, forget_join_cache
 from paurubot.core import (
     alert_policy,
@@ -19,9 +21,11 @@ from paurubot.core import (
     customer_preferences,
     customers,
     marketing,
+    order_intents,
     orders,
     panel_accounts,
     pricing,
+    renewal_preview,
     reseller_desk,
     tickets,
     trials,
@@ -41,12 +45,15 @@ from paurubot.db.models import (
     Service,
     ServiceStatus,
     Ticket,
+    TicketDepartment,
     TicketMessage,
+    TicketStatus,
 )
 from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.panels import PanelError
 from paurubot.payments import engine as payments
+from paurubot.payments import order_checkout
 from paurubot.payments.base import PaymentError
 from paurubot.payments.chains import NETWORKS
 from paurubot.provisioning import lifecycle
@@ -56,6 +63,9 @@ from paurubot.worker import queue
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/webapp", tags=["webapp"])
 router.include_router(webapp_receipts.router)
+router.include_router(webapp_cards.router)
+router.include_router(webapp_payment_inbox.router)
+router.include_router(webapp_transfers.router)
 MAX_RECEIPT = 8 * 1024 * 1024
 
 
@@ -399,6 +409,7 @@ async def account_refresh(account_id: int, ctx: WebApp) -> dict[str, Any]:
 
 
 class OrderBody(BaseModel):
+    intent_key: str | None = Field(default=None, min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
     kind: Literal[
         "purchase",
         "renew",
@@ -428,19 +439,41 @@ async def _owned_service(ctx: WebApp, service_id: int | None) -> Service | None:
     if not service_id:
         return None
     service = await ctx.session.get(Service, service_id)
-    if service is None or service.customer_id != ctx.customer.id or service.status == ServiceStatus.DELETED:
+    if (
+        service is None
+        or service.customer_id != ctx.customer.id
+        or service.shop_id != ctx.shop.id
+        or service.status == ServiceStatus.DELETED
+    ):
         raise HTTPException(status_code=404, detail="service_not_found")
     return service
 
 
 @router.post("/orders")
 async def create_order(body: OrderBody, ctx: WebApp) -> dict[str, Any]:
+    try:
+        if body.intent_key is None:
+            order = await _create_order(body, ctx)
+        else:
+            order = await order_intents.create_once(
+                ctx.session,
+                ctx.customer,
+                body.intent_key,
+                body.model_dump(exclude={"intent_key"}),
+                lambda: _create_order(body, ctx),
+            )
+    except orders.OrderError as exc:
+        status = 409 if exc.key in {"order_intent_conflict", "order_intent_closed"} else 400
+        raise HTTPException(status_code=status, detail=exc.key) from exc
+    balance = await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id)
+    return {"order": order_view(order), "balance": balance, "due": payments.amount_due(order, balance)}
+
+
+async def _create_order(body: OrderBody, ctx: WebApp) -> Order:
     kind = OrderKind(body.kind)
     if kind in panel_accounts.KINDS:
         # Panel admin accounts (TEN-14): priced by the account rules, no discount codes.
-        order = await _account_order(body, ctx, kind)
-        balance = await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id)
-        return {"order": order_view(order), "balance": balance, "due": payments.amount_due(order, balance)}
+        return await _account_order(body, ctx, kind)
     plan = None
     if body.plan_id:
         plan = await catalog.get_plan(ctx.session, ctx.shop.id, body.plan_id, ctx.customer)
@@ -475,8 +508,7 @@ async def create_order(body: OrderBody, ctx: WebApp) -> dict[str, Any]:
             order = await orders.create(ctx.session, ctx.customer, draft, source="webapp")
     except (orders.OrderError, pricing.DiscountError) as exc:
         raise HTTPException(status_code=400, detail=exc.key) from exc
-    balance = await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id)
-    return {"order": order_view(order), "balance": balance, "due": payments.amount_due(order, balance)}
+    return order
 
 
 async def _account_order(body: OrderBody, ctx: WebApp, kind: OrderKind) -> Order:
@@ -512,7 +544,7 @@ async def _account_order(body: OrderBody, ctx: WebApp, kind: OrderKind) -> Order
 
 async def _own_order(ctx: WebApp, order_id: int) -> Order:
     order = await ctx.session.get(Order, order_id)
-    if order is None or order.customer_id != ctx.customer.id:
+    if order is None or order.customer_id != ctx.customer.id or order.shop_id != ctx.shop.id:
         raise HTTPException(status_code=404, detail="order_not_found")
     return order
 
@@ -520,6 +552,16 @@ async def _own_order(ctx: WebApp, order_id: int) -> Order:
 @router.get("/orders/{order_id}")
 async def get_order(order_id: int, ctx: WebApp) -> dict[str, Any]:
     return {"order": order_view(await _own_order(ctx, order_id))}
+
+
+@router.get("/orders/{order_id}/renewal-preview")
+async def get_renewal_preview(order_id: int, ctx: WebApp) -> dict[str, Any]:
+    order = await _own_order(ctx, order_id)
+    try:
+        return await renewal_preview.for_order(ctx.session, ctx.customer, order)
+    except orders.OrderError as exc:
+        status = 404 if exc.key in {"order_not_found", "service_not_found"} else 409
+        raise HTTPException(status_code=status, detail=exc.key) from exc
 
 
 class PayBody(BaseModel):
@@ -531,6 +573,10 @@ async def _payment_view(ctx: WebApp, started: payments.Started) -> dict[str, Any
     view: dict[str, Any] = {"payment_id": payment.id, "provider": payment.provider, "amount": payment.amount}
     if payment.provider == "card":
         view["accounts"] = checkout.instructions.get("accounts", [])
+    elif payment.provider == "stars" and checkout.instructions.get("invoice_link"):
+        # Durable order checkout already created this link once. A response retry
+        # must not ask Telegram to generate another independently payable link.
+        view["invoice_link"] = checkout.instructions["invoice_link"]
     elif payment.provider == "stars":
         from aiogram.types import LabeledPrice
 
@@ -566,9 +612,13 @@ async def pay_order(order_id: int, body: PayBody, ctx: WebApp) -> dict[str, Any]
             raise HTTPException(status_code=400, detail=exc.key) from exc
         return {"order": order_view(order)}
     try:
-        started = await payments.pay_order(ctx.session, ctx.customer, order, body.method)
+        started = await order_checkout.start(ctx.session, ctx.customer, order, body.method)
     except PaymentError as exc:
-        raise HTTPException(status_code=400, detail=exc.key) from exc
+        status = (
+            409 if exc.key in {"payment_intent_conflict", "payment_intent_closed", "order_expired"} else 400
+        )
+        raise HTTPException(status_code=status, detail=exc.key) from exc
+    await ctx.session.refresh(order)
     await ctx.session.commit()
     return {"order": order_view(order), "payment": await _payment_view(ctx, started)}
 
@@ -682,13 +732,33 @@ async def history(ctx: WebApp, before: int | None = None) -> dict[str, Any]:
 
 
 @router.get("/services")
-async def services(ctx: WebApp) -> dict[str, Any]:
-    rows = await ctx.session.scalars(
-        select(Service)
-        .where(Service.customer_id == ctx.customer.id, Service.status != ServiceStatus.DELETED)
-        .order_by(Service.id.desc())
+async def services(
+    ctx: WebApp,
+    limit: int | None = Query(None, ge=1, le=50),
+    before: int | None = Query(None, ge=1, le=2**63 - 1),
+    q: str | None = Query(None, max_length=120),
+    status: ServiceStatus | None = None,
+) -> dict[str, Any]:
+    from paurubot.api import service_pages
+
+    if status == ServiceStatus.DELETED:
+        raise HTTPException(status_code=422, detail="unsupported_service_status")
+    # Preserve existing unparameterized Home/derived-alert clients. Explicit paging/search
+    # is bounded; silently truncating legacy callers would drop their older service alerts.
+    paged = any(value is not None for value in (limit, before, q, status))
+    rows, next_before = await service_pages.read(
+        ctx.session,
+        ctx.shop.id,
+        ctx.customer.id,
+        limit=(limit or 20) if paged else None,
+        before=before,
+        query=q,
+        status=status,
     )
-    return {"items": [service_view(s, ctx.cfg) for s in rows]}
+    result: dict[str, Any] = {"items": [service_view(s, ctx.cfg) for s in rows]}
+    if paged:
+        result["next_before"] = next_before
+    return result
 
 
 @router.get("/services/{service_id}")
@@ -767,8 +837,6 @@ def _ticket_view(ticket: Ticket) -> dict[str, Any]:
         "department_id": ticket.department_id,
         "created_at": _iso(ticket.created_at),
         "updated_at": _iso(ticket.updated_at),
-        "service_id": ticket.service_id,
-        "service_context": ticket.service_context,
     }
 
 
@@ -785,18 +853,48 @@ async def _own_ticket(ctx: WebApp, ticket_id: int, *, lock: bool = False) -> Tic
 
 
 @router.get("/tickets")
-async def my_tickets(ctx: WebApp, before: int | None = Query(None, ge=1)) -> dict[str, Any]:
+async def my_tickets(
+    ctx: WebApp,
+    before: int | None = Query(None, ge=1, le=2**63 - 1),
+    status: TicketStatus | None = None,
+    department_id: int | None = Query(None, ge=0, le=2**63 - 1),
+) -> dict[str, Any]:
     # Stable ID cursor: updates/replies cannot move a row between pages.
     stmt = select(Ticket).where(Ticket.customer_id == ctx.customer.id, Ticket.shop_id == ctx.shop.id)
+    if status is not None:
+        stmt = stmt.where(Ticket.status == status)
+    if department_id == 0:
+        stmt = stmt.where(Ticket.department_id.is_(None))
+    elif department_id is not None:
+        # Unknown/foreign departments both yield an empty owned page. Even inconsistent
+        # historical ticket->department links cannot make a foreign desk filter valid.
+        own_desks = select(TicketDepartment.id).where(
+            TicketDepartment.shop_id == ctx.shop.id, TicketDepartment.id == department_id
+        )
+        stmt = stmt.where(Ticket.department_id.in_(own_desks))
     if before is not None:
         stmt = stmt.where(Ticket.id < before)
     rows = list(await ctx.session.scalars(stmt.order_by(Ticket.id.desc()).limit(21)))
     page = rows[:20]
     desks = await tickets.departments(ctx.session, ctx.shop.id)
+    owned_history = select(Ticket.department_id).where(
+        Ticket.shop_id == ctx.shop.id, Ticket.customer_id == ctx.customer.id
+    )
+    history_desks = await ctx.session.scalars(
+        select(TicketDepartment)
+        .where(
+            TicketDepartment.shop_id == ctx.shop.id,
+            TicketDepartment.is_active.is_(True) | TicketDepartment.id.in_(owned_history),
+        )
+        .order_by(TicketDepartment.sort, TicketDepartment.id)
+    )
     return {
         "items": [_ticket_view(row) for row in page],
         "next_before": page[-1].id if len(rows) > 20 else None,
+        # New-ticket choices stay active-only. History can include a closed desk,
+        # but never staff routing fields or unrelated inactive department names.
         "departments": [{"id": desk.id, "title": desk.title} for desk in desks],
+        "filter_departments": [{"id": desk.id, "title": desk.title} for desk in history_desks],
     }
 
 
@@ -805,50 +903,23 @@ class TicketBody(BaseModel):
     subject: str = Field(min_length=1, max_length=128)
     text: str = Field(min_length=1, max_length=4000)
     department_id: int | None = Field(None, ge=1, strict=True)
-    service_id: int | None = Field(None, ge=1, strict=True)
-    request_key: str | None = Field(None, min_length=16, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 @router.post("/tickets")
 async def new_ticket(body: TicketBody, ctx: WebApp) -> dict[str, Any]:
-    from paurubot.core import ticket_media
-
     # Serializes Mini App opens by this customer before checking the open-ticket limit.
     await ctx.session.refresh(ctx.customer, ["id"], with_for_update=True)
-    fingerprint = ticket_media.fingerprint(body.model_dump(exclude={"request_key"}))
-    if body.request_key:
-        previous = await ctx.session.scalar(
-            select(Ticket).where(
-                Ticket.customer_id == ctx.customer.id,
-                Ticket.shop_id == ctx.shop.id,
-                Ticket.request_key == body.request_key,
-            )
-        )
-        if previous is not None:
-            ticket_media.check_replay(previous.request_hash, fingerprint)
-            return {"ticket": _ticket_view(previous)}
-    service = await _owned_service(ctx, body.service_id)
-    if service is not None and service.shop_id != ctx.shop.id:
-        raise HTTPException(status_code=404, detail="service_not_found")
     try:
         ticket = await tickets.open_ticket(
             ctx.session, ctx.customer, body.subject, source="webapp", department_id=body.department_id
         )
-        ticket.request_key, ticket.request_hash = body.request_key, fingerprint
-        if service is not None:
-            ticket.service_id = service.id
-            ticket.service_context = ticket_media.service_context(service)
-        message = await tickets.add_message(
+        await tickets.add_message(
             ctx.session, ticket, author_type="customer", author_id=ctx.customer.id, text=body.text
         )
     except tickets.TicketError as exc:
         raise HTTPException(status_code=400, detail=exc.key) from exc
     await queue.enqueue(
-        ctx.session,
-        "notify",
-        "ticket_new_message",
-        {"ticket_id": ticket.id, "message_id": message.id},
-        shop_id=ctx.shop.id,
+        ctx.session, "notify", "ticket_new_message", {"ticket_id": ticket.id}, shop_id=ctx.shop.id
     )
     return {"ticket": _ticket_view(ticket)}
 
@@ -873,8 +944,7 @@ async def ticket_thread(
                 "id": row.id,
                 "from": "me" if row.author_type == "customer" else "support",
                 "text": row.text,
-                "has_attachment": bool(row.attachment_file_id or row.attachment_size),
-                "attachment_expired": row.attachment_expired,
+                "has_attachment": bool(row.attachment_file_id),
                 "created_at": _iso(row.created_at),
             }
             for row in reversed(page)
@@ -885,30 +955,19 @@ async def ticket_thread(
 class TicketReplyBody(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     text: str = Field(min_length=1, max_length=4000)
-    request_key: str | None = Field(None, min_length=16, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 @router.post("/tickets/{ticket_id}/reply")
 async def ticket_answer(ticket_id: int, body: TicketReplyBody, ctx: WebApp) -> dict[str, Any]:
-    from paurubot.core import ticket_media
-
     ticket = await _own_ticket(ctx, ticket_id, lock=True)
-    fingerprint = ticket_media.fingerprint({"text": body.text})
-    if await ticket_media.replayed(ctx.session, ticket, ctx.customer.id, body.request_key, fingerprint):
-        return {"ticket": _ticket_view(ticket)}
     try:
-        message = await tickets.add_message(
+        await tickets.add_message(
             ctx.session, ticket, author_type="customer", author_id=ctx.customer.id, text=body.text
         )
     except tickets.TicketError as exc:
         raise HTTPException(status_code=409, detail=exc.key) from exc
-    message.request_key, message.request_hash = body.request_key, fingerprint
     await queue.enqueue(
-        ctx.session,
-        "notify",
-        "ticket_new_message",
-        {"ticket_id": ticket.id, "message_id": message.id},
-        shop_id=ctx.shop.id,
+        ctx.session, "notify", "ticket_new_message", {"ticket_id": ticket.id}, shop_id=ctx.shop.id
     )
     return {"ticket": _ticket_view(ticket)}
 
@@ -961,6 +1020,3 @@ async def reseller_renew(body: RenewManyBody, ctx: WebApp) -> dict[str, Any]:
 
 
 router.include_router(webapp_auto_renew.router)
-
-
-router.include_router(webapp_ticket_media.router)
