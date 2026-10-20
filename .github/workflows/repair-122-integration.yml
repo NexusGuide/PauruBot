@@ -1,0 +1,96 @@
+name: repair-122-integration
+on:
+  push:
+    branches: [feat/mender-owned-payment-inbox]
+    paths: [.github/workflows/repair-122-integration.yml]
+permissions:
+  contents: write
+jobs:
+  integrate:
+    if: github.ref == 'refs/heads/feat/mender-owned-payment-inbox'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Strict integration of reviewed main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, pathlib, subprocess
+          def git(*args, check=True):
+              return subprocess.run(['git', *args], check=check, capture_output=True, text=True)
+          def show(ref, path):
+              return git('show', ref + ':' + path).stdout
+          branch = 'feat/mender-owned-payment-inbox'
+          parent = '094f38880cbe8042d60eb13e9a0ce4139f923a58'
+          head = git('rev-parse', 'HEAD').stdout.strip()
+          assert git('rev-parse', 'origin/main').stdout.strip() == parent
+          assert git('rev-parse', 'origin/' + branch).stdout.strip() == head
+          ancestor = git('merge-base', head, parent).stdout.strip()
+          git('config', 'user.name', 'PauruBot integration repair')
+          git('config', 'user.email', '155055819+mehdialij@users.noreply.github.com')
+          merged = git('merge', '--no-commit', '--no-ff', parent, check=False)
+          assert merged.returncode in (0, 1), 'merge failed before conflict resolution'
+          paths = git('diff', '--name-only', '--diff-filter=U').stdout.splitlines()
+          locales = {'frontend/src/app/locales/en.json', 'frontend/src/app/locales/fa.json'}
+          wallet = 'frontend/src/app/screens/Wallet.tsx'
+          tests = 'frontend/tests/topup-intents.test.mjs'
+          ci = '.github/workflows/ci.yml'
+          assert set(paths) <= locales | {wallet, tests, ci}, 'unexpected conflicting path: ' + repr(paths)
+          def replace_once(text, before, after):
+              assert text.count(before) == 1, 'nonunique repair anchor'
+              return text.replace(before, after, 1)
+          def unique(pairs):
+              result = {}
+              for key, value in pairs:
+                  assert key not in result, 'duplicate locale key'
+                  result[key] = value
+              return result
+          for path in paths:
+              ours, theirs, base = show(head, path), show(parent, path), show(ancestor, path)
+              if path in locales:
+                  a, b, c = [json.loads(x, object_pairs_hook=unique) for x in (base, ours, theirs)]
+                  missing = object()
+                  result = {}
+                  for key in dict.fromkeys([*c, *b, *a]):
+                      old, own, new = a.get(key, missing), b.get(key, missing), c.get(key, missing)
+                      if own == new: value = own
+                      elif own == old: value = new
+                      elif new == old: value = own
+                      else: raise AssertionError('competing locale change: ' + key)
+                      if value is not missing: result[key] = value
+                  fixed = json.dumps(result, ensure_ascii=False, indent=2) + '\n'
+              elif path == wallet:
+                  imp = 'import { Icon } from "../icons";\n'
+                  pending_imp = 'import { PendingPayments } from "../payments/PendingPayments";\n'
+                  anchor = '      <p className="app-lbl mt-6">{t("transactions")}</p>'
+                  addition = '      <div className="mt-6"><PendingPayments /></div>\n'
+                  expected = replace_once(replace_once(base, imp, imp + pending_imp), anchor, addition + anchor)
+                  assert ours == expected, 'unreviewed wallet delta'
+                  fixed = replace_once(replace_once(theirs, imp, imp + pending_imp), anchor, addition + anchor)
+                  assert 'WalletHistory key={`${me.id}:${historyVersion}`}' in fixed
+              elif path == tests:
+                  anchor = ' const Icon=()=>null,Button=()=>null,CountUp=()=>null,Screen=()=>null;'
+                  addition = ' const Icon=()=>null,Button=()=>null,CountUp=()=>null,Screen=()=>null,PendingPayments=()=>null;'
+                  assert ours == replace_once(base, anchor, addition), 'unreviewed test delta'
+                  fixed = replace_once(theirs, anchor, addition)
+                  assert "assert.equal(history[0].key,'1:0')" in fixed
+              else:
+                  assert git('rev-parse', head + ':' + ci).stdout.strip() == 'c781e28d20b18b5ba1914d9eb5f6b8dddd148a5d'
+                  anchor = '      - run: npm run test:capabilities\n'
+                  addition = '      - name: Payment resume contracts\n        run: node --experimental-strip-types --test tests/payment-resume.test.mjs\n'
+                  fixed = replace_once(theirs, anchor, anchor + addition)
+                  assert 'Password recovery contracts' in fixed and 'Order draft contracts' in fixed
+              pathlib.Path(path).write_text(fixed)
+              git('add', '--', path)
+          assert not git('diff', '--name-only', '--diff-filter=U').stdout.strip()
+          git('diff', '--cached', '--check')
+          git('commit', '-m', 'Merge reviewed main preserving inbox, locales and wallet recovery tests')
+          credential = base64.b64encode(('x-access-token:' + os.environ['GH_TOKEN']).encode()).decode()
+          os.environ.update(GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0='AUTHORIZATION: basic ' + credential)
+          git('push', 'origin', 'HEAD:refs/heads/' + branch)
+          print('Strict reviewed integration committed; ordinary CI remains required.')
+          PY
