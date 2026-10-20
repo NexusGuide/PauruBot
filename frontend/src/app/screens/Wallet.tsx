@@ -4,12 +4,14 @@ import { ApiError } from "@shared/http";
 import { money } from "@shared/format";
 import { api } from "../api";
 import { Icon } from "../icons";
+import { PendingPayments } from "../payments/PendingPayments";
 import { errorText, useApp } from "../state";
 import { haptic, openExternal, openInvoice } from "../telegram";
 import { actionGate, topupIntents } from "../topup-intents";
 import { Button, CountUp, Item, Screen } from "../ui";
 import { rememberCard, rememberPayment } from "./Payment";
 
+import { WalletTransfer } from "./WalletTransfer";
 import { WalletHistory } from "./WalletHistory";
 
 const PRESETS = [50_000, 100_000, 200_000, 500_000];
@@ -67,6 +69,7 @@ export function Wallet() {
           ["payment_intent_closed", "payment_intent_conflict"].includes(err.code)) {
         topupIntents().clear(me.id, chosen, method, intent);
       }
+      if (err instanceof ApiError && err.code === "card_verify_required") navigate("/card-verification");
       toast(errorText(t, err), "error");
     } finally {
       gate.current.leave();
@@ -115,6 +118,7 @@ export function Wallet() {
         </div>
       </div>
 
+      <Button disabled={busy !== null} onClick={() => navigate("/card-verification")}>{locale.startsWith("fa") ? "تأیید کارت" : "Card verification"}</Button>
       <p className="app-lbl">{t("topup_amount")}</p>
       <div className="app-chips" role="group">
         {presets.map((preset) => (
@@ -163,6 +167,7 @@ export function Wallet() {
         {me.payment_methods.length === 0 && <div className="app-empty">{t("no_methods")}</div>}
       </div>
 
+      <div className="mt-6"><PendingPayments /></div>
       <p className="app-lbl">{t("gift_code")}</p>
       <div className="app-dc">
         <input
@@ -179,6 +184,11 @@ export function Wallet() {
         </Button>
       </div>
 
+      <WalletTransfer key={me.id} owner={me.id} disabled={busy !== null}
+        acquire={() => { if (!gate.current.enter()) return false; setBusy("transfer"); return true; }}
+        release={() => { gate.current.leave(); setBusy(null); }}
+        onDone={() => { setHistoryVersion(value => value + 1); void reload().catch(() => toast(t("retry"), "error")); }}
+      />
       <p className="app-lbl mt-6">{t("transactions")}</p>
       <WalletHistory key={`${me.id}:${historyVersion}`} />
     </Screen>

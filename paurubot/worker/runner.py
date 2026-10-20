@@ -23,7 +23,15 @@ DeadHook = Callable[[AsyncSession, queue.Claimed, str], Awaitable[None]]
 
 
 class Retry(Exception):
-    """Raise from a handler to retry later without logging a traceback."""
+    """Retry without a traceback, optionally respecting a provider's minimum wait."""
+
+    def __init__(self, message: str = "", *, retry_after: float | None = None) -> None:
+        import math
+
+        super().__init__(message)
+        if retry_after is not None and (not math.isfinite(retry_after) or retry_after < 0):
+            raise ValueError("retry_after must be finite and non-negative")
+        self.retry_after = retry_after
 
 
 class Defer(Exception):
@@ -119,6 +127,7 @@ async def _run_job(name: str, spec: QueueSpec, job: queue.Claimed) -> None:
     from paurubot.ops import metrics
 
     handler = spec.handlers.get(job.kind)
+    retry_after: float | None = None
     maker = get_sessionmaker()
     async with maker() as session:
         try:
@@ -146,6 +155,7 @@ async def _run_job(name: str, spec: QueueSpec, job: queue.Claimed) -> None:
             return
         except Retry as exc:
             error, retry = str(exc) or "retry", True
+            retry_after = exc.retry_after
         except Permanent as exc:
             error, retry = str(exc), False
         except Exception as exc:
@@ -154,7 +164,7 @@ async def _run_job(name: str, spec: QueueSpec, job: queue.Claimed) -> None:
         await session.rollback()
     error = redact(error)
     async with maker() as session:
-        dead = await queue.fail(session, job, error, retry=retry)
+        dead = await queue.fail(session, job, error, retry=retry, retry_after=retry_after)
         if dead is None:
             await session.rollback()
             log.warning("job %s: stale failure discarded", job.id)

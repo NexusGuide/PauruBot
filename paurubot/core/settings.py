@@ -137,6 +137,8 @@ SPECS: dict[str, Spec] = {
     "cubepay_enabled": Spec(bool, False, "gateways"),
     "cubepay_api_key": Spec(str, "", "gateways", secret=True),
     "cubepay_fee_percent": Spec(int, 0, "gateways"),
+    "tonpay_enabled": Spec(bool, False, "gateways"),
+    "tonpay_api_key": Spec(str, "", "gateways", secret=True),
     "atlaspay_enabled": Spec(bool, False, "gateways"),
     "atlaspay_api_key": Spec(str, "", "gateways", secret=True),
     # crypto (PAY-11, PAY-13)

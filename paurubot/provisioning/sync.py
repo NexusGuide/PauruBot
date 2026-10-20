@@ -13,7 +13,7 @@ from paurubot.core import settings as shop_settings
 from paurubot.db.base import utcnow
 from paurubot.db.models import Panel, Service, ServiceStatus
 from paurubot.panels import PanelError, PanelUser
-from paurubot.provisioning.lifecycle import apply_panel_user, delete_service, refresh
+from paurubot.provisioning.lifecycle import delete_service, refresh
 from paurubot.worker import queue
 
 log = logging.getLogger(__name__)
@@ -118,17 +118,29 @@ async def due_panels(session: AsyncSession) -> list[Panel]:
 
 
 async def apply_webhook_user(session: AsyncSession, panel: Panel, info: PanelUser) -> Service | None:
+    """Persist a refresh hint; unordered provider events are not state snapshots.
+
+    Enqueue in the caller's transaction. Do not permanently dedupe by service:
+    completed jobs must not suppress later events (including real usage resets).
+    """
+    if not panel.is_active:
+        return None
     service = await session.scalar(
-        select(Service).where(Service.panel_id == panel.id, Service.panel_username == info.username)
+        select(Service).where(
+            Service.panel_id == panel.id,
+            Service.shop_id == panel.shop_id,
+            Service.panel_username == info.username,
+        )
     )
     if service is None or service.status == ServiceStatus.DELETED:
         return None
-    previous = service.status
-    apply_panel_user(service, info)
-    from paurubot.core import usage_history
-
-    await usage_history.observe(session, service, info, source="webhook")
-    await evaluate_alerts(session, service, previous)
+    await queue.enqueue(
+        session,
+        "provision",
+        "refresh_service",
+        {"service_id": service.id, "panel_id": panel.id},
+        shop_id=service.shop_id,
+    )
     return service
 
 

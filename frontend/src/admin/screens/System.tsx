@@ -1,3 +1,4 @@
+import { PasswordRecovery } from "../password-recovery/PasswordRecovery";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { money } from "@shared/format";
@@ -1626,6 +1627,7 @@ export function Account() {
           </Button>
         </div>
       </Section>
+      <Section><PasswordRecovery initialUsername={me?.username ?? ""} /></Section>
       <ApiKeys />
     </Page>
   );

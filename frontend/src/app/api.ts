@@ -1,11 +1,16 @@
+import { ticketListPath, type TicketFilters } from "./ticket-pages";
 import { request } from "@shared/http";
 import type { Body as AutoRenewBody } from "./autoRenew/model";
 import { initData } from "./telegram";
+import { servicePageUrl, type ServiceFilter } from "./service-pages";
 
 export interface ServiceAlertPolicy {
   warn_remaining_percent: number;
   warn_days: number;
 }
+
+export interface TransferPolicy { enabled: boolean; minimum: number; maximum: number; daily_maximum: number; currency: string }
+export interface TransferQuote { token: string; amount: number; currency: string; expires_at: number; recipient: { telegram_id: number; name: string | null; username: string | null } }
 
 export interface Me {
   id: number;
@@ -68,6 +73,7 @@ export interface TicketMessage {
 export interface TicketList {
   items: Ticket[];
   departments: { id: number; title: string }[];
+  filter_departments?: { id: number; title: string }[];
   next_before: number | null;
 }
 export interface TicketThreadData {
@@ -245,6 +251,17 @@ export interface PaymentStart {
   crypto?: CryptoInstructions;
 }
 
+export interface PendingPayment {
+  id: number;
+  provider: string;
+  amount: number;
+  status: string;
+  order_id: number | null;
+  expires_at: string | null;
+  action: "resume" | "status" | "review";
+}
+export interface PendingPaymentList { items: PendingPayment[]; next_before: number | null }
+
 export interface CryptoInstructions {
   network: string;
   label: string;
@@ -274,6 +291,14 @@ const post = <T>(path: string, body: unknown = {}) =>
   request<T>(`/api/webapp${path}`, { method: "POST", body, headers: auth() });
 
 export const api = {
+  cardVerification: () => get<unknown>("/cards/verification"),
+  submitCardVerification: (body: { intent_key: string; number: string; image: string }) =>
+    request<unknown>("/api/webapp/cards/verification", {
+      method: "POST", body, headers: auth(), signal: AbortSignal.timeout(25_000),
+    }),
+  transferPolicy: () => get<TransferPolicy>("/wallet/transfer-policy"),
+  transferQuote: (recipient: string, amount: number) => post<TransferQuote>("/wallet/transfers/quote", { recipient, amount }),
+  transferConfirm: (token: string) => post<{ journal_id: number; amount: number; replayed: boolean; balance: number }>("/wallet/transfers/confirm", { token }),
   me: () => get<Me>("/me"),
   join: () => get<{ channels: JoinChannel[] }>("/join"),
   checkJoin: () => post<{ ok: boolean; channels: JoinChannel[] }>("/join/check"),
@@ -282,7 +307,7 @@ export const api = {
     post<MarketingPreference>("/me/marketing", { marketing_opt_out: optOut }),
   setLocale: (locale: string) => post<{ locale: string }>("/me/locale", { locale }),
   help: (signal?: AbortSignal) => get<CustomerHelp>("/help", signal),
-  tickets: (before?: number, signal?: AbortSignal) => get<TicketList>(`/tickets${before ? `?before=${before}` : ""}`, signal),
+  tickets: (before?: number, signal?: AbortSignal, filters?: TicketFilters) => get<TicketList>(ticketListPath(before, filters), signal),
   ticket: (id: number, before?: number, signal?: AbortSignal) => get<TicketThreadData>(`/tickets/${id}${before ? `?before=${before}` : ""}`, signal),
   newTicket: (body: { subject: string; text: string; department_id: number | null; service_id?: number | null; request_key?: string }) => post<{ ticket: Ticket }>("/tickets", body),
   replyTicket: (id: number, text: string, request_key?: string) => post<{ ticket: Ticket }>(`/tickets/${id}/reply`, { text, request_key }),
@@ -294,6 +319,7 @@ export const api = {
   accountLogin: (id: number) => get<{ url: string; username: string; password: string }>(`/accounts/${id}/login`),
   refreshAccount: (id: number) => post<{ account: PanelAccount }>(`/accounts/${id}/refresh`),
   createOrder: (body: {
+    intent_key?: string;
     kind: string;
     plan_id?: number;
     service_id?: number;
@@ -311,11 +337,14 @@ export const api = {
   renewMany: (ids: number[]) =>
     post<{ renewed: number[]; failed: { id: number; error: string }[]; balance: number }>("/reseller/renew", { service_ids: ids }),
   order: (id: number) => get<{ order: Order }>(`/orders/${id}`),
+  renewalPreview: (id: number, signal?: AbortSignal) => get<unknown>(`/orders/${id}/renewal-preview`, signal),
   payOrder: (id: number, method: string) =>
     post<{ order: Order; payment?: PaymentStart }>(`/orders/${id}/pay`, { method }),
   cancelOrder: (id: number) => post<{ ok: boolean }>(`/orders/${id}/cancel`),
   topup: (amount: number, method: string, intent_key?: string) => post<{ payment: PaymentStart }>("/wallet/topup", { amount, method, intent_key }),
   payment: (id: number) => get<{ id: number; status: string; amount: number; fulfilled: boolean; provider: string; order_id: number | null }>(`/payments/${id}`),
+  pendingPayments: (before?: number) => get<PendingPaymentList>(`/payments${before ? `?before=${before}` : ""}`),
+  resumePayment: (id: number) => get<{ payment: PaymentStart }>(`/payments/${id}/resume`),
   receiptState: (id: number) => get<unknown>(`/payments/${id}/receipt-state`),
   receipts: (before?: number) => get<unknown>(`/receipts${before ? `?before=${before}` : ""}`),
   sendReceipt: (id: number, file: File, revision: string) => {
@@ -334,6 +363,8 @@ export const api = {
   redeemGift: (code: string) => post<{ amount: number; balance: number }>("/wallet/gift", { code }),
   history: (before?: number) => get<{ items: HistoryItem[] }>(`/wallet/history${before ? `?before=${before}` : ""}`),
   services: () => get<{ items: Service[] }>("/services"),
+  servicePage: (q: string, status: ServiceFilter, before: number | undefined, signal: AbortSignal) =>
+    request<unknown>(`/api/webapp${servicePageUrl(q, status, before)}`, { headers: auth(), signal }),
   service: (id: number, refresh = false) => get<{ service: Service }>(`/services/${id}${refresh ? "?refresh=true" : ""}`),
   usage: (id: number, days: 7 | 30, signal?: AbortSignal) =>
     request<UsageHistory>(`/api/webapp/services/${id}/usage?days=${days}`, { headers: auth(), signal }),
