@@ -1,0 +1,59 @@
+name: Repair PR 108 locale integration
+on:
+  push:
+    branches: [fix/mender-shop-alert-thresholds]
+    paths: [.github/workflows/repair-108-locales.yml]
+permissions:
+  contents: read
+jobs:
+  repair-alert-intent-locales:
+    if: github.repository == 'MenderBaga/PauruBot' && github.ref == 'refs/heads/fix/mender-shop-alert-thresholds'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # This temporary maintenance job executes only this inline patcher, not repo code.
+      # Delete this workflow after verifying the patch; then ordinary CI must pass.
+      - name: Restore only the three existing main payment-intent translations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+          keys = ('err_payment_intent_conflict', 'err_payment_intent_closed', 'err_payment_intent_invalid')
+          main = '994eed9481c4f9ca836adc878c7cf4751320af74'
+          for locale in ('en', 'fa'):
+              path = Path(f'frontend/src/app/locales/{locale}.json')
+              current = json.loads(path.read_text())
+              upstream = json.loads(subprocess.check_output(['git', 'show', f'{main}:{path}'], text=True))
+              for key in keys:
+                  assert isinstance(upstream[key], str) and upstream[key]
+                  current[key] = upstream[key]
+              assert current['alerts_policy_unavailable']
+              path.write_text(json.dumps(current, ensure_ascii=False, indent=2) + '\n')
+          test = Path('frontend/tests/alert-policy.test.mjs')
+          marker = '// Integration regression: alert policy must preserve payment-intent translations.'
+          assert marker not in test.read_text()
+          with test.open('a') as output:
+              output.write('\n' + marker + '\n')
+              output.write('for (const locale of ["en", "fa"]) test(`alert policy preserves ${locale} payment-intent messages`, () => {\n')
+              output.write(' const messages = JSON.parse(readFileSync(new URL(`../src/app/locales/${locale}.json`, import.meta.url), "utf8"));\n')
+              output.write(' for (const key of ["err_payment_intent_conflict", "err_payment_intent_closed", "err_payment_intent_invalid"]) {\n')
+              output.write('  assert.equal(typeof messages[key], "string", key); assert(messages[key].trim().length > 0, key);\n')
+              output.write(' }\n});\n')
+          expected = {'frontend/src/app/locales/en.json', 'frontend/src/app/locales/fa.json', 'frontend/tests/alert-policy.test.mjs'}
+          changed = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
+          assert changed == expected, changed
+          PY
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- frontend/src/app/locales/en.json frontend/src/app/locales/fa.json frontend/tests/alert-policy.test.mjs
+          git commit -m 'fix(i18n): retain payment intent messages with shop alert policy'
+          git push origin HEAD:refs/heads/fix/mender-shop-alert-thresholds
