@@ -78,7 +78,14 @@ async def test_legacy_login_then_explicit_password_change(session) -> None:  # t
             },
             json={"current_password": old, "new_password": replacement},
         )
-        assert response.status_code == 200, response.text
+        assert response.status_code == 409, response.text
+        assert response.json()["error"] == "legacy_password_reset_required"
+        await session.refresh(row)
+        assert row.password_hash == legacy
+        # An independently authorized administrator can still explicitly rotate the secret.
+        # Public Telegram recovery is tested separately; login alone never blesses a suffix.
+        await staff_service.change_password(session, row, replacement)
+        await session.commit()
         await session.refresh(row)
         assert row.password_hash.startswith("$argon2id$")
         assert verify_password(replacement, row.password_hash)
