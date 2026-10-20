@@ -12,6 +12,7 @@ import { useResource } from "../useResource";
 import { AutoRenew } from "../autoRenew/AutoRenew";
 import { UsageChart } from "../usage/UsageChart";
 import { createActionGate, runServiceAction } from "../service-read";
+import { normalizedServiceLabel } from "../service-label";
 import { SERVICE_STATUSES, readServicePage, serviceFilter, servicesReturnTo, type ServiceFilter } from "../service-pages";
 
 /** Badge tone for a service status: green while healthy, saffron while settling, red once it is gone. */
@@ -189,6 +190,9 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
   const [linksError, setLinksError] = useState<unknown>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [qrVersion, setQrVersion] = useState(0);
+  const [renaming, setRenaming] = useState(false);
+  const [label, setLabel] = useState("");
+  const [renameError, setRenameError] = useState<unknown>(null);
   const gate = useRef(createActionGate());
   useEffect(() => {
     const current = createActionGate();
@@ -234,6 +238,22 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
     setLinksError(null);
     return api.links(service.id);
   }, result => setLinks(result.links), setLinksError, () => setBusy(null));
+
+  const rename = () => {
+    const normalized = normalizedServiceLabel(label);
+    if (!normalized || normalized === service.label) return;
+    return runServiceAction(gate.current, () => {
+      setBusy("rename");
+      setRenameError(null);
+      return api.rename(service.id, normalized);
+    }, result => {
+      // Only display the label confirmed by the existing owned-resource endpoint.
+      setService(result.service);
+      setRenaming(false);
+      haptic("success");
+      toast(t("service_renamed"));
+    }, setRenameError, () => setBusy(null));
+  };
 
   const can = (change: string) => !service.changes || service.changes.includes(change);
 
@@ -297,6 +317,33 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
           )}
         </div>
       </section>
+
+      <Panel className="mb-4">
+        {renaming ? (
+          <form aria-label={t("service_rename")} onSubmit={event => { event.preventDefault(); void rename(); }}>
+            <label className="mb-2 block text-sm font-bold" htmlFor="service-label">{t("service_label")}</label>
+            <input id="service-label" className="mb-2 w-full" dir="auto" autoFocus
+              value={label} disabled={busy !== null} maxLength={48}
+              aria-describedby="service-label-hint"
+              onChange={event => { setLabel(event.target.value); setRenameError(null); }} />
+            <p id="service-label-hint" className="mb-3 text-sm text-[var(--hint)]">{t("service_rename_hint")}</p>
+            {Boolean(renameError) && <p role="alert">{errorText(t, renameError)}</p>}
+            <div className="grid grid-cols-2 gap-3">
+              <Button type="submit" busy={busy === "rename"}
+                disabled={busy !== null || !normalizedServiceLabel(label) || normalizedServiceLabel(label) === service.label}>
+                {t("service_rename_save")}
+              </Button>
+              <Button tone="quiet" disabled={busy != null} onClick={() => { setRenaming(false); setRenameError(null); }}>
+                {t("cancel")}
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <Button tone="quiet" disabled={busy != null} onClick={() => {
+            setLabel(service.label || service.username); setRenameError(null); setRenaming(true);
+          }}>{t("service_rename")}</Button>
+        )}
+      </Panel>
 
       {actions.length > 0 && (
         <div className={`mb-3.5 grid gap-3 ${actions.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>

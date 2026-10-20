@@ -9,6 +9,7 @@ for (const [path,tab,parent] of [
  ['/wallet','wallet',null],['/payment/12','wallet','/wallet'],['/more','more',null],['/profile','more','/more'],['/help','more','/more'],
  ['/tickets','more','/more'],['/tickets/new','more','/tickets'],['/tickets/12','more','/tickets'],['/manage','more','/more'],['/desk','more','/more'],['/unknown','home',null]
 ]) test(`route ${path} has stable tab and safe parent`,()=>{assert.equal(tabForPath(path),tab);assert.equal(parentForPath(path),parent)});
+import "./alert-policy.test.mjs";
 const css=readFileSync(new URL('../src/app/app.css',import.meta.url),'utf8');
 function luminance(hex) {const v=hex.match(/[0-9a-f]{2}/gi).map(x=>parseInt(x,16)/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4);return .2126*v[0]+.7152*v[1]+.0722*v[2]}
 function contrast(a,b){const x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05)}
@@ -45,5 +46,6 @@ import "./ticket-pages.test.mjs";
 // Service detail recovery regressions run in the existing CI UX suite.
 import "./service-read.test.mjs";
 
+import "./service-rename.test.mjs";
 // Bounded service search/paging contracts run in the existing CI UX suite.
 import "./service-pages.test.mjs";
