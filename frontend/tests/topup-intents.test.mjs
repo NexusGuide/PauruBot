@@ -26,7 +26,7 @@ try {
  source=`import {actionGate,TopupIntents} from './helper.js';
  const intents=new TopupIntents(undefined,()=> 'controlled-intent-123');
  const topupIntents=()=>intents;
- const stateValues=[[],100000,'',null,'GIFT'];let stateIndex=0;
+ const stateValues=[0,100000,'',null,'GIFT'];let stateIndex=0;
  const useState=()=>[stateValues[stateIndex++],()=>{}];
  const useRef=(current:any)=>({current}); const useEffect=()=>{};
  const useNavigate=()=>()=>{};
@@ -40,6 +40,8 @@ try {
  const haptic=()=>{},openExternal=()=>{},openInvoice=async()=> 'paid';
  const errorText=()=>'',dateTime=()=>'',money=()=>'',rememberCard=()=>{},rememberPayment=()=>{};
  const Icon=()=>null,Button=()=>null,CountUp=()=>null,Screen=()=>null,PendingPayments=()=>null;
+ // History read behavior is covered by wallet-history.test.mjs; this seam exercises payment handlers.
+ export const WalletHistory=()=>null;
  export const Item=()=>null;
  `+source;
  writeFileSync(temp+'/Wallet.tsx',source);
@@ -49,6 +51,8 @@ try {
  function walk(x,found=[]){if(Array.isArray(x))for(const c of x)walk(c,found);else if(x&&typeof x==='object'&&x.props){found.push(x);walk(x.props.children,found)}return found;}
  test('actual Wallet handlers block repeated same-method, other-method and gift actions until settled',async()=>{
    const nodes=walk(runtime.Wallet());const methods=nodes.filter(n=>n.type===runtime.Item);
+   const history=nodes.filter(n=>n.type===runtime.WalletHistory);
+   assert.equal(history.length,1);assert.equal(history[0].key,'1:0');
    const redeem=nodes.find(n=>n.props.children==='redeem');assert.equal(methods.length,2);assert(redeem);
    const first=methods[0].props.onClick();
    await methods[0].props.onClick();await methods[1].props.onClick();redeem.props.onClick();
