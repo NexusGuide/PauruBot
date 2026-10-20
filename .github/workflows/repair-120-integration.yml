@@ -1,0 +1,56 @@
+name: integrate-order-intents
+on:
+  pull_request:
+    paths:
+      - .github/workflows/repair-120-integration.yml
+permissions:
+  contents: write
+jobs:
+  integrate:
+    if: github.repository == 'mehdialij/PauruBot' && github.event.pull_request.number == 120 && github.head_ref == 'fix/mender-miniapp-order-intents'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/mender-miniapp-order-intents
+          fetch-depth: 0
+      - name: Merge main with strict per-key translation resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'mehdialij'
+          git config user.email '155055819+mehdialij@users.noreply.github.com'
+          git fetch origin main
+          python - <<'PY'
+          import json
+          import pathlib
+          import subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+          result = subprocess.run(['git', 'merge', '--no-commit', '--no-ff', 'origin/main'])
+          conflicts = git('diff', '--name-only', '--diff-filter=U').decode().splitlines()
+          allowed = {'frontend/src/app/locales/en.json', 'frontend/src/app/locales/fa.json'}
+          assert set(conflicts) <= allowed, conflicts
+          missing = object()
+          for path in conflicts:
+              base, ours, theirs = [json.loads(git('show', f':{stage}:{path}')) for stage in (1, 2, 3)]
+              resolved = {}
+              for key in dict.fromkeys([*theirs, *ours, *base]):
+                  b, o, t = [source.get(key, missing) for source in (base, ours, theirs)]
+                  if o == t: value = o
+                  elif o == b: value = t
+                  elif t == b: value = o
+                  else: raise AssertionError(f'competing translation: {path}: {key}')
+                  if value is not missing: resolved[key] = value
+              for key in ('err_payment_intent_conflict', 'err_payment_intent_closed', 'err_payment_intent_invalid'):
+                  assert resolved[key] == theirs[key]
+              for key in ('err_order_intent_conflict', 'err_order_intent_closed', 'err_order_intent_invalid'):
+                  assert resolved[key] == ours[key]
+              pathlib.Path(path).write_text(json.dumps(resolved, ensure_ascii=False, indent=2) + '\n')
+              subprocess.run(['git', 'add', '--', path], check=True)
+          assert not git('diff', '--name-only', '--diff-filter=U').strip()
+          assert result.returncode in (0, 1)
+          PY
+          git commit -m 'Merge current main preserving payment and order intent contracts'
+          git push origin HEAD:fix/mender-miniapp-order-intents
