@@ -167,6 +167,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/ticket-departments` | `tickets.read` | List ticket departments |
 | POST | `/api/admin/ticket-departments` | `settings.write` | Create ticket department |
 | POST | `/api/admin/tickets/{ticket_id}/close` | `tickets.reply` | Close |
+| GET | `/api/admin/tickets/{ticket_id}/messages/{message_id}/attachment` | `tickets.read` | Ticket attachment |
 | POST | `/api/admin/tickets/{ticket_id}/note` | `tickets.reply` | Add ticket note |
 | POST | `/api/admin/tickets/{ticket_id}/reply` | `tickets.reply` | Reply |
 | GET | `/api/admin/tickets/{ticket_id}` | `tickets.read` | Ticket detail |
@@ -267,7 +268,9 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/staff/reviews/{payment_id}/receipt` | Mini App initData | Receipt |
 | POST | `/api/webapp/staff/reviews/{payment_id}/reject` | Mini App initData | Reject |
 | GET | `/api/webapp/staff/reviews` | Mini App initData | Reviews |
+| POST | `/api/webapp/tickets/{ticket_id}/attachments` | Mini App initData | Upload |
 | POST | `/api/webapp/tickets/{ticket_id}/close` | Mini App initData | Ticket close |
+| GET | `/api/webapp/tickets/{ticket_id}/messages/{message_id}/attachment` | Mini App initData | Attachment |
 | POST | `/api/webapp/tickets/{ticket_id}/reply` | Mini App initData | Ticket answer |
 | GET | `/api/webapp/tickets/{ticket_id}` | Mini App initData | Ticket thread |
 | GET | `/api/webapp/tickets` | Mini App initData | My tickets |

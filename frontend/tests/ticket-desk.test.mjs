@@ -49,3 +49,29 @@ for(const [a,b] of [['#1b2430','#ffffff'],['#5b6878','#f3f6f8'],['#8b98a8','#172
 for(const [a,b] of [['#788695','#ffffff'],['#8197a7','#17222d']])test(`input boundary ${a}/${b}`,()=>{const x=lum(a),y=lum(b);assert((Math.max(x,y)+.05)/(Math.min(x,y)+.05)>=3)});
 
 for(const [a,b] of [['#96203a','#f9e1e5'],['#ffabc0','#432633']])test(`destructive contrast ${a}/${b}`,()=>{const x=lum(a),y=lum(b);assert((Math.max(x,y)+.05)/(Math.min(x,y)+.05)>=4.5)});
+
+const media = await import('../src/app/ticketMedia/model.ts');
+test('ticket upload byte and MIME bounds', () => {
+  for (const type of ['image/png', 'image/jpeg', 'text/plain']) assert(media.validFile({type,size:16}));
+  for (const file of [{type:'image/svg+xml',size:16},{type:'application/pdf',size:16},{type:'image/png',size:0},{type:'image/jpeg',size:media.MAX_BYTES+1},{type:'text/plain',size:512*1024+1}]) assert.equal(media.validFile(file),false);
+});
+test('ambiguous retry reuses a key, edited content uses a new key', () => {
+  const a=media.intent(null,'same'); assert.equal(media.intent(a,'same'),a);
+  assert.notEqual(media.intent(a,'changed').key,a.key);
+});
+test('staff projects only minimal linked service information', () => {
+  const parsed=m.parseTicket({...ticket(),service_id:3,service_context:{id:3,status:'active',password:'secret'}});
+  assert.deepEqual(parsed.service_context,{id:3,status:'active'});
+  assert.throws(()=>m.parseTicket({...ticket(),service_id:-1}));
+});
+test('expired attachment projection is strict', () => {
+  assert.equal(m.parseMessage({...message(),attachment_expired:true}).attachment_expired,true);
+  assert.throws(()=>m.parseMessage({...message(),attachment_expired:'true'}));
+});
+
+test('empty browser MIME only falls back for bounded plain-text extensions', () => {
+  assert.equal(media.fileMime({type:'',name:'support.log'}),'text/plain');
+  assert(media.validFile({type:'',name:'support.TXT',size:16}));
+  assert.equal(media.validFile({type:'',name:'image.png',size:16}),false);
+  assert.equal(media.validFile({type:'application/octet-stream',name:'support.txt',size:16}),false);
+});

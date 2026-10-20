@@ -54,6 +54,8 @@ export interface UsageHistory {
 }
 
 export interface Ticket {
+  service_id?: number | null;
+  service_context?: { id: number; status: string; used_bytes: number; data_limit: number; expire_at: string | null } | null;
   id: number;
   subject: string;
   status: "open" | "answered" | "closed";
@@ -66,6 +68,7 @@ export interface TicketMessage {
   from: "me" | "support";
   text: string | null;
   has_attachment: boolean;
+  attachment_expired?: boolean;
   created_at: string | null;
 }
 export interface TicketList {
@@ -309,8 +312,8 @@ export const api = {
   help: (signal?: AbortSignal) => get<CustomerHelp>("/help", signal),
   tickets: (before?: number, signal?: AbortSignal, filters?: TicketFilters) => get<TicketList>(ticketListPath(before, filters), signal),
   ticket: (id: number, before?: number, signal?: AbortSignal) => get<TicketThreadData>(`/tickets/${id}${before ? `?before=${before}` : ""}`, signal),
-  newTicket: (body: { subject: string; text: string; department_id: number | null }) => post<{ ticket: Ticket }>("/tickets", body),
-  replyTicket: (id: number, text: string) => post<{ ticket: Ticket }>(`/tickets/${id}/reply`, { text }),
+  newTicket: (body: { subject: string; text: string; department_id: number | null; service_id?: number | null; request_key?: string }) => post<{ ticket: Ticket }>("/tickets", body),
+  replyTicket: (id: number, text: string, request_key?: string) => post<{ ticket: Ticket }>(`/tickets/${id}/reply`, { text, request_key }),
   closeTicket: (id: number) => post<{ ticket: Ticket }>(`/tickets/${id}/close`),
   catalog: () => get<Catalog>("/catalog"),
   accountPlans: (signal?: AbortSignal) => get<AccountPlans>("/account-plans", signal),

@@ -423,6 +423,7 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
         </Panel>
       )}
 
+      {service.id === serviceId && <Button tone="quiet" disabled={busy !== null} onClick={() => navigate(`/tickets/new?service=${service.id}`)}>{t("tickets_service_report")}</Button>}
       <UsageChart key={service.id} serviceId={service.id} />
     </Screen>
   );

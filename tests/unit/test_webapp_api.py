@@ -402,7 +402,10 @@ async def test_miniapp_ticket_cursor_pages_never_expose_internal_notes_or_file_i
     assert [m["id"] for m in visible] == [m.id for m in messages] + [attachment.id]
     assert latest["messages"][-1]["has_attachment"] is True
     assert all(m["from"] == "support" for m in visible)
-    assert all(set(m) == {"id", "from", "text", "has_attachment", "created_at"} for m in visible)
+    assert all(
+        set(m) == {"id", "from", "text", "has_attachment", "attachment_expired", "created_at"}
+        for m in visible
+    )
     assert (
         "PRIVATE STAFF NOTE" not in str(visible)
         and "SECRET_FILE_ID" not in str(visible)
@@ -502,3 +505,214 @@ async def test_topup_intent_key_validation(app_env, key) -> None:  # type: ignor
         json={"amount": 100_000, "method": "card", "intent_key": key},
     )
     assert response.status_code == 422
+
+
+async def test_ticket_media_owned_proxy_retry_and_cleanup(session, app_env) -> None:  # type: ignore[no-untyped-def]
+    from datetime import timedelta
+
+    from paurubot.core import ticket_media
+    from paurubot.db.base import utcnow
+    from paurubot.db.models import Job, Ticket, TicketMessage
+
+    client = app_env["client"]
+    key = "media-test-key-00001"
+    request = {"subject": "Upload", "text": "Help", "request_key": "new-ticket-key-0001"}
+    opened = await client.post("/api/webapp/tickets", headers=h(81901), json=request)
+    assert opened.status_code == 200, opened.text
+    ticket_id = opened.json()["ticket"]["id"]
+    repeated = await client.post("/api/webapp/tickets", headers=h(81901), json=request)
+    assert repeated.json()["ticket"]["id"] == ticket_id
+    assert (
+        await client.post("/api/webapp/tickets", headers=h(81901), json={**request, "text": "changed"})
+    ).status_code == 409
+    path = f"/api/webapp/tickets/{ticket_id}"
+    headers = {**h(81901), "content-type": "image/png", "x-ticket-request-key": key}
+    content = png_bytes()
+    assert (await client.post(path + "/attachments", content=content, headers={})).status_code == 401
+    assert (
+        await client.post(path + "/attachments", content=content, headers={**headers, **h(81902)})
+    ).status_code == 404
+    assert (await client.post(path + "/attachments", content=content, headers=h(81901))).status_code == 422
+    uploaded = await client.post(path + "/attachments", content=content, headers=headers)
+    assert uploaded.status_code == 200, uploaded.text
+    mid = uploaded.json()["message_id"]
+    job_count = len(list(await session.scalars(select(Job))))
+    for _ in range(2):
+        retry = await client.post(path + "/attachments", content=content, headers=headers)
+        assert retry.status_code == 200 and retry.json()["message_id"] == mid
+    assert len(list(await session.scalars(select(Job)))) == job_count
+    assert (
+        await client.post(path + "/attachments", content=b"different", headers=headers)
+    ).status_code == 409
+    download = path + f"/messages/{mid}/attachment"
+    assert (await client.get(download, headers=h(81902))).status_code == 404
+    assert (await client.get(download)).status_code == 401
+    result = await client.get(download, headers=h(81901))
+    assert result.status_code == 200 and result.headers["content-type"] == "image/png"
+    assert result.headers["x-content-type-options"] == "nosniff"
+    assert "no-store" in result.headers["cache-control"]
+    assert "attachment;" in result.headers["content-disposition"]
+    internal = TicketMessage(
+        ticket_id=ticket_id, author_type="staff", is_internal=True, attachment_file_id="never-fetch"
+    )
+    session.add(internal)
+    await session.commit()
+    assert (
+        await client.get(path + f"/messages/{internal.id}/attachment", headers=h(81901))
+    ).status_code == 404
+    wrong = await client.post(
+        "/api/webapp/tickets", headers=h(81901), json={"subject": "Other", "text": "Hi"}
+    )
+    wrong_id = wrong.json()["ticket"]["id"]
+    assert (
+        await client.get(f"/api/webapp/tickets/{wrong_id}/messages/{mid}/attachment", headers=h(81901))
+    ).status_code == 404
+    await client.post(path + "/close", headers=h(81901))
+    assert (await client.post(path + "/attachments", content=content, headers=headers)).json()[
+        "message_id"
+    ] == mid
+    assert (
+        await client.post(
+            path + "/attachments",
+            content=content,
+            headers={**headers, "x-ticket-request-key": "fresh-closed-key-001"},
+        )
+    ).status_code == 409
+    ticket = await session.get(Ticket, ticket_id)
+    ticket.updated_at = utcnow() - timedelta(days=31)
+    await session.commit()
+    assert await ticket_media.prune(session) == 1
+    await session.commit()
+    assert (await client.get(download, headers=h(81901))).status_code == 410
+    # Expiration retains the replay tombstone: no duplicate and no resurrection.
+    assert (await client.post(path + "/attachments", content=content, headers=headers)).json()[
+        "message_id"
+    ] == mid
+    assert await session.scalar(select(TicketMessage.attachment_data).where(TicketMessage.id == mid)) is None
+
+
+async def test_ticket_linked_service_minimal_snapshot_and_foreign_rejection(session, app_env) -> None:  # type: ignore[no-untyped-def]
+    client, shop, panel = app_env["client"], app_env["shop"], app_env["panel"]
+    own = (await client.get("/api/webapp/me", headers=h(81911))).json()
+    service = Service(
+        shop_id=shop.id,
+        customer_id=own["id"],
+        panel_id=panel.id,
+        panel_username="DO_NOT_EXPOSE",
+        subscription_url="https://private.invalid/secret",
+        panel_data={"password": "secret"},
+        status=ServiceStatus.ACTIVE,
+    )
+    session.add(service)
+    await session.commit()
+    body = {
+        "subject": "Service issue",
+        "text": "Help",
+        "service_id": service.id,
+        "request_key": "service-request-0001",
+    }
+    assert (await client.post("/api/webapp/tickets", headers=h(81912), json=body)).status_code == 404
+    response = await client.post("/api/webapp/tickets", headers=h(81911), json=body)
+    assert response.status_code == 200, response.text
+    context = response.json()["ticket"]["service_context"]
+    assert set(context) == {"id", "status", "used_bytes", "data_limit", "expire_at"}
+    assert context["id"] == service.id and context["status"] == "active"
+    assert "DO_NOT_EXPOSE" not in response.text and "secret" not in response.text
+    service.status = ServiceStatus.DISABLED
+    await session.commit()
+    replay = await client.post("/api/webapp/tickets", headers=h(81911), json=body)
+    assert replay.json()["ticket"]["service_context"] == context
+    other_shop = await factories.shop(session)
+    service.shop_id = other_shop.id  # Inconsistent historical ownership must fail closed.
+    await session.commit()
+    assert (
+        await client.post(
+            "/api/webapp/tickets", headers=h(81911), json={**body, "request_key": "service-request-0002"}
+        )
+    ).status_code == 404
+
+
+async def test_ticket_media_validation_quota_and_text_replay(session, app_env, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.core import ticket_media
+
+    client = app_env["client"]
+    opened = await client.post(
+        "/api/webapp/tickets", headers=h(81921), json={"subject": "Limits", "text": "Hi"}
+    )
+    path = f"/api/webapp/tickets/{opened.json()['ticket']['id']}"
+    headers = {**h(81921), "content-type": "text/plain", "x-ticket-request-key": "limits-request-0001"}
+    for content, mime, status in (
+        (b"<script>alert(1)</script>", "text/plain", 415),
+        (b"%PDF", "application/pdf", 415),
+        (b"", "text/plain", 413),
+        (b"x" * (ticket_media.MAX_BYTES + 1), "text/plain", 413),
+    ):
+        assert (
+            await client.post(
+                path + "/attachments", content=content, headers={**headers, "content-type": mime}
+            )
+        ).status_code == status
+    monkeypatch.setattr(ticket_media, "MAX_FILES", 0)
+    assert (await client.post(path + "/attachments", content=b"log", headers=headers)).status_code == 409
+    monkeypatch.setattr(ticket_media, "MAX_FILES", 16)
+    assert (await client.post(path + "/attachments", content=b"log", headers=headers)).status_code == 200
+    body = {"text": "reply", "request_key": "reply-request-00001"}
+    assert (await client.post(path + "/reply", json=body, headers=h(81921))).status_code == 200
+    assert (await client.post(path + "/reply", json=body, headers=h(81921))).status_code == 200
+    assert (
+        await client.post(path + "/reply", json={**body, "text": "changed"}, headers=h(81921))
+    ).status_code == 409
+    detail = (await client.get(path, headers=h(81921))).json()
+    assert [m["text"] for m in detail["messages"]] == ["Hi", None, "reply"]
+
+
+async def test_legacy_ticket_attachment_auth_precedes_provider_io(session, app_env, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import TicketMessage
+
+    client = app_env["client"]
+    result = await client.post(
+        "/api/webapp/tickets", headers=h(81931), json={"subject": "Old file", "text": "Hi"}
+    )
+    tid = result.json()["ticket"]["id"]
+    message = TicketMessage(ticket_id=tid, author_type="staff", attachment_file_id="PRIVATE_TELEGRAM_ID")
+    session.add(message)
+    await session.commit()
+    calls = []
+
+    async def unavailable(shop_id):  # type: ignore[no-untyped-def]
+        calls.append(shop_id)
+        return None
+
+    monkeypatch.setattr(notify_telegram, "bot_for", unavailable)
+    path = f"/api/webapp/tickets/{tid}/messages/{message.id}/attachment"
+    assert (await client.get(path, headers=h(81932))).status_code == 404
+    assert calls == []
+    response = await client.get(path, headers=h(81931))
+    assert response.status_code == 503 and "PRIVATE_TELEGRAM_ID" not in response.text
+    assert calls == [app_env["shop"].id]
+
+
+async def test_ticket_media_byte_quotas_across_tickets(app_env, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.core import ticket_media
+
+    client = app_env["client"]
+    paths = []
+    for subject in ("First", "Second"):
+        response = await client.post(
+            "/api/webapp/tickets", headers=h(81941), json={"subject": subject, "text": "Hi"}
+        )
+        assert response.status_code == 200, response.text
+        paths.append(f"/api/webapp/tickets/{response.json()['ticket']['id']}/attachments")
+    headers = {**h(81941), "content-type": "text/plain", "x-ticket-request-key": "quota-byte-test-0001"}
+    monkeypatch.setattr(ticket_media, "MAX_TICKET_BYTES", 3)
+    monkeypatch.setattr(ticket_media, "MAX_CUSTOMER_BYTES", 4)
+    # Empty aggregate is zero, and an exact boundary is allowed.
+    assert (await client.post(paths[0], content=b"log", headers=headers)).status_code == 200
+    response = await client.post(
+        paths[0], content=b"x", headers={**headers, "x-ticket-request-key": "quota-byte-test-0002"}
+    )
+    assert response.status_code == 409 and response.json()["error"] == "ticket_file_quota"
+    # The second ticket has space, but the customer's aggregate cannot exceed four bytes.
+    response = await client.post(paths[1], content=b"xx", headers=headers)
+    assert response.status_code == 409 and response.json()["error"] == "ticket_file_quota"
+    assert (await client.post(paths[1], content=b"x", headers=headers)).status_code == 200
