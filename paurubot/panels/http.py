@@ -73,6 +73,8 @@ class SafeHttpClient:
     async def request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         if time.monotonic() < self._open_until:
             raise PanelUnavailable("panel temporarily unavailable (circuit open)")
+        # No caller may turn a panel response into a redirected mutation.
+        kwargs["follow_redirects"] = False
         try:
             response = await self._client.request(method, path, **kwargs)
         except httpx.HTTPError as exc:
