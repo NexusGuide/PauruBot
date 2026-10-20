@@ -10,7 +10,6 @@ OPTIONAL_ROUTERS: list[str] = [
     "webhooks",
     "telegram",
     "webapp",
-    "tonpay_custom",
     "announcements",
     "webapp_staff",
     "sub",
