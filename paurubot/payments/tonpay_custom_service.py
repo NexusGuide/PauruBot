@@ -1,8 +1,8 @@
-"""Unwired owner-scoped mutations for ALREADY BOUND custom Tonpay invoices.
+"""Owner-scoped mutations for already-bound custom Tonpay invoices.
 
-No create/bind/settlement route. Explicit policy and quote originate in a future
-trusted creation workflow, not request bodies. Private commits precede remote I/O;
-uncertain mutations block all replacement keys until audited reconciliation.
+The creator/runtime adapters supply the bound quote and policy, not request bodies.
+Private commits precede remote I/O; uncertain mutations block all replacement keys.
+This mutation service itself never grants credit or clears uncertain outcomes.
 """
 
 from __future__ import annotations
@@ -75,7 +75,12 @@ async def _owned(session: AsyncSession, owner: Owner, payment_id: int) -> Paymen
     shop = await session.scalar(
         select(Shop).where(Shop.id == owner.shop_id, Shop.status == ShopStatus.ACTIVE)
     )
-    if customer is None or shop is None or not 0 < customer.telegram_id < 2**63:
+    if (
+        customer is None
+        or shop is None
+        or customer.card_trust == "blocked"
+        or not 0 < customer.telegram_id < 2**63
+    ):
         raise CustomStateError("not_found")
     payment = await session.scalar(
         select(Payment)
@@ -148,6 +153,7 @@ def _state(payment: Payment) -> dict[str, Any]:
 
 
 def _save(payment: Payment, state: dict[str, Any]) -> None:
+    state["version"] = _integer(state.get("version", 0), minimum=0) + 1
     payment.meta = {**(payment.meta or {}), STATE_KEY: state}
 
 
@@ -301,6 +307,9 @@ async def _finish(
         state["paid"] = state["paid"] or invoice.paid
         state["change_card_exhausted"] = state["change_card_exhausted"] or invoice.change_card_exhausted
         if operation == "change_card":
+            state["card_fingerprint"] = hashlib.sha256(
+                (invoice.card_number + "\0" + invoice.card_name).encode()
+            ).hexdigest()
             state["last_change_at"] = _now()
         else:
             state["receipt_received"] = True

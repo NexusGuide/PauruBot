@@ -173,6 +173,12 @@ def order_view(order: Order) -> dict[str, Any]:
     }
 
 
+async def _tonpay_available(ctx: WebApp) -> bool:
+    from paurubot.payments.tonpay_custom_runtime import available
+
+    return await available(ctx.session, ctx.customer)
+
+
 @router.get("/me")
 async def me(ctx: WebApp) -> dict[str, Any]:
     customer, cfg = ctx.customer, ctx.cfg
@@ -217,6 +223,7 @@ async def me(ctx: WebApp) -> dict[str, Any]:
         },
         "payment_methods": await payments.available(ctx.session, ctx.shop.id, customer),
         "topup_bounds": list(await payments.topup_bounds(ctx.session, customer)),
+        "tonpay_custom_available": await _tonpay_available(ctx),
         "staff": await webapp_staff.describe(ctx),
         "preferences": marketing.view(customer),
         "profile": customer_preferences.profile_view(customer),

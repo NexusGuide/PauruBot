@@ -12,6 +12,7 @@
     "test:broadcasts": "node --test tests/broadcasts.test.mjs",
     "test:capabilities": "node --test tests/capabilities.test.mjs",
     "test:confirm": "node --test tests/typed-confirm.test.mjs",
+    "test:tonpay-custom": "node --test tests/tonpay-custom.test.mjs",
     "test:help": "node --test tests/help-data.test.mjs",
     "test:receipts": "node --test tests/receipts.test.mjs",
     "test:reseller-hub": "node --test tests/reseller-hub.test.mjs",

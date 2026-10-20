@@ -2,6 +2,7 @@ import type { Announcement, AnnouncementPage } from "@shared/announcements";
 import { ticketListPath, type TicketFilters } from "./ticket-pages";
 import { request } from "@shared/http";
 import type { Body as AutoRenewBody } from "./autoRenew/model";
+import { tonpay } from "./tonpay/api";
 import { initData } from "./telegram";
 import { servicePageUrl, type ServiceFilter } from "./service-pages";
 
@@ -29,6 +30,7 @@ export interface Me {
   extras: { enabled: boolean; gb_price: number; day_price: number; upgrade: boolean };
   payment_methods: string[];
   topup_bounds: [number, number];
+  tonpay_custom_available?: boolean;
   staff: StaffAccess | null;
   preferences: MarketingPreference;
   alerts_muted: boolean;
@@ -250,6 +252,7 @@ export interface PaymentStart {
   redirect_url?: string;
   invoice_link?: string;
   crypto?: CryptoInstructions;
+  uncertain?: boolean;
 }
 
 export interface PendingPayment {
@@ -344,7 +347,14 @@ export const api = {
   payOrder: (id: number, method: string) =>
     post<{ order: Order; payment?: PaymentStart }>(`/orders/${id}/pay`, { method }),
   cancelOrder: (id: number) => post<{ ok: boolean }>(`/orders/${id}/cancel`),
-  topup: (amount: number, method: string, intent_key?: string) => post<{ payment: PaymentStart }>("/wallet/topup", { amount, method, intent_key }),
+  topup: async (amount: number, method: string, intent_key?: string): Promise<{ payment: PaymentStart }> => {
+    if (method === "tonpay_custom") {
+      if (!intent_key) throw Error("payment_intent_invalid");
+      const result = await tonpay.create(amount, intent_key);
+      return { payment: { payment_id: result.payment_id, provider: method, amount: result.request_amount, uncertain: result.uncertain } };
+    }
+    return post<{ payment: PaymentStart }>("/wallet/topup", { amount, method, intent_key });
+  },
   payment: (id: number) => get<{ id: number; status: string; amount: number; fulfilled: boolean; provider: string; order_id: number | null }>(`/payments/${id}`),
   pendingPayments: (before?: number) => get<PendingPaymentList>(`/payments${before ? `?before=${before}` : ""}`),
   resumePayment: (id: number) => get<{ payment: PaymentStart }>(`/payments/${id}/resume`),

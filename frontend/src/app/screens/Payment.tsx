@@ -6,6 +6,7 @@ import { useApp } from "../state";
 import { haptic } from "../telegram";
 import { translator } from "../receipts/copy";
 import { ReceiptFlow } from "../receipts/ReceiptFlow";
+import { CustomTonpayFlow } from "../tonpay/CustomTonpayFlow";
 import { Panel, Screen } from "../ui";
 
 interface Account {
@@ -47,7 +48,7 @@ function recall(paymentId: number): Remembered | null {
 }
 
 export function Payment() {
-  const { t, locale, toast, reload } = useApp();
+  const { me, t, locale, toast, reload } = useApp();
   const navigate = useNavigate();
   const { id } = useParams();
   const paymentId = Number(id);
@@ -96,6 +97,10 @@ export function Payment() {
   const waiting = status === "verifying";
   const closed = ["failed", "expired", "disputed", "refunded"].includes(status);
   const crypto = remembered?.crypto;
+
+  if (provider === "tonpay_custom") {
+    return <Screen title={locale === "fa" ? "پرداخت تون‌پی" : "Tonpay payment"}><CustomTonpayFlow key={`${me?.id}:${paymentId}`} paymentId={paymentId} /></Screen>;
+  }
 
   if (crypto) {
     return (

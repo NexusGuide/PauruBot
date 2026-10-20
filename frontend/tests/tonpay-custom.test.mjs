@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {payment,canAct,validFile} from '../src/app/tonpay/model.ts';
+const state=()=>({payment_id:1,status:'pending',request_amount:100000,payable_amount:103000,quote_revision:1,consented:false,uncertain:false,recovery:null,provider_status:'pending',provider_paid:false,expires_at:null,can_consent:true,can_receipt:false,can_change_card:true,receipt_ready_at:100});
+test('custom quote distinguishes wallet credit from provider fee',()=>{const p=payment(state());assert.equal(p.payable_amount-p.request_amount,3000);assert(canAct(p,'consent',false));assert(!canAct(p,'receipt',false));});
+for(const key of ['payment_id','request_amount','payable_amount','quote_revision'])test(`unsafe ${key} rejected`,()=>assert.throws(()=>payment({...state(),[key]:Number.MAX_SAFE_INTEGER+1})));
+for(const patch of [{uncertain:true},{provider_paid:true},{status:'expired'},{payable_amount:null},{quote_revision:null},{can_receipt:true}])test(`contradictory capabilities rejected ${JSON.stringify(patch)}`,()=>assert.throws(()=>payment({...state(),...patch})));
+test('unknown creation is displayable but never actionable',()=>{const p=payment({...state(),status:'created',uncertain:true,payable_amount:null,quote_revision:null,can_consent:false,can_change_card:false,recovery:'provider_lookup_unavailable'});for(const action of ['consent','receipt','change'])assert(!canAct(p,action,false));});
+test('card rejected until explicit current consent',()=>{assert.throws(()=>payment({...state(),card:{number:'0000',holder:'Synthetic'}}));assert.equal(payment({...state(),consented:true,card:{number:'0000',holder:'Synthetic'}}).card.number,'0000');});
+test('busy gate blocks every action',()=>{for(const a of ['consent','receipt','change'])assert(!canAct(payment(state()),a,true));});
+for(const type of ['image/jpeg','image/png','image/webp'])test(`bounded file ${type}`,()=>{assert(validFile({size:10*1024*1024,type}));assert(!validFile({size:10*1024*1024+1,type}));assert(!validFile({size:0,type}));});
+test('HTML SVG and disguised media are rejected by client hint',()=>{for(const type of ['image/svg+xml','text/html','application/octet-stream'])assert(!validFile({size:100,type}));});
