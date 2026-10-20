@@ -12,13 +12,18 @@ from paurubot.core import settings
 
 
 @pytest.mark.asyncio
-async def test_me_projects_each_context_policy_without_secrets_or_preference_writes(monkeypatch):
+@pytest.mark.parametrize("tonpay_available", [False, True])
+async def test_me_projects_each_context_policy_without_secrets_or_preference_writes(
+    monkeypatch, tonpay_available
+):
     monkeypatch.setattr(webapp, "wallet_balance", AsyncMock(return_value=100))
     monkeypatch.setattr(webapp.trials, "eligibility", AsyncMock(return_value="disabled"))
     monkeypatch.setattr(webapp.customers, "referral_count", AsyncMock(return_value=0))
     monkeypatch.setattr(webapp.panel_accounts, "available", AsyncMock(return_value=False))
     monkeypatch.setattr(webapp.payments, "available", AsyncMock(return_value=["card"]))
     monkeypatch.setattr(webapp.payments, "topup_bounds", AsyncMock(return_value=(1, 1000)))
+    custom_available = AsyncMock(return_value=tonpay_available)
+    monkeypatch.setattr(webapp, "_tonpay_available", custom_available)
     monkeypatch.setattr(webapp.webapp_staff, "describe", AsyncMock(return_value=None))
     monkeypatch.setattr(
         webapp.marketing, "view", lambda customer: {"marketing_opt_out": True, "changed_at": None}
@@ -50,3 +55,7 @@ async def test_me_projects_each_context_policy_without_secrets_or_preference_wri
         assert result["preferences"]["marketing_opt_out"] is True
         assert cfg["zarinpal_merchant"] == "SYNTHETIC-SECRET"
         assert set(result["alert_policy"]) == {"warn_remaining_percent", "warn_days"}
+        assert result["tonpay_custom_available"] is tonpay_available
+        assert "SYNTHETIC-SECRET" not in str(result)
+        custom_available.assert_awaited_with(ctx)
+    assert custom_available.await_count == 3

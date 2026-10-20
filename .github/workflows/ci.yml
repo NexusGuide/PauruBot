@@ -83,6 +83,8 @@ jobs:
       - run: npm run test:broadcasts
       - run: npm run test:capabilities
       - run: npm run test:confirm
+      - name: Custom Tonpay contracts
+        run: npm run test:tonpay-custom
       - run: npm run test:help
       - run: npm run test:receipts
       - run: npm run test:tickets
