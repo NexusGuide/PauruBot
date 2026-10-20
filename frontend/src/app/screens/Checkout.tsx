@@ -3,6 +3,8 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { dateTime, money } from "@shared/format";
 import { api, type Order } from "../api";
 import { Icon } from "../icons";
+import { prepareDraft, reviseDraft } from "../order-draft";
+import { actionGate } from "../topup-intents";
 import { errorText, useApp } from "../state";
 import { haptic, openExternal, openInvoice } from "../telegram";
 import { ActionBar, Button, Loading, Panel, Screen, Steps } from "../ui";
@@ -29,21 +31,23 @@ function Line({ label, value, strong, tone }: { label: string; value: string; st
 export function Checkout() {
   const { me, t, locale, reload, toast } = useApp();
   const navigate = useNavigate();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const [order, setOrder] = useState<Order | null>(null);
   const [due, setDue] = useState(0);
   const [balance, setBalance] = useState(0);
   const [code, setCode] = useState("");
-  const [appliedCode, setAppliedCode] = useState<string | undefined>(undefined);
+  const [appliedCode, setAppliedCode] = useState<string | undefined>(params.get("draft_code") || undefined);
   const isPurchase = (params.get("kind") ?? "purchase") === "purchase";
-  const [label, setLabel] = useState(() => (isPurchase ? randomName() : ""));
-  const initialLabel = useRef(label);
+  const [label, setLabel] = useState(() => params.get("draft_label") ?? (isPurchase ? randomName() : ""));
+  const gate = useRef(actionGate());
+  const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
 
   const create = useCallback(
-    async (discount?: string, name?: string) => {
+    async () => {
       const body = {
+        intent_key: params.get("draft")!,
         kind: params.get("kind") ?? "purchase",
         plan_id: Number(params.get("plan")) || undefined,
         service_id: Number(params.get("service")) || undefined,
@@ -54,25 +58,42 @@ export function Checkout() {
         account_plan_id: Number(params.get("aplan")) || undefined,
         account_id: Number(params.get("acc")) || undefined,
         account_amount: Number(params.get("amt")) || undefined,
-        code: discount || undefined,
-        label: name || undefined,
+        code: params.get("draft_code") || undefined,
+        label: params.get("draft_label") || undefined,
       };
       const result = await api.createOrder(body);
-      setOrder(result.order);
-      setDue(result.due);
-      setBalance(result.balance);
+      return result;
     },
     [params],
   );
 
   useEffect(() => {
-    create(undefined, initialLabel.current || undefined).catch((err) => setFailed(errorText(t, err)));
-  }, [create, t]);
+    if (!me) return;
+    if (!params.has("draft")) {
+      setParams(prepareDraft(params, label), { replace: true });
+      return;
+    }
+    let active = true;
+    setOrder(null);
+    setFailed(null);
+    create().then((result) => {
+      if (!active) return;
+      if (["paid", "provisioning", "completed"].includes(result.order.status)) {
+        navigate(`/done/${result.order.id}`, { replace: true });
+        return;
+      }
+      setOrder(result.order);
+      setDue(result.due);
+      setBalance(result.balance);
+    }).catch((err) => { if (active) setFailed(errorText(t, err)); });
+    return () => { active = false; };
+  }, [create, params, setParams, me?.id, retry, navigate, t]);
 
   if (failed) {
     return (
       <Screen title={t("checkout")}>
         <Panel className="text-center">{failed}</Panel>
+        <Button onClick={() => { setFailed(null); setRetry((n) => n + 1); }}>{t("ui_retry")}</Button>
       </Screen>
     );
   }
@@ -84,38 +105,40 @@ export function Checkout() {
   const method = methods[0] ?? "card";
 
   const applyCode = async () => {
-    if (!code.trim()) return;
+    if (!code.trim() || !gate.current.enter()) return;
     setBusy("code");
     try {
       if (order) await api.cancelOrder(order.id);
-      await create(code.trim(), order?.params.label);
+      setOrder(null);
+      setParams(reviseDraft(params, code.trim(), order?.params.label ?? ""), { replace: true });
       setAppliedCode(code.trim());
-      haptic("success");
-      toast(t("code_applied"));
     } catch (err) {
       haptic("error");
       toast(errorText(t, err), "error");
     } finally {
+      gate.current.leave();
       setBusy(null);
     }
   };
 
   const applyLabel = async () => {
+    if (!gate.current.enter()) return;
     setBusy("label");
     try {
       if (order) await api.cancelOrder(order.id);
-      await create(appliedCode, label.trim());
-      haptic("success");
-      toast(t("label_set"));
+      setOrder(null);
+      setParams(reviseDraft(params, appliedCode ?? "", label.trim()), { replace: true });
     } catch (err) {
       haptic("error");
       toast(errorText(t, err), "error");
     } finally {
+      gate.current.leave();
       setBusy(null);
     }
   };
 
   const pay = async (selected: string) => {
+    if (!gate.current.enter()) return;
     setBusy(selected);
     try {
       const result = await api.payOrder(order.id, selected);
@@ -142,6 +165,7 @@ export function Checkout() {
       haptic("error");
       toast(errorText(t, err), "error");
     } finally {
+      gate.current.leave();
       setBusy(null);
     }
   };
@@ -170,7 +194,7 @@ export function Checkout() {
           </div>
           <p className="app-hint mt-2 px-1 text-xs">{t("config_label_hint")}</p>
           {dirtyLabel && (
-            <Button tone="quiet" className="mt-3" busy={busy === "label"} onClick={applyLabel}>
+            <Button tone="quiet" className="mt-3" busy={busy === "label"} disabled={busy !== null} onClick={applyLabel}>
               {t("apply")}
             </Button>
           )}
@@ -227,7 +251,7 @@ export function Checkout() {
               placeholder={t("discount_code")}
               autoCapitalize="characters"
             />
-            <Button tone="quiet" className="w-auto px-5" busy={busy === "code"} onClick={applyCode}>
+            <Button tone="quiet" className="w-auto px-5" busy={busy === "code"} disabled={busy !== null} onClick={applyCode}>
               {t("apply")}
             </Button>
           </div>
@@ -248,7 +272,7 @@ export function Checkout() {
           {methods.length > 1 && (
             <div className="mt-3 flex flex-col gap-3">
               {methods.slice(1).map((option) => (
-                <Button key={option} tone="quiet" busy={busy === option} onClick={() => pay(option)}>
+                <Button key={option} tone="quiet" busy={busy === option} disabled={busy !== null} onClick={() => pay(option)}>
                   {t(`method_${option}`)}
                 </Button>
               ))}
