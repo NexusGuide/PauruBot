@@ -7,9 +7,10 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
+from paurubot.api.body import BodyTooLarge, read_limited_body
 from paurubot.api.deps import DB
 from paurubot.db.models import Panel
-from paurubot.panels import driver_for
+from paurubot.panels import PanelUser, driver_for
 from paurubot.panels.drivers.token_api import TokenApiDriver
 from paurubot.provisioning.sync import apply_webhook_user
 from paurubot.security.secretbox import decrypt
@@ -32,9 +33,10 @@ async def panel_webhook(panel_id: int, request: Request, db: DB) -> dict:
         or not constant_equals(request.headers.get("x-webhook-secret"), secret)
     ):
         raise HTTPException(status_code=403, detail="forbidden")
-    body = await request.body()
-    if len(body) > MAX_BODY:
-        raise HTTPException(status_code=413, detail="too_large")
+    try:
+        body = await read_limited_body(request, MAX_BODY)
+    except BodyTooLarge as exc:
+        raise HTTPException(status_code=413, detail="too_large") from exc
     try:
         payload = json.loads(body)
     except ValueError as exc:
@@ -43,15 +45,17 @@ async def panel_webhook(panel_id: int, request: Request, db: DB) -> dict:
     driver = await driver_for(panel)
     if not isinstance(driver, TokenApiDriver):
         raise HTTPException(status_code=404, detail="webhooks_not_supported")
-    applied = 0
+    queued = 0
+    seen: set[str] = set()
     for event in events[:MAX_EVENTS]:
         if not isinstance(event, dict):
             continue
         user = event.get("user")
-        if not isinstance(user, dict) or not user.get("username"):
+        username = user.get("username") if isinstance(user, dict) else None
+        if not isinstance(username, str) or not username or len(username) > 128 or username in seen:
             continue
-        if event.get("action") == "user_deleted":
-            user = {**user, "status": "disabled"}
-        if await apply_webhook_user(db, panel, driver.parse_user(user)) is not None:
-            applied += 1
-    return {"received": len(events), "applied": applied}
+        seen.add(username)
+        # Neither event action nor its status/traffic fields are authoritative.
+        if await apply_webhook_user(db, panel, PanelUser(username)) is not None:
+            queued += 1
+    return {"received": len(events), "applied": 0, "queued": queued}

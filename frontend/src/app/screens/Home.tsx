@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { daysLeft, money, size } from "@shared/format";
 import { api, type Service } from "../api";
-import { buildAlerts, readAlertIds } from "../alerts";
+import { buildAlerts, lowVolumeWarning, parseAlertPolicy, readAlertIds } from "../alerts";
 import { Icon } from "../icons";
 import { errorText, useApp } from "../state";
 import { haptic } from "../telegram";
@@ -22,6 +22,11 @@ export function timeRatio(service: Service, totalDays = 30): number | null {
 }
 
 export function Home() {
+  const { me } = useApp();
+  return me ? <HomeBody key={me.id} /> : null;
+}
+
+function HomeBody() {
   const { me, t, locale, reload, toast } = useApp();
   const navigate = useNavigate();
   const { data, error, retry } = useResource(api.services);
@@ -31,11 +36,12 @@ export function Home() {
 
   if (!me) return null;
   const units = t("units").split(",");
+  const policy = parseAlertPolicy(me.alert_policy);
   const services = data?.items ?? null;
   const featured = services?.find((service) => service.status === "active") ?? services?.[0];
   const left = featured ? daysLeft(featured.expire_at) : null;
   const unread =
-    services && history ? buildAlerts(services, history.items, t, locale).filter((alert) => !read.has(alert.id)).length : 0;
+    services && history ? buildAlerts(services, history.items, t, locale, policy).filter((alert) => !read.has(alert.id)).length : 0;
   const ratio = featured ? usageRatio(featured) : null;
   const remaining = featured && ratio !== null ? featured.data_limit - featured.used_bytes : null;
   const remainingPct = ratio === null ? null : Math.max(0, Math.min(100, Math.round(ratio * 100)));
@@ -122,7 +128,7 @@ export function Home() {
                   {remainingPct !== null && (
                     <span
                       className="app-prog mt-2 block"
-                      data-tone={remainingPct <= 0 ? "red" : remainingPct < 15 ? "orange" : undefined}
+                      data-tone={remainingPct <= 0 ? "red" : lowVolumeWarning(featured, policy) ? "orange" : undefined}
                       aria-hidden="true"
                     >
                       <i style={{ inlineSize: `${remainingPct}%` }} />
