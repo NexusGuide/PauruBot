@@ -1000,5 +1000,8 @@
   "btn_ticket_canned": "⚡️ Canned reply",
   "ticket_department_unknown": "That department is no longer available; please open a new ticket.",
   "ticket_priority_normal": "Normal",
-  "adm_ticket_take_no_account": "You need a staff account in the panel to take tickets."
+  "adm_ticket_take_no_account": "You need a staff account in the panel to take tickets.",
+  "payment_intent_conflict": "This payment request changed. Check the amount and method before trying again.",
+  "payment_intent_closed": "This payment request is closed or expired. Try again to start a new payment.",
+  "payment_intent_invalid": "Invalid payment request identifier."
 }
