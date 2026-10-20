@@ -482,7 +482,7 @@ class TronadoProvider(Gateway):
             raise self._rejected(self.name)
         link = str(data.get("FullPaymentUrl") or "")
         if not link.startswith("https://"):
-            link = f"{{https://t.me/tronado_robot/customerpayment?startapp={token}}}"
+            link = f"https://t.me/tronado_robot/customerpayment?startapp={token}"
         return Checkout(
             redirect_url=link,
             provider_ref=token,
