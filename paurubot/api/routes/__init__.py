@@ -11,6 +11,7 @@ OPTIONAL_ROUTERS: list[str] = [
     "telegram",
     "webapp",
     "tonpay_custom",
+    "announcements",
     "webapp_staff",
     "sub",
     "guest",
