@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError } from "@shared/http";
-import { dateTime, money } from "@shared/format";
-import { api, type HistoryItem } from "../api";
+import { money } from "@shared/format";
+import { api } from "../api";
 import { Icon } from "../icons";
 import { PendingPayments } from "../payments/PendingPayments";
 import { errorText, useApp } from "../state";
@@ -11,21 +11,21 @@ import { actionGate, topupIntents } from "../topup-intents";
 import { Button, CountUp, Item, Screen } from "../ui";
 import { rememberCard, rememberPayment } from "./Payment";
 
+import { WalletTransfer } from "./WalletTransfer";
+import { WalletHistory } from "./WalletHistory";
+
 const PRESETS = [50_000, 100_000, 200_000, 500_000];
 
 export function Wallet() {
   const { me, t, locale, toast, reload } = useApp();
   const navigate = useNavigate();
-  const [history, setHistory] = useState<HistoryItem[] | null>(null);
+  const [historyVersion, setHistoryVersion] = useState(0);
   const [amount, setAmount] = useState<number | null>(null);
   const [custom, setCustom] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [gift, setGift] = useState("");
   const gate = useRef(actionGate());
 
-  useEffect(() => {
-    api.history().then((r) => setHistory(r.items));
-  }, []);
   useEffect(() => {
     if (!me || amount !== null || custom !== "") return;
     const [low, high] = me.topup_bounds;
@@ -85,8 +85,9 @@ export function Wallet() {
       haptic("success");
       setGift("");
       toast(t("gift_redeemed", { amount: money(result.amount, locale) }));
+      // Refresh only the read: a history failure must never replay the gift.
+      setHistoryVersion(value => value + 1);
       await reload();
-      api.history().then((r) => setHistory(r.items));
     } catch (err) {
       haptic("error");
       toast(errorText(t, err), "error");
@@ -166,6 +167,7 @@ export function Wallet() {
         {me.payment_methods.length === 0 && <div className="app-empty">{t("no_methods")}</div>}
       </div>
 
+      <div className="mt-6"><PendingPayments /></div>
       <p className="app-lbl">{t("gift_code")}</p>
       <div className="app-dc">
         <input
@@ -182,31 +184,13 @@ export function Wallet() {
         </Button>
       </div>
 
-      <div className="mt-6"><PendingPayments /></div>
+      <WalletTransfer key={me.id} owner={me.id} disabled={busy !== null}
+        acquire={() => { if (!gate.current.enter()) return false; setBusy("transfer"); return true; }}
+        release={() => { gate.current.leave(); setBusy(null); }}
+        onDone={() => { setHistoryVersion(value => value + 1); void reload().catch(() => toast(t("retry"), "error")); }}
+      />
       <p className="app-lbl mt-6">{t("transactions")}</p>
-      <div className="app-card">
-        {history === null ? null : history.length === 0 ? (
-          <div className="app-empty">{t("no_transactions")}</div>
-        ) : (
-          history.map((item) => (
-            <div key={item.id} className="app-row flex items-center gap-3 px-4">
-              <span className="app-ico" data-tone={item.amount > 0 ? "green" : undefined}>
-                <Icon name={item.amount > 0 ? "coin" : "wallet"} size={21} />
-              </span>
-              <span className="app-grow">
-                <b className="block text-[0.93rem] font-bold leading-7">{t(`tx_${item.kind}`)}</b>
-                <small className="num mt-0.5 block text-[0.75rem] font-medium text-[var(--hint)]">
-                  {dateTime(item.created_at, locale)}
-                </small>
-              </span>
-              <b className={`num text-[0.93rem] font-bold ${item.amount > 0 ? "text-pista-700" : ""}`} dir="ltr">
-                {item.amount > 0 ? "+" : "−"}
-                {money(Math.abs(item.amount), locale)}
-              </b>
-            </div>
-          ))
-        )}
-      </div>
+      <WalletHistory key={`${me.id}:${historyVersion}`} />
     </Screen>
   );
 }

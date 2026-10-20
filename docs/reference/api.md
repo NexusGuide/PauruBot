@@ -186,6 +186,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/auth/login` | public | Login |
 | POST | `/api/auth/logout` | staff session | Logout |
 | GET | `/api/auth/me` | staff session | Me |
+| POST | `/api/auth/password-reset/confirm` | public | Confirm password reset |
+| POST | `/api/auth/password-reset/request` | public | Request password reset |
 | POST | `/api/auth/password` | staff session | Change password |
 
 ## `/api/pay`
@@ -193,6 +195,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | Method | Path | Access | What it does |
 |---|---|---|---|
 | GET | `/api/pay/gw/{name}` | gateway callback, verified with the provider | One entry point for the redirect gateways (PAY-08, PAY-09): the payer's browser coming |
+| GET | `/api/pay/gw/{name}` | gateway callback, verified with the provider | One entry point for the redirect gateways (PAY-08, PAY-09): the payer's browser coming |
+| POST | `/api/pay/gw/{name}` | gateway callback, verified with the provider | One entry point for the redirect gateways (PAY-08, PAY-09): the payer's browser coming |
 | POST | `/api/pay/gw/{name}` | gateway callback, verified with the provider | One entry point for the redirect gateways (PAY-08, PAY-09): the payer's browser coming |
 | POST | `/api/pay/nowpayments/ipn` | gateway callback, verified with the provider | Nowpayments ipn |
 | POST | `/api/pay/plisio/callback` | gateway callback, verified with the provider | Plisio callback |
@@ -266,6 +270,9 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/webapp/wallet/gift` | Mini App initData | Redeem gift |
 | GET | `/api/webapp/wallet/history` | Mini App initData | History |
 | POST | `/api/webapp/wallet/topup` | Mini App initData | Topup |
+| GET | `/api/webapp/wallet/transfer-policy` | Mini App initData | Policy |
+| POST | `/api/webapp/wallet/transfers/confirm` | Mini App initData | Confirm |
+| POST | `/api/webapp/wallet/transfers/quote` | Mini App initData | Quote |
 
 ## `/api/webhooks`
 
