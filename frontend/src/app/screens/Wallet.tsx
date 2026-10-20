@@ -164,6 +164,7 @@ export function Wallet() {
         {me.payment_methods.length === 0 && <div className="app-empty">{t("no_methods")}</div>}
       </div>
 
+      <div className="mt-6"><PendingPayments /></div>
       <p className="app-lbl">{t("gift_code")}</p>
       <div className="app-dc">
         <input
@@ -180,7 +181,6 @@ export function Wallet() {
         </Button>
       </div>
 
-      <div className="mt-6"><PendingPayments /></div>
       <p className="app-lbl mt-6">{t("transactions")}</p>
       <WalletHistory key={`${me.id}:${historyVersion}`} />
     </Screen>
