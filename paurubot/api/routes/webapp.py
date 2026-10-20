@@ -19,6 +19,7 @@ from paurubot.core import (
     customer_preferences,
     customers,
     marketing,
+    order_intents,
     orders,
     panel_accounts,
     pricing,
@@ -408,6 +409,7 @@ async def account_refresh(account_id: int, ctx: WebApp) -> dict[str, Any]:
 
 
 class OrderBody(BaseModel):
+    intent_key: str | None = Field(default=None, min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
     kind: Literal[
         "purchase",
         "renew",
@@ -437,19 +439,41 @@ async def _owned_service(ctx: WebApp, service_id: int | None) -> Service | None:
     if not service_id:
         return None
     service = await ctx.session.get(Service, service_id)
-    if service is None or service.customer_id != ctx.customer.id or service.status == ServiceStatus.DELETED:
+    if (
+        service is None
+        or service.customer_id != ctx.customer.id
+        or service.shop_id != ctx.shop.id
+        or service.status == ServiceStatus.DELETED
+    ):
         raise HTTPException(status_code=404, detail="service_not_found")
     return service
 
 
 @router.post("/orders")
 async def create_order(body: OrderBody, ctx: WebApp) -> dict[str, Any]:
+    try:
+        if body.intent_key is None:
+            order = await _create_order(body, ctx)
+        else:
+            order = await order_intents.create_once(
+                ctx.session,
+                ctx.customer,
+                body.intent_key,
+                body.model_dump(exclude={"intent_key"}),
+                lambda: _create_order(body, ctx),
+            )
+    except orders.OrderError as exc:
+        status = 409 if exc.key in {"order_intent_conflict", "order_intent_closed"} else 400
+        raise HTTPException(status_code=status, detail=exc.key) from exc
+    balance = await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id)
+    return {"order": order_view(order), "balance": balance, "due": payments.amount_due(order, balance)}
+
+
+async def _create_order(body: OrderBody, ctx: WebApp) -> Order:
     kind = OrderKind(body.kind)
     if kind in panel_accounts.KINDS:
         # Panel admin accounts (TEN-14): priced by the account rules, no discount codes.
-        order = await _account_order(body, ctx, kind)
-        balance = await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id)
-        return {"order": order_view(order), "balance": balance, "due": payments.amount_due(order, balance)}
+        return await _account_order(body, ctx, kind)
     plan = None
     if body.plan_id:
         plan = await catalog.get_plan(ctx.session, ctx.shop.id, body.plan_id, ctx.customer)
@@ -484,8 +508,7 @@ async def create_order(body: OrderBody, ctx: WebApp) -> dict[str, Any]:
             order = await orders.create(ctx.session, ctx.customer, draft, source="webapp")
     except (orders.OrderError, pricing.DiscountError) as exc:
         raise HTTPException(status_code=400, detail=exc.key) from exc
-    balance = await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id)
-    return {"order": order_view(order), "balance": balance, "due": payments.amount_due(order, balance)}
+    return order
 
 
 async def _account_order(body: OrderBody, ctx: WebApp, kind: OrderKind) -> Order:
@@ -521,7 +544,7 @@ async def _account_order(body: OrderBody, ctx: WebApp, kind: OrderKind) -> Order
 
 async def _own_order(ctx: WebApp, order_id: int) -> Order:
     order = await ctx.session.get(Order, order_id)
-    if order is None or order.customer_id != ctx.customer.id:
+    if order is None or order.customer_id != ctx.customer.id or order.shop_id != ctx.shop.id:
         raise HTTPException(status_code=404, detail="order_not_found")
     return order
 
