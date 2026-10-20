@@ -37,3 +37,12 @@ try {
  test(`Button busy=${busy} disabled=${disabled}`,()=>{const html=renderToStaticMarkup(createElement(Button,{busy,disabled},'Submit ticket'));assert.equal(html.includes('disabled=""'),wanted);assert(html.includes('Submit ticket'));assert.equal(html.includes('aria-busy="true"'),!!busy);if(busy){assert(html.includes('aria-hidden="true"'));assert(!html.includes('role="status"'))}});
  test('Button keeps explicit submit type and caller class',()=>{const html=renderToStaticMarkup(createElement(Button,{type:'submit',className:'custom'},'Save'));assert(html.includes('type="submit"'));assert(html.includes('custom'))});
 } finally {rmSync(temp,{recursive:true,force:true})}
+
+// Customer ticket filter regressions share the existing CI UX suite.
+import "./ticket-pages.test.mjs";
+
+// Service detail recovery regressions run in the existing CI UX suite.
+import "./service-read.test.mjs";
+
+// Bounded service search/paging contracts run in the existing CI UX suite.
+import "./service-pages.test.mjs";
