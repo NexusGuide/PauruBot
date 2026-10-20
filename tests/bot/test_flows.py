@@ -304,3 +304,28 @@ async def test_info_card_button_sends_a_picture(session, env) -> None:  # type: 
     before = len([c for c in fake.calls if isinstance(c, SendPhoto)])
     await send(callback_update(UID, Svc(action="card", id=service.id).pack()))
     assert len([c for c in fake.calls if isinstance(c, SendPhoto)]) == before
+
+
+async def test_repeated_topup_click_same_message_reuses_payment(session, env) -> None:  # type: ignore[no-untyped-def]
+    send = env["send"]
+    await send(message_update(UID, "/start"))
+    first = callback_update(UID, Pay(method="card", amount=100_000).pack())
+    await send(first)
+    payment = await session.scalar(select(Payment).order_by(Payment.id.desc()))
+    second = callback_update(UID, Pay(method="card", amount=100_000).pack())
+    # Telegram issues another callback ID for the same source button/message.
+    second = second.model_copy(
+        update={
+            "callback_query": second.callback_query.model_copy(
+                update={"message": first.callback_query.message}
+            )
+        }
+    )
+    assert first.callback_query.id != second.callback_query.id
+    await send(second)
+    rows = list(await session.scalars(select(Payment).where(Payment.customer_id == payment.customer_id)))
+    assert len(rows) == 1 and rows[0].id == payment.id
+    # A newly rendered method menu represents a deliberate new top-up.
+    await send(callback_update(UID, Pay(method="card", amount=100_000).pack()))
+    rows = list(await session.scalars(select(Payment).where(Payment.customer_id == payment.customer_id)))
+    assert len(rows) == 2

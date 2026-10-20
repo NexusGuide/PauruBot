@@ -43,7 +43,7 @@ No claim is made here about changing the existing certificate trust model.
 - Keep network-level egress blocks and timeout/rate limits. This change does not protect
   against a malicious host OS, routing/NAT changes or every outbound network path.
 
-## Validation record
+## Original standalone validation record
 
 Source: main `d1a4c1d0ee2499bd226de12a032e73c84044016d`, independent of PRs #89–96.
 The new file has 28 test cases; 13 fail and 15 pass on the unchanged baseline (no fixture
@@ -71,3 +71,13 @@ Full backend/frontend suites, integration with all panel drivers and the normal
 repository test fixtures, combined testing with the other open fixes, GitHub Actions,
 staging and live-provider QA have **not** been validated for this patch. The PR remains
 a draft pending those checks. No merge, deploy, billing change or CI weakening occurred.
+
+## Integration reconciliation (2026-10-20)
+
+The current main branch already has the shared `security.http.ValidatedTransport`
+implementation and panel adapter. Integration retains those files and the complete
+main security regression suite, rather than restoring the old parallel transport.
+The remaining production delta forces `follow_redirects=False` on every panel
+request, including explicit caller overrides. All original tests in
+`test_dns_binding.py` remain unchanged; full current-head CI is required before merge.
+No deployment, proxy-policy relaxation, test removal or protection bypass is included.
