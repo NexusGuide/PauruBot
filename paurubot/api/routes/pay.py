@@ -111,7 +111,11 @@ def _back_to_bot(shop: Shop | None, outcome: str, pid: int) -> Response:
     return Response(f"payment {outcome}", media_type="text/plain")
 
 
-@router.api_route("/gw/{name}", methods=["GET", "POST"])
+# Preserve legacy dispatch (including the combined 405 Allow header) first;
+# expose GET and POST separately in OpenAPI without duplicating handler logic.
+@router.get("/gw/{name}", operation_id="gateway_callback_get")
+@router.post("/gw/{name}", operation_id="gateway_callback_post")
+@router.api_route("/gw/{name}", methods=["GET", "POST"], include_in_schema=False)
 async def gateway_callback(name: str, request: Request, db: DB) -> Response:
     """One entry point for the redirect gateways (PAY-08, PAY-09): the payer's browser coming
     back and the gateway's own server pushes. Neither is trusted; the provider decides."""
