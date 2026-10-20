@@ -240,7 +240,9 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/payments/{payment_id}/receipt-state` | Mini App initData | State |
 | POST | `/api/webapp/payments/{payment_id}/receipt-upload` | Mini App initData | Upload |
 | POST | `/api/webapp/payments/{payment_id}/receipt` | Mini App initData | Upload receipt |
+| GET | `/api/webapp/payments/{payment_id}/resume` | Mini App initData | Resume payment |
 | GET | `/api/webapp/payments/{payment_id}` | Mini App initData | Payment status |
+| GET | `/api/webapp/payments` | Mini App initData | Pending payments |
 | GET | `/api/webapp/receipts` | Mini App initData | Inbox |
 | GET | `/api/webapp/reseller/desk` | Mini App initData | Reseller desk view |
 | POST | `/api/webapp/reseller/renew` | Mini App initData | Reseller renew |

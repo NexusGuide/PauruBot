@@ -248,6 +248,17 @@ export interface PaymentStart {
   crypto?: CryptoInstructions;
 }
 
+export interface PendingPayment {
+  id: number;
+  provider: string;
+  amount: number;
+  status: string;
+  order_id: number | null;
+  expires_at: string | null;
+  action: "resume" | "status" | "review";
+}
+export interface PendingPaymentList { items: PendingPayment[]; next_before: number | null }
+
 export interface CryptoInstructions {
   network: string;
   label: string;
@@ -323,6 +334,8 @@ export const api = {
   cancelOrder: (id: number) => post<{ ok: boolean }>(`/orders/${id}/cancel`),
   topup: (amount: number, method: string, intent_key?: string) => post<{ payment: PaymentStart }>("/wallet/topup", { amount, method, intent_key }),
   payment: (id: number) => get<{ id: number; status: string; amount: number; fulfilled: boolean; provider: string; order_id: number | null }>(`/payments/${id}`),
+  pendingPayments: (before?: number) => get<PendingPaymentList>(`/payments${before ? `?before=${before}` : ""}`),
+  resumePayment: (id: number) => get<{ payment: PaymentStart }>(`/payments/${id}/resume`),
   receiptState: (id: number) => get<unknown>(`/payments/${id}/receipt-state`),
   receipts: (before?: number) => get<unknown>(`/receipts${before ? `?before=${before}` : ""}`),
   sendReceipt: (id: number, file: File, revision: string) => {

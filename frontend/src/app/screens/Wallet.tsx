@@ -4,6 +4,7 @@ import { ApiError } from "@shared/http";
 import { money } from "@shared/format";
 import { api } from "../api";
 import { Icon } from "../icons";
+import { PendingPayments } from "../payments/PendingPayments";
 import { errorText, useApp } from "../state";
 import { haptic, openExternal, openInvoice } from "../telegram";
 import { actionGate, topupIntents } from "../topup-intents";
@@ -164,6 +165,7 @@ export function Wallet() {
         {me.payment_methods.length === 0 && <div className="app-empty">{t("no_methods")}</div>}
       </div>
 
+      <div className="mt-6"><PendingPayments /></div>
       <p className="app-lbl">{t("gift_code")}</p>
       <div className="app-dc">
         <input

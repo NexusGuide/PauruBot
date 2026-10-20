@@ -82,6 +82,8 @@ jobs:
       - run: npm run test:auto-renew
       - run: npm run test:broadcasts
       - run: npm run test:capabilities
+      - name: Payment resume contracts
+        run: node --experimental-strip-types --test tests/payment-resume.test.mjs
       - run: npm run test:confirm
       - run: npm run test:help
       - run: npm run test:receipts

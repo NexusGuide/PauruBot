@@ -21,6 +21,7 @@ const temp=mkdtempSync(new URL('./.topup-',import.meta.url));
 try {
  let source=readFileSync(new URL('../src/app/screens/Wallet.tsx',import.meta.url),'utf8');
  source=source.replace(/^import .*;\n/gm,'');
+ source='const PendingPayments=()=>null;\n'+source;
  const helper=fileURLToPath(new URL('../src/app/topup-intents.ts',import.meta.url));
  writeFileSync(temp+'/helper.ts',readFileSync(helper,'utf8'));
  source=`import {actionGate,TopupIntents} from './helper.js';
