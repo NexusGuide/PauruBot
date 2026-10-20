@@ -1,0 +1,58 @@
+name: Repair PR 104 integration
+on:
+  push:
+    branches: [fix/mender-bind-panel-dns]
+    paths: [.github/workflows/repair-104-integration.yml]
+permissions:
+  contents: read
+jobs:
+  integrate-panel-guard:
+    if: github.repository == 'MenderBaga/PauruBot' && github.ref == 'refs/heads/fix/mender-bind-panel-dns'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Temporary, branch-only maintenance. Runs no repository code; remove before merge.
+      - name: Keep shared DNS transport and port the remaining redirect guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git merge --no-ff --no-commit 679c1b9566266b07db91daa28613deee7bbfc6dd || git rev-parse --verify MERGE_HEAD
+          python3 - <<'PY'
+          import subprocess
+          from pathlib import Path
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True)
+          main = '679c1b9566266b07db91daa28613deee7bbfc6dd'
+          conflicts = set(git('diff', '--name-only', '--diff-filter=U').splitlines())
+          assert conflicts <= {'paurubot/panels/http.py'}, 'Unexpected conflicts need manual review'
+          name = 'paurubot/panels/http.py'
+          source = git('show', f'{main}:{name}')
+          anchor = '        try:\n            response = await self._client.request(method, path, **kwargs)\n'
+          assert source.count(anchor) == 1
+          source = source.replace(anchor, '        # No caller may turn a panel response into a redirected mutation.\n        kwargs["follow_redirects"] = False\n' + anchor, 1)
+          assert 'ResolvedAddressTransport' not in source
+          assert 'from paurubot.panels.transport import ValidatedTransport' in source
+          compile(source, name, 'exec')
+          Path(name).write_text(source)
+          subprocess.run(['git', 'add', '--', name], check=True)
+          for name in ('paurubot/security/http.py', 'paurubot/panels/transport.py', 'tests/security/test_panel_dns_binding.py'):
+              assert Path(name).read_text() == git('show', f'{main}:{name}'), f'Current shared implementation/test changed: {name}'
+          name = 'tests/security/test_dns_binding.py'
+          assert Path(name).read_text() == git('show', f'HEAD:{name}'), 'Original PR regression tests must remain intact'
+          doc = Path('docs/security/panel-dns-binding.md')
+          text = doc.read_text().replace('## Validation record\n', '## Original standalone validation record\n', 1)
+          text += '\n## Integration reconciliation (2026-10-20)\n\nThe current main branch already has the shared `security.http.ValidatedTransport`\nimplementation and panel adapter. Integration retains those files and the complete\nmain security regression suite, rather than restoring the old parallel transport.\nThe remaining production delta forces `follow_redirects=False` on every panel\nrequest, including explicit caller overrides. All original tests in\n`test_dns_binding.py` remain unchanged; full current-head CI is required before merge.\nNo deployment, proxy-policy relaxation, test removal or protection bypass is included.\n'
+          doc.write_text(text)
+          subprocess.run(['git', 'add', '--', str(doc)], check=True)
+          assert not git('diff', '--name-only', '--diff-filter=U').strip()
+          PY
+          git diff --cached --check
+          git commit -m 'Merge main security architecture and retain caller-proof no-redirect guard'
+          git push origin HEAD:refs/heads/fix/mender-bind-panel-dns
