@@ -138,6 +138,10 @@ async def test_successful_refresh_and_webhook_record_but_missing_user_does_not(s
     await lifecycle.refresh(session, service)
     assert len((await usage_history.series(session, service, 7))["points"]) == 1
     await sync.apply_webhook_user(session, panel, _info(200))
+    assert (await usage_history.series(session, service, 7))["points"][-1]["used_bytes"] == 100
+    # The authoritative read, not the event, provides the next real sample.
+    driver.get_user.return_value = _info(200)
+    await lifecycle.refresh(session, service)
     assert (await usage_history.series(session, service, 7))["points"][-1]["used_bytes"] == 200
     driver.get_user.return_value = None
     await lifecycle.refresh(session, service)

@@ -153,6 +153,8 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `cubepay_enabled` | bool | false | CubePay. Card-to-card and crypto through CubePay. Needs the server's public address |
 | `cubepay_api_key` | str (secret) | — | CubePay API token |
 | `cubepay_fee_percent` | int | 0 | CubePay fee added to the price (%). Added on top of what the customer pays at CubePay; the wallet gets the original amount |
+| `tonpay_enabled` | bool | false | Tonpay (standard invoices). Disabled by default. Requires PUBLIC_URL and a Tonpay key. Only server-verified Toman payments settle; amount differences require review. Custom receipt mode is not supported |
+| `tonpay_api_key` | str (secret) | — | Tonpay API key |
 | `atlaspay_enabled` | bool | false | AtlasPay. AtlasPay has no callback; open orders are checked every minute. AtlasPay's own markup is shown to the customer before paying |
 | `atlaspay_api_key` | str (secret) | — | AtlasPay API key |
 

@@ -3,16 +3,23 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 
-from paurubot.api.deps import CSRF_COOKIE, DB, SESSION_COOKIE, CurrentStaff, StaffContext, request_ip
+from paurubot.api.deps import (
+    CSRF_COOKIE,
+    DB,
+    SESSION_COOKIE,
+    CurrentStaff,
+    StaffContext,
+    request_ip,
+)
 from paurubot.audit.log import record
-from paurubot.auth import sessions
+from paurubot.auth import password_reset, sessions
 from paurubot.auth import staff as staff_service
 from paurubot.config import get_settings
 from paurubot.db.base import utcnow
-from paurubot.db.models import StaffApiKey
+from paurubot.db.models import Staff, StaffApiKey
 from paurubot.security.login_guard import LoginLocked
 from paurubot.security.tokens import verify_password
 
@@ -34,10 +41,22 @@ def _set_cookies(response: Response, session_id: str, csrf: str) -> None:
     secure = settings.is_production or settings.public_url.startswith("https://")
     max_age = settings.session_ttl_seconds
     response.set_cookie(
-        SESSION_COOKIE, session_id, max_age=max_age, httponly=True, secure=secure, samesite="strict", path="/"
+        SESSION_COOKIE,
+        session_id,
+        max_age=max_age,
+        httponly=True,
+        secure=secure,
+        samesite="strict",
+        path="/",
     )
     response.set_cookie(
-        CSRF_COOKIE, csrf, max_age=max_age, httponly=False, secure=secure, samesite="strict", path="/"
+        CSRF_COOKIE,
+        csrf,
+        max_age=max_age,
+        httponly=False,
+        secure=secure,
+        samesite="strict",
+        path="/",
     )
 
 
@@ -60,7 +79,9 @@ async def login(body: LoginBody, request: Request, response: Response, db: DB) -
         staff = await staff_service.authenticate(db, body.username, body.password, ip)
     except LoginLocked as exc:
         raise HTTPException(
-            status_code=429, detail="too_many_attempts", headers={"Retry-After": str(exc.retry_after)}
+            status_code=429,
+            detail="too_many_attempts",
+            headers={"Retry-After": str(exc.retry_after)},
         ) from exc
     except staff_service.AuthError as exc:
         await db.commit()  # keep the failed-login audit row
@@ -89,7 +110,9 @@ async def request_login_code(body: CodeRequestBody, request: Request, db: DB) ->
         await staff_service.request_code(db, body.username, request_ip(request))
     except LoginLocked as exc:
         raise HTTPException(
-            status_code=429, detail="too_many_attempts", headers={"Retry-After": str(exc.retry_after)}
+            status_code=429,
+            detail="too_many_attempts",
+            headers={"Retry-After": str(exc.retry_after)},
         ) from exc
     await db.commit()
     return {"ok": True}  # same answer whether or not the account exists
@@ -102,7 +125,9 @@ async def verify_login_code(body: CodeVerifyBody, request: Request, response: Re
         staff = await staff_service.verify_code(db, body.username, body.code, ip)
     except LoginLocked as exc:
         raise HTTPException(
-            status_code=429, detail="too_many_attempts", headers={"Retry-After": str(exc.retry_after)}
+            status_code=429,
+            detail="too_many_attempts",
+            headers={"Retry-After": str(exc.retry_after)},
         ) from exc
     except staff_service.AuthError as exc:
         await db.commit()
@@ -208,6 +233,16 @@ async def me(ctx: CurrentStaff) -> dict:
 @router.post("/password")
 async def change_password(body: PasswordBody, ctx: CurrentStaff, response: Response, db: DB) -> dict:
     _cookie_only(ctx)
+    locked = await db.scalar(
+        select(Staff)
+        .where(Staff.id == ctx.staff.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if locked is None or not locked.is_active or locked.session_version != ctx.session.session_version:
+        raise HTTPException(status_code=401, detail="session_revoked")
+    if (locked.password_hash or "").startswith(("$2a$", "$2b$", "$2y$")):
+        raise HTTPException(status_code=409, detail="legacy_password_reset_required")
     if not verify_password(body.current_password, ctx.staff.password_hash):
         raise HTTPException(status_code=400, detail="wrong_password")
     await staff_service.change_password(db, ctx.staff, body.new_password)
@@ -222,3 +257,42 @@ async def change_password(body: PasswordBody, ctx: CurrentStaff, response: Respo
     session_id, data = await sessions.create(ctx.staff.id, ctx.shop_id, ctx.staff.session_version, ctx.ip)
     _set_cookies(response, session_id, data.csrf)
     return {"ok": True, "csrf_token": data.csrf}
+
+
+class ResetRequestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(min_length=1, max_length=64)
+
+
+class ResetConfirmBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str = Field(min_length=32, max_length=128)
+    new_password: str = Field(min_length=10, max_length=256)
+
+
+@router.post("/password-reset/request")
+async def request_password_reset(body: ResetRequestBody, request: Request, db: DB) -> dict:
+    try:
+        await password_reset.request(db, body.username, request_ip(request))
+    except LoginLocked as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="too_many_attempts",
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
+    return {"ok": True}
+
+
+@router.post("/password-reset/confirm")
+async def confirm_password_reset(body: ResetConfirmBody, request: Request, db: DB) -> dict:
+    try:
+        await password_reset.confirm(db, body.token, body.new_password, request_ip(request))
+    except LoginLocked as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="too_many_attempts",
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
+    except password_reset.ResetError as exc:
+        raise HTTPException(status_code=400, detail="invalid_reset") from exc
+    return {"ok": True}

@@ -8,12 +8,12 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from paurubot.core import orders
+from paurubot.core import alert_policy, orders
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import utcnow
 from paurubot.db.models import Panel, Service, ServiceStatus
 from paurubot.panels import PanelError, PanelUser
-from paurubot.provisioning.lifecycle import apply_panel_user, delete_service, refresh
+from paurubot.provisioning.lifecycle import delete_service, refresh
 from paurubot.worker import queue
 
 log = logging.getLogger(__name__)
@@ -56,11 +56,11 @@ async def evaluate_alerts(
     if service.status == ServiceStatus.ACTIVE:
         if service.data_limit:
             remaining = max(0, service.data_limit - service.used_bytes)
-            if remaining * 100 <= int(cfg["warn_remaining_percent"] or 0) * service.data_limit:
+            if remaining * 100 <= alert_policy.warn_remaining_percent(cfg) * service.data_limit:
                 once("low_volume", f"{service.data_limit}", {"remaining": remaining})
         if service.expire_at:
             seconds = (service.expire_at - datetime.now(UTC)).total_seconds()
-            if 0 < seconds <= int(cfg["warn_days"] or 0) * 86400:
+            if 0 < seconds <= alert_policy.warn_days(cfg) * 86400:
                 once("expiring", period, {"days": max(1, int(seconds // 86400) + 1)})
     if service.status == ServiceStatus.EXPIRED and previous != ServiceStatus.EXPIRED:
         once("expired", period, {})
@@ -118,17 +118,29 @@ async def due_panels(session: AsyncSession) -> list[Panel]:
 
 
 async def apply_webhook_user(session: AsyncSession, panel: Panel, info: PanelUser) -> Service | None:
+    """Persist a refresh hint; unordered provider events are not state snapshots.
+
+    Enqueue in the caller's transaction. Do not permanently dedupe by service:
+    completed jobs must not suppress later events (including real usage resets).
+    """
+    if not panel.is_active:
+        return None
     service = await session.scalar(
-        select(Service).where(Service.panel_id == panel.id, Service.panel_username == info.username)
+        select(Service).where(
+            Service.panel_id == panel.id,
+            Service.shop_id == panel.shop_id,
+            Service.panel_username == info.username,
+        )
     )
     if service is None or service.status == ServiceStatus.DELETED:
         return None
-    previous = service.status
-    apply_panel_user(service, info)
-    from paurubot.core import usage_history
-
-    await usage_history.observe(session, service, info, source="webhook")
-    await evaluate_alerts(session, service, previous)
+    await queue.enqueue(
+        session,
+        "provision",
+        "refresh_service",
+        {"service_id": service.id, "panel_id": panel.id},
+        shop_id=service.shop_id,
+    )
     return service
 
 
