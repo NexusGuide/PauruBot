@@ -55,9 +55,13 @@ async def start_hosted(
             # Uncommitted/new principals must be committed by their owning workflow first.
             raise PaymentError("payment_intent_conflict")
         payment, cfg = await engine._prepare(session, owner, provider_name, amount, storage_key=storage_key)
-        # Freeze outgoing USD units before the durable pre-call commit, not after I/O.
-        payment.provider_amount = await invoice_cents(payment, cfg)
-        payment.provider_currency = "USD"
+        # Freeze outgoing units before the durable pre-call commit, not after I/O.
+        if provider_name == "tonpay":
+            payment.provider_amount = payment.amount
+            payment.provider_currency = "IRT"
+        else:
+            payment.provider_amount = await invoice_cents(payment, cfg)
+            payment.provider_currency = "USD"
         payment.meta = {
             META_KEY: {"request": fingerprint},
             ATTEMPT_KEY: {"state": "uncertain", "started_at": utcnow().isoformat()},
