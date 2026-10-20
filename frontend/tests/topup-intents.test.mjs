@@ -21,6 +21,7 @@ const temp=mkdtempSync(new URL('./.topup-',import.meta.url));
 try {
  let source=readFileSync(new URL('../src/app/screens/Wallet.tsx',import.meta.url),'utf8');
  source=source.replace(/^import .*;\n/gm,'');
+ source='const PendingPayments=()=>null;\n'+source;
  const helper=fileURLToPath(new URL('../src/app/topup-intents.ts',import.meta.url));
  writeFileSync(temp+'/helper.ts',readFileSync(helper,'utf8'));
  source=`import {actionGate,TopupIntents} from './helper.js';
@@ -39,7 +40,7 @@ try {
  topup:(...args:any[])=>{calls.push(args);return new Promise(r=>{finish=()=>r({payment:{}})})}};
  const haptic=()=>{},openExternal=()=>{},openInvoice=async()=> 'paid';
  const errorText=()=>'',dateTime=()=>'',money=()=>'',rememberCard=()=>{},rememberPayment=()=>{};
- const Icon=()=>null,Button=()=>null,CountUp=()=>null,Screen=()=>null,PendingPayments=()=>null;
+ const Icon=()=>null,Button=()=>null,CountUp=()=>null,Screen=()=>null;
  // History read behavior is covered by wallet-history.test.mjs; this seam exercises payment handlers.
  export const WalletHistory=()=>null;
  export const Item=()=>null;
