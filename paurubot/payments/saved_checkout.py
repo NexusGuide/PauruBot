@@ -38,8 +38,8 @@ def _meta(payment: Payment) -> dict[str, Any]:
 
 
 def uncertain(payment: Payment) -> bool:
-    attempt = _meta(payment).get("hosted_attempt_v1")
-    return isinstance(attempt, dict) and attempt.get("state") == "uncertain"
+    attempts = [_meta(payment).get(key) for key in ("hosted_attempt_v1", "order_attempt_v1")]
+    return any(isinstance(attempt, dict) and attempt.get("state") == "uncertain" for attempt in attempts)
 
 
 def saved_payment(payment: Payment, now: datetime, order: Order | None = None) -> dict[str, Any] | None:
