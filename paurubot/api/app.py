@@ -99,6 +99,31 @@ def create_app() -> FastAPI:
     async def healthz() -> dict:
         return {"status": "ok", "version": __version__}
 
+    @app.get("/readyz", include_in_schema=False)
+    async def readyz() -> Response:
+        import asyncio
+
+        from alembic.script import ScriptDirectory
+        from sqlalchemy import text
+
+        from paurubot.db.migrate import alembic_config
+        from paurubot.db.session import get_sessionmaker
+        from paurubot.kv import get_redis
+
+        try:
+            async with asyncio.timeout(3):
+                async with get_sessionmaker()() as session:
+                    await session.execute(text("SELECT 1"))
+                    # Require the image's migration heads, not merely a reachable DB.
+                    revisions = await session.scalars(text("SELECT version_num FROM alembic_version"))
+                    expected = set(ScriptDirectory.from_config(alembic_config()).get_heads())
+                    if not expected or set(revisions.all()) != expected:
+                        return JSONResponse({"status": "not_ready"}, status_code=503)
+                await get_redis().ping()
+        except Exception:
+            return JSONResponse({"status": "not_ready"}, status_code=503)
+        return JSONResponse({"status": "ready", "version": __version__})
+
     from paurubot.api.routes import auth, setup
 
     app.include_router(setup.router)

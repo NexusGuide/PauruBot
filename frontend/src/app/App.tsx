@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { BrowserRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { Agency, AgencyAccount } from "./screens/Agency";
 import { Buy, Custom, PanelStep, PlanStep } from "./screens/Buy";
@@ -89,7 +89,12 @@ function Ripple() {
 }
 
 function Shell() {
-  const { me, error, join, t } = useApp();
+  const { me, error, join, t, reload } = useApp();
+  const [retrying, setRetrying] = useState(false);
+  const retry = async () => {
+    setRetrying(true);
+    try { await reload(); } finally { setRetrying(false); }
+  };
   if (join && !me) {
     // The API holds customers at the join gate; the screen is its only job until they are in.
     return (
@@ -105,6 +110,11 @@ function Shell() {
         <div className="flex min-h-[70dvh] flex-col items-center justify-center gap-2 text-center">
           <p className="text-xl font-bold">{t(error === "invalid_init_data" ? "open_from_bot" : `err_${error}`)}</p>
           <p className="max-w-xs text-sm text-[var(--hint)]">{t("open_from_bot_hint")}</p>
+          {error !== "invalid_init_data" && (
+            <button type="button" className="app-rip-host mt-3 rounded-xl px-5 py-3" disabled={retrying} onClick={() => { void retry(); }}>
+              {retrying ? "…" : t("ui_retry")}
+            </button>
+          )}
         </div>
       </Screen>
     );

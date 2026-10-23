@@ -15,6 +15,9 @@ def stars_for(amount: int, rate: int) -> int:
 
 class StarsProvider(PaymentProvider):
     name = "stars"
+    # A valid Telegram successful_payment can arrive after the local expiry sweep.
+    # engine.verify still enforces its late window and transaction uniqueness.
+    late_ok = True
 
     async def enabled(self, cfg: dict[str, Any]) -> bool:
         return bool(cfg.get("stars_enabled") and int(cfg.get("stars_rate") or 0) > 0)

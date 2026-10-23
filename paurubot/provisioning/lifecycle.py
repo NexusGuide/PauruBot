@@ -217,6 +217,21 @@ async def _create_service(session: AsyncSession, order: Order) -> Service:
         select(Service).where(Service.panel_id == panel.id, Service.panel_username == username)
     )
     if existing_service is not None:
+        creator = await session.scalar(
+            select(Order.id)
+            .where(
+                Order.service_id == existing_service.id,
+                Order.kind.in_([OrderKind.PURCHASE, OrderKind.TRIAL]),
+                Order.id != order.id,
+            )
+            .limit(1)
+        )
+        if (
+            existing_service.customer_id != order.customer_id
+            or existing_service.shop_id != order.shop_id
+            or creator is not None
+        ):
+            raise ProvisionError("panel username belongs to another order")
         return existing_service
     info = await driver.get_user(PanelRef(username, params.get("panel_data") or {}))
     if info is None:

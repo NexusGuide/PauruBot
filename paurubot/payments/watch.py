@@ -14,7 +14,6 @@ from paurubot.db.base import utcnow
 from paurubot.db.models import Payment, PaymentStatus
 from paurubot.payments import engine
 from paurubot.payments.chains import NETWORKS, ChainError, Client, Transfer
-from paurubot.payments.providers.crypto import address_for
 
 log = logging.getLogger(__name__)
 
@@ -51,13 +50,13 @@ async def scan(session: AsyncSession, client: Client | None = None) -> int:
             )
         )
     )
-    groups: dict[tuple[int, str], list[Payment]] = defaultdict(list)
+    groups: dict[tuple[int, str, str], list[Payment]] = defaultdict(list)
     for payment in rows:
-        groups[(payment.shop_id, payment.provider)].append(payment)
+        if payment.provider_ref:
+            groups[(payment.shop_id, payment.provider, payment.provider_ref)].append(payment)
     paid = 0
-    for (shop_id, network), payments in groups.items():
+    for (shop_id, network, address), payments in groups.items():
         cfg = await shop_settings.load(session, shop_id)
-        address = address_for(network, cfg)
         if not address:
             continue
         key = str(
@@ -88,6 +87,14 @@ async def scan(session: AsyncSession, client: Client | None = None) -> int:
                     log.warning(
                         "transfer %s matches %s payments; left for review", transfer.tx_id, len(matches)
                     )
+                    for candidate in matches:
+                        candidate.meta = {
+                            **(candidate.meta or {}),
+                            "crypto_ambiguity": {
+                                "tx_id": transfer.tx_id,
+                                "payment_ids": [p.id for p in matches],
+                            },
+                        }
                 continue
             payment = matches[0]
             open_payments.remove(payment)

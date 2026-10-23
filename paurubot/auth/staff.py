@@ -14,9 +14,9 @@ from paurubot.db.models import ResellerProfile, Staff, StaffApiKey, StaffRole
 from paurubot.security import login_guard
 from paurubot.security.tokens import (
     constant_equals,
-    hash_password,
+    hash_password_async,
     sha256_hex,
-    verify_password,
+    verify_password_async,
 )
 
 
@@ -34,7 +34,7 @@ async def authenticate(session: AsyncSession, username: str, password: str, ip: 
     staff = await session.scalar(select(Staff).where(func.lower(Staff.username) == username.lower()))
     shop_id = staff.shop_id if staff else None
     # Missing accounts still run a password KDF; legacy bcrypt remains readable.
-    password_ok = verify_password(password, staff.password_hash if staff else None)
+    password_ok = await verify_password_async(password, staff.password_hash if staff else None)
     if staff is None or not staff.is_active or not password_ok:
         await login_guard.failed(username, ip)
         await record(
@@ -78,7 +78,7 @@ async def create_staff(
         shop_id=shop_id,
         role=role,
         username=username.strip() if username else None,
-        password_hash=hash_password(password) if password else None,
+        password_hash=await hash_password_async(password) if password else None,
         telegram_id=telegram_id,
         display_name=display_name,
         reseller_profile_id=reseller_profile_id,
@@ -95,7 +95,7 @@ async def change_password(session: AsyncSession, staff: Staff, new_password: str
     if locked is None or not locked.is_active:
         raise AuthError("invalid credentials")
     staff = locked
-    staff.password_hash = hash_password(new_password)
+    staff.password_hash = await hash_password_async(new_password)
     staff.session_version += 1
     await session.flush()
     await sessions.destroy_all(staff.id)
@@ -140,6 +140,13 @@ async def by_telegram(session: AsyncSession, shop_id: int, telegram_id: int) -> 
 
 CODE_TTL = 300
 CODE_ATTEMPTS = 5
+OTP_CONSUME = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    redis.call('DEL', KEYS[1], KEYS[2])
+    return 1
+end
+return 0
+"""
 
 
 def _code_hash(staff_id: int, code: str) -> str:
@@ -198,6 +205,16 @@ async def verify_code(session: AsyncSession, username: str, code: str, ip: str) 
             _code_hash(staff.id, code.strip()),
         )
     )
+    if ok and staff is not None:
+        ok = bool(
+            await redis.eval(
+                OTP_CONSUME,
+                2,
+                f"otp:code:{staff.id}",
+                f"otp:tries:{staff.id}",
+                _code_hash(staff.id, code.strip()),
+            )
+        )
     if not ok or staff is None:
         await login_guard.failed(username, ip)
         if staff is not None:
@@ -214,7 +231,6 @@ async def verify_code(session: AsyncSession, username: str, code: str, ip: str) 
             entity_id=staff.id if staff else None,
         )
         raise AuthError("invalid code")
-    await redis.delete(f"otp:code:{staff.id}", f"otp:tries:{staff.id}")
     await login_guard.succeeded(username, ip)
     staff.last_login_at = utcnow()
     await record(

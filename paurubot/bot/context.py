@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -32,7 +33,8 @@ log = logging.getLogger(__name__)
 Handler = Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]]
 FLOOD_LIMIT = 25
 FLOOD_WINDOW = 10
-_join_ok: dict[int, float] = {}
+_join_ok: OrderedDict[tuple[int, int], float] = OrderedDict()
+JOIN_CACHE_LIMIT = 4096
 
 
 @dataclass(slots=True)
@@ -124,7 +126,13 @@ class ContextMiddleware(BaseMiddleware):
             if shop_id == UNKNOWN_BOT:
                 return None  # e.g. a reseller bot that was just stopped: never serve the main shop
             shop = await session.get(Shop, shop_id) if shop_id else await root_shop(session)
-            if shop is not None and shop.reseller_profile_id is not None and shop.status != ShopStatus.ACTIVE:
+            financial_update = flood_exempt(event if isinstance(event, Update) else data.get("event_update"))
+            if (
+                shop is not None
+                and shop.reseller_profile_id is not None
+                and shop.status != ShopStatus.ACTIVE
+                and not financial_update
+            ):
                 return None  # a reseller bot that was switched off
             if shop is None:
                 await _notify(event, "This bot is not set up yet.")
@@ -178,7 +186,7 @@ class ContextMiddleware(BaseMiddleware):
                 },
             )
             data.update(customer=customer, is_new_customer=created, staff=staff, t=texts)
-            if staff is None:
+            if staff is None and not financial_update:
                 if customer.is_banned:
                     await _notify(event, texts("banned"))
                     await session.commit()
@@ -250,13 +258,21 @@ async def missing_channels(bot: Bot, session: AsyncSession, customer: Customer) 
             .order_by(ForcedChannel.sort)
         )
     )
-    if not channels or _join_ok.get(customer.telegram_id, 0) > time.monotonic():
+    now = time.monotonic()
+    for expired in [key for key, expiry in _join_ok.items() if expiry <= now]:
+        _join_ok.pop(expired, None)
+    cache_key = (customer.shop_id, customer.telegram_id)
+    if not channels or _join_ok.get(cache_key, 0) > now:
         return []
     missing, _unknown = await channel_rules.missing_members(bot, channels, customer.telegram_id)
     if not missing:
-        _join_ok[customer.telegram_id] = time.monotonic() + 300
+        _join_ok[cache_key] = time.monotonic() + 300
+        _join_ok.move_to_end(cache_key)
+        while len(_join_ok) > JOIN_CACHE_LIMIT:
+            _join_ok.popitem(last=False)
     return missing
 
 
 def forget_join_check(telegram_id: int) -> None:
-    _join_ok.pop(telegram_id, None)
+    for key in [key for key in _join_ok if key[1] == telegram_id]:
+        _join_ok.pop(key, None)

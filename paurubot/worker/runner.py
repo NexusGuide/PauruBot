@@ -50,6 +50,7 @@ class QueueSpec:
     lease_seconds: int = 120
 
 
+DEAD_HOOK_KIND = "__dead_hook__"
 QUEUES: dict[str, QueueSpec] = {}
 
 
@@ -127,6 +128,23 @@ async def _run_job(name: str, spec: QueueSpec, job: queue.Claimed) -> None:
     from paurubot.ops import metrics
 
     handler = spec.handlers.get(job.kind)
+    if job.kind == DEAD_HOOK_KIND and spec.on_dead is not None:
+
+        async def compensate(session: AsyncSession, claimed: queue.Claimed) -> None:
+            original = claimed.payload
+            failed = queue.Claimed(
+                id=int(original["id"]),
+                kind=str(original["kind"]),
+                payload=dict(original["payload"]),
+                attempts=int(original["attempts"]),
+                max_attempts=int(original["max_attempts"]),
+                shop_id=claimed.shop_id,
+                token="",  # Never reuse a stale original job's claim token.
+            )
+            assert spec.on_dead is not None
+            await spec.on_dead(session, failed, str(original["error"]))
+
+        handler = compensate
     retry_after: float | None = None
     maker = get_sessionmaker()
     async with maker() as session:
@@ -169,8 +187,24 @@ async def _run_job(name: str, spec: QueueSpec, job: queue.Claimed) -> None:
             await session.rollback()
             log.warning("job %s: stale failure discarded", job.id)
             return
-        await session.commit()
-        await metrics.count_job(name, "dead" if dead else "retry")
+        if dead and spec.on_dead is not None and job.kind != DEAD_HOOK_KIND:
+            # Persist compensation intent with the DEAD transition, before the commit.
+            # A crash cannot strand a paid order between those two operations.
+            await queue.enqueue(
+                session,
+                name,
+                DEAD_HOOK_KIND,
+                {
+                    "id": job.id,
+                    "kind": job.kind,
+                    "payload": job.payload,
+                    "attempts": job.attempts,
+                    "max_attempts": job.max_attempts,
+                    "error": error,
+                },
+                shop_id=job.shop_id,
+                dedupe_key=f"dead-hook:{job.id}",
+            )
         if dead and name != "notify":
             await queue.enqueue(
                 session,
@@ -178,14 +212,10 @@ async def _run_job(name: str, spec: QueueSpec, job: queue.Claimed) -> None:
                 "job_dead",
                 {"job_id": job.id, "queue": name, "kind": job.kind, "error": error[:300]},
                 shop_id=job.shop_id,
+                dedupe_key=f"job-dead-notify:{job.id}",
             )
-            await session.commit()
-        if dead and spec.on_dead is not None:
-            try:
-                await spec.on_dead(session, job, error)
-                await session.commit()
-            except Exception:
-                log.exception("dead-letter hook failed for job %s", job.id)
+        await session.commit()
+        await metrics.count_job(name, "dead" if dead else "retry")
 
 
 async def drain(name: str, spec: QueueSpec) -> int:

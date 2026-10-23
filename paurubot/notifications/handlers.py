@@ -207,6 +207,8 @@ async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
     customer = await session.get(Customer, order.customer_id)
     if service is None or customer is None:
         return
+    if service.customer_id != order.customer_id or service.shop_id != order.shop_id:
+        raise ValueError("order/service ownership mismatch; delivery refused")
     t = await _texts(session, customer)
     from paurubot.core import settings as shop_settings
     from paurubot.core.orders import service_extras

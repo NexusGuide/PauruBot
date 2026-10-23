@@ -21,7 +21,7 @@ from paurubot.config import get_settings
 from paurubot.db.base import utcnow
 from paurubot.db.models import Staff, StaffApiKey
 from paurubot.security.login_guard import LoginLocked
-from paurubot.security.tokens import verify_password
+from paurubot.security.tokens import verify_password_async
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -243,7 +243,7 @@ async def change_password(body: PasswordBody, ctx: CurrentStaff, response: Respo
         raise HTTPException(status_code=401, detail="session_revoked")
     if (locked.password_hash or "").startswith(("$2a$", "$2b$", "$2y$")):
         raise HTTPException(status_code=409, detail="legacy_password_reset_required")
-    if not verify_password(body.current_password, ctx.staff.password_hash):
+    if not await verify_password_async(body.current_password, ctx.staff.password_hash):
         raise HTTPException(status_code=400, detail="wrong_password")
     await staff_service.change_password(db, ctx.staff, body.new_password)
     await record(
