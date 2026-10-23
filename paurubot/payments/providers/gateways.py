@@ -751,12 +751,20 @@ class TonpayProvider(Gateway):
         )
         reference = self._reference(data.get("invoice_id"))
         url = self._checkout_url(data.get("invoice_url"))
-        if not reference or not url:
+        quoted = self._amount(data.get("final_amount"))
+        if (
+            not reference
+            or not url
+            or quoted is None
+            or self._amount(data.get("request_amount")) != payment.amount
+            or str(data.get("order_id")) != str(payment.id)
+            or data.get("currency", "IRT") != "IRT"
+        ):
             raise PaymentError("gateway_error")
         return Checkout(
             redirect_url=url,
             provider_ref=reference,
-            provider_amount=payment.amount,
+            provider_amount=quoted,
             provider_currency="IRT",
         )
 
@@ -800,8 +808,18 @@ class TonpayProvider(Gateway):
         actual = self._amount(data.get("final_amount"))
         if actual is None or data.get("currency", "IRT") != "IRT":
             return Verification(False, detail="waiting: invalid settlement amount or currency")
-        # Both overpayment and underpayment go through engine.mark_paid's dispute path.
-        return Verification(True, provider_tx_id=f"tonpay:{reference}", amount=actual, currency="IRT")
+        # Only the server-side quote persisted at creation authorizes the payable amount.
+        # Legacy invoices without a quote must not silently accept an adjusted amount.
+        quoted = self._amount(payment.provider_amount)
+        if quoted is None or actual != quoted or payment.provider_currency != "IRT":
+            return Verification(False, detail="waiting: invoice settlement differs from frozen quote")
+        return Verification(
+            True,
+            provider_tx_id=f"tonpay:{reference}",
+            amount=payment.amount,
+            currency="IRT",
+            raw={"request_amount": payment.amount, "final_amount": actual, "currency": "IRT"},
+        )
 
 
 GATEWAYS: dict[str, Gateway] = {

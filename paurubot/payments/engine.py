@@ -14,6 +14,7 @@ from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import ColumnElement, and_, func, or_, select, update
+from sqlalchemy import text as sql_text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -190,6 +191,11 @@ async def attach_receipt(
     image: bytes | None = None,
 ) -> Payment | None:
     """Store a card receipt and return an earlier payment it duplicates, if any."""
+    await session.execute(
+        sql_text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"receipt-admission:{payment.shop_id}"},
+    )
+    await session.refresh(payment, with_for_update=True)
     if payment.provider != "card" or payment.status != PaymentStatus.PENDING or payment.receipt_file_id:
         raise PaymentError("payment_not_waiting")
     payment.receipt_file_id = file_id
@@ -243,12 +249,13 @@ async def auto_approvable(session: AsyncSession, payment: Payment, cfg: dict[str
     customer = await auto_review_customer(session, payment)
     if customer is None:
         return False
-    if customer.card_trust == "trusted":
-        return True  # the shop vouched for this customer (PAY-17)
     if not cfg.get("card_auto_approve"):
         return False
-    if payment.amount > int(cfg.get("card_auto_max_amount") or 0):
+    cap = int(cfg.get("card_auto_max_amount") or 0)
+    if cap <= 0 or payment.amount <= 0 or payment.amount > cap:
         return False
+    if customer.card_trust == "trusted":
+        return True  # trust waives history, never the flag, hard cap or risk guards
     history = await session.scalar(
         select(func.count(Payment.id)).where(
             Payment.customer_id == payment.customer_id,

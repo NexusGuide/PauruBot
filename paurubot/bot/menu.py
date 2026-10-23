@@ -99,14 +99,19 @@ def validate_styles(value: Any) -> dict[str, dict[str, str]]:
     return clean
 
 
-def styled(text: str, style: dict[str, str] | None, **kwargs: Any) -> KeyboardButton:
+def button_style(style: dict[str, str] | None) -> dict[str, Any]:
+    """Telegram style fields shared by reply and inline buttons."""
     extra: dict[str, Any] = {}
     if style:
         if style.get("style") in STYLES:
             extra["style"] = style["style"]
         if style.get("emoji_id"):
             extra["icon_custom_emoji_id"] = style["emoji_id"]
-    return KeyboardButton(text=text, **extra, **kwargs)
+    return extra
+
+
+def styled(text: str, style: dict[str, str] | None, **kwargs: Any) -> KeyboardButton:
+    return KeyboardButton(text=text, **button_style(style), **kwargs)
 
 
 def available(cfg: dict[str, Any]) -> set[str]:
@@ -136,12 +141,13 @@ def menu_mode(cfg: dict[str, Any]) -> str:
     return mode if mode in {"reply", "inline", "miniapp"} else "reply"
 
 
-def inline_menu(t: Texts, cfg: dict[str, Any]) -> InlineKeyboardMarkup:
+def inline_menu(t: Texts, cfg: dict[str, Any], *, is_staff: bool = False) -> InlineKeyboardMarkup:
     """The main menu as glass buttons under a message; each one acts like its reply-keyboard twin."""
-    from paurubot.bot.callbacks import Menu
+    from paurubot.bot.callbacks import Admin, Menu
 
     layout = cfg.get("menu_layout") or DEFAULT_LAYOUT
     shown = available(cfg)
+    styles = cfg.get("button_styles") or {}
     rows: list[list[InlineKeyboardButton]] = []
     for row in layout:
         buttons = []
@@ -149,22 +155,60 @@ def inline_menu(t: Texts, cfg: dict[str, Any]) -> InlineKeyboardMarkup:
             if item not in shown:
                 continue
             if item == "miniapp":
-                url = f"{get_settings().public_url}/app/"
-                buttons.append(InlineKeyboardButton(text=t(BUTTONS[item]), web_app=WebAppInfo(url=url)))
+                url = f"{get_settings().public_url.rstrip('/')}/app/"
+                buttons.append(
+                    InlineKeyboardButton(
+                        text=t(BUTTONS[item]), web_app=WebAppInfo(url=url), **button_style(styles.get(item))
+                    )
+                )
             else:
                 buttons.append(
-                    InlineKeyboardButton(text=t(BUTTONS[item]), callback_data=Menu(item=item).pack())
+                    InlineKeyboardButton(
+                        text=t(BUTTONS[item]),
+                        callback_data=Menu(item=item).pack(),
+                        **button_style(styles.get(item)),
+                    )
                 )
         if buttons:
             rows.append(buttons)
+    if is_staff:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=t("btn_admin"),
+                    callback_data=Admin(section="home").pack(),
+                    **button_style(styles.get("admin")),
+                )
+            ]
+        )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def miniapp_button(t: Texts) -> InlineKeyboardMarkup:
-    url = f"{get_settings().public_url}/app/"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text=t("btn_miniapp_open"), web_app=WebAppInfo(url=url))]]
-    )
+def miniapp_button(
+    t: Texts, cfg: dict[str, Any] | None = None, *, is_staff: bool = False
+) -> InlineKeyboardMarkup:
+    url = f"{get_settings().public_url.rstrip('/')}/app/"
+    from paurubot.bot.callbacks import Admin
+
+    styles = (cfg or {}).get("button_styles") or {}
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=t("btn_miniapp_open"), web_app=WebAppInfo(url=url), **button_style(styles.get("miniapp"))
+            )
+        ]
+    ]
+    if is_staff:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=t("btn_admin"),
+                    callback_data=Admin(section="home").pack(),
+                    **button_style(styles.get("admin")),
+                )
+            ]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def main_menu(t: Texts, cfg: dict[str, Any], *, is_staff: bool) -> ReplyKeyboardMarkup:

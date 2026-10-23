@@ -14,6 +14,7 @@ from paurubot.bot.routers.start import menu
 from paurubot.bot.states import WalletStates
 from paurubot.bot.utils import Btn, error_text, show
 from paurubot.core.formatting import esc, jdate, money, parse_int
+from paurubot.db.base import utcnow
 from paurubot.db.models import Customer, Order, OrderStatus, Payment, PaymentStatus
 from paurubot.i18n import Texts
 from paurubot.ledger import wallet
@@ -613,6 +614,7 @@ async def pre_checkout(query: PreCheckoutQuery, session: AsyncSession, customer:
         payment is not None
         and payment.provider == "stars"
         and payment.status == PaymentStatus.PENDING
+        and (payment.expires_at is None or payment.expires_at > utcnow())
         and payment.customer_id == customer.id
         and payment.provider_amount == query.total_amount
         and query.currency == "XTR"

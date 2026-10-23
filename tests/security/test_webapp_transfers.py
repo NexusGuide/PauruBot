@@ -299,3 +299,56 @@ async def test_independent_committed_transactions_serialize_replay_and_daily_cap
         )
         assert total == 1
         assert await reconcile(session, shop_id) == []
+
+
+async def test_existing_wallet_read_does_not_invert_missing_wallet_creation_lock(transfer_engine):  # type: ignore[no-untyped-def]
+    """Force the update-vs-speculative-insert cycle from concurrent confirmations."""
+    from paurubot.db.models import LedgerAccount
+
+    maker = async_sessionmaker(transfer_engine, expire_on_commit=False)
+    async with maker() as session:
+        shop, sender, recipient = await setup(session)
+        shop_id, sender_id, recipient_id = shop.id, sender.id, recipient.id
+        await session.commit()
+    async with maker() as holder, maker() as creator:
+        # Keep a newer, uncommitted version of the existing source wallet.
+        await holder.execute(
+            update(LedgerAccount)
+            .where(LedgerAccount.shop_id == shop_id, LedgerAccount.customer_id == sender_id)
+            .values(balance=LedgerAccount.balance)
+        )
+        # The second transaction owns the not-yet-committed recipient account.
+        created = await wallet_account(creator, shop_id, recipient_id)
+        recipient_account_id = created.id
+
+        async def holder_needs_recipient():  # type: ignore[no-untyped-def]
+            found = await wallet_account(holder, shop_id, recipient_id)
+            await holder.commit()
+            return found.id
+
+        async def creator_needs_sender():  # type: ignore[no-untyped-def]
+            found = await wallet_account(creator, shop_id, sender_id)
+            assert found.balance == 200
+            await creator.commit()
+            return found.customer_id
+
+        tasks = [asyncio.create_task(holder_needs_recipient()), asyncio.create_task(creator_needs_sender())]
+        try:
+            result = await asyncio.wait_for(asyncio.gather(*tasks), timeout=10)
+            assert result == [recipient_account_id, sender_id]
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+    async with maker() as session:
+        assert (
+            await session.scalar(
+                select(func.count(LedgerAccount.id)).where(
+                    LedgerAccount.shop_id == shop_id, LedgerAccount.customer_id.in_([sender_id, recipient_id])
+                )
+            )
+            == 2
+        )
+        assert await wallet_balance(session, shop_id, sender_id) == 200
+        assert await wallet_balance(session, shop_id, recipient_id) == 0
+        assert await reconcile(session, shop_id) == []

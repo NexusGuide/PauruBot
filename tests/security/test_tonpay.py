@@ -19,7 +19,16 @@ CFG = {"tonpay_enabled": True, "tonpay_api_key": "synthetic-key"}
 
 @pytest.fixture
 def payment():  # type: ignore[no-untyped-def]
-    return cast(Payment, SimpleNamespace(id=42, amount=100_000, provider_ref="invoice_42"))
+    return cast(
+        Payment,
+        SimpleNamespace(
+            id=42,
+            amount=100_000,
+            provider_ref="invoice_42",
+            provider_amount=100_000,
+            provider_currency="IRT",
+        ),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -53,10 +62,17 @@ def gateway(data, status=200):  # type: ignore[no-untyped-def]
 
 
 async def test_standard_create_contract_and_no_pii(payment):  # type: ignore[no-untyped-def]
-    provider, calls = gateway({"invoice_id": "invoice_42", "invoice_url": "https://t.me/synthetic?start=42"})
+    provider, calls = gateway(
+        confirmed(
+            invoice_url="https://t.me/synthetic?start=42",
+            final_amount=100_037,
+            status="pending",
+            paid=False,
+        )
+    )
     checkout = await provider.create(payment, CFG)
     assert checkout.provider_ref == "invoice_42"
-    assert checkout.provider_amount == 100_000
+    assert checkout.provider_amount == 100_037
     assert checkout.provider_currency == "IRT"
     assert checkout.redirect_url == "https://t.me/synthetic?start=42"
     assert len(calls) == 1
@@ -135,10 +151,11 @@ async def test_unconfirmed_malformed_or_wrong_identity_never_pays(payment, chang
 
 
 @pytest.mark.parametrize("actual", [99_999, 100_001])
-async def test_difference_is_reported_for_existing_engine_dispute(payment, actual):  # type: ignore[no-untyped-def]
+async def test_changed_settlement_cannot_authorize_wallet_credit(payment, actual):  # type: ignore[no-untyped-def]
     provider, _ = gateway(confirmed(final_amount=actual))
     result = await provider.verify(payment, CFG, {})
-    assert result.paid and result.amount == actual and result.amount != payment.amount
+    assert not result.paid and result.amount is None
+    assert "frozen quote" in result.detail
 
 
 async def test_optional_remote_invoice_id_and_integer_strings(payment):  # type: ignore[no-untyped-def]
@@ -191,7 +208,7 @@ async def test_invalid_stored_reference_never_sends_http(payment, reference):  #
     ],
 )
 async def test_unsafe_checkout_url_is_not_exposed(payment, url):  # type: ignore[no-untyped-def]
-    provider, _ = gateway({"invoice_id": "invoice_42", "invoice_url": url})
+    provider, _ = gateway(confirmed(invoice_url=url))
     with pytest.raises(PaymentError, match="gateway_error"):
         await provider.create(payment, CFG)
 
@@ -260,3 +277,29 @@ def test_callback_locator_only_provides_identity():
     assert TonpayProvider.locate({"json": {"order_id": "42", "paid": True}}) == ("id", "42")
     assert TonpayProvider.locate({"json": {"invoice_id": "invoice_42"}}) == ("ref", "invoice_42")
     assert TonpayProvider.locate({"json": {"paid": True}}) is None
+
+
+async def test_adjusted_quote_credits_nominal_not_provider_tail(payment):  # type: ignore[no-untyped-def]
+    payment.provider_amount = 100_037
+    provider, calls = gateway(confirmed(final_amount=100_037))
+    result = await provider.verify(payment, CFG, {"json": {"final_amount": 999_999}})
+    assert result.paid and result.amount == 100_000
+    assert result.raw == {"request_amount": 100_000, "final_amount": 100_037, "currency": "IRT"}
+    assert len(calls) == 1 and calls[0].method == "GET"
+
+
+@pytest.mark.parametrize("actual", [99_999, 100_000, 100_036, 100_038])
+async def test_nominal_amount_does_not_bypass_adjusted_quote(payment, actual):  # type: ignore[no-untyped-def]
+    payment.provider_amount = 100_037
+    provider, _ = gateway(confirmed(final_amount=actual))
+    assert not (await provider.verify(payment, CFG, {})).paid
+
+
+@pytest.mark.parametrize("field", ["order_id", "request_amount", "final_amount"])
+async def test_incomplete_creation_quote_fails_closed(payment, field):  # type: ignore[no-untyped-def]
+    data = confirmed(invoice_url="https://t.me/synthetic?start=42")
+    del data[field]
+    provider, calls = gateway(data)
+    with pytest.raises(PaymentError, match="gateway_error"):
+        await provider.create(payment, CFG)
+    assert len(calls) == 1

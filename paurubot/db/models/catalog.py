@@ -44,6 +44,7 @@ class Panel(Base, UpdatedMixin):
     username_sequence: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_healthy: Mapped[bool | None] = mapped_column(Boolean)
+    national_mode: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     health_checked_at: Mapped[datetime | None] = mapped_column()
     health_error: Mapped[str | None] = mapped_column(String(255))
     # Latest resource, quota and node snapshot from the panel (PNL-02, PNL-13).
@@ -109,6 +110,9 @@ class Plan(Base, UpdatedMixin):
     delivery: Mapped[str] = mapped_column(String(16), default="panel", server_default="panel")
     # How a renewal treats what's left (SVC-13); None follows the shop's setting.
     renew_mode: Mapped[str | None] = mapped_column(String(16))
+    national_stock_plan_id: Mapped[int | None] = mapped_column(
+        ForeignKey("plans.id", ondelete="SET NULL"), index=True
+    )
 
     category: Mapped[Category | None] = relationship(lazy="selectin")
     location: Mapped[Location | None] = relationship(lazy="selectin")
@@ -179,6 +183,9 @@ class StockItem(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"), index=True)
     plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id", ondelete="CASCADE"))
+    name: Mapped[str | None] = mapped_column(String(96))
+    content_bytes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    part_count: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     payload_enc: Mapped[str] = mapped_column(Text)
     digest: Mapped[str] = mapped_column(String(64))
     note: Mapped[str | None] = mapped_column(String(128))

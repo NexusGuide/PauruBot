@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
 import secrets
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qsl
@@ -50,6 +52,36 @@ def verify_password(password: str, hashed: str | None) -> bool:
     except (InvalidHashError, VerificationError, ValueError):
         return False
     return False
+
+
+_PASSWORD_WORKERS = asyncio.Semaphore(2)
+
+
+async def _password_work(func: Callable[..., Any], *args: Any) -> Any:
+    workers = _PASSWORD_WORKERS
+    await workers.acquire()
+    try:
+        task = asyncio.create_task(asyncio.to_thread(func, *args))
+    except BaseException:
+        workers.release()
+        raise
+
+    def finished(result: asyncio.Task[Any]) -> None:
+        # The caller may be cancelled repeatedly; only the actual worker frees its slot.
+        workers.release()
+        if not result.cancelled():
+            result.exception()  # Observe failures even when the caller has gone away.
+
+    task.add_done_callback(finished)
+    return await asyncio.shield(task)
+
+
+async def hash_password_async(password: str) -> str:
+    return str(await _password_work(hash_password, password))
+
+
+async def verify_password_async(password: str, hashed: str | None) -> bool:
+    return bool(await _password_work(verify_password, password, hashed))
 
 
 def constant_equals(a: str | bytes | None, b: str | bytes | None) -> bool:

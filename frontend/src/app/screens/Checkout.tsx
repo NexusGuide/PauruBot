@@ -140,7 +140,7 @@ export function Checkout() {
     }
   };
 
-  const renewalReady = order.kind !== "renew" || previewedOrderId === order.id;
+  const renewalReady = order.kind !== "renew" || Boolean(order.params.national) || previewedOrderId === order.id;
   const pay = async (selected: string) => {
     if (!renewalReady) return;
     if (!gate.current.enter()) return;
@@ -182,6 +182,7 @@ export function Checkout() {
   return (
     <Screen title={t(`checkout_${order.kind}`)}>
       {order.kind === "purchase" && <Steps n={3} note={t("step_note_confirm")} />}
+      {order.params.national && <Panel className="mb-4"><p>{t("national_checkout_notice")}</p></Panel>}
 
       {order.kind === "purchase" && (
         <>
@@ -209,7 +210,7 @@ export function Checkout() {
         </>
       )}
 
-      {order.kind === "renew" && <RenewalPreview order={order} onReady={setPreviewedOrderId} />}
+      {order.kind === "renew" && !order.params.national && <RenewalPreview order={order} onReady={setPreviewedOrderId} />}
 
       <div className="app-card mt-4 p-4">
         {order.kind === "account_purchase" && (

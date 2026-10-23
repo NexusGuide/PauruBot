@@ -19,7 +19,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from paurubot.bot import keyboards
 from paurubot.bot.callbacks import Lang, Menu, Nav
 from paurubot.bot.context import StaffIdentity, forget_join_check, missing_channels
-from paurubot.bot.menu import BUTTONS, available, inline_menu, main_menu, menu_mode, miniapp_button
+from paurubot.bot.menu import (
+    BUTTONS,
+    DEFAULT_LAYOUT,
+    available,
+    inline_menu,
+    main_menu,
+    menu_mode,
+    miniapp_button,
+)
 from paurubot.bot.utils import Btn, show
 from paurubot.core import customers
 from paurubot.core.formatting import esc, money
@@ -32,29 +40,37 @@ router = Router(name="start")
 
 def menu(
     t: Texts, cfg: dict[str, Any], staff: StaffIdentity | None
-) -> ReplyKeyboardMarkup | ReplyKeyboardRemove:
-    """The reply keyboard; customers get none when the shop shows its menu inline (BOT-12).
-    Staff always keep it, for the admin button."""
-    if staff is None and menu_mode(cfg) != "reply":
-        return ReplyKeyboardRemove()
+) -> ReplyKeyboardMarkup | InlineKeyboardMarkup:
+    """One mode-aware menu for both entry and completion messages (BOT-12).
+
+    Staff use the selected customer mode too; an inline admin shortcut keeps
+    management reachable without forcing the full reply keyboard back on screen.
+    """
+    mode = menu_mode(cfg)
+    if mode == "inline":
+        return inline_menu(t, cfg, is_staff=staff is not None)
+    if mode == "miniapp":
+        return miniapp_button(t, cfg, is_staff=staff is not None)
     return main_menu(t, cfg, is_staff=staff is not None)
 
 
 async def home(
-    message: Message, t: Texts, cfg: dict[str, Any], staff: StaffIdentity | None, key: str = "welcome"
+    message: Message,
+    t: Texts,
+    cfg: dict[str, Any],
+    staff: StaffIdentity | None,
+    key: str = "welcome",
+    **params: Any,
 ) -> None:
-    mode = menu_mode(cfg) if staff is None else "reply"
-    if mode == "reply":
-        await message.answer(t(key), reply_markup=menu(t, cfg, staff))
-        return
-    # Take an old reply keyboard away, then show the menu under the message itself.
-    try:
-        gone = await message.answer("⌨️", reply_markup=ReplyKeyboardRemove())
-        await gone.delete()
-    except Exception:  # cosmetic only
-        pass
-    markup = inline_menu(t, cfg) if mode == "inline" else miniapp_button(t)
-    await message.answer(t(key), reply_markup=markup)
+    if menu_mode(cfg) != "reply":
+        # Telegram cannot remove a reply keyboard and attach inline buttons in
+        # the same message. Failure to delete this cosmetic message is harmless.
+        try:
+            gone = await message.answer("⌨️", reply_markup=ReplyKeyboardRemove())
+            await gone.delete()
+        except Exception:  # cosmetic only
+            pass
+    await message.answer(t(key, **params), reply_markup=menu(t, cfg, staff))
 
 
 async def send_start_media(message: Message, cfg: dict[str, Any]) -> None:
@@ -76,25 +92,68 @@ async def send_start_media(message: Message, cfg: dict[str, Any]) -> None:
 
 @router.callback_query(Menu.filter())
 async def menu_press(
-    call: CallbackQuery, callback_data: Menu, t: Texts, cfg: dict[str, Any], dispatcher: Any, bot: Any
+    call: CallbackQuery,
+    callback_data: Menu,
+    t: Texts,
+    cfg: dict[str, Any],
+    dispatcher: Any,
+    bot: Bot,
+    state: FSMContext,
+    staff: StaffIdentity | None = None,
+    **data: Any,
 ) -> None:
-    """An inline menu button runs exactly what its reply-keyboard button runs."""
+    """Route an inline menu press inside the *current* update context.
+
+    Re-entering feed_update opens a second database session: the customer upsert
+    waits on the row locked by this callback, which cannot finish until that
+    nested update returns. Reuse the session, shop, customer and FSM instead.
+    """
     from datetime import UTC, datetime
 
     from aiogram.types import Chat, Update
 
     await call.answer()
+    if not isinstance(call.message, Message) or call.message.chat.type != "private":
+        return
+    if call.message.chat.id != call.from_user.id:
+        return
+    if menu_mode(cfg) == "miniapp":
+        # An old glass menu must not reopen the bot menu after changing modes.
+        await state.clear()
+        await home(call.message, t, cfg, staff)
+        return
     label_key = BUTTONS.get(callback_data.item)
-    if label_key is None or callback_data.item not in available(cfg):
+    layout = cfg.get("menu_layout") or DEFAULT_LAYOUT
+    if (
+        label_key is None
+        or callback_data.item not in available(cfg)
+        or not any(callback_data.item in row for row in layout)
+    ):
         return
     synthetic = Message(
-        message_id=call.message.message_id if call.message else 0,
+        message_id=call.message.message_id,
         date=datetime.now(UTC),
         chat=Chat(id=call.from_user.id, type="private"),
         from_user=call.from_user,
         text=t(label_key),
+    ).as_(bot)
+    # Main-menu navigation must not become a ticket body, receipt or other FSM input.
+    await state.clear()
+    for key in ("handler", "event_router", "callback_data"):
+        data.pop(key, None)
+    data.update(
+        dispatcher=dispatcher,
+        bot=bot,
+        state=state,
+        raw_state=None,
+        t=t,
+        cfg=cfg,
+        staff=staff,
+        event_from_user=call.from_user,
+        event_chat=synthetic.chat,
+        event_update=Update(update_id=0, message=synthetic),
     )
-    await dispatcher.feed_update(bot, Update(update_id=0, message=synthetic))
+    await dispatcher.propagate_event(update_type="message", event=synthetic, **data)
 
 
 @router.message(CommandStart())
@@ -154,7 +213,7 @@ async def start(
             await home(message, t, cfg, staff, "guest_claim_invalid")
             return
         await session.commit()
-        await message.answer(t("guest_claimed", count=moved), reply_markup=menu(t, cfg, staff))
+        await home(message, t, cfg, staff, "guest_claimed", count=moved)
         return
     if arg.startswith("pay_paid_"):
         await home(message, t, cfg, staff, "payment_return_paid")
@@ -201,7 +260,7 @@ async def joined(
         return
     await call.answer(t("join_thanks"))
     if isinstance(call.message, Message):
-        await call.message.answer(t("join_ok"), reply_markup=menu(t, cfg, staff))
+        await home(call.message, t, cfg, staff, "join_ok")
 
 
 @router.callback_query(Nav.filter(F.to == "terms"))
@@ -211,7 +270,7 @@ async def accept_terms(
     customer.terms_accepted_version = int(cfg["terms_version"])
     await call.answer(t("terms_accepted"))
     if isinstance(call.message, Message):
-        await call.message.answer(t("welcome"), reply_markup=menu(t, cfg, staff))
+        await home(call.message, t, cfg, staff)
 
 
 @router.callback_query(Nav.filter(F.to == "noop"))
@@ -362,4 +421,4 @@ async def set_language(
     new_t = t.with_locale(callback_data.code)
     await call.answer(new_t("language_changed"))
     if isinstance(call.message, Message):
-        await call.message.answer(new_t("welcome"), reply_markup=menu(new_t, cfg, staff))
+        await home(call.message, new_t, cfg, staff)

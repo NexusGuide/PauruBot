@@ -47,7 +47,15 @@ test('all preview labels and placeholders match in English and Persian',()=>{
 });
 test('checkout gates wallet and every external method on this order preview, without changing other kinds',()=>{
  const s=readFileSync(new URL('../src/app/screens/Checkout.tsx',import.meta.url),'utf8');
- assert(s.includes('order.kind !== "renew" || previewedOrderId === order.id'));
+ const expression=s.match(/const renewalReady = (.*);/)[1];
+ const ready=new Function('order','previewedOrderId',`return ${expression};`);
+ for (const kind of ['purchase','renew']) for (const national of [false,true]) {
+   const order={id:10,kind,params:{national}};
+   for (const previewId of [null,9,10]) assert.equal(ready(order,previewId),
+     kind !== 'renew' || national || previewId === order.id,
+     `${kind}, national=${national}, preview=${previewId}`);
+ }
+ assert(s.includes('order.kind === "renew" && !order.params.national && <RenewalPreview'));
  assert(s.includes('if (!renewalReady) return;'));
  assert(s.includes('disabled={!renewalReady || (due > 0 && methods.length === 0)}'));
  assert(s.includes('disabled={busy !== null || !renewalReady} onClick={() => pay(option)}'));

@@ -28,7 +28,7 @@ dependencies = [
 [project.optional-dependencies]
 sentry = ["sentry-sdk>=2.0"]
 
-dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.5", "mypy>=1.10"]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.5", "mypy>=1.10", "fakeredis[lua]>=2.26,<3"]
 
 [project.scripts]
 paurubot = "paurubot.__main__:main"

@@ -64,10 +64,19 @@ async def test_blocked_and_trusted_customers(session, shop) -> None:  # type: ig
     assert exc.value.key == "card_blocked"
     trusted = await factories.customer(session, shop)
     trusted.card_trust = "trusted"
-    started = await engine.start(session, trusted, "card", 5_000_000)  # far above any auto-approve cap
+    started = await engine.start(session, trusted, "card", 5_000_000)  # trust must not bypass the cap
     await engine.attach_receipt(session, started.payment, file_id="f", text=None, image=None)
     await session.refresh(started.payment)
-    assert started.payment.status == PaymentStatus.PAID
+    assert started.payment.status == PaymentStatus.VERIFYING
+    await shop_settings.set_many(
+        session,
+        shop.id,
+        {"card_auto_approve": True, "card_auto_max_amount": 300_000, "card_auto_min_history": 999},
+    )
+    within_cap = await engine.start(session, trusted, "card", 300_000)
+    await engine.attach_receipt(session, within_cap.payment, file_id="within-cap", text=None, image=None)
+    await session.refresh(within_cap.payment)
+    assert within_cap.payment.status == PaymentStatus.PAID  # only history is waived
 
 
 async def test_card_must_be_registered_and_approved(session, shop) -> None:  # type: ignore[no-untyped-def]

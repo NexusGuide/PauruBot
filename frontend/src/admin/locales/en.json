@@ -1245,7 +1245,7 @@
   "stock_show": "Show",
   "stock_left": "{n} left",
   "err_stock_plan_needs_location": "A stock plan needs a location.",
-  "err_stock_sold": "A sold config can't be deleted.",
+  "err_stock_sold": "Sold inventory cannot be changed or deleted.",
   "err_stock_too_many": "Add at most 2000 configs at a time.",
   "err_not_a_stock_plan": "This plan doesn't sell from stock.",
   "err_out_of_stock": "Out of stock.",
@@ -1704,5 +1704,7 @@
   "typed_confirm_hint": "Type the value above. Persian and Arabic digits are accepted.",
   "typed_confirm_expired": "This confirmation expired. Request a new one; the action has not been submitted.",
   "typed_confirm_refresh": "Request a new confirmation",
-  "typed_confirm_bulk_scope": "Review the server-confirmed selection count below. This confirmation applies only to this selection."
+  "typed_confirm_bulk_scope": "Review the server-confirmed selection count below. This confirmation applies only to this selection.",
+  "nav_manual_sales": "Manual sales & national network",
+  "err_stock_storage_full": "Inventory storage is full."
 }

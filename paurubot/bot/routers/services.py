@@ -59,9 +59,11 @@ def _service_markup(t: Texts, service: Service, cfg: dict[str, Any]):  # type: i
         service,
         extras=service_extras(cfg, service),
         upgrade=bool(cfg["upgrade_enabled"]),
-        move=bool(cfg["move_enabled"]) and service.status in MOVABLE,
+        move=bool(cfg["move_enabled"])
+        and service.status in MOVABLE
+        and not (service.panel and service.panel.national_mode),
         card=bool(cfg["info_card_enabled"]),
-        cancel=bool(cfg["self_delete_enabled"]),
+        cancel=bool(cfg["self_delete_enabled"]) and not (service.panel and service.panel.national_mode),
         link=customer_link(service, cfg),
         auto=_auto_offer(service, cfg),
     )
@@ -95,21 +97,60 @@ async def list_services(
 
 
 @router.callback_query(Svc.filter(F.action == "stock"))
-async def stock_list(call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts) -> None:
+async def stock_list(
+    call: CallbackQuery, callback_data: Svc, session: AsyncSession, customer: Customer, t: Texts
+) -> None:
     """Ready-made configs this customer bought (CAT-05)."""
     from paurubot.core import stock
 
-    items = await stock.for_customer(session, customer.id, limit=10)
+    page = max(0, min(callback_data.page, 100000))
+    items = await stock.for_customer(session, customer.id, limit=11, offset=page * 10)
     await call.answer()
     if not items:
         await show(call, t("no_services"))
         return
-    parts = [t("stock_header")]
-    for item in items:
-        config = stock.payload(item)
-        shown = config if len(config) <= 600 else config[:600] + "…"
-        parts.append(f"#{item.id}\n<code>{esc(shown)}</code>")
-    await show(call, "\n\n".join(parts)[:4000], keyboards.back_to_services(t))
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+    buttons = [
+        [
+            InlineKeyboardButton(
+                text=item.name or f"#{item.id}", callback_data=Svc(action="stock_send", id=item.id).pack()
+            )
+        ]
+        for item in items[:10]
+    ]
+    navigation = []
+    if page:
+        navigation.append(
+            InlineKeyboardButton(text="‹", callback_data=Svc(action="stock", page=page - 1).pack())
+        )
+    if len(items) > 10:
+        navigation.append(
+            InlineKeyboardButton(text="›", callback_data=Svc(action="stock", page=page + 1).pack())
+        )
+    if navigation:
+        buttons.append(navigation)
+    buttons.append([InlineKeyboardButton(text=t("btn_back"), callback_data=Svc(action="list").pack())])
+    await show(call, t("stock_header"), InlineKeyboardMarkup(inline_keyboard=buttons))
+
+
+@router.callback_query(Svc.filter(F.action == "stock_send"))
+async def stock_send(
+    call: CallbackQuery, callback_data: Svc, session: AsyncSession, customer: Customer, t: Texts
+) -> None:
+    from paurubot.core import stock
+    from paurubot.db.models import StockItem
+    from paurubot.notifications import manual_delivery, telegram
+
+    item = await session.get(StockItem, callback_data.id)
+    if item is None or item.customer_id != customer.id or item.status != stock.SOLD:
+        await call.answer(t("service_not_found"), show_alert=True)
+        return
+    await call.answer()
+    try:
+        await manual_delivery.send(customer, item, t("stock_ready"))
+    except telegram.Undeliverable:
+        pass
 
 
 @router.message(Btn("btn_services"))
@@ -297,9 +338,11 @@ async def _resale_service_markup(session: AsyncSession, t: Texts, service: Servi
         service,
         extras=await resale.listed_extras(session, service, service.shop_id, cfg),
         upgrade=bool(cfg["upgrade_enabled"]),
-        move=bool(cfg["move_enabled"]) and service.status in MOVABLE,
+        move=bool(cfg["move_enabled"])
+        and service.status in MOVABLE
+        and not (service.panel and service.panel.national_mode),
         card=bool(cfg["info_card_enabled"]),
-        cancel=bool(cfg["self_delete_enabled"]),
+        cancel=bool(cfg["self_delete_enabled"]) and not (service.panel and service.panel.national_mode),
         link=customer_link(service, cfg),
         auto=_auto_offer(service, cfg),
     )
@@ -335,6 +378,16 @@ async def links(
         return
     await call.answer()
     if not isinstance(call.message, Message):
+        return
+    if service.panel is not None and service.panel.national_mode:
+        from paurubot.core import national
+        from paurubot.notifications import manual_delivery
+
+        item = await national.replacement(session, service)
+        if item is not None:
+            await manual_delivery.send(customer, item, t("stock_ready"))
+        else:
+            await call.message.answer(t("national_no_replacement"))
         return
     kind = delivery_of(service.panel.kind if service.panel else None)
     if kind == "account":

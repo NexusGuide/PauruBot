@@ -217,6 +217,21 @@ async def _create_service(session: AsyncSession, order: Order) -> Service:
         select(Service).where(Service.panel_id == panel.id, Service.panel_username == username)
     )
     if existing_service is not None:
+        creator = await session.scalar(
+            select(Order.id)
+            .where(
+                Order.service_id == existing_service.id,
+                Order.kind.in_([OrderKind.PURCHASE, OrderKind.TRIAL]),
+                Order.id != order.id,
+            )
+            .limit(1)
+        )
+        if (
+            existing_service.customer_id != order.customer_id
+            or existing_service.shop_id != order.shop_id
+            or creator is not None
+        ):
+            raise ProvisionError("panel username belongs to another order")
         return existing_service
     info = await driver.get_user(PanelRef(username, params.get("panel_data") or {}))
     if info is None:
@@ -796,7 +811,9 @@ async def _fulfill(session: AsyncSession, order_id: int) -> Service | None:
         await _apply_account(session, order)
         return None
     plan = await session.get(Plan, order.plan_id) if order.plan_id else None
-    if order.kind == OrderKind.PURCHASE and plan is not None and plan.delivery == "stock":
+    if order.params.get("stock_plan_id") or (
+        order.kind == OrderKind.PURCHASE and plan is not None and plan.delivery == "stock"
+    ):
         await _deliver_stock(session, order)
         return None
     if order.kind in {OrderKind.PURCHASE, OrderKind.TRIAL}:
@@ -996,6 +1013,8 @@ async def delete_service(session: AsyncSession, service: Service, reason: str | 
 async def refresh(session: AsyncSession, service: Service) -> PanelUser | None:
     panel = await session.get(Panel, service.panel_id)
     assert panel is not None
+    if panel.national_mode:
+        return None  # Do not mark existing subscriptions deleted during an outage.
     info = await (await driver_for(panel)).get_user(ref(service))
     if info is None:
         service.status = ServiceStatus.DELETED
@@ -1038,6 +1057,13 @@ async def revoke(session: AsyncSession, service: Service) -> None:
 async def links(session: AsyncSession, service: Service) -> list[str]:
     panel = await session.get(Panel, service.panel_id)
     assert panel is not None
+    if panel.national_mode:
+        from paurubot.core import manual_stock, national
+
+        item = await national.replacement(session, service)
+        if item is None:
+            return []
+        return [p.text for p in manual_stock.parts(item) if p.data is None]
     return await (await driver_for(panel)).fetch_links(service.subscription_url)
 
 

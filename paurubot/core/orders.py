@@ -87,6 +87,8 @@ def can_change(service: Service, change: str) -> bool:
     """Whether the service's panel can apply `change` (renew, upgrade, extra_volume...) at all."""
     from paurubot.panels.registry import changes_of
 
+    if service.panel is not None and service.panel.national_mode:
+        return change == "renew"
     return change in changes_of(service.panel.kind if service.panel is not None else None)
 
 
@@ -96,7 +98,7 @@ def service_extras(cfg: dict[str, Any], service: Service) -> tuple[int | None, i
     The plan decides prices (CAT-02); a panel can switch either one off (ADM-07), and some panel
     kinds cannot take extras at all (PNL-11).
     """
-    if service.is_trial:
+    if service.is_trial or (service.panel is not None and service.panel.national_mode):
         return None, None
     prices = extra_prices(cfg, service.plan)
     if prices is None:
@@ -267,6 +269,25 @@ async def _draft(
             raise OrderError("trial_not_renewable")
         if kind in {OrderKind.RENEW, OrderKind.UPGRADE} and not can_change(service, kind.value):
             raise OrderError("plan_unavailable")
+    from paurubot.core import national, stock
+
+    if (
+        service is not None
+        and service.panel is not None
+        and service.panel.national_mode
+        and kind != OrderKind.RENEW
+    ):
+        raise OrderError("plan_unavailable")
+    if plan is not None and kind in {OrderKind.PURCHASE, OrderKind.RENEW}:
+        try:
+            target = await national.route(session, plan, service)
+        except stock.StockError as exc:
+            raise OrderError(str(exc)) from exc
+        if target is not None:
+            if (await stock.counts(session, [target.id]))[target.id][stock.AVAILABLE] < 1:
+                raise OrderError("out_of_stock")
+            params["stock_plan_id"] = target.id
+            params["national"] = True
     if kind == OrderKind.PURCHASE:
         if plan is None and (custom_gb or custom_days):
             params["custom"] = {"gb": custom_gb, "days": custom_days}
@@ -456,6 +477,14 @@ async def settle_from_wallet(session: AsyncSession, order_id: int) -> Order:
         async with session.begin_nested():
             await wallet.charge(session, order.shop_id, order.customer_id, order.amount, order_id=order.id)
             await _redeem(session, order)
+            from paurubot.core import national, stock
+
+            try:
+                await national.validate_checkout(session, order)
+            except stock.StockError as exc:
+                raise OrderError(str(exc)) from exc
+            if order.params.get("stock_plan_id") and await stock.take(session, order, reserve=True) is None:
+                raise OrderError("out_of_stock")
     except InsufficientFunds as exc:
         balance = await wallet_balance(session, order.shop_id, order.customer_id)
         raise OrderError("insufficient_balance", balance=balance, required=order.amount) from exc
@@ -468,7 +497,7 @@ async def settle_from_wallet(session: AsyncSession, order_id: int) -> Order:
 
 async def queued_until(session: AsyncSession, order: Order) -> datetime | None:
     """When a renewal should wait for the current period to end (SVC-02), the time it runs."""
-    if order.kind != OrderKind.RENEW or not order.service_id:
+    if order.params.get("stock_plan_id") or order.kind != OrderKind.RENEW or not order.service_id:
         return None
     if not await shop_settings.get(session, order.shop_id, "renew_queue_when_active"):
         return None
@@ -565,6 +594,14 @@ async def refund_failed(session: AsyncSession, order: Order, reason: str, actor:
         return
     await wallet.refund(
         session, order.shop_id, order.customer_id, order.amount, order_id=order.id, actor=actor
+    )
+    from paurubot.core import stock
+    from paurubot.db.models import StockItem
+
+    await session.execute(
+        update(StockItem)
+        .where(StockItem.order_id == order.id, StockItem.status == stock.RESERVED)
+        .values(status=stock.AVAILABLE, order_id=None, customer_id=None, sold_at=None)
     )
     order.status = OrderStatus.REFUNDED
     order.error = reason[:500]

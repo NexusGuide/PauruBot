@@ -22,7 +22,11 @@ env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/paurubot
 
 jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
   image:
+    needs: checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,6 +78,7 @@ jobs:
 
   # Docker Hub refuses many Iranian addresses; keep copies of the base images next to ours on GHCR.
   mirror:
+    needs: checks
     runs-on: ubuntu-latest
     steps:
       - uses: docker/setup-buildx-action@v4

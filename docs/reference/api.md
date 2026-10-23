@@ -82,6 +82,12 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/lotteries/{lottery_id}/{action}` | `broadcast.send` | `draw` now (instead of waiting for the end time) or `cancel` an open lottery. |
 | GET | `/api/admin/lotteries` | `broadcast.send` | List lotteries |
 | POST | `/api/admin/lotteries` | `broadcast.send` | Create lottery |
+| POST | `/api/admin/manual-sales/bulk` | `catalog.write` | Bulk inventory |
+| POST | `/api/admin/manual-sales/import` | `catalog.write` | Import inventory |
+| PUT | `/api/admin/manual-sales/mapping/{plan_id}` | `catalog.write` | Mapping |
+| PUT | `/api/admin/manual-sales/national/{panel_id}` | `catalog.write` | National switch |
+| GET | `/api/admin/manual-sales/{item_id}/content` | `catalog.write` | Content |
+| GET | `/api/admin/manual-sales` | `catalog.read` | Inventory |
 | GET | `/api/admin/migration/last` | `backups.manage` | Migration last |
 | POST | `/api/admin/migration/run` | `backups.manage` | Migration run |
 | POST | `/api/admin/migration/upload` | `backups.manage` | Store a MySQL dump or SQLite file and describe what it holds. |
@@ -271,6 +277,9 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/staff/reviews/{payment_id}/receipt` | Mini App initData | Receipt |
 | POST | `/api/webapp/staff/reviews/{payment_id}/reject` | Mini App initData | Reject |
 | GET | `/api/webapp/staff/reviews` | Mini App initData | Reviews |
+| GET | `/api/webapp/stock/{item_id}/files/{part_id}` | Mini App initData | Download |
+| GET | `/api/webapp/stock/{item_id}` | Mini App initData | Content |
+| GET | `/api/webapp/stock` | Mini App initData | Inventory |
 | POST | `/api/webapp/tickets/{ticket_id}/attachments` | Mini App initData | Upload |
 | POST | `/api/webapp/tickets/{ticket_id}/close` | Mini App initData | Ticket close |
 | GET | `/api/webapp/tickets/{ticket_id}/messages/{message_id}/attachment` | Mini App initData | Attachment |
@@ -321,6 +330,12 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | Method | Path | Access | What it does |
 |---|---|---|---|
 | GET | `/metrics` | METRICS_TOKEN or a private network | Prometheus scrape target (JOB-05): a bearer token, or a private address when none is set. |
+
+## `/readyz`
+
+| Method | Path | Access | What it does |
+|---|---|---|---|
+| GET | `/readyz` | public | Readyz |
 
 ## `/s`
 

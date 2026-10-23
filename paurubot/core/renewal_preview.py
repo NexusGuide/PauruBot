@@ -34,7 +34,7 @@ async def for_order(session: AsyncSession, customer: Customer, order: Order) -> 
     now = utcnow()
     if order.status != OrderStatus.PENDING or (order.expires_at and order.expires_at <= now):
         raise orders.OrderError("order_expired")
-    if order.kind != OrderKind.RENEW:
+    if order.params.get("national") or order.kind != OrderKind.RENEW:
         raise orders.OrderError("renewal_preview_unavailable")
     service = (
         await session.get(Service, order.service_id, populate_existing=True) if order.service_id else None

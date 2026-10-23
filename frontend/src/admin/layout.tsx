@@ -30,6 +30,7 @@ export const NAV_GROUPS: { key: string; items: NavItem[] }[] = [
   {
     key: "nav_group_shop",
     items: [
+      { to: "/manual-sales", key: "nav_manual_sales", icon: "catalog", permission: "catalog.read", shopWide: true },
       { to: "/catalog", key: "nav_catalog", icon: "catalog", permission: "catalog.read", shopWide: true },
       { to: "/panels", key: "nav_panels", icon: "panels", permission: "panels.read" },
       { to: "/discounts", key: "nav_discounts", icon: "discounts", permission: "discounts.write" },

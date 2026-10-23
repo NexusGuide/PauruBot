@@ -32,9 +32,11 @@ def service_card(t: Texts, service: Service, link: str | None = None) -> str:
 
     kind = delivery_of(service.panel.kind if service.panel else None)
     key = {"wireguard": "service_card_wireguard", "account": "service_card_account"}.get(kind, "service_card")
-    return t(
+    card = t(
         key,
-        password=esc((service.panel_data or {}).get("password") or "-"),
+        password="-"
+        if service.panel and service.panel.national_mode
+        else esc((service.panel_data or {}).get("password") or "-"),
         label=esc(service.label or service.panel_username),
         username=esc(service.panel_username),
         status=t(f"status_{service.status.value}"),
@@ -45,8 +47,13 @@ def service_card(t: Texts, service: Service, link: str | None = None) -> str:
         ),
         volume=volume,
         expiry=expiry,
-        sub=esc(link or service.subscription_url or "-"),
+        sub="-"
+        if service.panel and service.panel.national_mode
+        else esc(link or service.subscription_url or "-"),
     )
+    if service.panel and service.panel.national_mode:
+        card += "\n\n" + t("national_service_notice")
+    return card
 
 
 def plan_specs(t: Texts, plan: Plan) -> str:
@@ -59,6 +66,8 @@ def checkout_text(
     t: Texts, order: Order, *, plan: Plan | None, service: Service | None, balance: int, code: str | None
 ) -> str:
     lines = [t(f"checkout_header_{order.kind.value}")]
+    if order.params.get("national"):
+        lines.append(t("national_checkout_notice"))
     if plan is not None:
         lines.append(t("checkout_plan", title=esc(plan.title)))
         lines.append(plan_specs(t, plan))

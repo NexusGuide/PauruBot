@@ -1,4 +1,5 @@
 import QRCode from "qrcode";
+import { StockInventory } from "./StockInventory";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from "react-router-dom";
 import { date, daysLeft, money, size } from "@shared/format";
@@ -61,6 +62,7 @@ export function Services() {
       </select>
       {(query || status) && <Button tone="quiet" onClick={() => change("", "")}>{t("services_clear")}</Button>}
     </div>
+    <StockInventory />
     <ServiceResults key={JSON.stringify([query, status])} q={query} status={status} returnTo={returnTo} />
     <Button onClick={() => navigate("/buy")}>
       <span className="inline-flex items-center gap-2"><Icon name="bag" />{t("buy_new_service")}</span>
@@ -282,6 +284,7 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
 
   return (
     <Screen title={service.label || service.username} subtitle={service.username} backTo={backTo}>
+      {service.national_mode && <Panel className="mb-4"><p>{locale === "fa" ? "نت ملی فعال است. اطلاعات زیر مربوط به اشتراک اصلی است؛ تمدید کانفیگ جایگزین می‌دهد. فایل‌های جایگزین در «کانفیگ‌های آمادهٔ من» هستند." : "National-network mode is on. These figures describe the original service. Renewal delivers a replacement; find its files under My ready-made configurations."}</p></Panel>}
       <section className="app-card p-5 text-center">
         <Ring size={190} outer={usageRatio(service)} inner={timeRatio(service)}>
           <span className="num text-3xl font-extrabold">

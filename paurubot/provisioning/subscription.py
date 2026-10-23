@@ -48,6 +48,8 @@ def customer_link(service: Service, cfg: dict[str, Any]) -> str | None:
     WireGuard and login panels (PNL-08, PNL-11) have no link meant for customers: what the panel
     holds is an internal download address, so only the branded page is ever shown for them.
     """
+    if service.panel is not None and service.panel.national_mode:
+        return None
     from paurubot.panels.registry import delivery_of
 
     if delivery_of(service.panel.kind if service.panel is not None else None) != "subscription":

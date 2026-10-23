@@ -7,6 +7,7 @@ small enough for the Bot API is uploaded to Telegram once and then re-sent by fi
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import json
 import logging
 import re
@@ -96,7 +97,9 @@ async def latest(
 
 
 def cache_key(shop_id: int, app: dict[str, str]) -> str:
-    return f"apps:{shop_id}:{app['platform']}:{app['repo'] or app['name']}"
+    selection = json.dumps([app.get("repo"), app.get("name"), app.get("pattern", "")], separators=(",", ":"))
+    digest = hashlib.sha256(selection.encode()).hexdigest()[:24]
+    return f"apps:v2:{shop_id}:{app['platform']}:{digest}"
 
 
 async def cached(shop_id: int, app: dict[str, str]) -> dict[str, Any] | None:
@@ -133,7 +136,11 @@ async def refresh(
             "asset": release.asset,
             "url": release.url,
             "size": release.size,
-            "file_id": previous.get("file_id") if previous.get("version") == release.version else None,
+            "file_id": previous.get("file_id")
+            if previous.get("version") == release.version
+            and previous.get("asset") == release.asset
+            and previous.get("url") == release.url
+            else None,
         }
         if cache_chat_id and not entry["file_id"] and 0 < release.size <= TELEGRAM_LIMIT:
             with tempfile.TemporaryDirectory() as tmp:
@@ -146,8 +153,12 @@ async def refresh(
                         client.stream("GET", release.url) as resp,
                     ):
                         resp.raise_for_status()
+                        received = 0
                         with path.open("wb") as handle:
                             async for chunk in resp.aiter_bytes():
+                                received += len(chunk)
+                                if received > TELEGRAM_LIMIT:
+                                    raise AppError("download_too_large")
                                 handle.write(chunk)
                     message = await get_bot().send_document(
                         cache_chat_id,

@@ -20,6 +20,7 @@ import { Account, Audit, Backups, Channels, Health, Jobs, Reports, Settings, Tex
 import { SessionProvider, useSession } from "./session";
 import { ConfirmProvider, Empty, Loading, Page, Section, Toasts } from "./ui";
 
+const ManualSales = lazy(() => import("./screens/ManualSales").then(m => ({ default: m.ManualSales })));
 const MyBot = lazy(() => import("./screens/MyBot").then((m) => ({ default: m.MyBot })));
 const HelpIndex = lazy(() => import("./screens/Help").then((m) => ({ default: m.HelpIndex })));
 const HelpArticle = lazy(() => import("./screens/Help").then((m) => ({ default: m.HelpArticle })));
@@ -55,6 +56,7 @@ function Routed() {
         <Route path="/payments" element={g("payments.read", <Payments />)} />
         <Route path="/tickets" element={g("tickets.read", <Tickets />)} />
         <Route path="/tickets/:id" element={g("tickets.read", <TicketPage />)} />
+        <Route path="/manual-sales" element={g("catalog.read", <Suspense fallback={<Loading />}><ManualSales /></Suspense>)} />
         <Route path="/catalog" element={g("catalog.read", <Catalog />)} />
         <Route path="/panels" element={g("panels.read", <Panels />)} />
         <Route path="/discounts" element={g("discounts.write", <Discounts />)} />

@@ -23,6 +23,17 @@ SYSTEM_ACCOUNTS: dict[str, LedgerAccountKind] = {
 async def _ensure(
     session: AsyncSession, shop_id: int, code: str, kind: LedgerAccountKind, customer_id: int | None = None
 ) -> LedgerAccount:
+    # Existing accounts need only an MVCC read. Re-inserting an existing unique key
+    # can wait for another transaction's balance update, even with DO NOTHING.
+    # Combined with creation of a missing counterparty wallet, that inverts the
+    # transfer's row-lock order and can form a speculative-insert deadlock.
+    existing = await session.scalar(
+        select(LedgerAccount).where(LedgerAccount.shop_id == shop_id, LedgerAccount.code == code)
+    )
+    if existing is not None:
+        return existing
+    # Missing-account races still resolve through the unique index, followed by
+    # a fresh read of the winner. Posting remains responsible for balance locks.
     stmt = (
         insert(LedgerAccount)
         .values(

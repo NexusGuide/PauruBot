@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PauruBot installer and manager.
 #
-#   bash <(curl -fsSL https://raw.githubusercontent.com/NexusGuide/PauruBot/main/install.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/mehdialij/PauruBot/main/install.sh)
 #
 # Without arguments it opens a menu. Every action also works non-interactively:
 #   install.sh install --domain bot.example.com --token 123:ABC --owner 123456 [--channel stable|beta] [--version v1.2.3] [--https-port 443]
@@ -16,8 +16,8 @@
 
 set -Eeuo pipefail
 
-REPO="NexusGuide/PauruBot"
-IMAGE_REPO="ghcr.io/nexusguide/paurubot"
+REPO="mehdialij/PauruBot"
+IMAGE_REPO="ghcr.io/mehdialij/paurubot"
 DIR="${PAURUBOT_DIR:-/opt/paurubot}"
 ENV_FILE="$DIR/.env"
 
@@ -199,30 +199,31 @@ fetch_source() {
   git -C "$DIR" remote set-url origin "https://github.com/$REPO.git"
 }
 
-# Pull the release image and pin it by digest; build locally when the registry is unreachable.
+# Pull, verify and pin the release image. Never silently build an unverified substitute.
 fetch_image() {
-  local image=$1 digest
+  local image=$1 digest identity_repo
   registry_login
   if docker pull -q "$image" >/dev/null 2>&1; then
     digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image" 2>/dev/null || true)
-    if command -v cosign >/dev/null && [[ -n $digest ]]; then
+    command -v cosign >/dev/null || die "cosign is required to verify release images; install cosign before continuing"
+    [[ -n $digest ]] || die "image has no immutable digest; refusing unverified release"
+    identity_repo=${REPO//./\\.}
+    if [[ -n $digest ]]; then
       cosign verify "$digest" \
-        --certificate-identity-regexp "^https://github.com/$REPO/.github/workflows/release.yml@" \
+        --certificate-identity-regexp "^https://github\.com/$identity_repo/\.github/workflows/release\.yml@refs/(heads/main|tags/v[^/]+)$" \
         --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null ||
         die "the image signature does not verify; refusing to run it"
       ok "image signature verified"
     fi
     PINNED_IMAGE=${digest:-$image}
   else
-    warn "cannot pull $image; building the image on this server"
-    compose build -q api
-    PINNED_IMAGE="paurubot:local"
+    die "cannot pull verified release image $image; refusing silent local-build fallback"
   fi
 }
 
 # Docker Hub refuses many Iranian addresses; fall back to the copies published next to our image.
 pick_base_images() {
-  local mirror="ghcr.io/nexusguide/paurubot-mirror" pair key image
+  local mirror="ghcr.io/mehdialij/paurubot-mirror" pair key image
   for pair in POSTGRES_IMAGE=postgres:16-alpine REDIS_IMAGE=redis:7-alpine CADDY_IMAGE=caddy:2-alpine; do
     key=${pair%%=*}
     image=${pair#*=}
@@ -354,7 +355,8 @@ cmd_update() {
   resolve_target "$channel" "$version"
   say "Updating to ${BOLD}$TARGET_REF${RESET} ($channel)…"
   say "Writing a backup first…"
-  compose exec -T worker paurubot backup >/dev/null 2>&1 && ok "backup written" || warn "backup before update failed"
+  compose exec -T worker paurubot backup >/dev/null 2>&1 || die "backup before update failed; update aborted without changing the installed release"
+  ok "backup written"
   local previous
   previous=$(env_get PAURUBOT_IMAGE)
   fetch_source "$TARGET_REF"
