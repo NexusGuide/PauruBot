@@ -329,7 +329,7 @@ async def test_deadline_passing_during_storage_does_not_attach_or_enqueue(receip
 async def test_core_corrected_receipt_never_uses_trusted_auto_approval(monkeypatch):  # type: ignore[no-untyped-def]
     # Exercise the existing production attach function, not the route fixture's fake.
     payment = row(meta={"fix_requests": [{"kind": "amount", "at": datetime.now(UTC).isoformat()}]})
-    session = SimpleNamespace(flush=AsyncMock())
+    session = SimpleNamespace(flush=AsyncMock(), execute=AsyncMock(), refresh=AsyncMock())
     monkeypatch.setattr(route.engine.receipts, "sha256", lambda data: "abc")
     monkeypatch.setattr(route.engine.receipts, "dhash", lambda data: "123")
     monkeypatch.setattr(route.engine.receipts, "find_duplicate", AsyncMock(return_value=None))
@@ -340,6 +340,9 @@ async def test_core_corrected_receipt_never_uses_trusted_auto_approval(monkeypat
     monkeypatch.setattr(route.engine, "auto_approvable", auto)
     monkeypatch.setattr(route.engine, "mark_paid", paid)
     await route.engine.attach_receipt(session, payment, file_id="corrected-photo", text=None, image=image())
+    session.execute.assert_awaited_once()
+    assert session.execute.await_args.args[1] == {"key": f"receipt-admission:{payment.shop_id}"}
+    session.refresh.assert_awaited_once_with(payment, with_for_update=True)
     assert payment.status == PaymentStatus.VERIFYING
     auto.assert_not_awaited()
     paid.assert_not_awaited()

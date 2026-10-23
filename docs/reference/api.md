@@ -322,6 +322,12 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 |---|---|---|---|
 | GET | `/metrics` | METRICS_TOKEN or a private network | Prometheus scrape target (JOB-05): a bearer token, or a private address when none is set. |
 
+## `/readyz`
+
+| Method | Path | Access | What it does |
+|---|---|---|---|
+| GET | `/readyz` | public | Readyz |
+
 ## `/s`
 
 | Method | Path | Access | What it does |

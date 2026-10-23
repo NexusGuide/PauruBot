@@ -495,3 +495,24 @@ env_set() { echo UNSAFE_ENVIRONMENT; }
     )
     assert result.returncode == 17
     assert "UNSAFE" not in result.stdout
+
+
+async def test_existing_ledger_account_is_read_without_unique_key_write():
+    from paurubot.ledger import accounts
+
+    existing = SimpleNamespace(id=9, balance=200)
+    session = SimpleNamespace(scalar=AsyncMock(return_value=existing), execute=AsyncMock())
+    assert await accounts.wallet_account(session, 1, 7) is existing
+    session.scalar.assert_awaited_once()
+    session.execute.assert_not_awaited()
+
+
+async def test_missing_ledger_account_keeps_conflict_safe_creation():
+    from paurubot.ledger import accounts
+
+    winner = SimpleNamespace(id=9, balance=0)
+    session = SimpleNamespace(scalar=AsyncMock(side_effect=[None, winner]), execute=AsyncMock())
+    assert await accounts.wallet_account(session, 1, 7) is winner
+    assert session.scalar.await_count == 2
+    session.execute.assert_awaited_once()
+    assert "ON CONFLICT" in str(session.execute.await_args.args[0])
