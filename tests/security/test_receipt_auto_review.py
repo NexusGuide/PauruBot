@@ -93,9 +93,14 @@ async def test_bad_receipt_timestamp_does_not_poison_other_payments(session, rec
 async def test_trusted_clean_policy_and_normal_auto_approval_are_preserved(session) -> None:  # type: ignore[no-untyped-def]
     shop, customer, normal = await pending_receipt(session)
     customer.card_trust = "trusted"
-    payment = (await engine.start(session, customer, "card", 5_000_000)).payment
+    await shop_settings.set_many(
+        session,
+        shop.id,
+        {"card_auto_approve": True, "card_auto_max_amount": 300_000, "card_auto_min_history": 999},
+    )
+    payment = (await engine.start(session, customer, "card", 300_000)).payment
     await engine.attach_receipt(session, payment, file_id="trusted", text=None)
-    assert payment.status == PaymentStatus.PAID  # PAY-17 exception remains explicit
+    assert payment.status == PaymentStatus.PAID  # trust bypasses history, not the switch/cap
     customer.card_trust = "normal"
     await shop_settings.set_many(
         session,
@@ -176,3 +181,22 @@ async def test_timer_respects_aware_offsets_and_future_timestamps(session) -> No
     await session.refresh(future)
     assert old.status == PaymentStatus.PAID
     assert future.status == PaymentStatus.VERIFYING
+
+
+@pytest.mark.parametrize(
+    "enabled,cap,amount",
+    [(False, 300_000, 100_000), (True, 300_000, 5_000_000), (True, 0, 100_000)],
+)
+async def test_trusted_customer_still_needs_enabled_policy_and_hard_cap(session, enabled, cap, amount):  # type: ignore[no-untyped-def]
+    shop, customer, _ = await pending_receipt(session)
+    customer.card_trust = "trusted"
+    await shop_settings.set_many(
+        session,
+        shop.id,
+        {"card_auto_approve": enabled, "card_auto_max_amount": cap, "card_auto_min_history": 0},
+    )
+    payment = (await engine.start(session, customer, "card", amount)).payment
+    await engine.attach_receipt(session, payment, file_id="trusted-cap-check", text=None)
+    assert payment.status == PaymentStatus.VERIFYING
+    assert not await engine.auto_approvable(session, payment, await shop_settings.load(session, shop.id))
+    assert await session.scalar(select(func.count(Job.id)).where(Job.kind == "fulfill")) == 0
