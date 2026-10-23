@@ -74,6 +74,10 @@ def fingerprint(panel: Panel) -> str:
 
 
 async def driver_for(panel: Panel) -> PanelDriver:
+    if panel.national_mode:
+        from paurubot.panels.base import PanelUnavailable
+
+        raise PanelUnavailable("national_network_mode")
     key = fingerprint(panel)
     cached = _cache.get(panel.id)
     if cached and cached[0] == key:

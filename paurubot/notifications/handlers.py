@@ -274,6 +274,7 @@ async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
 async def account_ready(session: AsyncSession, job: queue.Claimed) -> None:
     """A panel admin account order finished (TEN-14): the card, and the login on a purchase."""
     from paurubot.bot.routers.accounts import account_kb, account_text
+
     from paurubot.core import panel_accounts
     from paurubot.db.models import PanelAccount
 
@@ -1025,7 +1026,6 @@ async def lottery_result(session: AsyncSession, job: queue.Claimed) -> None:
 
 async def stock_delivered(session: AsyncSession, job: queue.Claimed) -> None:
     """Send the customer the ready-made config they bought (CAT-05)."""
-    from paurubot.bot.views import qr_png
     from paurubot.core import stock
 
     order = await session.get(Order, int(job.payload["order_id"]))
@@ -1036,30 +1036,14 @@ async def stock_delivered(session: AsyncSession, job: queue.Claimed) -> None:
     if customer is None or item is None:
         return
     t = await _texts(session, customer)
-    config = stock.payload(item)
-    if len(config) <= 3500:
-        await _to_customer(session, customer, t("stock_ready") + "\n\n<code>" + esc(config) + "</code>")
-        png = qr_png(config) if "\n" not in config and len(config) <= 1500 else None
-        if png is not None:
-            try:
-                await telegram.send_photo(
-                    customer.telegram_id,
-                    BufferedInputFile(png, "qr.png"),
-                    caption=t("qr_caption"),
-                    shop_id=customer.shop_id,
-                )
-            except telegram.Undeliverable:
-                pass
-    else:
-        try:
-            await telegram.send_document(
-                customer.telegram_id,
-                BufferedInputFile(config.encode(), f"config-{order.id}.txt"),
-                caption=t("stock_ready"),
-                shop_id=customer.shop_id,
-            )
-        except telegram.Undeliverable:
-            pass
+    if item.customer_id != customer.id or item.order_id != order.id or item.status != stock.SOLD:
+        return
+    from paurubot.notifications import manual_delivery
+
+    try:
+        await manual_delivery.send(customer, item, t("stock_ready"))
+    except telegram.Undeliverable:
+        pass
     await report(
         session,
         order.shop_id,
@@ -1100,6 +1084,14 @@ async def batch_done(session: AsyncSession, job: queue.Claimed) -> None:
             item = await session.get(StockItem, int(order.params["stock_item_id"]))
             if item is not None:
                 ready += 1
+                from paurubot.core import manual_stock
+                from paurubot.notifications import manual_delivery
+
+                if any(p.data is not None or p.as_file for p in manual_stock.parts(item)):
+                    try:
+                        await manual_delivery.send(customer, item, t("stock_ready"))
+                    except telegram.Undeliverable:
+                        pass
                 lines.append(f"{order.params.get('label') or order.id}\t{stock.payload(item)}")
                 continue
         service = await session.get(Service, order.service_id) if order.service_id else None

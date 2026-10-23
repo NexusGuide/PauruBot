@@ -513,6 +513,8 @@ async def subscription_endpoint(token: str, request: Request, db: DB) -> Respons
     if found is None:
         return _not_found()
     service, shop, panel = found
+    if panel.national_mode:
+        return Response("National-network mode: use the replacement configuration in the bot.", status_code=503, media_type="text/plain", headers={"Cache-Control": "no-store", "Retry-After": "300"})
     if request.query_params.get("download") != "1" and subscription.wants_page(
         request.headers.get("user-agent", ""), request.headers.get("accept", "")
     ):

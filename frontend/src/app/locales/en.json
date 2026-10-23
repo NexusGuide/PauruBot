@@ -570,5 +570,6 @@
   "tickets_file_uncertain": "Result not confirmed; cancellation does not undo a saved message. Refresh the conversation or retry the same file with the same key. Keep this screen open for safe retry; reselecting a file creates a new request.",
   "tickets_file_quota": "Attachment quota reached. Ask support to review the ticket; retrying cannot bypass the limit.",
   "tickets_file_conflict": "This request key was already used with different content. Refresh and inspect the conversation before discarding or selecting another file.",
-  "tickets_file_rejected": "Upload rejected. Check access, open ticket status, supported file content and size before retrying."
+  "tickets_file_rejected": "Upload rejected. Check access, open ticket status, supported file content and size before retrying.",
+  "national_checkout_notice": "Delivery uses national-network inventory. Renewal provides a new replacement configuration, without changing the original panel subscription’s quota or expiry."
 }

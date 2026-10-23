@@ -199,6 +199,7 @@ export interface AccountList {
 }
 
 export interface Service {
+  national_mode?: boolean;
   id: number;
   label: string;
   username: string;
@@ -212,7 +213,7 @@ export interface Service {
   plan_id: number | null;
   panel_id: number;
   extras: { gb_price: number | null; day_price: number | null } | null;
-  delivery?: "subscription" | "wireguard" | "account";
+  delivery?: "subscription" | "wireguard" | "account" | "stock";
   account?: { username: string; password: string | null };
   download_url?: string | null;
   changes?: string[];
@@ -229,6 +230,8 @@ export interface Order {
   service_id: number | null;
   plan_id: number | null;
   params: {
+    national?: boolean;
+    stock_plan_id?: number;
     extra_gb?: number;
     extra_days?: number;
     credit?: number;

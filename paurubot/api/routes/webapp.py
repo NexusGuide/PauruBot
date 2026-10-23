@@ -85,6 +85,9 @@ def service_view(service: Service, cfg: dict[str, Any] | None = None) -> dict[st
 
     delivery = delivery_of(service.panel.kind if service.panel else None)
     view = _service_base(service, cfg)
+    if service.panel is not None and service.panel.national_mode:
+        view.update(national_mode=True, subscription_url=None, download_url=None, delivery="stock")
+        return view
     view["delivery"] = delivery
     if delivery == "account":
         view["subscription_url"] = None
@@ -167,7 +170,7 @@ def order_view(order: Order) -> dict[str, Any]:
         "params": {
             k: v
             for k, v in (order.params or {}).items()
-            if k in {"extra_gb", "extra_days", "credit", "label", "custom", "queued", "queued_until"}
+            if k in {"extra_gb", "extra_days", "credit", "label", "custom", "queued", "queued_until", "national"}
         },
         "expires_at": _iso(order.expires_at),
     }

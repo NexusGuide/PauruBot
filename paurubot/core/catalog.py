@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from paurubot.core.resale import catalog_owner
 from paurubot.db.models import Category, Customer, Location, Panel, Plan, PlanAudience, Service, ServiceStatus
@@ -28,12 +29,27 @@ def _audience_filter(stmt: Select, customer: Customer | None) -> Select:  # type
 
 def visible_plans_stmt(shop_id: int, customer: Customer | None) -> Select:  # type: ignore[type-arg]
     """Active plans whose panel (or location pool) is active."""
-    panel_ok = select(Panel.id).where(Panel.shop_id == catalog_owner(shop_id), Panel.is_active.is_(True))
+    panel_ok = select(Panel.id).where(
+        Panel.shop_id == catalog_owner(shop_id), Panel.is_active.is_(True), Panel.national_mode.is_(False)
+    )
     location_ok = select(Panel.location_id).where(
-        Panel.shop_id == catalog_owner(shop_id), Panel.is_active.is_(True), Panel.location_id.is_not(None)
+        Panel.shop_id == catalog_owner(shop_id),
+        Panel.is_active.is_(True),
+        Panel.national_mode.is_(False),
+        Panel.location_id.is_not(None),
     )
     from paurubot.core.stock import available_stmt
 
+    target = aliased(Plan)
+    national_panel = select(Panel.id).where(
+        Panel.shop_id == catalog_owner(shop_id), Panel.is_active.is_(True), Panel.national_mode.is_(True)
+    )
+    national_target = select(target.id).where(
+        target.shop_id == catalog_owner(shop_id),
+        target.delivery == "stock",
+        target.is_active.is_(True),
+        available_stmt(target.id),
+    )
     category_ok = select(Category.id).where(
         Category.shop_id == catalog_owner(shop_id), Category.is_active.is_(True)
     )
@@ -44,7 +60,11 @@ def visible_plans_stmt(shop_id: int, customer: Customer | None) -> Select:  # ty
         or_(
             (Plan.delivery == "stock") & available_stmt(Plan.id),
             (Plan.delivery != "stock")
-            & or_(Plan.panel_id.in_(panel_ok), (Plan.panel_id.is_(None) & Plan.location_id.in_(location_ok))),
+            & or_(
+                Plan.panel_id.in_(panel_ok),
+                (Plan.panel_id.in_(national_panel) & Plan.national_stock_plan_id.in_(national_target)),
+                (Plan.panel_id.is_(None) & Plan.location_id.in_(location_ok)),
+            ),
         ),
     )
     return _audience_filter(stmt, customer)
@@ -160,7 +180,13 @@ async def pick_panel_for(
 
     if panel_id:
         panel = await session.get(Panel, panel_id)
-        if panel is None or panel.shop_id != shop_id or not panel.is_active or quota_full(panel):
+        if (
+            panel is None
+            or panel.shop_id != shop_id
+            or not panel.is_active
+            or panel.national_mode
+            or quota_full(panel)
+        ):
             return None
         if panel.capacity and await panel_load(session, panel.id) >= panel.capacity:
             return None
@@ -179,7 +205,7 @@ async def pick_panel_for(
     )
     best: tuple[float, Panel] | None = None
     for panel in candidates:
-        if quota_full(panel):
+        if panel.national_mode or quota_full(panel):
             continue
         load = await panel_load(session, panel.id)
         if panel.capacity and load >= panel.capacity:
