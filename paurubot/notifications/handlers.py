@@ -274,7 +274,6 @@ async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
 async def account_ready(session: AsyncSession, job: queue.Claimed) -> None:
     """A panel admin account order finished (TEN-14): the card, and the login on a purchase."""
     from paurubot.bot.routers.accounts import account_kb, account_text
-
     from paurubot.core import panel_accounts
     from paurubot.db.models import PanelAccount
 

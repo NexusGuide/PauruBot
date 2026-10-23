@@ -660,7 +660,6 @@ async def _auto_menu(
     service: Service,
 ) -> None:
     from paurubot.bot.routers.shop import priced
-
     from paurubot.core import catalog
 
     plans: list[tuple[Plan, int]] = []
