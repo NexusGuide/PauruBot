@@ -290,6 +290,8 @@ async def test_tonpay_actual_engine_settlement_and_repeated_callback(
     calls = []
     order_id = ""
     quoted = 100_000 + quote_adjustment
+    # intent_engine is module-scoped: committed transactions survive parameter cases.
+    # A provider invoice ID must be unique per payment, not a suite-wide constant.
 
     def handle(request):  # type: ignore[no-untyped-def]
         import json
@@ -301,7 +303,7 @@ async def test_tonpay_actual_engine_settlement_and_repeated_callback(
             return httpx.Response(
                 200,
                 json={
-                    "invoice_id": "synthetic-ref",
+                    "invoice_id": f"synthetic-{order_id}",
                     "invoice_url": "https://tonpays.online/pay/test",
                     "order_id": order_id,
                     "request_amount": 100_000,
@@ -312,7 +314,7 @@ async def test_tonpay_actual_engine_settlement_and_repeated_callback(
             200,
             json={
                 "order_id": order_id,
-                "invoice_id": "synthetic-ref",
+                "invoice_id": f"synthetic-{order_id}",
                 "status": "completed",
                 "paid": True,
                 "request_amount": 100_000,
@@ -343,7 +345,7 @@ async def test_tonpay_actual_engine_settlement_and_repeated_callback(
         payment = await session.get(Payment, pid)
         # A changed quote stays uncredited; callback values never override the frozen quote.
         assert payment.status == (PaymentStatus.PAID if difference == 0 else PaymentStatus.PENDING)
-        assert payment.provider_tx_id == ("tonpay:synthetic-ref" if difference == 0 else None)
+        assert payment.provider_tx_id == (f"tonpay:synthetic-{order_id}" if difference == 0 else None)
         assert await engine.verify(session, pid, {"json": {"paid": True}}) is (difference == 0)
         await session.commit()
         assert await session.scalar(
@@ -359,3 +361,46 @@ async def test_tonpay_actual_engine_settlement_and_repeated_callback(
     async with maker() as session:
         assert await wallet_balance(session, shop_id, cid) == (100_000 if difference == 0 else 0)
     assert calls == (["POST", "GET"] if difference == 0 else ["POST", "GET", "GET"])
+
+
+async def test_reused_tonpay_transaction_never_credits_second_payment(hosted, monkeypatch):  # type: ignore[no-untyped-def]
+    from paurubot.ledger.accounts import wallet_balance
+
+    maker, cid = hosted
+
+    async def create(payment, cfg):  # type: ignore[no-untyped-def]
+        return Checkout(
+            redirect_url="https://tonpays.online/pay/test",
+            provider_ref=f"replay-test-{payment.id}",
+            provider_amount=payment.amount,
+            provider_currency="IRT",
+        )
+
+    monkeypatch.setattr(engine.provider("tonpay"), "create", AsyncMock(side_effect=create))
+    async with maker() as caller:
+        customer = await caller.get(Customer, cid)
+        shop_id = customer.shop_id
+        first = await engine.start(
+            caller, customer, "tonpay", 100_000, idempotency_key="replay-protection-first"
+        )
+        second = await engine.start(
+            caller, customer, "tonpay", 100_000, idempotency_key="replay-protection-second"
+        )
+        first_id, second_id = first.payment.id, second.payment.id
+    tx = f"tonpay:replay-test-{first_id}"
+    async with maker() as session:
+        assert await engine.mark_paid(session, first_id, provider_tx_id=tx, amount=100_000)
+        await session.commit()
+    async with maker() as session:
+        assert not await engine.mark_paid(session, second_id, provider_tx_id=tx, amount=100_000)
+        await session.commit()
+    async with maker() as session:
+        second_payment = await session.get(Payment, second_id)
+        assert second_payment.status == PaymentStatus.DISPUTED
+        assert second_payment.failure_reason == "provider transaction reused"
+        assert await engine.fulfill_one(session, second_id) is None
+    async with maker() as session:
+        assert await engine.fulfill_one(session, first_id) is not None
+    async with maker() as session:
+        assert await engine.fulfill_one(session, first_id) is None
+        assert await wallet_balance(session, shop_id, cid) == 100_000
