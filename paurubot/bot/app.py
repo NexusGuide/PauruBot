@@ -57,7 +57,7 @@ async def unknown(
     if await state.get_state() is not None:
         await message.answer(t("unexpected_input"))
         return
-    await message.answer(t("unknown_command"), reply_markup=start.menu(t, cfg, staff))
+    await start.home(message, t, cfg, staff, "unknown_command")
 
 
 @fallback.callback_query()
