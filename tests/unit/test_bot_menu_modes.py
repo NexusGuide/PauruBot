@@ -402,19 +402,56 @@ async def test_inline_admin_shortcut_stays_permission_guarded(telegram, is_staff
     assert called == ([staff] if is_staff else [])
 
 
+@pytest.fixture
+async def menu_engine(engine):  # type: ignore[no-untyped-def]
+    """Independent committed sessions on a disposable, fully migrated schema.
+
+    Deleting the shop cascades into immutable ledger rows. Drop only this test's
+    schema instead; keep every production ledger trigger enabled throughout.
+    """
+    from uuid import uuid4
+
+    from alembic import command
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from paurubot.db.migrate import alembic_config
+
+    schema = "menu_lock_" + uuid4().hex
+    isolated = create_async_engine(engine.url, connect_args={"server_settings": {"search_path": schema}})
+
+    def migrate(connection):  # type: ignore[no-untyped-def]
+        cfg = alembic_config()
+        cfg.attributes["connection"] = connection
+        cfg.attributes["configure_logger"] = False
+        command.upgrade(cfg, "head")
+
+    async with engine.begin() as connection:
+        await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+    try:
+        async with isolated.begin() as connection:
+            await connection.run_sync(migrate)
+        yield isolated
+    finally:
+        await isolated.dispose()
+        async with engine.begin() as connection:
+            await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+
+
 async def test_postgres_inline_callback_does_not_open_a_second_customer_transaction(
-    engine, telegram, monkeypatch
+    menu_engine, telegram, monkeypatch
 ):  # type: ignore[no-untyped-def]
     """Real customer upsert/row lock, not a mock: old nested feed_update times out."""
     from sqlalchemy import delete, select
+    from sqlalchemy.exc import DBAPIError
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from paurubot.core import customers
     from paurubot.core import settings as shop_settings
-    from paurubot.db.models import Customer, Shop
+    from paurubot.db.models import Customer, LedgerJournal, Shop
 
     bot, requests = telegram
-    maker = async_sessionmaker(engine, expire_on_commit=False)
+    maker = async_sessionmaker(menu_engine, expire_on_commit=False)
     async with maker() as session:
         shop = Shop(title="Inline menu row lock regression")
         session.add(shop)
@@ -446,10 +483,11 @@ async def test_postgres_inline_callback_does_not_open_a_second_customer_transact
         await asyncio.wait_for(dp.feed_update(bot, Update(update_id=820, callback_query=callback(bot))), 5)
         assert called == [customer_id]
         assert requests[-1].text == "wallet opened"
-    finally:
         async with maker() as session:
-            await session.execute(delete(Shop).where(Shop.id == shop_id))
-            await session.commit()
+            with pytest.raises(DBAPIError, match="ledger rows are append-only"):
+                await session.execute(delete(LedgerJournal))
+            await session.rollback()
+    finally:
         shop_settings.invalidate(shop_id)
         await dp.storage.close()
 
