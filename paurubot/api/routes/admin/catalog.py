@@ -389,7 +389,9 @@ async def delete_stock_item(item_id: int, ctx: Writer, db: DB) -> dict[str, bool
     from paurubot.core import stock
     from paurubot.db.models import StockItem
 
-    item = await db.scalar(select(StockItem).where(StockItem.id == item_id, StockItem.shop_id == ctx.shop_id).with_for_update())
+    item = await db.scalar(
+        select(StockItem).where(StockItem.id == item_id, StockItem.shop_id == ctx.shop_id).with_for_update()
+    )
     if item is None:
         raise HTTPException(status_code=404, detail="not_found")
     if item.status == stock.SOLD or item.order_id is not None:

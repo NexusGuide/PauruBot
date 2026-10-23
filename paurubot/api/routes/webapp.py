@@ -170,7 +170,8 @@ def order_view(order: Order) -> dict[str, Any]:
         "params": {
             k: v
             for k, v in (order.params or {}).items()
-            if k in {"extra_gb", "extra_days", "credit", "label", "custom", "queued", "queued_until", "national"}
+            if k
+            in {"extra_gb", "extra_days", "credit", "label", "custom", "queued", "queued_until", "national"}
         },
         "expires_at": _iso(order.expires_at),
     }

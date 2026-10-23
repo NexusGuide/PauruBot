@@ -811,7 +811,9 @@ async def _fulfill(session: AsyncSession, order_id: int) -> Service | None:
         await _apply_account(session, order)
         return None
     plan = await session.get(Plan, order.plan_id) if order.plan_id else None
-    if order.params.get("stock_plan_id") or (order.kind == OrderKind.PURCHASE and plan is not None and plan.delivery == "stock"):
+    if order.params.get("stock_plan_id") or (
+        order.kind == OrderKind.PURCHASE and plan is not None and plan.delivery == "stock"
+    ):
         await _deliver_stock(session, order)
         return None
     if order.kind in {OrderKind.PURCHASE, OrderKind.TRIAL}:
