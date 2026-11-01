@@ -27,6 +27,29 @@ async def migrate(_: argparse.Namespace) -> int:
     return 0
 
 
+# Exit codes of schema-status, read by `pauru rollback` (SEC-F22).
+SCHEMA_EXIT = {"same": 0, "older": 3, "newer": 4, "empty": 5}
+
+
+@command(
+    "schema-status",
+    "compare the database schema with this release (exit 0 same, 3 older, 4 newer/unknown, 5 empty)",
+)
+async def schema_status(_: argparse.Namespace) -> int:
+    from paurubot.db.migrate import schema_state
+    from paurubot.db.session import dispose_engine
+
+    try:
+        state, current, heads = await schema_state()
+    except Exception as exc:  # the operator script must never read a crash as "compatible"
+        print(f"database unreachable: {exc.__class__.__name__}")
+        return 6
+    finally:
+        await dispose_engine()
+    print(f"database={current or '-'} release={','.join(heads)} state={state}")
+    return SCHEMA_EXIT[state]
+
+
 async def _checks() -> list[tuple[bool, str, str]]:
     from paurubot.db.session import dispose_engine
     from paurubot.kv import close_redis

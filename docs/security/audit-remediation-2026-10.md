@@ -220,6 +220,23 @@
 
 backup با نقش اجرا، restore با مالک، و پس از restore نقش اجرا همچنان به دادهٔ بازگردانده دسترسی دارد. چون هنوز هیچ نصبی وجود ندارد، مسیر ارتقای volumeهای قدیمی پیاده نشد.
 
+## SEC-F22 — rollback و سازگاری image با schema (نوامبر ۲۰۲۶)
+
+**مشکل:** `pauru rollback` فقط image را برمی‌گرداند. چون migrationها فقط رو به جلو هستند، بعد از updateی که migration داشت، سرویس `migrate` با image قدیمی روی revision ناشناخته شکست می‌خورد و api، bot و worker، که به آن وابسته‌اند، بالا نمی‌آمدند. پس rollback کل سرویس را از کار می‌انداخت. همین شاخه دو migration (`0032` و `0033`) دارد، پس این حالت در اولین update رخ می‌داد.
+
+**اصلاح:**
+- دستور `paurubot schema-status`: `same`=۰، `older`=۳ (migrate جلو می‌برد)، `newer`=۴ (این release نباید اجرا شود)، `empty`=۵، دیتابیس در دسترس نیست=۶.
+- `pauru update` مسیر backup پیش از update را در `PAURUBOT_PREVIOUS_BACKUP` ثبت می‌کند. اگر backup فایلی تولید نکند، update متوقف می‌شود.
+- `pauru rollback`:
+  - **image قبلی** تعیین می‌کند که آیا روی دیتابیس اجرا می‌شود.
+  - کد ۰ یا ۳: فقط image عوض می‌شود.
+  - کد ۴: پس از تأیید صریح، سرویس‌ها متوقف و backup پیش از update با release قبلی و نقش مالک restore می‌شود. اگر restore شکست بخورد، release فعلی دوباره بالا می‌آید.
+  - در هر حالت دیگر (backup ثبت‌نشده، لغو، دیتابیس در دسترس نیست) هیچ چیز تغییر نمی‌کند.
+- agent پنل مدیریت فقط rollback بدون restore انجام می‌دهد و restore را به کنسول سرور می‌سپارد.
+- runbook: `docs/ops/rollback.md`، شامل ماتریس سازگاری، تطبیق پرداخت‌ها و حساب‌های پنلی که بعد از update ساخته شده‌اند، و مسیر دستی.
+
+آزمون‌ها: `tests/unit/test_rollback.py`. `schema_state` روی PostgreSQL آزموده شد، و `cmd_update`/`cmd_rollback` واقعی با bash و stub (۹ حالت، از جمله حالت‌های ناامن که نباید هیچ چیزی را تغییر دهند).
+
 ## وضعیت هر ۳۰ یافته
 
 «کد اعمال شد» فقط یعنی وصله در این شاخه وجود دارد؛ پذیرش نهایی عملیاتی به CI و آزمون محیط آزمایشی وابسته است.
@@ -247,7 +264,7 @@ backup با نقش اجرا، restore با مالک، و پس از restore نق�
 | SEC-F19 سقف stream | کد اعمال شد | تست oversize و جلوگیری از ارسال فایل پاس شد |
 | SEC-F20 امضای تصویر | کد اعمال شد | نصب cosign و دسترسی package حساب جدید باید در سرور آزمایشی تأیید شود |
 | SEC-F21 بکاپ پیش از update | کد اعمال شد | توقف در شکست تست شد؛ بازیابی واقعی بکاپ هنوز باید تمرین شود |
-| SEC-F22 rollback schema | باز | ماتریس سازگاری تصویر/schema و runbook بازگردانی؛ image rollback کافی نیست |
+| SEC-F22 rollback schema | کد اعمال شد | `schema-status` (۰ یکسان، ۳ قدیمی‌تر، ۴ جدیدتر)؛ `pauru rollback` از image قبلی می‌پرسد و اگر schema جلو رفته، backup ثبت‌شدهٔ پیش از update را با تأیید صریح و با release قبلی restore می‌کند، وگرنه هیچ تغییری نمی‌دهد؛ agent پنل restore نمی‌کند؛ runbook: `docs/ops/rollback.md` |
 | SEC-F23 readiness | کد اعمال شد | تست ایزوله قطع DB/Redis و revision اشتباه پاس شد؛ Compose واقعی باز است |
 | SEC-F24 قفل وابستگی Python | کد اعمال شد | `requirements.lock` با hash برای همهٔ نسخه‌های Python ≥۳٫۱۲؛ Docker و CI فقط با `--require-hashes` از آن نصب می‌کنند؛ CI روی ۳٫۱۲ و ۳٫۱۴ (نسخهٔ image) و Node هم‌سان. build کامل image در محیط بدون Docker آزموده نشد |
 | SEC-F25 گیت انتشار | کد اعمال شد | اجرای workflow واقعی/تنظیم branch protection خارج از این وصله است |
