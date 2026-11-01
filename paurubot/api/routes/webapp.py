@@ -114,6 +114,8 @@ def _service_base(service: Service, cfg: dict[str, Any] | None = None) -> dict[s
         "data_limit": service.data_limit,
         "used_bytes": service.used_bytes,
         "expire_at": _iso(service.expire_at),
+        # When the data ran out (SEC-F15); the Mini App keys its "data used up" alert by it.
+        "limited_at": _iso(service.limited_at),
         "subscription_url": customer_link(service, cfg) if cfg is not None else service.subscription_url,
         "location": service.panel.location.title if service.panel and service.panel.location else None,
         "plan_id": service.plan_id,

@@ -20,11 +20,21 @@ export interface AlertItem {
   href: string | null;
 }
 
-const READ_KEY = "pauru.alerts.read";
+// One shared key used to mix every account and shop on the device (SEC-F28); it is dropped.
+const LEGACY_READ_KEY = "pauru.alerts.read";
+const READ_PREFIX = "pauru.alerts.read.v2:";
 
-export function readAlertIds(): Set<string> {
+/**
+ * Read state belongs to one customer of one shop. The customer id is unique per shop and
+ * Telegram account, so another account or another shop's bot on this device keeps its own.
+ */
+export function readKey(customerId: number | string): string {
+  return `${READ_PREFIX}${customerId}`;
+}
+
+export function readAlertIds(customerId: number | string): Set<string> {
   try {
-    const raw = localStorage.getItem(READ_KEY);
+    const raw = localStorage.getItem(readKey(customerId));
     const list: unknown = raw ? JSON.parse(raw) : [];
     return new Set(Array.isArray(list) ? list.filter((id): id is string => typeof id === "string") : []);
   } catch {
@@ -32,13 +42,22 @@ export function readAlertIds(): Set<string> {
   }
 }
 
-export function markAlertsRead(ids: string[]): void {
+export function markAlertsRead(customerId: number | string, ids: string[]): void {
   try {
-    const merged = [...new Set([...readAlertIds(), ...ids])];
-    localStorage.setItem(READ_KEY, JSON.stringify(merged.slice(-300)));
+    const merged = [...new Set([...readAlertIds(customerId), ...ids])];
+    localStorage.setItem(readKey(customerId), JSON.stringify(merged.slice(-300)));
+    localStorage.removeItem(LEGACY_READ_KEY);
   } catch {
     // storage can be unavailable inside some Telegram clients; read state is optional
   }
+}
+
+/**
+ * The service period an alert belongs to (SEC-F28). A renewal, an add-on or a new end date
+ * starts a new period, so its alert is unread again; the same state in the same period stays read.
+ */
+function cycle(service: Service): string {
+  return `${service.expire_at ?? "-"}@${service.data_limit}`;
 }
 
 const WALLET_KINDS: Record<string, { icon: AlertItem["icon"]; tone: AlertItem["tone"]; body: string }> = {
@@ -76,27 +95,27 @@ export function buildAlerts(
     const empty = service.data_limit > 0 && service.used_bytes >= service.data_limit;
     if (service.status === "limited" || empty) {
       serviceAlerts.push({
-        id: `s${service.id}-data`, kind: "service", tone: "red", icon: "gauge", at: service.expire_at, href,
+        id: `s${service.id}-data@${service.limited_at ?? cycle(service)}`, kind: "service", tone: "red", icon: "gauge", at: service.expire_at, href,
         title: t("alert_data_title"), body: t("alert_data_body", { label }),
       });
     } else if (lowVolumeWarning(service, policy)) {
       const left = service.data_limit - service.used_bytes;
       serviceAlerts.push({
-        id: `s${service.id}-low`, kind: "service", tone: "orange", icon: "gauge", at: service.expire_at, href,
+        id: `s${service.id}-low@${cycle(service)}`, kind: "service", tone: "orange", icon: "gauge", at: service.expire_at, href,
         title: t("alert_low_data_title"), body: t("alert_low_data_body", { label, value: size(left, locale, units) }),
       });
     }
     const seconds = service.expire_at ? (Date.parse(service.expire_at) - now) / 1000 : NaN;
     if (seconds <= 0) {
       serviceAlerts.push({
-        id: `s${service.id}-expired`, kind: "service", tone: "red", icon: "clock", at: service.expire_at, href,
+        id: `s${service.id}-expired@${service.expire_at ?? "-"}`, kind: "service", tone: "red", icon: "clock", at: service.expire_at, href,
         title: t("alert_expired_title"), body: t("alert_expired_body", { label }),
       });
     } else if (policy && service.status === "active" && seconds > 0 && seconds <= policy.warn_days * 86400) {
       // Match the existing worker payload, including its exact-day boundary convention.
       const days = Math.max(1, Math.floor(seconds / 86400) + 1);
       serviceAlerts.push({
-        id: `s${service.id}-expiring`, kind: "service", tone: "orange", icon: "clock", at: service.expire_at, href,
+        id: `s${service.id}-expiring@${service.expire_at ?? "-"}`, kind: "service", tone: "orange", icon: "clock", at: service.expire_at, href,
         title: t("alert_expiring_title"), body: t("alert_expiring_body", { label, days: money(days, locale) }),
       });
     }

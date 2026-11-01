@@ -32,7 +32,7 @@ function HomeBody() {
   const { data, error, retry } = useResource(api.services);
   const { data: history } = useResource(api.history);
   const [trialBusy, setTrialBusy] = useState(false);
-  const [read] = useState<Set<string>>(readAlertIds);
+  const [read] = useState<Set<string>>(() => (me ? readAlertIds(me.id) : new Set<string>()));
 
   if (!me) return null;
   const units = t("units").split(",");

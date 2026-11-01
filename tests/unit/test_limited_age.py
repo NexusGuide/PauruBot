@@ -113,3 +113,14 @@ async def test_recently_exhausted_service_is_kept_even_if_the_row_is_old(session
 async def test_exhausted_service_without_end_date_is_cleaned_up_in_time(session) -> None:  # type: ignore[no-untyped-def]
     shop, service, fake = await _world(session, expire_at=None, limited_days_ago=9, updated_days_ago=0)
     assert await sync.cleanup_expired(session, shop.id) == 1
+
+
+def test_mini_app_service_view_carries_when_data_ran_out() -> None:
+    """SEC-F28: the Mini App keys its "data used up" alert by this moment."""
+    from paurubot.api.routes.webapp import _service_base
+
+    service = Service(id=5, status=ServiceStatus.LIMITED, panel_username="x", data_limit=1, used_bytes=1)
+    view = _service_base(service)
+    assert view["limited_at"] is not None
+    service.status = ServiceStatus.ACTIVE
+    assert _service_base(service)["limited_at"] is None

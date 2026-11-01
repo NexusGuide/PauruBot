@@ -208,6 +208,8 @@ export interface Service {
   data_limit: number;
   used_bytes: number;
   expire_at: string | null;
+  /** When the data ran out (SEC-F15), when the server reports it. */
+  limited_at?: string | null;
   subscription_url: string | null;
   location: string | null;
   plan_id: number | null;
