@@ -6,14 +6,14 @@ RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 
-FROM python:3.14-slim AS python-deps
+FROM python:3.15-slim AS python-deps
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /build
 COPY requirements.lock .
 # Only the pinned, hash-checked set (SEC-F24): a changed or substituted file fails the build.
 RUN pip wheel --require-hashes --wheel-dir /wheels -r requirements.lock
 
-FROM python:3.14-slim AS runtime
+FROM python:3.15-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
