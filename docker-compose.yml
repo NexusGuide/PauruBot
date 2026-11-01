@@ -44,6 +44,8 @@ services:
   worker:
     <<: *app
     command: ["worker"]
+    # Longer than the worker's 30 s shutdown grace (SEC-F16): running jobs finish before SIGKILL.
+    stop_grace_period: 40s
     depends_on:
       migrate:
         condition: service_completed_successfully

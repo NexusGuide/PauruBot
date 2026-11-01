@@ -236,15 +236,87 @@ async def run_periodic(task: Periodic) -> None:
         log.exception("periodic task %s failed", task.name)
 
 
+# Jobs running at once across every queue: the largest batch the single loop ever ran, so the
+# database pool sees no more concurrency than before (each job may hold a second, heartbeat session).
+MAX_JOBS = 10
+# On stop: how long running jobs and periodic tasks may finish before they are cancelled. Jobs
+# cancelled after that keep their lease; it expires and another run picks them up (at-least-once).
+SHUTDOWN_GRACE = 30.0
+
+
 class Worker:
-    def __init__(self, idle_sleep: float = 1.0) -> None:
+    """Each queue drains in its own loop and periodic tasks have their own scheduler (SEC-F16).
+
+    A slow batch in one queue (a panel timing out) no longer holds up the other queues or the
+    schedule. Job slots are shared and taken *before* claiming, so a claimed job never waits for
+    a slot while its lease runs down.
+    """
+
+    def __init__(
+        self, idle_sleep: float = 1.0, *, max_jobs: int = MAX_JOBS, grace: float = SHUTDOWN_GRACE
+    ) -> None:
         self.idle_sleep = idle_sleep
+        self.grace = grace
         self._stop = asyncio.Event()
+        self._slots = asyncio.Semaphore(max_jobs)
         # The loop keeps only weak references to tasks; hold periodic runs until they finish.
         self._running: set[asyncio.Task[None]] = set()
 
     def stop(self) -> None:
         self._stop.set()
+
+    async def _idle(self, seconds: float) -> None:
+        try:
+            await asyncio.wait_for(self._stop.wait(), timeout=seconds)
+        except TimeoutError:
+            pass
+
+    async def _drain(self, name: str, spec: QueueSpec) -> int:
+        """Claim up to `spec.batch` jobs, no more than free slots, and run them. Returns the count."""
+        await self._slots.acquire()
+        taken = 1
+        while taken < spec.batch and not self._slots.locked():
+            await self._slots.acquire()  # a free slot: returns at once
+            taken += 1
+        jobs: list[queue.Claimed] = []
+        try:
+            if not self._stop.is_set():
+                async with get_sessionmaker()() as session:
+                    jobs = await queue.claim(session, name, limit=taken, lease_seconds=spec.lease_seconds)
+        finally:
+            for _ in range(taken - len(jobs)):
+                self._slots.release()
+
+        async def one(job: queue.Claimed) -> None:
+            try:
+                await run_job(name, spec, job)
+            finally:
+                self._slots.release()
+
+        if jobs:
+            await asyncio.gather(*(one(job) for job in jobs))
+        return len(jobs)
+
+    async def _queue_loop(self, name: str, spec: QueueSpec) -> None:
+        while not self._stop.is_set():
+            try:
+                ran = await self._drain(name, spec)
+            except Exception:
+                log.exception("draining %s failed", name)
+                ran = 0
+            if not ran:
+                await self._idle(self.idle_sleep)
+
+    async def _scheduler(self) -> None:
+        while not self._stop.is_set():
+            now = time.monotonic()
+            for task in PERIODIC:
+                if now >= task.next_run:
+                    task.next_run = now + task.every
+                    running = asyncio.create_task(run_periodic(task), name=f"periodic:{task.name}")
+                    self._running.add(running)
+                    running.add_done_callback(self._running.discard)
+            await self._idle(min(self.idle_sleep, 1.0))
 
     async def run(self) -> None:
         loop = asyncio.get_running_loop()
@@ -254,23 +326,26 @@ class Worker:
             except (NotImplementedError, RuntimeError):
                 pass
         log.info("worker started: queues=%s periodic=%s", sorted(QUEUES), [p.name for p in PERIODIC])
-        while not self._stop.is_set():
-            busy = 0
-            for name, spec in list(QUEUES.items()):
-                try:
-                    busy += await drain(name, spec)
-                except Exception:
-                    log.exception("draining %s failed", name)
-            now = time.monotonic()
-            for task in PERIODIC:
-                if now >= task.next_run:
-                    task.next_run = now + task.every
-                    running = asyncio.create_task(run_periodic(task))
-                    self._running.add(running)
-                    running.add_done_callback(self._running.discard)
-            if not busy:
-                try:
-                    await asyncio.wait_for(self._stop.wait(), timeout=self.idle_sleep)
-                except TimeoutError:
-                    pass
+        loops = [asyncio.create_task(self._queue_loop(n, s), name=f"queue:{n}") for n, s in QUEUES.items()]
+        loops.append(asyncio.create_task(self._scheduler(), name="scheduler"))
+        try:
+            await self._stop.wait()
+            log.info("worker stopping: no new claims; finishing running work")
+            await self._finish([*loops, *self._running])
+        except BaseException:
+            # Cancelled from outside (or a crash): never leave loops or periodic runs behind.
+            self._stop.set()
+            await self._finish([*loops, *self._running], grace=0)
+            raise
         log.info("worker stopped")
+
+    async def _finish(self, tasks: list[asyncio.Task[None]], grace: float | None = None) -> None:
+        live = [task for task in tasks if not task.done()]
+        if not live:
+            return
+        _, late = await asyncio.wait(live, timeout=self.grace if grace is None else grace)
+        if late:
+            log.warning("cancelling %s task(s) still running after the shutdown grace", len(late))
+            for task in late:
+                task.cancel()
+            await asyncio.gather(*late, return_exceptions=True)
