@@ -293,6 +293,29 @@ async def reconcile_renewals() -> None:
                 log.info("renewal order %s reconciled: %s", order_id, outcome)
 
 
+@every(600, "purchases.reconcile")
+async def reconcile_purchases() -> None:
+    """Settle purchases parked because the panel may hold their account (SEC-F08)."""
+    cursor = 0
+    async with session_scope() as session:
+        through_id = int(await session.scalar(select(func.max(Order.id))) or 0)
+    while cursor < through_id:
+        async with session_scope() as session:
+            order_ids = await lifecycle.parked_purchases(session, after_id=cursor, through_id=through_id)
+        if not order_ids:
+            break
+        cursor = order_ids[-1]
+        for order_id in order_ids:
+            try:
+                async with session_scope() as session:
+                    outcome = await lifecycle.reconcile_purchase(session, order_id)
+            except Exception:
+                log.exception("reconciling purchase order %s failed", order_id)
+                continue
+            if outcome not in {"uncertain", "waiting"}:
+                log.info("purchase order %s reconciled: %s", order_id, outcome)
+
+
 @every(60, "services.auto_renew")
 async def auto_renew_services() -> None:
     """Renew or top up the services whose owners turned auto-renewal on (F-02)."""

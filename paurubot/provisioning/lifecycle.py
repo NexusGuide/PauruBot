@@ -35,7 +35,7 @@ from paurubot.panels import (
     UserSpec,
     driver_for,
 )
-from paurubot.provisioning import renewal_policy, renewal_state
+from paurubot.provisioning import create_state, renewal_policy, renewal_state
 
 log = logging.getLogger(__name__)
 
@@ -235,7 +235,12 @@ async def _create_service(session: AsyncSession, order: Order) -> Service:
         return existing_service
     info = await driver.get_user(PanelRef(username, params.get("panel_data") or {}))
     if info is None:
+        # Commit the intent BEFORE the remote call (SEC-F08): from here on a lost response,
+        # timeout or crash may leave an account on the panel, so giving up must not refund.
+        create_state.attempt(order, panel.id, username)
+        await session.commit()
         info = await driver.create_user(spec)
+    create_state.confirm(order)
     service = Service(
         shop_id=order.shop_id,
         customer_id=customer.id,
@@ -618,6 +623,98 @@ async def _reconcile_renewal(session: AsyncSession, order_id: int) -> str:
     return "uncertain"
 
 
+# --- reconciliation of parked purchases (SEC-F08) ------------------------------------------
+
+
+async def parked_purchases(
+    session: AsyncSession, limit: int = 200, *, after_id: int = 0, through_id: int | None = None
+) -> list[int]:
+    stmt = (
+        select(Order.id)
+        .where(
+            Order.status == OrderStatus.PROVISIONING,
+            Order.kind.in_(list(create_state.KINDS)),
+            Order.params["create"]["parked"].as_boolean().is_(True),
+            Order.id > after_id,
+        )
+        .order_by(Order.id)
+        .limit(limit)
+    )
+    if through_id is not None:
+        stmt = stmt.where(Order.id <= through_id)
+    return list(await session.scalars(stmt))
+
+
+async def reconcile_purchase(session: AsyncSession, order_id: int) -> str:
+    """Settle one parked purchase or trial by reading the panel. Never creates by itself.
+
+    - the account exists → provisioning resumes and adopts it (``resumed``);
+    - the panel says it does not exist → the order is refunded (``refunded``);
+    - the last create request is still recent → look again later (``waiting``);
+    - panel unreachable, username held by another service, or too many resumes → stays
+      parked for the staff (``uncertain``), who are told once.
+    """
+    order = await session.get(Order, order_id, with_for_update=True, populate_existing=True)
+    if (
+        order is None
+        or order.status != OrderStatus.PROVISIONING
+        or order.kind not in create_state.KINDS
+        or not create_state.parked(order)
+    ):
+        return "skipped"
+    if create_state.state(order) != create_state.ATTEMPTED:
+        # Parked by an older code path or edited: nothing claims the panel was touched.
+        create_state.unpark(order)
+        await session.commit()
+        await give_up(session, order.id, "no create request is on record")
+        return "refunded"
+    since = create_state.attempted_at(order)
+    if since is not None and utcnow() - since < create_state.SETTLE_DELAY:
+        return "waiting"
+    rec = create_state.record(order)
+    params = order.params or {}
+    panel_id, username = (
+        rec.get("panel_id") or params.get("panel_id"),
+        rec.get("username") or params.get("panel_username"),
+    )
+    panel = await session.get(Panel, int(panel_id)) if panel_id else None
+    if panel is None or not isinstance(username, str) or not username:
+        outcome = "panel_missing"
+    else:
+        holder = await session.scalar(
+            select(Service).where(Service.panel_id == panel.id, Service.panel_username == username)
+        )
+        if holder is not None and (
+            holder.customer_id != order.customer_id or holder.shop_id != order.shop_id
+        ):
+            outcome = "username_taken"
+        else:
+            try:
+                info = await (await driver_for(panel)).get_user(
+                    PanelRef(username, params.get("panel_data") or {})
+                )
+            except PanelError as exc:
+                outcome = f"panel_unreachable: {exc}"
+            else:
+                if info is None:
+                    create_state.absent(order)
+                    await session.commit()
+                    await give_up(session, order.id, "the account was not created on the panel")
+                    return "refunded"
+                if create_state.note_resume(order) <= create_state.MAX_RESUMES:
+                    create_state.unpark(order)
+                    await _resume(session, order)
+                    await session.commit()
+                    return "resumed"
+                outcome = "resume_exhausted"
+    if create_state.note_check(order, outcome) == 1:
+        await _alert_uncertain(
+            session, order, outcome, "The bot cannot tell whether the panel account exists"
+        )
+    await session.commit()
+    return "uncertain"
+
+
 def _move_target(service: Service, plan: Plan | None) -> dict[str, Any]:
     """What the service carries to its new panel: the data still left and the same end date (SVC-04)."""
     left = 0
@@ -966,6 +1063,21 @@ async def give_up(session: AsyncSession, order_id: int, reason: str) -> None:
 
     order = await session.get(Order, order_id, populate_existing=True)
     if order is None or order.status in {OrderStatus.COMPLETED, OrderStatus.REFUNDED}:
+        return
+    if not create_state.refundable(order):
+        # A create request may have reached the panel: settle it by reading the panel.
+        first = not create_state.parked(order)
+        create_state.park(order, reason)
+        log.warning("order %s parked: the panel may hold its account: %s", order.id, reason[:200])
+        if first:
+            await _alert_uncertain(
+                session,
+                order,
+                "create_uncertain",
+                "A create request may have reached the panel and the job gave up "
+                "(the bot will keep checking the panel)",
+            )
+        await session.commit()
         return
     if not renewal_state.refundable(order):
         # The panel may hold the change: refunding could give it away. Reconcile instead.
