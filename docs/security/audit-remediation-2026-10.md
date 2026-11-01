@@ -176,6 +176,24 @@
 
 آزمون‌ها با جدول jobs واقعی: `tests/unit/test_worker_loops.py`.
 
+## SEC-F24 — قفل وابستگی‌های Python (نوامبر ۲۰۲۶)
+
+**مشکل:**
+- `requirements.txt` فقط حداقل نسخه‌ها را تعیین می‌کرد، پس دو build می‌توانستند کد متفاوتی نصب کنند و فایل جایگزین‌شده تشخیص داده نمی‌شد.
+- image با Python ۳٫۱۴ و Node ۲۶ ساخته می‌شد، ولی CI با Python ۳٫۱۲ و Node ۲۲ آزمون می‌کرد. یعنی آنچه آزموده می‌شد همان چیزی نبود که منتشر می‌شد.
+
+**اصلاح:**
+- `requirements.lock`: هر بسته pin و hash دارد (۶۰ بسته). با `uv pip compile --universal` برای همهٔ Pythonهای پشتیبانی‌شده و همهٔ پلتفرم‌ها ساخته می‌شود. دستور بازسازی در سربرگ همان فایل است.
+- مرحلهٔ wheel در Dockerfile و نصب در CI فقط `pip ... --require-hashes -r requirements.lock` است.
+- CI روی ماتریس Python ۳٫۱۲ (حداقل پشتیبانی) و ۳٫۱۴ (نسخهٔ image) اجرا می‌شود. Node در image به ۲۲ تغییر کرد، هم‌سان با CI.
+- `openpyxl` که کد import می‌کند به `pyproject.toml` اضافه شد.
+- آزمون `tests/unit/test_dependency_lock.py` بررسی می‌کند که:
+  - هر بسته pin و hash دارد و pinها با بازه‌های `requirements.txt` سازگارند؛
+  - وابستگی‌های pyproject زیرمجموعهٔ requirements هستند؛
+  - Dockerfile و CI فقط از lock نصب می‌کنند و نسخهٔ Python و Node آن‌ها یکی است.
+
+**آزمون محلی:** نصب lock با `--require-hashes` روی Python ۳٫۱۲ و ۳٫۱۴ و اجرای کل suite: ۲۲۶۹ تست روی هر دو پاس شد. مرحلهٔ wheel image روی ۳٫۱۴ اجرا شد (۵۸ wheel؛ ۲ بستهٔ دیگر فقط مخصوص Windows هستند). build کامل Docker image اینجا ممکن نبود (daemon در دسترس نیست) و باید در CI انتشار تأیید شود.
+
 ## وضعیت هر ۳۰ یافته
 
 «کد اعمال شد» فقط یعنی وصله در این شاخه وجود دارد؛ پذیرش نهایی عملیاتی به CI و آزمون محیط آزمایشی وابسته است.
@@ -205,7 +223,7 @@
 | SEC-F21 بکاپ پیش از update | کد اعمال شد | توقف در شکست تست شد؛ بازیابی واقعی بکاپ هنوز باید تمرین شود |
 | SEC-F22 rollback schema | باز | ماتریس سازگاری تصویر/schema و runbook بازگردانی؛ image rollback کافی نیست |
 | SEC-F23 readiness | کد اعمال شد | تست ایزوله قطع DB/Redis و revision اشتباه پاس شد؛ Compose واقعی باز است |
-| SEC-F24 قفل وابستگی Python | باز | lock همراه hash برای نسخه‌های Python هدف Docker/CI و بازتولید build |
+| SEC-F24 قفل وابستگی Python | کد اعمال شد | `requirements.lock` با hash برای همهٔ نسخه‌های Python ≥۳٫۱۲؛ Docker و CI فقط با `--require-hashes` از آن نصب می‌کنند؛ CI روی ۳٫۱۲ و ۳٫۱۴ (نسخهٔ image) و Node هم‌سان. build کامل image در محیط بدون Docker آزموده نشد |
 | SEC-F25 گیت انتشار | کد اعمال شد | اجرای workflow واقعی/تنظیم branch protection خارج از این وصله است |
 | SEC-F26 نقش PostgreSQL | باز | تفکیک نقش runtime/migration و دستور ارتقای volumeهای موجود |
 | SEC-F27 هم‌زمانی sync پنل | کد اعمال شد | `sync_all`: تا ۳ پنل هم‌زمان، هر worker با session مستقل؛ سقف درخواست هم‌زمان در هر پنل از `parallel_reads` درایور (TokenApi=۳، بقیه ۱) و گزینهٔ `sync_concurrency`. benchmark محلی: ۳٫۹ ثانیه به ۰٫۷ ثانیه |

@@ -1,4 +1,5 @@
-FROM node:26-alpine AS frontend
+# Node and Python match what CI tests (SEC-F24): Node 22 builds the frontend, Python 3.14 runs.
+FROM node:22-alpine AS frontend
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -8,8 +9,9 @@ RUN npm run build
 FROM python:3.14-slim AS python-deps
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /build
-COPY requirements.txt .
-RUN pip wheel --wheel-dir /wheels -r requirements.txt
+COPY requirements.lock .
+# Only the pinned, hash-checked set (SEC-F24): a changed or substituted file fails the build.
+RUN pip wheel --require-hashes --wheel-dir /wheels -r requirements.lock
 
 FROM python:3.14-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
