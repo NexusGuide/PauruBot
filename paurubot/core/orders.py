@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core import catalog, pricing, resellers
@@ -23,6 +23,7 @@ from paurubot.db.models import (
     DiscountRedemption,
     Job,
     JobStatus,
+    LedgerAccount,
     Location,
     Order,
     OrderKind,
@@ -33,7 +34,7 @@ from paurubot.db.models import (
     ServiceStatus,
 )
 from paurubot.ledger import wallet
-from paurubot.ledger.accounts import wallet_balance
+from paurubot.ledger.accounts import system_account, wallet_account, wallet_balance
 from paurubot.ledger.posting import InsufficientFunds
 from paurubot.worker import queue
 
@@ -438,9 +439,55 @@ async def lock_pending(session: AsyncSession, order_id: int) -> Order | None:
     return order
 
 
+async def _lock_customer_settlement(session: AsyncSession, order: Order) -> None:
+    """Serialize this customer's settlements before checking per-customer discount rules (SEC-F02).
+
+    Locks the very rows every ledger posting locks, in the same (id) order: the customer's wallet
+    and the shop's revenue account. That keeps one lock order everywhere (no new deadlock), and
+    still serializes orders that charge nothing, such as a 100% code.
+    """
+    accounts = {
+        (await wallet_account(session, order.shop_id, order.customer_id)).id,
+        (await system_account(session, order.shop_id, "revenue")).id,
+    }
+    await session.execute(
+        select(LedgerAccount.id)
+        .where(LedgerAccount.id.in_(sorted(accounts)))
+        .order_by(LedgerAccount.id)
+        .with_for_update()
+    )
+
+
+async def _check_customer_rules(session: AsyncSession, order: Order, code: DiscountCode) -> None:
+    """Per-customer and first-purchase limits, decided under the settlement lock.
+
+    The quote itself is honoured: a code that expired or was switched off after the order was
+    created still applies until the order expires. Only limits that concurrent or earlier unpaid
+    orders could otherwise all pass at creation are checked again here.
+    """
+    if not code.per_customer_limit and not code.first_purchase_only:
+        return
+    await _lock_customer_settlement(session, order)
+    if code.per_customer_limit:
+        used = await session.scalar(
+            select(func.count(DiscountRedemption.id)).where(
+                DiscountRedemption.code_id == code.id, DiscountRedemption.customer_id == order.customer_id
+            )
+        )
+        if int(used or 0) >= code.per_customer_limit:
+            raise OrderError("discount_already_used")
+    if code.first_purchase_only and await pricing.has_prior_purchase(
+        session, order.customer_id, exclude_order_id=order.id
+    ):
+        raise OrderError("discount_first_purchase_only")
+
+
 async def _redeem(session: AsyncSession, order: Order) -> None:
     if not order.discount_code_id:
         return
+    rules = await session.get(DiscountCode, order.discount_code_id)
+    if rules is not None:
+        await _check_customer_rules(session, order, rules)
     result = await session.execute(
         update(DiscountCode)
         .where(
