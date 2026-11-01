@@ -145,3 +145,32 @@ async def test_staff_move_one_and_many(session, two) -> None:  # type: ignore[no
     for service in (first, second):
         row = await session.get(Service, service.id, populate_existing=True)
         assert row is not None and row.panel_id == new.id
+
+
+async def test_move_never_lands_on_someone_elses_account(session, two, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """SEC-F03: the target panel already has an account under the generated name."""
+    from paurubot.core import usernames
+
+    cust, new = two["cust"], two["new"]
+    service = await _service(session, await _buy(session, cust, OrderKind.PURCHASE, plan=two["plan"]))
+    new_fake = two["fakes"][new.id]
+    new_fake.users["moved_1"] = {
+        "id": 77,
+        "username": "moved_1",
+        "status": "active",
+        "used_traffic": 5,
+        "data_limit": 1,
+        "expire": 0,
+        "sub": "theirs",
+        "request": {},
+    }
+    foreign = dict(new_fake.users["moved_1"])
+
+    async def same_name(*_args, **_kwargs) -> str:  # type: ignore[no-untyped-def]
+        return "moved_1"
+
+    monkeypatch.setattr(usernames, "generate", same_name)
+    order = await _buy(session, cust, OrderKind.MOVE, service=service, move_to=new)
+    moved = await _service(session, order)
+    assert moved.panel_id == new.id and moved.panel_username.startswith("moved_1_")
+    assert new_fake.users["moved_1"] == foreign

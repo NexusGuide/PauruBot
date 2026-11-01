@@ -35,7 +35,7 @@ from paurubot.panels import (
     UserSpec,
     driver_for,
 )
-from paurubot.provisioning import create_state, renewal_policy, renewal_state
+from paurubot.provisioning import claims, create_state, renewal_policy, renewal_state
 
 log = logging.getLogger(__name__)
 
@@ -195,25 +195,43 @@ async def _panel_for_new(session: AsyncSession, order: Order) -> Panel:
     return panel
 
 
+async def _claim_name(session: AsyncSession, order: Order, panel: Panel, first: str) -> str:
+    """Claim `first`, else a random-tailed variant of it, for this order on `panel` (SEC-F03)."""
+    candidate = first
+    for _ in range(claims.MAX_TRIES):
+        if await claims.claim(session, panel.id, candidate, order.id):
+            return candidate
+        candidate = claims.alternative(first)
+    raise ProvisionError("panel_username_unavailable")
+
+
+def _created_here(order: Order, panel_id: int, username: str) -> bool:
+    """Whether this order itself asked the panel to create exactly this account."""
+    rec = create_state.record(order)
+    return (
+        create_state.state(order) == create_state.ATTEMPTED
+        and rec.get("panel_id") == panel_id
+        and rec.get("username") == username
+    )
+
+
 async def _create_service(session: AsyncSession, order: Order) -> Service:
     customer = await session.get(Customer, order.customer_id)
     assert customer is not None
     panel = await _panel_for_new(session, order)
     plan = await session.get(Plan, order.plan_id) if order.plan_id else None
     params = dict(order.params or {})
-    # Remember the chosen panel and username before calling the panel, so a retry after a
-    # crash adopts the account it already created instead of creating a second one.
+    # Claim the chosen panel and username before calling the panel, in one commit: no other
+    # order can pick the same name, and a retry after a crash finds its own account.
     if not params.get("panel_username") or params.get("panel_id") != panel.id:
         params["panel_id"] = panel.id
         prefix = plan.username_prefix if plan else None
         if params.get("wanted_username") and customer.telegram_id > 0:
-            params["panel_username"] = await usernames.chosen(
-                session, panel, str(params["wanted_username"]), prefix
-            )
+            first = await usernames.chosen(session, panel, str(params["wanted_username"]), prefix)
         else:
-            params["panel_username"] = await usernames.generate(
-                session, panel, customer, params.get("label"), prefix
-            )
+            first = await usernames.generate(session, panel, customer, params.get("label"), prefix)
+        params["panel_username"] = await _claim_name(session, order, panel, first)
+        params["username_claimed"] = True
         order.params = params
         await session.commit()
     username = params["panel_username"]
@@ -263,6 +281,24 @@ async def _create_service(session: AsyncSession, order: Order) -> Service:
             raise ProvisionError("panel username belongs to another order")
         return existing_service
     info = await driver.get_user(PanelRef(username, params.get("panel_data") or {}))
+    if info is not None and params.get("username_claimed") and not _created_here(order, panel.id, username):
+        # An account this order never asked for already uses the name (made by staff, another
+        # bot or an earlier install). It is someone else's: never hand it over (SEC-F03).
+        # Orders claimed before this rule existed keep their old adopt-on-retry behaviour.
+        log.warning(
+            "order %s: panel %s already has an account named %s; renaming", order.id, panel.id, username
+        )
+        for _ in range(claims.MAX_TRIES):
+            username = await _claim_name(session, order, panel, claims.alternative(username))
+            order.params = {**(order.params or {}), "panel_username": username}
+            await session.commit()
+            info = await driver.get_user(PanelRef(username, {}))
+            if info is None:
+                break
+        else:
+            raise ProvisionError("panel_username_unavailable")
+        params = dict(order.params or {})
+        spec.username = username
     if info is None:
         # Commit the intent BEFORE the remote call (SEC-F08): from here on a lost response,
         # timeout or crash may leave an account on the panel, so giving up must not refund.
@@ -789,11 +825,13 @@ async def _move_service(session: AsyncSession, order: Order) -> Service:
                 raise ProvisionError("service_not_found")
         customer = await session.get(Customer, service.customer_id)
         assert customer is not None
+        first = await usernames.generate(
+            session, target, customer, service.label, plan.username_prefix if plan else None
+        )
         params["move"] = {
             **_move_target(service, plan),
-            "username": await usernames.generate(
-                session, target, customer, service.label, plan.username_prefix if plan else None
-            ),
+            "username": await _claim_name(session, order, target, first),
+            "claimed": True,
             "from_panel": service.panel_id,
             "from_username": service.panel_username,
             "from_data": dict(service.panel_data or {}),
@@ -819,7 +857,24 @@ async def _move_service(session: AsyncSession, order: Order) -> Service:
         spec.data_limit = 1  # nothing left: keep it limited instead of turning it unlimited
     driver = await driver_for(target)
     info = await driver.get_user(PanelRef(spec.username, {}))
+    if info is not None and move.get("claimed") and move.get("created") != spec.username:
+        # Someone else's account under the claimed name: never move the service onto it (SEC-F03).
+        log.warning("move order %s: panel %s already has %s; renaming", order.id, target.id, spec.username)
+        for _ in range(claims.MAX_TRIES):
+            spec.username = await _claim_name(session, order, target, claims.alternative(spec.username))
+            move = {**move, "username": spec.username}
+            order.params = params = {**(order.params or {}), "move": move}
+            await session.commit()
+            info = await driver.get_user(PanelRef(spec.username, {}))
+            if info is None:
+                break
+        else:
+            raise ProvisionError("panel_username_unavailable")
     if info is None:
+        # The intent before the call: a retry adopts only an account it asked for itself.
+        move = {**move, "created": spec.username}
+        order.params = params = {**(order.params or {}), "move": move}
+        await session.commit()
         info = await driver.create_user(spec)
     service.panel_id = target.id
     service.panel_username = info.username or spec.username
@@ -1119,6 +1174,8 @@ async def give_up(session: AsyncSession, order_id: int, reason: str) -> None:
     if order.kind in renewal_state.KINDS and renewal_state.state(order) == renewal_state.PENDING:
         renewal_state.move(order, renewal_state.FAILED, "gave up before touching the panel")
     await refund_failed(session, order, reason)
+    if order.kind in create_state.KINDS or not ((order.params or {}).get("move") or {}).get("created"):
+        await claims.release(session, order.id)  # nothing was left on a panel under these names
     from paurubot.core import resale
 
     await resale.refund_wholesale(session, order)

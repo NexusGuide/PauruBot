@@ -19,6 +19,22 @@ from paurubot.db.models.enums import (
 from paurubot.db.models.tenancy import Customer
 
 
+class PanelUsernameClaim(Base, TimestampMixin):
+    """Which order owns a username on a panel before any service exists (SEC-F03).
+
+    Written in the commit that stores the chosen name on the order, so two orders can never
+    pick the same account name on a panel, and no order adopts an account it did not create.
+    """
+
+    __tablename__ = "panel_username_claims"
+    __table_args__ = (UniqueConstraint("panel_id", "username"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    panel_id: Mapped[int] = mapped_column(ForeignKey("panels.id", ondelete="CASCADE"))
+    username: Mapped[str] = mapped_column(String(64))
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id", ondelete="SET NULL"), index=True)
+
+
 class Service(Base, UpdatedMixin):
     __tablename__ = "services"
     __table_args__ = (
