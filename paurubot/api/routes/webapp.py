@@ -14,6 +14,7 @@ import paurubot.api.routes.webapp_cards as webapp_cards
 import paurubot.api.routes.webapp_payment_inbox as webapp_payment_inbox
 from paurubot.api.routes import (
     webapp_auto_renew,
+    webapp_gate,
     webapp_receipts,
     webapp_staff,
     webapp_ticket_media,
@@ -72,6 +73,7 @@ router.include_router(webapp_receipts.router)
 router.include_router(webapp_cards.router)
 router.include_router(webapp_payment_inbox.router)
 router.include_router(webapp_transfers.router)
+router.include_router(webapp_gate.router)
 MAX_RECEIPT = 8 * 1024 * 1024
 
 
@@ -112,6 +114,8 @@ def _service_base(service: Service, cfg: dict[str, Any] | None = None) -> dict[s
         "data_limit": service.data_limit,
         "used_bytes": service.used_bytes,
         "expire_at": _iso(service.expire_at),
+        # When the data ran out (SEC-F15); the Mini App keys its "data used up" alert by it.
+        "limited_at": _iso(service.limited_at),
         "subscription_url": customer_link(service, cfg) if cfg is not None else service.subscription_url,
         "location": service.panel.location.title if service.panel and service.panel.location else None,
         "plan_id": service.plan_id,

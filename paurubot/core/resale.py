@@ -135,17 +135,6 @@ async def allow_feature(session: AsyncSession, profile: ResellerProfile, feature
     await session.flush()
 
 
-def _fraction_left(service: Any) -> float:
-    """Unused share of a service's current period, as upgrades credit it."""
-    from datetime import UTC, datetime
-
-    plan = service.plan
-    if plan is None or not plan.days or service.expire_at is None:
-        return 0.0
-    seconds = (service.expire_at - datetime.now(UTC)).total_seconds()
-    return 0.0 if seconds <= 0 else min(1.0, seconds / (plan.days * 86400))
-
-
 async def extra_units(session: AsyncSession, resale: Resale, service: Any) -> tuple[int | None, int | None]:
     """(reseller's cost, listed price) of one extra GB and one extra day, from the parent shop's
     own extra prices. Prices are None where extras are not sold for this service."""
@@ -173,19 +162,23 @@ async def listed_extras(
     return tuple(None if c is None else retail(found, None, c) for c in costs)  # type: ignore[return-value]
 
 
-async def upgrade_prices(session: AsyncSession, resale: Resale, service: Any, plan: Plan) -> tuple[int, int]:
-    """(reseller's cost, listed price) of moving `service` to `plan`. The unused share of the
-    current plan is credited on both sides, so the reseller's margin stays its own."""
-    left = _fraction_left(service)
+async def upgrade_prices(
+    session: AsyncSession, resale: Resale, service: Any, plan: Plan
+) -> tuple[int, int, int]:
+    """(reseller's cost, listed price, reseller's credit) of moving `service` to `plan`.
+
+    Both sides credit what was really paid for the current period, times the unused share
+    (SEC-F01). That is the customer's payment on the listed side and the reseller's wholesale
+    on the cost side, so the reseller's margin stays its own.
+    """
+    from paurubot.core.orders import period_basis
+
+    basis = await period_basis(session, service)
     new_cost = await wholesale(session, resale, plan.id, int(plan.price))
     new_list = retail(resale, plan.id, new_cost)
-    old_cost = old_list = 0
-    if service.plan is not None and left > 0 and not service.is_trial:
-        old_cost = await wholesale(session, resale, service.plan.id, int(service.plan.price))
-        old_list = retail(resale, service.plan.id, old_cost)
-    cost = max(0, new_cost - int(old_cost * left))
-    listed = max(cost, pricing.round_price(new_list - old_list * left))
-    return cost, listed
+    cost = max(0, new_cost - basis.wholesale_credit)
+    listed = max(cost, pricing.round_price(new_list - basis.credit))
+    return cost, listed, new_cost - cost
 
 
 async def list_price(session: AsyncSession, plan: Plan, shop_id: int) -> int:

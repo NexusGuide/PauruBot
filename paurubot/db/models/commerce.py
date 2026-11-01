@@ -4,9 +4,11 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
+from sqlalchemy.orm.base import NO_VALUE
 
-from paurubot.db.base import Base, TimestampMixin, UpdatedMixin, str_enum
+from paurubot.db.base import Base, TimestampMixin, UpdatedMixin, str_enum, utcnow
 from paurubot.db.models.catalog import Panel, Plan
 from paurubot.db.models.enums import (
     LedgerAccountKind,
@@ -17,6 +19,22 @@ from paurubot.db.models.enums import (
     ServiceStatus,
 )
 from paurubot.db.models.tenancy import Customer
+
+
+class PanelUsernameClaim(Base, TimestampMixin):
+    """Which order owns a username on a panel before any service exists (SEC-F03).
+
+    Written in the commit that stores the chosen name on the order, so two orders can never
+    pick the same account name on a panel, and no order adopts an account it did not create.
+    """
+
+    __tablename__ = "panel_username_claims"
+    __table_args__ = (UniqueConstraint("panel_id", "username"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    panel_id: Mapped[int] = mapped_column(ForeignKey("panels.id", ondelete="CASCADE"))
+    username: Mapped[str] = mapped_column(String(64))
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id", ondelete="SET NULL"), index=True)
 
 
 class Service(Base, UpdatedMixin):
@@ -58,10 +76,26 @@ class Service(Base, UpdatedMixin):
     client_ips: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
     # The customer's opt-in auto-renewal rule, None when off (F-02; see paurubot.core.auto_renew).
     auto_renew: Mapped[dict[str, Any] | None] = mapped_column(JSON(none_as_null=True), nullable=True)
+    # When the data ran out: set as the status becomes LIMITED, cleared when it leaves (SEC-F15).
+    # Cleanup ages an exhausted service from here, not from its end date or last row update.
+    limited_at: Mapped[datetime | None] = mapped_column()
 
     customer: Mapped[Customer] = relationship(lazy="selectin")
     panel: Mapped[Panel] = relationship(lazy="selectin")
     plan: Mapped[Plan | None] = relationship(lazy="selectin")
+
+    @validates("status")
+    def _track_limited(self, _key: str, value: ServiceStatus) -> ServiceStatus:
+        # Read the previous values without loading them: a validator must never trigger IO.
+        loaded = sa_inspect(self).dict
+        previous = loaded.get("status", NO_VALUE)
+        since = loaded.get("limited_at", NO_VALUE)
+        if value != ServiceStatus.LIMITED:
+            self.limited_at = None
+        elif previous != ServiceStatus.LIMITED or since in (None, NO_VALUE):
+            # Unknown history counts from now: later, never earlier, than the real moment.
+            self.limited_at = utcnow()
+        return value
 
     @property
     def remaining_bytes(self) -> int | None:

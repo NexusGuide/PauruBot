@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from paurubot import kv
 from paurubot.core import orders
 from paurubot.db.base import utcnow
 from paurubot.db.models import Job, JobStatus, Order, Panel, Service, ServiceStatus, Shop
@@ -80,11 +82,17 @@ async def refresh_panel_hint(session: AsyncSession, job: queue.Claimed) -> None:
         raise Permanent("panel refresh scope mismatch")
     if not panel.is_active:
         return
-    previous = service.status
-    # Panel failures roll back through the existing retry/dead-letter runner.
-    await lifecycle.refresh(session, service)
-    if service.status != ServiceStatus.DELETED:
-        await sync.evaluate_alerts(session, service, previous)
+    try:
+        # Same owner as modifications (SEC-F09): never read the panel mid-renewal or mid-move.
+        async with kv.lease(lifecycle.service_lease(service.id), ttl=sync.BACKGROUND_LEASE_TTL):
+            previous = service.status
+            # Panel failures roll back through the existing retry/dead-letter runner.
+            await lifecycle.refresh(session, service)
+            if service.status != ServiceStatus.DELETED:
+                await sync.evaluate_alerts(session, service, previous)
+            await session.commit()
+    except kv.LockNotAcquired as exc:
+        raise Defer("service is being changed") from exc
 
 
 register_queue(
@@ -229,14 +237,14 @@ async def usage_sync() -> None:
     async with session_scope() as session:
         panels = await sync.due_panels(session)
         panel_ids = [p.id for p in panels]
-    for panel_id in panel_ids:
-        async with session_scope() as session:
-            panel = await session.get(Panel, panel_id)
-            if panel is None:
-                continue
-            # Health is the monitor's job (PNL-12); this only refreshes usage.
-            synced, failed = await sync.sync_panel(session, panel)
-        log.info("usage sync panel=%s synced=%s failed=%s", panel_id, synced, failed)
+    # Health is the monitor's job (PNL-12); this only refreshes usage, panels side by side (SEC-F27).
+    for panel_id, result in (await sync.sync_all(panel_ids)).items():
+        if isinstance(result, BaseException):
+            if isinstance(result, asyncio.CancelledError):
+                raise result
+            log.error("usage sync panel=%s failed", panel_id, exc_info=result)
+            continue
+        log.info("usage sync panel=%s synced=%s failed=%s", panel_id, *result)
 
 
 @every(3600, "usage_history.cleanup")
@@ -291,6 +299,29 @@ async def reconcile_renewals() -> None:
                 continue
             if outcome != "uncertain":
                 log.info("renewal order %s reconciled: %s", order_id, outcome)
+
+
+@every(600, "purchases.reconcile")
+async def reconcile_purchases() -> None:
+    """Settle purchases parked because the panel may hold their account (SEC-F08)."""
+    cursor = 0
+    async with session_scope() as session:
+        through_id = int(await session.scalar(select(func.max(Order.id))) or 0)
+    while cursor < through_id:
+        async with session_scope() as session:
+            order_ids = await lifecycle.parked_purchases(session, after_id=cursor, through_id=through_id)
+        if not order_ids:
+            break
+        cursor = order_ids[-1]
+        for order_id in order_ids:
+            try:
+                async with session_scope() as session:
+                    outcome = await lifecycle.reconcile_purchase(session, order_id)
+            except Exception:
+                log.exception("reconciling purchase order %s failed", order_id)
+                continue
+            if outcome not in {"uncertain", "waiting"}:
+                log.info("purchase order %s reconciled: %s", order_id, outcome)
 
 
 @every(60, "services.auto_renew")

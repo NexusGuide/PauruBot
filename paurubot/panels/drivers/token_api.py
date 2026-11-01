@@ -26,6 +26,7 @@ from paurubot.panels.base import (
 
 class TokenApiDriver(PanelDriver):
     supports_webhooks = True
+    parallel_reads = 3  # the token login below is single-flight
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)

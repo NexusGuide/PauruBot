@@ -72,6 +72,7 @@ SAFE_OPTION_KEYS = {
     "template_user",
     "profile",
     "group",
+    "sync_concurrency",  # usage-sync reads in flight on this panel; never above the driver's (SEC-F27)
 }
 
 # Option values that end up in panel API paths or forms: short names only.
@@ -137,6 +138,9 @@ def _clean_options(options: dict[str, Any]) -> dict[str, Any]:
     ):
         if key in options and options[key] is not None and not isinstance(options[key], bool):
             raise HTTPException(status_code=422, detail=f"{key}_invalid")
+    width = options.get("sync_concurrency")
+    if width is not None and (type(width) is not int or not 1 <= width <= 8):
+        raise HTTPException(status_code=422, detail="sync_concurrency_invalid")
     if options.get("guard_version") not in (None, "v1", "v2"):
         raise HTTPException(status_code=422, detail="guard_version_invalid")
     import re

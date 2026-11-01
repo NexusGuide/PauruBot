@@ -73,6 +73,20 @@ async def run(*, with_telegram: bool = True) -> list[Check]:
             db_now = (await conn.execute(text("SELECT now()"))).scalar()
         head = ScriptDirectory.from_config(alembic_config()).get_current_head()
         add("postgresql", "ok", f"server {version}")
+        from paurubot.db.roles import runtime_problems
+
+        async with get_engine().connect() as conn:
+            role_problems = await runtime_problems(conn)
+        if role_problems:
+            add(
+                "database_role",
+                "fail" if settings.database_owner_url else "warn",
+                "the app's database role "
+                + ", ".join(role_problems)
+                + "; set DATABASE_OWNER_URL and connect the app as a separate role",
+            )
+        else:
+            add("database_role", "ok", "data rights only")
         add("migrations", "ok" if current == head else "fail", f"current {current}, latest {head}")
         skew = abs((utcnow() - db_now).total_seconds()) if db_now else 0.0
         add("clock", "ok" if skew < 5 else "warn", f"app and database clocks differ by {skew:.1f}s")

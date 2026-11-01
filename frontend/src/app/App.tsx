@@ -7,6 +7,7 @@ import { Checkout, Done } from "./screens/Checkout";
 import { Desk } from "./screens/Desk";
 import { Help } from "./screens/Help";
 import { Home } from "./screens/Home";
+import { Gate } from "./screens/Gate";
 import { Join } from "./screens/Join";
 import { Manage } from "./screens/Manage";
 import { More } from "./screens/More";
@@ -89,7 +90,7 @@ function Ripple() {
 }
 
 function Shell() {
-  const { me, error, join, t, reload } = useApp();
+  const { me, error, join, gate, t, reload } = useApp();
   const [retrying, setRetrying] = useState(false);
   const retry = async () => {
     setRetrying(true);
@@ -100,6 +101,15 @@ function Shell() {
     return (
       <>
         <Join />
+        <Toast />
+      </>
+    );
+  }
+  if (gate && !me) {
+    // Phone, then terms, as the bot asks: nothing else answers until they are done (SEC-F11).
+    return (
+      <>
+        <Gate />
         <Toast />
       </>
     );
