@@ -47,6 +47,7 @@
   "err_insufficient_balance": "Insufficient balance.",
   "err_maintenance": "We're updating; please check back shortly.",
   "err_method_disabled": "This payment method isn't available.",
+  "err_method_busy": "This payment method is busy right now. Try again in a little while or pick another method.",
   "err_not_set_up": "The shop isn't set up yet.",
   "err_order_expired": "The order expired; please place it again.",
   "err_panel_error": "Couldn't reach the server.",

@@ -22,7 +22,6 @@ import json
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -33,11 +32,11 @@ from paurubot.core import settings as shop_settings
 from paurubot.db.base import utcnow
 from paurubot.db.models import Payment, PaymentStatus
 from paurubot.payments import engine
-from paurubot.payments.chains import NETWORKS, ChainError, Client, Transfer
+from paurubot.payments.chains import MATCH_WINDOW, NETWORKS, ChainError, Client, Transfer
 
 log = logging.getLogger(__name__)
 
-LATE_WINDOW = timedelta(hours=24)
+LATE_WINDOW = MATCH_WINDOW
 CLOCK_SKEW = 120
 # Seconds below the high-water mark that every scan re-reads. Both APIs list confirmed transfers in
 # chain order (TRON solidified blocks, TON account lt), so this only absorbs indexer lag and the

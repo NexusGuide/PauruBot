@@ -16,6 +16,7 @@ import hashlib
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any
 
 import httpx
@@ -30,6 +31,8 @@ NETWORKS: dict[str, dict[str, Any]] = {
     "ton": {"symbol": "ton", "decimals": 9, "chain": "ton", "label": "TON"},
 }
 
+# How long after creation a payment can still be matched by an incoming transfer.
+MATCH_WINDOW = timedelta(hours=24)
 TRON_PAGE = 200
 TON_PAGE = 100
 # Seconds between page requests per chain, without / with an API key. Toncenter allows one

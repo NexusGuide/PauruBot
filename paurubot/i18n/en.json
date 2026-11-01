@@ -171,6 +171,7 @@
   "links_header": "🔗 <b>Configs</b> (tap one to copy):",
   "maintenance": "🛠 The bot is being updated. Please check back in a few minutes.",
   "method_disabled": "This payment method isn't available.",
+  "method_busy": "This payment method is busy right now. Try again in a little while or pick another method.",
   "no": "No",
   "no_payment_methods": "No payment method is available right now; please contact support.",
   "no_plans": "There are no plans for sale right now.",
