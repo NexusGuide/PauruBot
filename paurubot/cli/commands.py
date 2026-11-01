@@ -19,9 +19,11 @@ async def migrate(_: argparse.Namespace) -> int:
     from paurubot.db.migrate import upgrade_database
     from paurubot.db.session import dispose_engine
 
-    await upgrade_database()
+    role = await upgrade_database()
     await dispose_engine()
     print("database is at the latest revision")
+    if role:
+        print(f"runtime role {role}: data rights only")
     return 0
 
 

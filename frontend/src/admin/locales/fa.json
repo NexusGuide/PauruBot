@@ -1105,6 +1105,7 @@
   "doctor_public_url": "آدرس عمومی",
   "doctor_postgresql": "پایگاه داده",
   "doctor_migrations": "نسخه‌ی پایگاه داده",
+  "doctor_database_role": "نقش پایگاه داده",
   "doctor_clock": "ساعت سرور",
   "doctor_redis": "ردیس",
   "doctor_worker": "پردازشگر پس‌زمینه",

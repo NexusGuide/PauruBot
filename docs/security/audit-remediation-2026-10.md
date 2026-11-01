@@ -194,6 +194,32 @@
 
 **آزمون محلی:** نصب lock با `--require-hashes` روی Python ۳٫۱۲ و ۳٫۱۴ و اجرای کل suite: ۲۲۶۹ تست روی هر دو پاس شد. مرحلهٔ wheel image روی ۳٫۱۴ اجرا شد (۵۸ wheel؛ ۲ بستهٔ دیگر فقط مخصوص Windows هستند). build کامل Docker image اینجا ممکن نبود (daemon در دسترس نیست) و باید در CI انتشار تأیید شود.
 
+## SEC-F26 — نقش جدای PostgreSQL برای اجرا و migration (نوامبر ۲۰۲۶)
+
+**مشکل:** api، bot و worker با مالک دیتابیس وصل می‌شدند؛ در Compose همراه پروژه، این همان superuser بود. هر باگ یا تزریق در برنامه می‌توانست جدول حذف کند، trigger تغییرناپذیری دفترکل را خاموش کند یا رکورد migration را جعل کند.
+
+**اصلاح:**
+- تنظیم `DATABASE_OWNER_URL`، مالک schema. فقط `migrate`، `restore` و `backup verify --full` از آن استفاده می‌کنند. اگر خالی باشد، یک نقش برای همه به کار می‌رود (توسعه و آزمون).
+- `db/roles.ensure_runtime_role` در هر اجرای migrate، نقش اجرا (کاربر `DATABASE_URL`) را می‌سازد یا هم‌سان می‌کند:
+  - LOGIN بدون superuser، ساخت دیتابیس یا نقش، replication یا bypassrls؛
+  - فقط `SELECT, INSERT, UPDATE, DELETE` روی جدول‌ها و `USAGE, SELECT` روی sequenceها، به‌اضافهٔ default privileges برای جدول‌هایی که مالک بعداً می‌سازد؛
+  - بدون CREATE روی schema و بدون نوشتن روی `alembic_version`.
+
+  فقط ویژگی‌هایی تغییر می‌کنند که با هدف فرق دارند، تا مالک غیر superuser (مثلاً PostgreSQL مدیریت‌شده) هم کار کند. اگر نقش اجرا superuser باشد و مالک نتواند آن را تغییر دهد، با پیام روشن متوقف می‌شود.
+- Compose:
+  - api، bot و worker با `POSTGRES_APP_USER` (پیش‌فرض `paurubot_app`) و `POSTGRES_APP_PASSWORD` وصل می‌شوند؛
+  - فقط سرویس `migrate` آدرس مالک را دارد؛
+  - `pauru restore` از سرویس `migrate` اجرا می‌شود.
+- installer: `POSTGRES_APP_PASSWORD` تولید می‌شود؛ در update هم اگر نباشد ساخته می‌شود.
+- doctor: بررسی `database_role` اعلام می‌کند اگر نقش برنامه superuser باشد، بتواند جدول بسازد یا مالک جدول باشد.
+
+**آزمون روی PostgreSQL واقعی** (`tests/unit/test_database_roles.py`): دیتابیس تازه با مالک CREATEROLE غیر superuser، و migrate دوباره (idempotent). نقش اجرا داده می‌نویسد، ولی این عملیات همه رد می‌شوند:
+- CREATE TABLE، DROP TABLE و TRUNCATE؛
+- DISABLE TRIGGER روی دفترکل؛
+- نوشتن روی `alembic_version` و CREATE ROLE.
+
+backup با نقش اجرا، restore با مالک، و پس از restore نقش اجرا همچنان به دادهٔ بازگردانده دسترسی دارد. چون هنوز هیچ نصبی وجود ندارد، مسیر ارتقای volumeهای قدیمی پیاده نشد.
+
 ## وضعیت هر ۳۰ یافته
 
 «کد اعمال شد» فقط یعنی وصله در این شاخه وجود دارد؛ پذیرش نهایی عملیاتی به CI و آزمون محیط آزمایشی وابسته است.
@@ -225,7 +251,7 @@
 | SEC-F23 readiness | کد اعمال شد | تست ایزوله قطع DB/Redis و revision اشتباه پاس شد؛ Compose واقعی باز است |
 | SEC-F24 قفل وابستگی Python | کد اعمال شد | `requirements.lock` با hash برای همهٔ نسخه‌های Python ≥۳٫۱۲؛ Docker و CI فقط با `--require-hashes` از آن نصب می‌کنند؛ CI روی ۳٫۱۲ و ۳٫۱۴ (نسخهٔ image) و Node هم‌سان. build کامل image در محیط بدون Docker آزموده نشد |
 | SEC-F25 گیت انتشار | کد اعمال شد | اجرای workflow واقعی/تنظیم branch protection خارج از این وصله است |
-| SEC-F26 نقش PostgreSQL | باز | تفکیک نقش runtime/migration و دستور ارتقای volumeهای موجود |
+| SEC-F26 نقش PostgreSQL | کد اعمال شد | api/bot/worker با نقش `paurubot_app` (فقط حقوق داده)؛ مالک schema فقط در سرویس migrate (`DATABASE_OWNER_URL`) که هر بار حقوق نقش اجرا را دوباره اعمال می‌کند؛ restore و verify کامل با مالک؛ هنوز روی هیچ سروری نصب نشده، پس مسیر ارتقای volume لازم نبود |
 | SEC-F27 هم‌زمانی sync پنل | کد اعمال شد | `sync_all`: تا ۳ پنل هم‌زمان، هر worker با session مستقل؛ سقف درخواست هم‌زمان در هر پنل از `parallel_reads` درایور (TokenApi=۳، بقیه ۱) و گزینهٔ `sync_concurrency`. benchmark محلی: ۳٫۹ ثانیه به ۰٫۷ ثانیه |
 | SEC-F28 چرخه هشدار خوانده‌شده | کد اعمال شد | شناسهٔ هشدار شامل دورهٔ سرویس (پایان، حجم، `limited_at`) است؛ وضعیت خوانده‌شده در کلید جداگانهٔ هر مشتری (یکتا برای هر فروشگاه و حساب) ذخیره می‌شود و کلید مشترک قدیمی حذف می‌شود |
 | SEC-F29 retry اولیه | کد اعمال شد | build کامل frontend و تست تعامل مرورگر در CI لازم است |

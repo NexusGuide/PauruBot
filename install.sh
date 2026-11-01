@@ -309,6 +309,7 @@ OWNER_TELEGRAM_IDS=$owner
 MASTER_KEY=$(random_secret 64 64)
 BACKUP_PASSPHRASE=$passphrase
 POSTGRES_PASSWORD=$(random_secret 32 32)
+POSTGRES_APP_PASSWORD=$(random_secret 32 32)
 BOT_MODE=polling
 TRUST_PROXY_HOPS=1
 TIMEZONE=Asia/Tehran
@@ -352,6 +353,7 @@ cmd_update() {
     esac
   done
   [[ -f $ENV_FILE ]] || die "not installed; run install first"
+  [[ -n $(env_get POSTGRES_APP_PASSWORD) ]] || env_set POSTGRES_APP_PASSWORD "$(random_secret 32 32)"
   resolve_target "$channel" "$version"
   say "Updating to ${BOLD}$TARGET_REF${RESET} ($channel)…"
   say "Writing a backup first…"
@@ -426,8 +428,9 @@ cmd_restore() {
   name=$(basename "$file")
   compose stop api bot worker
   # `-e NAME` without a value passes it from this shell, so the passphrase never shows in `ps`.
+  # The migrate service carries the schema owner's credentials; the app roles cannot restore (SEC-F26).
   RESTORE_PASSPHRASE=$passphrase compose run --rm --no-deps -T -v "$(realpath "$file"):/restore/$name:ro" -e RESTORE_PASSPHRASE \
-    api restore "/restore/$name" --yes --passphrase-env RESTORE_PASSPHRASE --print-master-key \
+    migrate restore "/restore/$name" --yes --passphrase-env RESTORE_PASSPHRASE --print-master-key \
     | tee /dev/stderr >"$DIR/.restore.log" || {
     compose up -d
     die "restore failed; the services were started again on the old data"
