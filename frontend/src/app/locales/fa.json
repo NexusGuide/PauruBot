@@ -53,6 +53,7 @@
   "err_payment_not_waiting": "این پرداخت دیگه منتظر رسید نیست.",
   "err_plan_unavailable": "این پلن دیگه در دسترس نیست.",
   "err_plan_wrong_panel": "این پلن برای سرور این سرویس نیست.",
+  "err_upgrade_not_higher": "ارتقا فقط به پلن گران‌تر ممکنه.",
   "err_rate_limited": "کمی آهسته‌تر؛ چند ثانیه بعد دوباره امتحان کن.",
   "err_receipt_expected": "لطفاً عکس رسید رو انتخاب کن.",
   "err_receipt_too_large": "حجم عکس زیاده.",

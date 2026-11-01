@@ -8,7 +8,7 @@ pending ──pay──▶ paid ──worker──▶ provisioning ──▶ com
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, select, update
@@ -60,15 +60,75 @@ class Draft:
     base_price: int
 
 
-def _remaining_value(service: Service, plan: Plan | None) -> int:
-    """Unused share of the current plan's price, used as credit when upgrading."""
-    if plan is None or not plan.days or service.expire_at is None:
-        return 0
-    seconds_left = (service.expire_at - datetime.now(UTC)).total_seconds()
-    if seconds_left <= 0:
-        return 0
-    fraction = min(1.0, seconds_left / (plan.days * 86400))
-    return int(plan.price * fraction)
+# Order kinds that start a service period with a price paid for it (SEC-F01).
+PERIOD_KINDS = (OrderKind.PURCHASE, OrderKind.RENEW, OrderKind.UPGRADE)
+
+
+@dataclass(slots=True, frozen=True)
+class PeriodBasis:
+    """What was really paid for a service's current period (SEC-F01)."""
+
+    paid: int  # by the customer, including credit an upgrade carried over
+    wholesale: int  # by the reseller, for a reseller-bot sale, likewise
+    days: int  # the period's plan days
+    share: float  # unused part of the period: the smaller of time and data left (0..1)
+
+    @property
+    def credit(self) -> int:
+        return int(self.paid * self.share)
+
+    @property
+    def wholesale_credit(self) -> int:
+        return int(self.wholesale * self.share)
+
+
+async def period_basis(session: AsyncSession, service: Service) -> PeriodBasis:
+    """The latest completed purchase, renewal or upgrade, and how much of it is unused.
+
+    Time alone would credit a service whose data is used up almost in full, and the
+    upgrade then resets the data. List price would credit discounts and later price
+    rises. The share is the one the self-delete refund uses. Free, gifted, staff-made
+    and trial periods are worth 0.
+    """
+    from paurubot.core.cancellation import unused_share
+
+    last = await session.scalar(
+        select(Order)
+        .where(
+            Order.service_id == service.id,
+            Order.status == OrderStatus.COMPLETED,
+            Order.kind.in_(PERIOD_KINDS),
+        )
+        .order_by(Order.completed_at.desc().nulls_last(), Order.id.desc())
+        .limit(1)
+    )
+    if last is None or service.is_trial:
+        return PeriodBasis(0, 0, 0, 0.0)
+    params = last.params or {}
+    paid, wholesale = int(last.amount or 0), int(params.get("wholesale") or 0)
+    if last.kind == OrderKind.UPGRADE:
+        paid += max(0, int(params.get("credit") or 0))
+        if wholesale:
+            wholesale += max(0, int(params.get("wholesale_credit") or 0))
+    plan = await session.get(Plan, last.plan_id) if last.plan_id else service.plan
+    days = int(plan.days) if plan is not None else 0
+    return PeriodBasis(paid, wholesale, days, unused_share(service, days))
+
+
+async def upgrade_credit(session: AsyncSession, service: Service) -> int:
+    """Unused value of the current period, as paid: paid amount × min(time, data) left."""
+    return (await period_basis(session, service)).credit
+
+
+async def upgrade_floor(session: AsyncSession, service: Service) -> int:
+    """An upgrade must cost more than this: the current plan's price, else the period's value."""
+    if service.plan is not None:
+        return int(service.plan.price)
+    return (await period_basis(session, service)).paid
+
+
+def upgradable(plan: Plan, service: Service, floor: int) -> bool:
+    return plan.id != service.plan_id and int(plan.price) > floor
 
 
 def extra_prices(cfg: dict[str, Any], plan: Plan | None) -> tuple[int, int] | None:
@@ -222,7 +282,8 @@ async def draft(
             cost, listed = unit * count, resale.retail(shop_resale, None, unit) * count
         elif kind == OrderKind.UPGRADE:
             assert service is not None and plan is not None
-            cost, listed = await resale.upgrade_prices(session, shop_resale, service, plan)
+            cost, listed, wholesale_credit = await resale.upgrade_prices(session, shop_resale, service, plan)
+            d.params["wholesale_credit"] = wholesale_credit
         else:
             cost = await resale.wholesale(session, shop_resale, plan.id if plan else None, d.base_price)
             listed = resale.retail(shop_resale, plan.id if plan else None, cost)
@@ -330,7 +391,9 @@ async def _draft(
             raise OrderError("plan_unavailable")
         if plan.panel_id and plan.panel_id != service.panel_id:
             raise OrderError("plan_wrong_panel")
-        credit = 0 if service.is_trial else _remaining_value(service, service.plan)
+        if not upgradable(plan, service, await upgrade_floor(session, service)):
+            raise OrderError("upgrade_not_higher")
+        credit = await upgrade_credit(session, service)
         params["credit"] = credit
         return Draft(kind, plan, service, params, max(0, plan.price - credit))
     if kind == OrderKind.MOVE:

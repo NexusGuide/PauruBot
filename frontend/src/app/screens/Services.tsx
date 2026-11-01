@@ -260,7 +260,10 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
   const can = (change: string) => !service.changes || service.changes.includes(change);
 
   const go = (kind: string) =>
-    navigate(`/buy?kind=${kind}&service=${service.id}&panel=${service.panel_id}`);
+    navigate(
+      `/buy?kind=${kind}&service=${service.id}&panel=${service.panel_id}` +
+        (kind === "upgrade" && service.plan_id ? `&current=${service.plan_id}` : ""),
+    );
 
   const actions: ReactNode[] = [];
   if (!service.is_trial && can("renew")) {

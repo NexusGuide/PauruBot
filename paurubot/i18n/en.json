@@ -205,6 +205,7 @@
   "plan_specs": "⏳ Duration: {days} days | 📊 Data: {gb} GB",
   "plan_unavailable": "This plan is no longer available.",
   "plan_wrong_panel": "This plan doesn't belong to this service's server.",
+  "upgrade_not_higher": "You can only upgrade to a more expensive plan.",
   "processing": "Processing…",
   "qr_caption": "📷 Scan this QR code in your app.",
   "qr_too_long": "This link is too long for a QR code; copy the link itself instead.",
