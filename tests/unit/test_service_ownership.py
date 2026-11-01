@@ -11,12 +11,22 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from paurubot import kv
 from paurubot.core import settings as shop_settings
-from paurubot.db.models import Order, OrderKind, OrderStatus, Panel, PanelKind, Service, ServiceStatus, Shop
+from paurubot.db.models import (
+    Job,
+    Order,
+    OrderKind,
+    OrderStatus,
+    Panel,
+    PanelKind,
+    Service,
+    ServiceStatus,
+    Shop,
+)
 from paurubot.panels import GB, registry
 from paurubot.provisioning import lifecycle, sync
 from paurubot.worker import jobs as worker_jobs
@@ -222,6 +232,9 @@ async def test_cleanup_skips_a_service_being_changed_and_deletes_it_later(engine
     async with maker() as s:
         row = await s.get(Service, service_id)
         assert row is not None and row.status == ServiceStatus.DELETED
+        # Committed outside the per-test transaction: do not leave the alert for other tests.
+        await s.execute(delete(Job).where(Job.dedupe_key == f"alert:{service_id}:deleted"))
+        await s.commit()
     assert fake.users == {}
 
 

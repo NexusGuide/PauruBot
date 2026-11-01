@@ -182,11 +182,14 @@ async def apply_webhook_user(session: AsyncSession, panel: Panel, info: PanelUse
 
 
 def _expired_long_enough(service: Service, cutoff: datetime) -> bool:
+    """Ended before `cutoff`: its end date passed then, or its data ran out then (SEC-F15)."""
     if service.status not in {ServiceStatus.EXPIRED, ServiceStatus.LIMITED}:
         return False
-    if service.expire_at is not None:
-        return service.expire_at < cutoff
-    return service.updated_at is not None and service.updated_at < cutoff
+    if service.expire_at is not None and service.expire_at < cutoff:
+        return True
+    if service.status == ServiceStatus.LIMITED:
+        return service.limited_at is not None and service.limited_at < cutoff
+    return service.expire_at is None and service.updated_at is not None and service.updated_at < cutoff
 
 
 async def _has_open_order(session: AsyncSession, service_id: int) -> bool:
@@ -240,7 +243,11 @@ async def cleanup_expired(session: AsyncSession, shop_id: int) -> int:
                 Service.shop_id == shop_id,
                 Service.status.in_([ServiceStatus.EXPIRED, ServiceStatus.LIMITED]),
                 or_(
-                    Service.expire_at < cutoff, (Service.expire_at.is_(None)) & (Service.updated_at < cutoff)
+                    Service.expire_at < cutoff,
+                    (Service.status == ServiceStatus.LIMITED) & (Service.limited_at < cutoff),
+                    (Service.status == ServiceStatus.EXPIRED)
+                    & Service.expire_at.is_(None)
+                    & (Service.updated_at < cutoff),
                 ),
             )
             .order_by(Service.id)
