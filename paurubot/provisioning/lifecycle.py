@@ -35,7 +35,7 @@ from paurubot.panels import (
     UserSpec,
     driver_for,
 )
-from paurubot.provisioning import renewal_policy, renewal_state
+from paurubot.provisioning import claims, create_state, renewal_policy, renewal_state
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +61,35 @@ async def ensure_sub_token(session: AsyncSession, service: Service) -> str:
 
 class ServiceBusy(Exception):
     """A live or unresolved predecessor owns this service; defer, never refund it."""
+
+
+def service_lease(service_id: int) -> str:
+    """One owner for panel-changing work on a service (SEC-F09).
+
+    Modifications, moves and renewal reconciliation hold it across their intent and progress
+    commits. Background readers and cleanup take it non-blocking and skip a busy service, so
+    they never act on a service mid-change.
+    """
+    return f"service:modify:{service_id}"
+
+
+async def lock_fresh(session: AsyncSession, service: Service, *, skip_locked: bool = False) -> bool:
+    """Row-lock `service` and reload it before reading or changing the panel (SEC-F09).
+
+    The lock lasts until the caller's commit, so a panel answer read under it can only be written
+    over a newer state if that state was committed after this read, and then it is not.
+    Pending changes are flushed first so the reload keeps them. Returns False (and leaves
+    the object untouched) when `skip_locked` and another transaction holds the row.
+    """
+    await session.flush()
+    if skip_locked:
+        locked = await session.scalar(
+            select(Service.id).where(Service.id == service.id).with_for_update(skip_locked=True)
+        )
+        if locked is None:
+            return False
+    await session.refresh(service, with_for_update=True)
+    return True
 
 
 class ProvisionError(Exception):
@@ -166,25 +195,43 @@ async def _panel_for_new(session: AsyncSession, order: Order) -> Panel:
     return panel
 
 
+async def _claim_name(session: AsyncSession, order: Order, panel: Panel, first: str) -> str:
+    """Claim `first`, else a random-tailed variant of it, for this order on `panel` (SEC-F03)."""
+    candidate = first
+    for _ in range(claims.MAX_TRIES):
+        if await claims.claim(session, panel.id, candidate, order.id):
+            return candidate
+        candidate = claims.alternative(first)
+    raise ProvisionError("panel_username_unavailable")
+
+
+def _created_here(order: Order, panel_id: int, username: str) -> bool:
+    """Whether this order itself asked the panel to create exactly this account."""
+    rec = create_state.record(order)
+    return (
+        create_state.state(order) == create_state.ATTEMPTED
+        and rec.get("panel_id") == panel_id
+        and rec.get("username") == username
+    )
+
+
 async def _create_service(session: AsyncSession, order: Order) -> Service:
     customer = await session.get(Customer, order.customer_id)
     assert customer is not None
     panel = await _panel_for_new(session, order)
     plan = await session.get(Plan, order.plan_id) if order.plan_id else None
     params = dict(order.params or {})
-    # Remember the chosen panel and username before calling the panel, so a retry after a
-    # crash adopts the account it already created instead of creating a second one.
+    # Claim the chosen panel and username before calling the panel, in one commit: no other
+    # order can pick the same name, and a retry after a crash finds its own account.
     if not params.get("panel_username") or params.get("panel_id") != panel.id:
         params["panel_id"] = panel.id
         prefix = plan.username_prefix if plan else None
         if params.get("wanted_username") and customer.telegram_id > 0:
-            params["panel_username"] = await usernames.chosen(
-                session, panel, str(params["wanted_username"]), prefix
-            )
+            first = await usernames.chosen(session, panel, str(params["wanted_username"]), prefix)
         else:
-            params["panel_username"] = await usernames.generate(
-                session, panel, customer, params.get("label"), prefix
-            )
+            first = await usernames.generate(session, panel, customer, params.get("label"), prefix)
+        params["panel_username"] = await _claim_name(session, order, panel, first)
+        params["username_claimed"] = True
         order.params = params
         await session.commit()
     username = params["panel_username"]
@@ -234,8 +281,31 @@ async def _create_service(session: AsyncSession, order: Order) -> Service:
             raise ProvisionError("panel username belongs to another order")
         return existing_service
     info = await driver.get_user(PanelRef(username, params.get("panel_data") or {}))
+    if info is not None and params.get("username_claimed") and not _created_here(order, panel.id, username):
+        # An account this order never asked for already uses the name (made by staff, another
+        # bot or an earlier install). It is someone else's: never hand it over (SEC-F03).
+        # Orders claimed before this rule existed keep their old adopt-on-retry behaviour.
+        log.warning(
+            "order %s: panel %s already has an account named %s; renaming", order.id, panel.id, username
+        )
+        for _ in range(claims.MAX_TRIES):
+            username = await _claim_name(session, order, panel, claims.alternative(username))
+            order.params = {**(order.params or {}), "panel_username": username}
+            await session.commit()
+            info = await driver.get_user(PanelRef(username, {}))
+            if info is None:
+                break
+        else:
+            raise ProvisionError("panel_username_unavailable")
+        params = dict(order.params or {})
+        spec.username = username
     if info is None:
+        # Commit the intent BEFORE the remote call (SEC-F08): from here on a lost response,
+        # timeout or crash may leave an account on the panel, so giving up must not refund.
+        create_state.attempt(order, panel.id, username)
+        await session.commit()
         info = await driver.create_user(spec)
+    create_state.confirm(order)
     service = Service(
         shop_id=order.shop_id,
         customer_id=customer.id,
@@ -541,7 +611,7 @@ async def reconcile_renewal(session: AsyncSession, order_id: int) -> str:
     if order is None or not order.service_id:
         return await _reconcile_renewal(session, order_id)
     try:
-        async with kv.lease(f"service:modify:{order.service_id}", ttl=180):
+        async with kv.lease(service_lease(order.service_id), ttl=180):
             await session.refresh(order)
             if await _modification_predecessor(session, order) is not None:
                 raise ServiceBusy("another unresolved modification owns the service")
@@ -618,6 +688,98 @@ async def _reconcile_renewal(session: AsyncSession, order_id: int) -> str:
     return "uncertain"
 
 
+# --- reconciliation of parked purchases (SEC-F08) ------------------------------------------
+
+
+async def parked_purchases(
+    session: AsyncSession, limit: int = 200, *, after_id: int = 0, through_id: int | None = None
+) -> list[int]:
+    stmt = (
+        select(Order.id)
+        .where(
+            Order.status == OrderStatus.PROVISIONING,
+            Order.kind.in_(list(create_state.KINDS)),
+            Order.params["create"]["parked"].as_boolean().is_(True),
+            Order.id > after_id,
+        )
+        .order_by(Order.id)
+        .limit(limit)
+    )
+    if through_id is not None:
+        stmt = stmt.where(Order.id <= through_id)
+    return list(await session.scalars(stmt))
+
+
+async def reconcile_purchase(session: AsyncSession, order_id: int) -> str:
+    """Settle one parked purchase or trial by reading the panel. Never creates by itself.
+
+    - the account exists → provisioning resumes and adopts it (``resumed``);
+    - the panel says it does not exist → the order is refunded (``refunded``);
+    - the last create request is still recent → look again later (``waiting``);
+    - panel unreachable, username held by another service, or too many resumes → stays
+      parked for the staff (``uncertain``), who are told once.
+    """
+    order = await session.get(Order, order_id, with_for_update=True, populate_existing=True)
+    if (
+        order is None
+        or order.status != OrderStatus.PROVISIONING
+        or order.kind not in create_state.KINDS
+        or not create_state.parked(order)
+    ):
+        return "skipped"
+    if create_state.state(order) != create_state.ATTEMPTED:
+        # Parked by an older code path or edited: nothing claims the panel was touched.
+        create_state.unpark(order)
+        await session.commit()
+        await give_up(session, order.id, "no create request is on record")
+        return "refunded"
+    since = create_state.attempted_at(order)
+    if since is not None and utcnow() - since < create_state.SETTLE_DELAY:
+        return "waiting"
+    rec = create_state.record(order)
+    params = order.params or {}
+    panel_id, username = (
+        rec.get("panel_id") or params.get("panel_id"),
+        rec.get("username") or params.get("panel_username"),
+    )
+    panel = await session.get(Panel, int(panel_id)) if panel_id else None
+    if panel is None or not isinstance(username, str) or not username:
+        outcome = "panel_missing"
+    else:
+        holder = await session.scalar(
+            select(Service).where(Service.panel_id == panel.id, Service.panel_username == username)
+        )
+        if holder is not None and (
+            holder.customer_id != order.customer_id or holder.shop_id != order.shop_id
+        ):
+            outcome = "username_taken"
+        else:
+            try:
+                info = await (await driver_for(panel)).get_user(
+                    PanelRef(username, params.get("panel_data") or {})
+                )
+            except PanelError as exc:
+                outcome = f"panel_unreachable: {exc}"
+            else:
+                if info is None:
+                    create_state.absent(order)
+                    await session.commit()
+                    await give_up(session, order.id, "the account was not created on the panel")
+                    return "refunded"
+                if create_state.note_resume(order) <= create_state.MAX_RESUMES:
+                    create_state.unpark(order)
+                    await _resume(session, order)
+                    await session.commit()
+                    return "resumed"
+                outcome = "resume_exhausted"
+    if create_state.note_check(order, outcome) == 1:
+        await _alert_uncertain(
+            session, order, outcome, "The bot cannot tell whether the panel account exists"
+        )
+    await session.commit()
+    return "uncertain"
+
+
 def _move_target(service: Service, plan: Plan | None) -> dict[str, Any]:
     """What the service carries to its new panel: the data still left and the same end date (SVC-04)."""
     left = 0
@@ -663,11 +825,13 @@ async def _move_service(session: AsyncSession, order: Order) -> Service:
                 raise ProvisionError("service_not_found")
         customer = await session.get(Customer, service.customer_id)
         assert customer is not None
+        first = await usernames.generate(
+            session, target, customer, service.label, plan.username_prefix if plan else None
+        )
         params["move"] = {
             **_move_target(service, plan),
-            "username": await usernames.generate(
-                session, target, customer, service.label, plan.username_prefix if plan else None
-            ),
+            "username": await _claim_name(session, order, target, first),
+            "claimed": True,
             "from_panel": service.panel_id,
             "from_username": service.panel_username,
             "from_data": dict(service.panel_data or {}),
@@ -693,7 +857,24 @@ async def _move_service(session: AsyncSession, order: Order) -> Service:
         spec.data_limit = 1  # nothing left: keep it limited instead of turning it unlimited
     driver = await driver_for(target)
     info = await driver.get_user(PanelRef(spec.username, {}))
+    if info is not None and move.get("claimed") and move.get("created") != spec.username:
+        # Someone else's account under the claimed name: never move the service onto it (SEC-F03).
+        log.warning("move order %s: panel %s already has %s; renaming", order.id, target.id, spec.username)
+        for _ in range(claims.MAX_TRIES):
+            spec.username = await _claim_name(session, order, target, claims.alternative(spec.username))
+            move = {**move, "username": spec.username}
+            order.params = params = {**(order.params or {}), "move": move}
+            await session.commit()
+            info = await driver.get_user(PanelRef(spec.username, {}))
+            if info is None:
+                break
+        else:
+            raise ProvisionError("panel_username_unavailable")
     if info is None:
+        # The intent before the call: a retry adopts only an account it asked for itself.
+        move = {**move, "created": spec.username}
+        order.params = params = {**(order.params or {}), "move": move}
+        await session.commit()
         info = await driver.create_user(spec)
     service.panel_id = target.id
     service.panel_username = info.username or spec.username
@@ -778,7 +959,7 @@ async def fulfill(session: AsyncSession, order_id: int) -> Service | None:
         return await _fulfill(session, order_id)
     try:
         # Unlike a row lock, this lease survives the intent/progress commits around panel calls.
-        async with kv.lease(f"service:modify:{order.service_id}", ttl=180):
+        async with kv.lease(service_lease(order.service_id), ttl=180):
             await session.refresh(order)
             if order.status not in {OrderStatus.PAID, OrderStatus.PROVISIONING}:
                 return await _fulfill(session, order_id)
@@ -967,6 +1148,21 @@ async def give_up(session: AsyncSession, order_id: int, reason: str) -> None:
     order = await session.get(Order, order_id, populate_existing=True)
     if order is None or order.status in {OrderStatus.COMPLETED, OrderStatus.REFUNDED}:
         return
+    if not create_state.refundable(order):
+        # A create request may have reached the panel: settle it by reading the panel.
+        first = not create_state.parked(order)
+        create_state.park(order, reason)
+        log.warning("order %s parked: the panel may hold its account: %s", order.id, reason[:200])
+        if first:
+            await _alert_uncertain(
+                session,
+                order,
+                "create_uncertain",
+                "A create request may have reached the panel and the job gave up "
+                "(the bot will keep checking the panel)",
+            )
+        await session.commit()
+        return
     if not renewal_state.refundable(order):
         # The panel may hold the change: refunding could give it away. Reconcile instead.
         if renewal_state.state(order) == renewal_state.RUNNING:
@@ -978,6 +1174,8 @@ async def give_up(session: AsyncSession, order_id: int, reason: str) -> None:
     if order.kind in renewal_state.KINDS and renewal_state.state(order) == renewal_state.PENDING:
         renewal_state.move(order, renewal_state.FAILED, "gave up before touching the panel")
     await refund_failed(session, order, reason)
+    if order.kind in create_state.KINDS or not ((order.params or {}).get("move") or {}).get("created"):
+        await claims.release(session, order.id)  # nothing was left on a panel under these names
     from paurubot.core import resale
 
     await resale.refund_wholesale(session, order)
@@ -1011,6 +1209,14 @@ async def delete_service(session: AsyncSession, service: Service, reason: str | 
 
 
 async def refresh(session: AsyncSession, service: Service) -> PanelUser | None:
+    """Read the panel into `service`. The row stays locked until the caller commits (SEC-F09).
+
+    Reloading under the lock matters: a stale copy could still point at the panel a move has
+    just left, and that panel's "no such user" would mark the moved service deleted.
+    """
+    await lock_fresh(session, service)
+    if service.status == ServiceStatus.DELETED:
+        return None
     panel = await session.get(Panel, service.panel_id)
     assert panel is not None
     if panel.national_mode:

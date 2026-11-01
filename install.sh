@@ -309,6 +309,7 @@ OWNER_TELEGRAM_IDS=$owner
 MASTER_KEY=$(random_secret 64 64)
 BACKUP_PASSPHRASE=$passphrase
 POSTGRES_PASSWORD=$(random_secret 32 32)
+POSTGRES_APP_PASSWORD=$(random_secret 32 32)
 BOT_MODE=polling
 TRUST_PROXY_HOPS=1
 TIMEZONE=Asia/Tehran
@@ -352,15 +353,21 @@ cmd_update() {
     esac
   done
   [[ -f $ENV_FILE ]] || die "not installed; run install first"
+  [[ -n $(env_get POSTGRES_APP_PASSWORD) ]] || env_set POSTGRES_APP_PASSWORD "$(random_secret 32 32)"
   resolve_target "$channel" "$version"
   say "Updating to ${BOLD}$TARGET_REF${RESET} ($channel)…"
   say "Writing a backup first…"
-  compose exec -T worker paurubot backup >/dev/null 2>&1 || die "backup before update failed; update aborted without changing the installed release"
-  ok "backup written"
+  local backup_out backup_file
+  backup_out=$(compose exec -T worker paurubot backup 2>/dev/null) || die "backup before update failed; update aborted without changing the installed release"
+  # "<path>.pbak (<n> bytes)": the archive a rollback restores if this update migrates the schema.
+  backup_file=$(printf '%s\n' "$backup_out" | sed -n 's/^\(\/[^ ]*\.pbak\) ([0-9]* bytes)$/\1/p' | tail -n1)
+  [[ -n $backup_file ]] || die "backup before update gave no file; update aborted without changing the installed release"
+  ok "backup written: $backup_file"
   local previous
   previous=$(env_get PAURUBOT_IMAGE)
   fetch_source "$TARGET_REF"
   fetch_image "$TARGET_IMAGE"
+  env_set PAURUBOT_PREVIOUS_BACKUP "$backup_file"
   env_set PAURUBOT_PREVIOUS_IMAGE "$previous"
   env_set PAURUBOT_PREVIOUS_VERSION "$(env_get PAURUBOT_VERSION)"
   env_set PAURUBOT_IMAGE "$PINNED_IMAGE"
@@ -375,18 +382,52 @@ cmd_update() {
   fi
 }
 
+swap_release() {
+  # Exchange the current and previous image/version records (rollback, or undoing one).
+  local image version
+  image=$(env_get PAURUBOT_IMAGE)
+  version=$(env_get PAURUBOT_VERSION)
+  env_set PAURUBOT_IMAGE "$(env_get PAURUBOT_PREVIOUS_IMAGE)"
+  env_set PAURUBOT_VERSION "$(env_get PAURUBOT_PREVIOUS_VERSION)"
+  env_set PAURUBOT_PREVIOUS_IMAGE "$image"
+  env_set PAURUBOT_PREVIOUS_VERSION "$version"
+}
+
+# Migrations only go forward (SEC-F22). An older release must never start on a schema a newer
+# release migrated: the previous image itself says whether it can, and when it cannot, the
+# rollback restores the backup the update took before migrating, or changes nothing.
 cmd_rollback() {
   need_root
-  local previous
+  local previous state=0 restore=0 backup
   previous=$(env_get PAURUBOT_PREVIOUS_IMAGE)
   [[ -n $previous ]] || die "no previous version recorded"
-  warn "rolling back to $previous; database migrations are not reversed"
-  env_set PAURUBOT_PREVIOUS_IMAGE "$(env_get PAURUBOT_IMAGE)"
-  env_set PAURUBOT_IMAGE "$previous"
-  local version
-  version=$(env_get PAURUBOT_VERSION)
-  env_set PAURUBOT_VERSION "$(env_get PAURUBOT_PREVIOUS_VERSION)"
-  env_set PAURUBOT_PREVIOUS_VERSION "$version"
+  PAURUBOT_IMAGE=$previous compose run --rm --no-deps -T migrate schema-status || state=$?
+  case $state in
+    0 | 3) ;;
+    4) restore=1 ;;
+    *) die "could not compare the database with $previous (schema-status exit $state); nothing was changed" ;;
+  esac
+  if ((restore)); then
+    backup=$(env_get PAURUBOT_PREVIOUS_BACKUP)
+    [[ -n $backup ]] || die "the database was migrated past $previous and no pre-update backup is recorded; nothing was changed (see docs/ops/rollback.md)"
+    [[ -z ${PAURUBOT_AGENT:-} ]] || die "rolling back to $previous means restoring the pre-update backup; run 'pauru rollback' on the server"
+    warn "the database was migrated past $previous: rolling back restores the backup taken before the update"
+    warn "  $backup — everything written since the update is lost"
+    confirm "Restore that backup and roll back?" || die "rollback canceled; nothing was changed"
+  else
+    warn "rolling back to $previous; the database needs no change"
+  fi
+  swap_release
+  if ((restore)); then
+    compose stop api bot worker
+    # The previous release restores its own schema; the migrate service holds the owner role.
+    if ! compose run --rm --no-deps -T migrate restore "$backup" --yes; then
+      swap_release
+      compose up -d --remove-orphans
+      die "restore failed; the database is unchanged and the current release was started again"
+    fi
+    env_set PAURUBOT_PREVIOUS_BACKUP ""
+  fi
   compose up -d --remove-orphans
   wait_healthy && ok "rolled back" || warn "still not healthy; check: pauru logs api"
 }
@@ -426,8 +467,9 @@ cmd_restore() {
   name=$(basename "$file")
   compose stop api bot worker
   # `-e NAME` without a value passes it from this shell, so the passphrase never shows in `ps`.
+  # The migrate service carries the schema owner's credentials; the app roles cannot restore (SEC-F26).
   RESTORE_PASSPHRASE=$passphrase compose run --rm --no-deps -T -v "$(realpath "$file"):/restore/$name:ro" -e RESTORE_PASSPHRASE \
-    api restore "/restore/$name" --yes --passphrase-env RESTORE_PASSPHRASE --print-master-key \
+    migrate restore "/restore/$name" --yes --passphrase-env RESTORE_PASSPHRASE --print-master-key \
     | tee /dev/stderr >"$DIR/.restore.log" || {
     compose up -d
     die "restore failed; the services were started again on the old data"
@@ -524,7 +566,7 @@ cmd_agent() {
       result="done"
       case $action in
         update) (cmd_update "${args[@]}") >"$AGENT_LOG" 2>&1 || result=failed ;;
-        rollback) (cmd_rollback) >"$AGENT_LOG" 2>&1 || result=failed ;;
+        rollback) (PAURUBOT_AGENT=1 cmd_rollback) >"$AGENT_LOG" 2>&1 || result=failed ;;
         *)
           echo "unknown action $action" >"$AGENT_LOG"
           result=failed

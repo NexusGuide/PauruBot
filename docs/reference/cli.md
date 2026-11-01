@@ -33,5 +33,6 @@ Run inside a container, for example `docker compose exec api paurubot doctor`.
 | `migrate` | apply database migrations |
 | `reconcile` | verify ledger balances against journal entries |
 | `restore` | replace the database with a backup (stop api, bot and worker first) |
+| `schema-status` | compare the database schema with this release (exit 0 same, 3 older, 4 newer/unknown, 5 empty) |
 | `setup-token` | issue a new one-time setup token (only before setup is completed) |
 | `worker` | run queues and periodic tasks |

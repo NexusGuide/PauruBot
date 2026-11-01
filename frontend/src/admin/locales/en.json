@@ -1105,6 +1105,7 @@
   "doctor_public_url": "Public URL",
   "doctor_postgresql": "Database",
   "doctor_migrations": "Database version",
+  "doctor_database_role": "Database role",
   "doctor_clock": "Server clock",
   "doctor_redis": "Redis",
   "doctor_worker": "Background worker",

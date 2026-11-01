@@ -221,6 +221,8 @@ async def verify(path: Path, *, passphrase: str | None = None, full: bool = Fals
             "master_key_included": bool(contents.master_key),
         }
         if full:
+            # A scratch database needs the owner's rights, not the runtime role's (SEC-F26).
+            env = pg_env(get_settings().owner_database_url)
             scratch = f"paurubot_verify_{secrets.token_hex(4)}"
             admin_env = dict(env, PGDATABASE="postgres")
             await _run("psql", "-qc", f'CREATE DATABASE "{scratch}"', env=admin_env)
@@ -252,7 +254,8 @@ async def restore(path: Path, *, passphrase: str | None = None) -> Contents:
     """Replace the current database with the backup. Callers stop the other processes first."""
     with tempfile.TemporaryDirectory(prefix=".restore-", dir=backup_dir()) as tmp:
         contents = open_archive(path, Path(tmp), passphrase)
-        env = pg_env()
+        # Restore drops and recreates objects: the schema owner does it (SEC-F26).
+        env = pg_env(get_settings().owner_database_url)
         await _run(
             "pg_restore",
             "--clean",

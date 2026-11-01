@@ -251,6 +251,10 @@ class PanelDriver(ABC):
     # How a customer connects: a subscription link, a WireGuard .conf file, or a username and password.
     delivery: str = "subscription"
     changes: frozenset[str] = ALL_CHANGES
+    # Reads the usage sync may keep in flight at once on one panel (SEC-F27). One unless the
+    # driver shares a single login across concurrent calls; a cookie login raced by several
+    # requests could trip a panel's brute-force lockout.
+    parallel_reads: int = 1
 
     def __init__(
         self, http: SafeHttpClient, username: str, password: str, options: dict[str, Any] | None = None

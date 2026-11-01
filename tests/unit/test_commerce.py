@@ -14,6 +14,7 @@ from paurubot.db.models import (
     DiscountKind,
     Job,
     Location,
+    Order,
     OrderKind,
     OrderStatus,
     Panel,
@@ -154,8 +155,26 @@ async def test_extras_and_upgrade_pricing(session) -> None:  # type: ignore[no-u
     await session.refresh(service, ["plan"])
     vol = await orders.draft(session, cust, OrderKind.EXTRA_VOLUME, service=service, extra_gb=10)
     assert vol.base_price == 10 * 3_000
+    # No payment on record for this period (gifted or imported): nothing to credit (SEC-F01).
     up = await orders.draft(session, cust, OrderKind.UPGRADE, service=service, plan=big)
-    assert 195_000 <= up.base_price <= 205_000  # about half of the small plan credited
+    assert up.base_price == 250_000 and up.params["credit"] == 0
+    session.add(
+        Order(
+            shop_id=shop.id,
+            customer_id=cust.id,
+            kind=OrderKind.PURCHASE,
+            status=OrderStatus.COMPLETED,
+            plan_id=small.id,
+            service_id=service.id,
+            base_price=100_000,
+            amount=100_000,
+            params={},
+            completed_at=datetime.now(UTC) - timedelta(days=15),
+        )
+    )
+    await session.flush()
+    up = await orders.draft(session, cust, OrderKind.UPGRADE, service=service, plan=big)
+    assert 195_000 <= up.base_price <= 205_000  # about half of what was paid credited
     stranger = await factories.customer(session, shop)
     with pytest.raises(orders.OrderError, match="service_not_found"):
         await orders.draft(session, stranger, OrderKind.EXTRA_DAYS, service=service, extra_days=5)
