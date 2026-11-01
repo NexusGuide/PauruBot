@@ -7,6 +7,7 @@ import logging
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from paurubot import kv
 from paurubot.core import orders
 from paurubot.db.base import utcnow
 from paurubot.db.models import Job, JobStatus, Order, Panel, Service, ServiceStatus, Shop
@@ -80,11 +81,17 @@ async def refresh_panel_hint(session: AsyncSession, job: queue.Claimed) -> None:
         raise Permanent("panel refresh scope mismatch")
     if not panel.is_active:
         return
-    previous = service.status
-    # Panel failures roll back through the existing retry/dead-letter runner.
-    await lifecycle.refresh(session, service)
-    if service.status != ServiceStatus.DELETED:
-        await sync.evaluate_alerts(session, service, previous)
+    try:
+        # Same owner as modifications (SEC-F09): never read the panel mid-renewal or mid-move.
+        async with kv.lease(lifecycle.service_lease(service.id), ttl=sync.BACKGROUND_LEASE_TTL):
+            previous = service.status
+            # Panel failures roll back through the existing retry/dead-letter runner.
+            await lifecycle.refresh(session, service)
+            if service.status != ServiceStatus.DELETED:
+                await sync.evaluate_alerts(session, service, previous)
+            await session.commit()
+    except kv.LockNotAcquired as exc:
+        raise Defer("service is being changed") from exc
 
 
 register_queue(

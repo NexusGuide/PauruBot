@@ -1,4 +1,11 @@
-"""Usage sync for panels without webhooks (NEW-03), customer alerts (SVC-05) and cleanup."""
+"""Usage sync for panels without webhooks (NEW-03), customer alerts (SVC-05) and cleanup.
+
+Sync and cleanup share one owner per service with modifications (SEC-F09): each service is
+handled in its own transaction under the service lease and a row lock taken without waiting.
+A service that a renewal, move or reconciliation is changing is skipped until the next pass.
+Its panel state is never read early and written late over the newer change, and it is never
+deleted while it has an open order.
+"""
 
 from __future__ import annotations
 
@@ -8,15 +15,19 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from paurubot import kv
 from paurubot.core import alert_policy, orders
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import utcnow
-from paurubot.db.models import Panel, Service, ServiceStatus
+from paurubot.db.models import Order, OrderStatus, Panel, Service, ServiceStatus
 from paurubot.panels import PanelError, PanelUser
-from paurubot.provisioning.lifecycle import delete_service, refresh
+from paurubot.provisioning.lifecycle import delete_service, lock_fresh, refresh, service_lease
 from paurubot.worker import queue
 
 log = logging.getLogger(__name__)
+
+# Seconds; renewed while held. Covers one panel read or delete plus the commit.
+BACKGROUND_LEASE_TTL = 60
 
 LIVE_STATUSES = [
     ServiceStatus.ACTIVE,
@@ -79,37 +90,63 @@ async def evaluate_alerts(
     return queued
 
 
+async def _sync_one(session: AsyncSession, panel_id: int, service_id: int) -> str:
+    """Refresh one service under its lease and row lock, and commit. Returns the outcome."""
+    service = await session.get(Service, service_id)
+    if service is None:
+        return "skipped"
+    if not await lock_fresh(session, service, skip_locked=True):
+        return "busy"
+    if service.panel_id != panel_id or service.status not in LIVE_STATUSES:
+        await session.commit()  # moved or deleted since the page was read
+        return "skipped"
+    previous = service.status
+    await refresh(session, service)
+    if service.status != ServiceStatus.DELETED:
+        await evaluate_alerts(session, service, previous)
+    await session.commit()
+    return "synced"
+
+
 async def sync_panel(session: AsyncSession, panel: Panel, *, batch: int = 200) -> tuple[int, int]:
-    """Refresh every live service on one panel. Returns (synced, failed)."""
-    synced = failed = 0
+    """Refresh every live service on one panel. Returns (synced, failed); busy ones are skipped."""
+    panel_id = panel.id
+    synced = failed = busy = 0
     last_id = 0
     while True:
-        services = list(
+        service_ids = list(
             await session.scalars(
-                select(Service)
-                .where(Service.panel_id == panel.id, Service.status.in_(LIVE_STATUSES), Service.id > last_id)
+                select(Service.id)
+                .where(Service.panel_id == panel_id, Service.status.in_(LIVE_STATUSES), Service.id > last_id)
                 .order_by(Service.id)
                 .limit(batch)
             )
         )
-        if not services:
+        await session.commit()  # no lock or snapshot is kept across the panel calls below
+        if not service_ids:
             break
-        for service in services:
-            last_id = service.id
-            previous = service.status
+        for service_id in service_ids:
+            last_id = service_id
             try:
-                await refresh(session, service)
+                async with kv.lease(service_lease(service_id), ttl=BACKGROUND_LEASE_TTL):
+                    outcome = await _sync_one(session, panel_id, service_id)
+            except kv.LockNotAcquired:  # includes a lease lost mid-way: nothing was committed
+                await session.rollback()
+                busy += 1
+                continue
             except PanelError as exc:
+                await session.rollback()
                 failed += 1
-                log.info("sync failed for service %s: %s", service.id, exc)
+                log.info("sync failed for service %s: %s", service_id, exc)
                 if failed >= 5 and synced == 0:
-                    await session.commit()
                     return synced, failed  # panel looks down; stop hammering it
                 continue
-            synced += 1
-            if service.status != ServiceStatus.DELETED:
-                await evaluate_alerts(session, service, previous)
-        await session.commit()
+            if outcome == "synced":
+                synced += 1
+            elif outcome == "busy":
+                busy += 1
+    if busy:
+        log.info("sync panel=%s skipped %s service(s) being changed", panel_id, busy)
     return synced, failed
 
 
@@ -144,6 +181,52 @@ async def apply_webhook_user(session: AsyncSession, panel: Panel, info: PanelUse
     return service
 
 
+def _expired_long_enough(service: Service, cutoff: datetime) -> bool:
+    if service.status not in {ServiceStatus.EXPIRED, ServiceStatus.LIMITED}:
+        return False
+    if service.expire_at is not None:
+        return service.expire_at < cutoff
+    return service.updated_at is not None and service.updated_at < cutoff
+
+
+async def _has_open_order(session: AsyncSession, service_id: int) -> bool:
+    """A paid, running or parked order still needs this service: renewal, add-on or move."""
+    found = await session.scalar(
+        select(Order.id)
+        .where(
+            Order.service_id == service_id,
+            Order.status.in_([OrderStatus.PAID, OrderStatus.PROVISIONING]),
+        )
+        .limit(1)
+    )
+    return found is not None
+
+
+async def _cleanup_one(session: AsyncSession, shop_id: int, service_id: int, cutoff: datetime) -> bool:
+    """Delete one stale service under its lease and row lock, and commit. Returns whether it did."""
+    service = await session.get(Service, service_id)
+    if service is None or not await lock_fresh(session, service, skip_locked=True):
+        return False
+    # Decide again on the locked, current row: it may have been renewed since the page was read.
+    if service.shop_id != shop_id or not _expired_long_enough(service, cutoff):
+        await session.commit()
+        return False
+    if await _has_open_order(session, service.id):
+        await session.commit()
+        return False
+    await delete_service(session, service, "expired")
+    await queue.enqueue(
+        session,
+        "notify",
+        "service_alert",
+        {"service_id": service.id, "alert": "deleted"},
+        shop_id=shop_id,
+        dedupe_key=f"alert:{service.id}:deleted",
+    )
+    await session.commit()
+    return True
+
+
 async def cleanup_expired(session: AsyncSession, shop_id: int) -> int:
     """Delete services that stayed expired or exhausted longer than the shop allows."""
     days = int(await shop_settings.get(session, shop_id, "delete_expired_after_days") or 0)
@@ -152,7 +235,7 @@ async def cleanup_expired(session: AsyncSession, shop_id: int) -> int:
     cutoff = utcnow() - timedelta(days=days)
     stale = list(
         await session.scalars(
-            select(Service)
+            select(Service.id)
             .where(
                 Service.shop_id == shop_id,
                 Service.status.in_([ServiceStatus.EXPIRED, ServiceStatus.LIMITED]),
@@ -160,23 +243,19 @@ async def cleanup_expired(session: AsyncSession, shop_id: int) -> int:
                     Service.expire_at < cutoff, (Service.expire_at.is_(None)) & (Service.updated_at < cutoff)
                 ),
             )
+            .order_by(Service.id)
             .limit(200)
         )
     )
-    removed = 0
-    for service in stale:
-        try:
-            await delete_service(session, service, "expired")
-            removed += 1
-        except PanelError:
-            continue
-        await queue.enqueue(
-            session,
-            "notify",
-            "service_alert",
-            {"service_id": service.id, "alert": "deleted"},
-            shop_id=shop_id,
-            dedupe_key=f"alert:{service.id}:deleted",
-        )
     await session.commit()
+    removed = 0
+    for service_id in stale:
+        try:
+            async with kv.lease(service_lease(service_id), ttl=BACKGROUND_LEASE_TTL):
+                if await _cleanup_one(session, shop_id, service_id, cutoff):
+                    removed += 1
+        except kv.LockNotAcquired:
+            await session.rollback()  # being changed right now; look again next run
+        except PanelError:
+            await session.rollback()
     return removed

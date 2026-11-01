@@ -63,6 +63,35 @@ class ServiceBusy(Exception):
     """A live or unresolved predecessor owns this service; defer, never refund it."""
 
 
+def service_lease(service_id: int) -> str:
+    """One owner for panel-changing work on a service (SEC-F09).
+
+    Modifications, moves and renewal reconciliation hold it across their intent and progress
+    commits. Background readers and cleanup take it non-blocking and skip a busy service, so
+    they never act on a service mid-change.
+    """
+    return f"service:modify:{service_id}"
+
+
+async def lock_fresh(session: AsyncSession, service: Service, *, skip_locked: bool = False) -> bool:
+    """Row-lock `service` and reload it before reading or changing the panel (SEC-F09).
+
+    The lock lasts until the caller's commit, so a panel answer read under it can only be written
+    over a newer state if that state was committed after this read, and then it is not.
+    Pending changes are flushed first so the reload keeps them. Returns False (and leaves
+    the object untouched) when `skip_locked` and another transaction holds the row.
+    """
+    await session.flush()
+    if skip_locked:
+        locked = await session.scalar(
+            select(Service.id).where(Service.id == service.id).with_for_update(skip_locked=True)
+        )
+        if locked is None:
+            return False
+    await session.refresh(service, with_for_update=True)
+    return True
+
+
 class ProvisionError(Exception):
     """Permanent failure: retrying cannot help (e.g. no panel with capacity)."""
 
@@ -546,7 +575,7 @@ async def reconcile_renewal(session: AsyncSession, order_id: int) -> str:
     if order is None or not order.service_id:
         return await _reconcile_renewal(session, order_id)
     try:
-        async with kv.lease(f"service:modify:{order.service_id}", ttl=180):
+        async with kv.lease(service_lease(order.service_id), ttl=180):
             await session.refresh(order)
             if await _modification_predecessor(session, order) is not None:
                 raise ServiceBusy("another unresolved modification owns the service")
@@ -875,7 +904,7 @@ async def fulfill(session: AsyncSession, order_id: int) -> Service | None:
         return await _fulfill(session, order_id)
     try:
         # Unlike a row lock, this lease survives the intent/progress commits around panel calls.
-        async with kv.lease(f"service:modify:{order.service_id}", ttl=180):
+        async with kv.lease(service_lease(order.service_id), ttl=180):
             await session.refresh(order)
             if order.status not in {OrderStatus.PAID, OrderStatus.PROVISIONING}:
                 return await _fulfill(session, order_id)
@@ -1123,6 +1152,14 @@ async def delete_service(session: AsyncSession, service: Service, reason: str | 
 
 
 async def refresh(session: AsyncSession, service: Service) -> PanelUser | None:
+    """Read the panel into `service`. The row stays locked until the caller commits (SEC-F09).
+
+    Reloading under the lock matters: a stale copy could still point at the panel a move has
+    just left, and that panel's "no such user" would mark the moved service deleted.
+    """
+    await lock_fresh(session, service)
+    if service.status == ServiceStatus.DELETED:
+        return None
     panel = await session.get(Panel, service.panel_id)
     assert panel is not None
     if panel.national_mode:
