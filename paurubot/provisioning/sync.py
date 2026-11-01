@@ -9,7 +9,9 @@ deleted while it has an open order.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import or_, select
@@ -20,6 +22,7 @@ from paurubot.core import alert_policy, orders
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import utcnow
 from paurubot.db.models import Order, OrderStatus, Panel, Service, ServiceStatus
+from paurubot.db.session import session_scope
 from paurubot.panels import PanelError, PanelUser
 from paurubot.provisioning.lifecycle import delete_service, lock_fresh, refresh, service_lease
 from paurubot.worker import queue
@@ -28,6 +31,11 @@ log = logging.getLogger(__name__)
 
 # Seconds; renewed while held. Covers one panel read or delete plus the commit.
 BACKGROUND_LEASE_TTL = 60
+# Panels whose usage is read at the same time (SEC-F27). Each runs in its own sessions, so a
+# slow or dead panel no longer holds up the others. Within a panel, the driver's
+# `parallel_reads` (lowered by the panel option `sync_concurrency`) bounds requests in flight.
+PANEL_CONCURRENCY = 3
+DOWN_AFTER = 5  # failures with nothing synced: the panel looks down, stop hammering it
 
 LIVE_STATUSES = [
     ServiceStatus.ACTIVE,
@@ -108,46 +116,127 @@ async def _sync_one(session: AsyncSession, panel_id: int, service_id: int) -> st
     return "synced"
 
 
-async def sync_panel(session: AsyncSession, panel: Panel, *, batch: int = 200) -> tuple[int, int]:
-    """Refresh every live service on one panel. Returns (synced, failed); busy ones are skipped."""
-    panel_id = panel.id
-    synced = failed = busy = 0
-    last_id = 0
-    while True:
-        service_ids = list(
-            await session.scalars(
-                select(Service.id)
-                .where(Service.panel_id == panel_id, Service.status.in_(LIVE_STATUSES), Service.id > last_id)
-                .order_by(Service.id)
-                .limit(batch)
-            )
+async def _sync_service(session: AsyncSession, panel_id: int, service_id: int) -> str:
+    """One service under its lease; the session is clean again afterwards. Returns the outcome."""
+    try:
+        async with kv.lease(service_lease(service_id), ttl=BACKGROUND_LEASE_TTL):
+            return await _sync_one(session, panel_id, service_id)
+    except kv.LockNotAcquired:  # includes a lease lost mid-way: nothing was committed
+        await session.rollback()
+        return "busy"
+    except PanelError as exc:
+        await session.rollback()
+        log.info("sync failed for service %s: %s", service_id, exc)
+        return "failed"
+
+
+async def _page(session: AsyncSession, panel_id: int, after: int, batch: int) -> list[int]:
+    service_ids = list(
+        await session.scalars(
+            select(Service.id)
+            .where(Service.panel_id == panel_id, Service.status.in_(LIVE_STATUSES), Service.id > after)
+            .order_by(Service.id)
+            .limit(batch)
         )
-        await session.commit()  # no lock or snapshot is kept across the panel calls below
-        if not service_ids:
-            break
+    )
+    await session.commit()  # no lock or snapshot is kept across the panel calls
+    return service_ids
+
+
+class _Tally:
+    def __init__(self) -> None:
+        self.synced = self.failed = self.busy = 0
+
+    def add(self, outcome: str) -> None:
+        if outcome == "synced":
+            self.synced += 1
+        elif outcome == "failed":
+            self.failed += 1
+        elif outcome == "busy":
+            self.busy += 1
+
+    @property
+    def down(self) -> bool:
+        return self.failed >= DOWN_AFTER and self.synced == 0
+
+
+async def sync_panel(session: AsyncSession, panel: Panel, *, batch: int = 200) -> tuple[int, int]:
+    """Refresh every live service on one panel, one at a time in `session`. Returns (synced, failed)."""
+    panel_id = panel.id
+    tally = _Tally()
+    last_id = 0
+    while service_ids := await _page(session, panel_id, last_id, batch):
         for service_id in service_ids:
             last_id = service_id
-            try:
-                async with kv.lease(service_lease(service_id), ttl=BACKGROUND_LEASE_TTL):
-                    outcome = await _sync_one(session, panel_id, service_id)
-            except kv.LockNotAcquired:  # includes a lease lost mid-way: nothing was committed
-                await session.rollback()
-                busy += 1
-                continue
-            except PanelError as exc:
-                await session.rollback()
-                failed += 1
-                log.info("sync failed for service %s: %s", service_id, exc)
-                if failed >= 5 and synced == 0:
-                    return synced, failed  # panel looks down; stop hammering it
-                continue
-            if outcome == "synced":
-                synced += 1
-            elif outcome == "busy":
-                busy += 1
-    if busy:
-        log.info("sync panel=%s skipped %s service(s) being changed", panel_id, busy)
-    return synced, failed
+            tally.add(await _sync_service(session, panel_id, service_id))
+            if tally.down:
+                return tally.synced, tally.failed
+    if tally.busy:
+        log.info("sync panel=%s skipped %s service(s) being changed", panel_id, tally.busy)
+    return tally.synced, tally.failed
+
+
+async def read_width(panel: Panel) -> int:
+    """Requests the sync may keep in flight on this panel: the driver's safe limit, or less."""
+    from paurubot.panels import driver_for
+
+    try:
+        limit = max(1, int((await driver_for(panel)).parallel_reads))
+    except PanelError:
+        return 1
+    wanted = (panel.options or {}).get("sync_concurrency")
+    if type(wanted) is int and wanted >= 1:
+        limit = min(limit, wanted)
+    return limit
+
+
+async def sync_panel_isolated(panel_id: int, *, batch: int = 200) -> tuple[int, int]:
+    """Refresh one panel with up to `read_width` workers, each in its own session (SEC-F27).
+
+    An AsyncSession is never shared between concurrent tasks; each worker holds one session
+    and commits per service, exactly like the sequential sync.
+    """
+    async with session_scope() as session:
+        panel = await session.get(Panel, panel_id)
+        if panel is None or not panel.is_active:
+            return 0, 0
+        width = await read_width(panel)
+    tally = _Tally()
+    last_id = 0
+    while not tally.down:
+        async with session_scope() as session:
+            service_ids = await _page(session, panel_id, last_id, batch)
+        if not service_ids:
+            break
+        last_id = service_ids[-1]
+        pending = iter(service_ids)  # shared by the workers; next() never awaits
+
+        async def worker(queue: Iterable[int]) -> None:
+            async with session_scope() as session:
+                for service_id in queue:
+                    if tally.down:
+                        return
+                    tally.add(await _sync_service(session, panel_id, service_id))
+
+        # A TaskGroup cancels the sibling workers if one fails: no worker outlives this call.
+        async with asyncio.TaskGroup() as group:
+            for _ in range(width):
+                group.create_task(worker(pending))
+    if tally.busy:
+        log.info("sync panel=%s skipped %s service(s) being changed", panel_id, tally.busy)
+    return tally.synced, tally.failed
+
+
+async def sync_all(panel_ids: list[int]) -> dict[int, tuple[int, int] | BaseException]:
+    """Sync several panels at once, `PANEL_CONCURRENCY` at a time; one panel's error stays its own."""
+    gate = asyncio.Semaphore(PANEL_CONCURRENCY)
+
+    async def one(panel_id: int) -> tuple[int, int]:
+        async with gate:
+            return await sync_panel_isolated(panel_id)
+
+    results = await asyncio.gather(*(one(panel_id) for panel_id in panel_ids), return_exceptions=True)
+    return dict(zip(panel_ids, results, strict=True))
 
 
 async def due_panels(session: AsyncSession) -> list[Panel]:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from sqlalchemy import delete, func, select
@@ -236,14 +237,14 @@ async def usage_sync() -> None:
     async with session_scope() as session:
         panels = await sync.due_panels(session)
         panel_ids = [p.id for p in panels]
-    for panel_id in panel_ids:
-        async with session_scope() as session:
-            panel = await session.get(Panel, panel_id)
-            if panel is None:
-                continue
-            # Health is the monitor's job (PNL-12); this only refreshes usage.
-            synced, failed = await sync.sync_panel(session, panel)
-        log.info("usage sync panel=%s synced=%s failed=%s", panel_id, synced, failed)
+    # Health is the monitor's job (PNL-12); this only refreshes usage, panels side by side (SEC-F27).
+    for panel_id, result in (await sync.sync_all(panel_ids)).items():
+        if isinstance(result, BaseException):
+            if isinstance(result, asyncio.CancelledError):
+                raise result
+            log.error("usage sync panel=%s failed", panel_id, exc_info=result)
+            continue
+        log.info("usage sync panel=%s synced=%s failed=%s", panel_id, *result)
 
 
 @every(3600, "usage_history.cleanup")
