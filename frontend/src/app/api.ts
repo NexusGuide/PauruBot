@@ -278,6 +278,13 @@ export interface CryptoInstructions {
   expires_at: string | null;
 }
 
+/** What the shop still needs before the app answers anything else: phone, then terms (SEC-F11). */
+export interface GateInfo {
+  requirement: "phone_required" | "terms_required" | null;
+  bot_username: string | null;
+  terms?: { version: number; text: string };
+}
+
 /** A channel the customer must join before the app answers anything else (GRW-07). */
 export interface JoinChannel {
   title: string;
@@ -311,6 +318,8 @@ export const api = {
   me: () => get<Me>("/me"),
   join: () => get<{ channels: JoinChannel[] }>("/join"),
   checkJoin: () => post<{ ok: boolean; channels: JoinChannel[] }>("/join/check"),
+  gate: () => get<GateInfo>("/gate"),
+  acceptTerms: (version: number) => post<GateInfo>("/gate/terms", { version }),
   setAlerts: (muted: boolean) => post<{ alerts_muted: boolean }>("/me/alerts", { alerts_muted: muted }),
   setMarketing: (optOut: boolean) =>
     post<MarketingPreference>("/me/marketing", { marketing_opt_out: optOut }),

@@ -35,6 +35,8 @@ RESELLER_TOKENS_TTL = 60.0
 JOIN_CACHE_TTL = 300
 # The join screen calls these two; they must work before the customer has joined (GRW-07).
 JOIN_PATHS = {"/api/webapp/join", "/api/webapp/join/check"}
+# The phone/terms screen calls these; they must work before the customer passes that gate (SEC-F11).
+GATE_PATHS = {"/api/webapp/gate", "/api/webapp/gate/terms"}
 
 _reseller_tokens_cache: tuple[float, list[tuple[int, str]]] | None = None
 
@@ -104,6 +106,34 @@ async def forced_gate(db: AsyncSession, shop: Shop, customer: Customer) -> list[
     return missing
 
 
+async def _gate_exempt(db: AsyncSession, shop_id: int, telegram_id: int) -> bool:
+    """Same exemption as the bot's gate: active staff (not reseller accounts) and the owners."""
+    from paurubot.db.models import Staff, StaffRole
+
+    if telegram_id in get_settings().owner_telegram_ids:
+        return True
+    role = await db.scalar(
+        select(Staff.role).where(
+            Staff.shop_id == shop_id, Staff.telegram_id == telegram_id, Staff.is_active.is_(True)
+        )
+    )
+    return role is not None and role != StaffRole.RESELLER
+
+
+async def account_gate(db: AsyncSession, shop: Shop, customer: Customer, cfg: dict[str, Any]) -> str | None:
+    """What the customer must do before using the Mini App, exactly as the bot asks (SEC-F11).
+
+    Phone first, then the current terms version. None when nothing is missing.
+    """
+    if cfg["require_phone"] and not customer.phone:
+        need = "phone_required"
+    elif cfg["terms_required"] and customer.terms_accepted_version != int(cfg["terms_version"]):
+        need = "terms_required"
+    else:
+        return None
+    return None if await _gate_exempt(db, shop.id, customer.telegram_id) else need
+
+
 async def reseller_tokens(db: AsyncSession) -> list[tuple[int, str]]:
     global _reseller_tokens_cache
     now = time.monotonic()
@@ -157,10 +187,17 @@ async def webapp_context(request: Request, db: DB) -> WebAppContext:
         raise HTTPException(status_code=403, detail="banned")
     if not cfg["bot_enabled"]:
         raise HTTPException(status_code=503, detail="maintenance")
-    if request.url.path.rstrip("/") not in JOIN_PATHS:
+    path = request.url.path.rstrip("/")
+    if path not in JOIN_PATHS:
         missing = await forced_gate(db, shop, customer)
         if missing:
             raise HTTPException(status_code=403, detail="join_required")
+        if path not in GATE_PATHS:
+            # The bot refuses everything until phone and terms are done; so does every Mini App
+            # route, so a purchase can never skip what the shop requires (SEC-F11).
+            need = await account_gate(db, shop, customer, cfg)
+            if need is not None:
+                raise HTTPException(status_code=403, detail=need)
     return WebAppContext(db, shop, customer, cfg)
 
 

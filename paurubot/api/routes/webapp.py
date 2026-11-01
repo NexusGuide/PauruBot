@@ -14,6 +14,7 @@ import paurubot.api.routes.webapp_cards as webapp_cards
 import paurubot.api.routes.webapp_payment_inbox as webapp_payment_inbox
 from paurubot.api.routes import (
     webapp_auto_renew,
+    webapp_gate,
     webapp_receipts,
     webapp_staff,
     webapp_ticket_media,
@@ -72,6 +73,7 @@ router.include_router(webapp_receipts.router)
 router.include_router(webapp_cards.router)
 router.include_router(webapp_payment_inbox.router)
 router.include_router(webapp_transfers.router)
+router.include_router(webapp_gate.router)
 MAX_RECEIPT = 8 * 1024 * 1024
 
 

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { direction, makeT, type Translate } from "@shared/i18n";
-import { api, type JoinChannel, type Me } from "./api";
+import { api, type GateInfo, type JoinChannel, type Me } from "./api";
 import en from "./locales/en.json";
 import fa from "./locales/fa.json";
 
@@ -11,10 +11,14 @@ interface AppState {
   error: string | null;
   /** Set while the API holds the customer at the join gate; null once they are in (GRW-07). */
   join: { channels: JoinChannel[] } | null;
+  /** Set while the API holds the customer at the phone/terms gate (SEC-F11). */
+  gate: GateInfo | null;
   locale: string;
   t: Translate;
   reload: () => Promise<void>;
   checkJoin: () => Promise<boolean>;
+  /** Ask again what the gate still needs; true once it lets the customer in. */
+  checkGate: (next?: GateInfo) => Promise<boolean>;
   setLocale: (locale: string) => Promise<void>;
   setMarketing: (optOut: boolean) => Promise<void>;
   setAlerts: (muted: boolean) => Promise<void>;
@@ -28,6 +32,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [join, setJoin] = useState<{ channels: JoinChannel[] } | null>(null);
+  const [gate, setGate] = useState<GateInfo | null>(null);
   const [toastMessage, setToast] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
 
   const revision = useRef(0);
@@ -42,10 +47,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setMe(profile);
       setError(null);
       setJoin(null);
+      setGate(null);
     } catch (err) {
       if (revision.current === initialRevision && reloadId.current === requestId) {
         const code = err instanceof Error ? err.message : "error";
         setError(code);
+        if (code === "phone_required" || code === "terms_required") {
+          // /gate is the one route the phone/terms gate leaves open.
+          try {
+            setGate(await api.gate());
+          } catch {
+            setGate({ requirement: code, bot_username: null });
+          }
+          return;
+        }
         if (code !== "join_required") return;
         // The join screen still needs the channel list, and /join is the one ungated route.
         try {
@@ -69,6 +84,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return true;
     }
     setJoin({ channels: answer.channels });
+    return false;
+  }, [reload]);
+
+  const checkGate = useCallback(async (next?: GateInfo) => {
+    const answer = next ?? (await api.gate());
+    if (answer.requirement === null) {
+      setGate(null);
+      await reload();
+      return true;
+    }
+    setGate(answer);
     return false;
   }, [reload]);
 
@@ -111,8 +137,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ me, error, join, locale, t, reload, checkJoin, setLocale, setMarketing, setAlerts, toast, toastMessage }),
-    [me, error, join, locale, t, reload, checkJoin, setLocale, setMarketing, setAlerts, toast, toastMessage],
+    () => ({ me, error, join, gate, locale, t, reload, checkJoin, checkGate, setLocale, setMarketing, setAlerts, toast, toastMessage }),
+    [me, error, join, gate, locale, t, reload, checkJoin, checkGate, setLocale, setMarketing, setAlerts, toast, toastMessage],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
