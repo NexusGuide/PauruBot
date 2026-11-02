@@ -42,7 +42,9 @@ class Settings(BaseSettings):
     http_connect_timeout: float = 5.0
     http_total_timeout: float = 15.0
 
-    webapp_auth_max_age: int = 86400
+    # Mini App sign-in data is a bearer credential: one leaked copy is this long of full access
+    # (AUD-5). Telegram signs a fresh one each time the app is opened from the bot.
+    webapp_auth_max_age: int = 2 * 3600
     session_ttl_seconds: int = 60 * 60 * 12
     login_max_attempts: int = 5
     login_lock_seconds: int = 900
