@@ -7,6 +7,8 @@ Marzban-style token endpoint. Users are created and changed through /api/v2/user
 
 from __future__ import annotations
 
+import asyncio
+import time
 from datetime import datetime
 from typing import Any
 
@@ -23,6 +25,9 @@ from paurubot.panels.base import (
 )
 from paurubot.panels.drivers.marzban import MarzbanDriver
 
+# Seconds one read of every user's live addresses serves (AUD-6).
+INSIGHTS_TTL = 15.0
+
 
 class RebeccaDriver(MarzbanDriver):
     kind = "rebecca"
@@ -31,6 +36,25 @@ class RebeccaDriver(MarzbanDriver):
         super().__init__(*args, **kwargs)
         if self.options.get("api_token"):
             self._token = str(self.options["api_token"])
+        self._insights: tuple[float, list[Any]] | None = None
+        self._insights_lock = asyncio.Lock()
+
+    async def _insight_items(self) -> list[Any]:
+        """Every user's live addresses, read at most once per INSIGHTS_TTL (AUD-6).
+
+        Rebecca lists them only all at once; reading the whole list for each service made a
+        device-limit pass over N services N full downloads. Callers at the same moment share
+        the one read in flight.
+        """
+        async with self._insights_lock:
+            if self._insights is not None and time.monotonic() - self._insights[0] < INSIGHTS_TTL:
+                return self._insights[1]
+            data = await self.call("GET", "/api/core/access/insights")
+            if isinstance(data, dict):
+                data = data.get("items") or (data.get("data") or {}).get("items") or []
+            items = data if isinstance(data, list) else []
+            self._insights = (time.monotonic(), items)
+            return items
 
     async def _login(self) -> str:
         if self.options.get("api_token"):
@@ -46,11 +70,8 @@ class RebeccaDriver(MarzbanDriver):
 
     async def client_ips(self, ref: PanelRef) -> list[str]:
         """Rebecca's access insights list each user's live source addresses."""
-        data = await self.call("GET", "/api/core/access/insights")
-        if isinstance(data, dict):
-            data = data.get("items") or (data.get("data") or {}).get("items") or []
         found: list[str] = []
-        for item in data if isinstance(data, list) else []:
+        for item in await self._insight_items():
             if not isinstance(item, dict) or ref.username not in (
                 item.get("user_key"),
                 item.get("user_label"),
