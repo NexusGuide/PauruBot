@@ -7,12 +7,13 @@ import { App } from "./App";
 import { boot } from "./telegram";
 
 document.documentElement.dataset.app = "miniapp";
-boot();
 const root = document.getElementById("root");
-if (root) {
-  createRoot(root).render(
-    <StrictMode>
-      <App />
-    </StrictMode>,
-  );
-}
+void boot().then(() => {
+  if (root) {
+    createRoot(root).render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+  }
+});
