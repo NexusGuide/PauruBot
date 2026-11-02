@@ -12,6 +12,7 @@ import { Button, CountUp, Item, Screen } from "../ui";
 import { rememberCard, rememberPayment } from "./Payment";
 
 import { WalletTransfer } from "./WalletTransfer";
+import { MyDiscounts } from "./MyDiscounts";
 import { WalletHistory } from "./WalletHistory";
 
 const PRESETS = [50_000, 100_000, 200_000, 500_000];
@@ -192,6 +193,7 @@ export function Wallet() {
         onDone={() => { setHistoryVersion(value => value + 1); void reload().catch(() => toast(t("retry"), "error")); }}
       />
       <p className="app-lbl mt-6">{t("transactions")}</p>
+      <MyDiscounts key={`discounts-${me.id}`} />
       <WalletHistory key={`${me.id}:${historyVersion}`} />
     </Screen>
   );

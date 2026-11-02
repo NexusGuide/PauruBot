@@ -39,6 +39,8 @@ export interface Message {
     attachment_expired?: boolean;
     is_internal: boolean;
     created_at: string;
+    /** The customer's rating of a staff reply (F-22). */
+    reaction: "up" | "down" | null;
 }
 export interface Detail {
     ticket: Ticket;
@@ -82,7 +84,8 @@ export function parseMessage(v: unknown): Message {
     if (!record(v) || !positive(v.id) || typeof v.author_type !== "string" || !nullableId(v.author_id) || !nullableString(v.text) || !nullableString(v.attachment_kind) || typeof v.has_attachment !== "boolean" || typeof v.is_internal !== "boolean" || !iso(v.created_at) || v.is_internal && v.author_type !== "staff")
         return invalid();
     if (v.attachment_expired !== undefined && typeof v.attachment_expired !== "boolean") return invalid();
-    return { attachment_expired: v.attachment_expired === true, id: v.id, author_type: v.author_type, author_id: v.author_id as number | null, text: v.text as string | null, attachment_kind: v.attachment_kind as string | null, has_attachment: v.has_attachment, is_internal: v.is_internal, created_at: v.created_at as string };
+    if (v.reaction !== undefined && v.reaction !== null && v.reaction !== "up" && v.reaction !== "down") return invalid();
+    return { reaction: (v.reaction ?? null) as "up" | "down" | null, attachment_expired: v.attachment_expired === true, id: v.id, author_type: v.author_type, author_id: v.author_id as number | null, text: v.text as string | null, attachment_kind: v.attachment_kind as string | null, has_attachment: v.has_attachment, is_internal: v.is_internal, created_at: v.created_at as string };
 }
 export function parseDetail(v: unknown): Detail {
     if (!record(v) || !nullableString(v.customer) || !Array.isArray(v.messages) || v.messages.length > 200)

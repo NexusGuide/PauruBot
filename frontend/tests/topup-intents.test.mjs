@@ -44,6 +44,7 @@ try {
  // History read behavior is covered by wallet-history.test.mjs; this seam exercises payment handlers.
  export const WalletHistory=()=>null;
  export const WalletTransfer=()=>null;
+ export const MyDiscounts=()=>null;
  export const Item=()=>null;
  `+source;
  writeFileSync(temp+'/Wallet.tsx',source);

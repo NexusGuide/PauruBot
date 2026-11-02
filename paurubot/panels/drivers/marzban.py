@@ -10,6 +10,14 @@ class MarzbanDriver(TokenApiDriver):
     """Marzban: users carry `proxies` and an optional per-protocol `inbounds` selection (PNL-04)."""
 
     kind = "marzban"
+    # /sub/{token}/{client_type} (F-32); Rebecca keeps Marzban's paths.
+    sub_formats = {
+        "v2ray": "v2ray",
+        "clash": "clash",
+        "clash-meta": "clash-meta",
+        "sing-box": "sing-box",
+        "xray-json": "v2ray-json",
+    }
 
     async def list_options(self) -> list[PanelOption]:
         data = await self.call("GET", "/api/inbounds")

@@ -28,7 +28,7 @@ from paurubot.db.base import utcnow
 from paurubot.db.models import Customer, Panel, Service, ServiceStatus, Shop
 from paurubot.i18n import Texts, texts_for
 from paurubot.panels import PanelError, driver_for
-from paurubot.panels.registry import delivery_of
+from paurubot.panels.registry import delivery_of, formats_of
 from paurubot.provisioning import subscription
 from paurubot.provisioning.subscription import ALLOWED_SCHEMES, BLOCKED_SCHEMES
 
@@ -267,6 +267,8 @@ animation:sc 3s ease-in-out infinite}
 .lnk{width:100%;direction:ltr;text-align:left;font:.74rem ui-monospace,Menlo,monospace;word-break:break-all;
 background:var(--card);border:1px dashed var(--line);border-radius:14px;padding:12px;color:var(--mute)}
 .btns{display:grid;grid-template-columns:1.4fr 1fr;gap:10px;width:100%}
+.fmt{width:100%;display:grid;gap:8px;text-align:start}.fmt h3{margin:4px 0 0;font-size:15px}
+.fmt p{margin:0;font-size:13px;color:var(--mute)}.fmt .btns{grid-template-columns:1fr 1fr}
 .btn{border:1px solid var(--line);border-radius:15px;padding:14px 8px;font:800 .92rem 'Vazirmatn',Tahoma,
 sans-serif;color:var(--ink);background:var(--card);cursor:pointer;position:relative;overflow:hidden;
 text-decoration:none}
@@ -385,6 +387,8 @@ if(lst)lst.addEventListener("click",function(e){var b=e.target.closest("button")
 if(b.dataset.all){cp(b.dataset.all,b.dataset.m,e);return}
 if(b.dataset.u){cp(b.dataset.u,b.dataset.m,e);return}
 if(b.dataset.qr!=null&&b.dataset.qr!=="")sheet(b.dataset.t,b.dataset.p,b.dataset.qr)});
+var fm=$("#fmt");
+if(fm)fm.addEventListener("click",function(e){var b=e.target.closest("button");if(b&&b.dataset.u)cp(b.dataset.u,b.dataset.m,e)});
 var lnk=$("#lnk"),cpb=$("#cp"),dl=$("#dl"),qr=$("#qr");
 if(cpb&&lnk)cpb.onclick=function(e){cp(lnk.textContent.trim(),cpb.dataset.m,e)};
 if(dl&&qr)dl.onclick=function(){var a=document.createElement("a");a.href=qr.src;
@@ -521,14 +525,20 @@ async def subscription_endpoint(token: str, request: Request, db: DB) -> Respons
             media_type="text/plain",
             headers={"Cache-Control": "no-store", "Retry-After": "300"},
         )
-    if request.query_params.get("download") != "1" and subscription.wants_page(
-        request.headers.get("user-agent", ""), request.headers.get("accept", "")
+    fmt = request.query_params.get("format")
+    if fmt is not None and fmt not in formats_of(panel.kind):
+        return _not_found()  # a format this panel cannot serve (F-32)
+    if (
+        fmt is None
+        and request.query_params.get("download") != "1"
+        and subscription.wants_page(request.headers.get("user-agent", ""), request.headers.get("accept", ""))
     ):
         return await _page(db, request, service, shop, panel)
     try:
-        body = await (await driver_for(panel)).fetch_subscription(
-            service.subscription_url, request.headers.get("user-agent") or "v2rayNG/1.8.0"
-        )
+        driver = await driver_for(panel)
+        # A named format is the customer's choice (F-32); otherwise the panel reads the User-Agent.
+        source = driver.format_url(service.subscription_url, fmt) if fmt else service.subscription_url
+        body = await driver.fetch_subscription(source, request.headers.get("user-agent") or "v2rayNG/1.8.0")
     except PanelError:
         body = None
     if body is None:
@@ -773,7 +783,23 @@ def _rows(t: Texts, link: str, raw: list[str]) -> str:
     return "".join(parts)
 
 
-def _share(t: Texts, link: str) -> str:
+def _formats(t: Texts, link: str, formats: list[str]) -> str:
+    """The same subscription in other client formats, one copy button each (F-32)."""
+    if not formats:
+        return ""
+    joiner = "&" if "?" in link else "?"
+    rows = "".join(
+        f'<button type="button" class="btn" data-u="{escape(f"{link}{joiner}format={fmt}")}"'
+        f' data-m="{escape(t("sub_page_t_link"))}">{escape(t(f"sub_format_{fmt}"))}</button>'
+        for fmt in formats
+    )
+    return (
+        f'<div class="fmt" id="fmt"><h3>{escape(t("sub_page_formats"))}</h3>'
+        f'<p>{escape(t("sub_page_formats_hint"))}</p><div class="btns">{rows}</div></div>'
+    )
+
+
+def _share(t: Texts, link: str, formats: list[str] | None = None) -> str:
     qr = qr_base64(link)
     image = f'<img id="qr" src="data:image/png;base64,{qr}" alt="{escape(t("qr_caption"))}">' if qr else ""
     return (
@@ -784,7 +810,7 @@ def _share(t: Texts, link: str) -> str:
         f'<button type="button" class="btn pr" id="cp" data-m="{escape(t("sub_page_t_link"))}">'
         f"{escape(t('sub_page_copy'))}</button>"
         f'<button type="button" class="btn" id="dl">{escape(t("sub_page_download_qr"))}</button>'
-        "</div></div></div></section>"
+        f"</div>{_formats(t, link, formats or [])}</div></div></section>"
     )
 
 
@@ -926,7 +952,7 @@ async def _page(db: DB, request: Request, service: Service, shop: Shop, panel: P
     pages = (
         _initial(t, shop, service)
         + _configs_page(t, link, rows)
-        + _share(t, link)
+        + _share(t, link, formats_of(panel.kind))
         + _apps(
             t,
             link,

@@ -25,6 +25,7 @@ class FakeTokenPanel:
         self.calls: list[tuple[str, str]] = []
         self.webhook_payloads: list[Any] = []
         self.sub_agents: list[str] = []
+        self.sub_formats: list[str | None] = []
         self.nodes: list[dict[str, Any]] | None = None
         self.admin: dict[str, Any] | None = None
         self.admins: set[str] = set()
@@ -100,10 +101,17 @@ class FakeTokenPanel:
         path = request.url.path
         self.calls.append((request.method, path))
         if path.startswith("/sub/"):
-            user = next((u for u in self.users.values() if f"/sub/{u['sub']}" == path), None)
-            if user is None:
+            # /sub/{token} or, for a named client format, /sub/{token}/{client_type} (F-32)
+            parts = path.split("/")
+            fmt = parts[3] if len(parts) == 4 else None
+            base = "/".join(parts[:3])
+            user = next((u for u in self.users.values() if f"/sub/{u['sub']}" == base), None)
+            if user is None or len(parts) > 4:
                 return httpx.Response(404, text="no such subscription")
             self.sub_agents.append(request.headers.get("user-agent", ""))
+            self.sub_formats.append(fmt)
+            if fmt is not None:
+                return httpx.Response(200, content=f"format:{fmt}:{user['username']}".encode())
             body = base64.b64encode(f"vless://{user['username']}@example.com:443#{user['username']}".encode())
             return httpx.Response(
                 200,

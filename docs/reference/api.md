@@ -252,6 +252,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/cards/verification` | Mini App initData | Own masked card verification status and the current shop policy. |
 | POST | `/api/webapp/cards/verification` | Mini App initData | Register one card photograph for existing staff review; never start a payment. |
 | GET | `/api/webapp/catalog` | Mini App initData | Catalog view |
+| GET | `/api/webapp/discounts` | Mini App initData | Discounts |
 | POST | `/api/webapp/gate/phone` | Mini App initData | Save the phone from the Mini App's signed contact (F-12), with the bot's own rules. |
 | POST | `/api/webapp/gate/terms` | Mini App initData | Accept the terms version that was shown; a newer version answers 409 terms_changed. |
 | GET | `/api/webapp/gate` | Mini App initData | What the customer must still do, phone then terms, before the rest of the Mini App answers (SEC-F11). |
@@ -300,6 +301,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/webapp/tickets/{ticket_id}/attachments` | Mini App initData | Upload |
 | POST | `/api/webapp/tickets/{ticket_id}/close` | Mini App initData | Ticket close |
 | GET | `/api/webapp/tickets/{ticket_id}/messages/{message_id}/attachment` | Mini App initData | Attachment |
+| PUT | `/api/webapp/tickets/{ticket_id}/messages/{message_id}/reaction` | Mini App initData | The customer rates a support reply, or takes the rating back (F-22). |
 | POST | `/api/webapp/tickets/{ticket_id}/reply` | Mini App initData | Ticket answer |
 | GET | `/api/webapp/tickets/{ticket_id}` | Mini App initData | Ticket thread |
 | GET | `/api/webapp/tickets` | Mini App initData | My tickets |

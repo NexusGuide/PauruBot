@@ -24,6 +24,14 @@ from paurubot.panels.drivers.token_api import TokenApiDriver
 
 class MarzneshinDriver(TokenApiDriver):
     kind = "marzneshin"
+    # /sub/{username}/{key}/{client_type} (F-32).
+    sub_formats = {
+        "v2ray": "v2ray",
+        "clash": "clash",
+        "clash-meta": "clash-meta",
+        "sing-box": "sing-box",
+        "xray-json": "xray",
+    }
     # Marzneshin has no user webhooks; the sync job keeps usage fresh.
     supports_webhooks = False
 

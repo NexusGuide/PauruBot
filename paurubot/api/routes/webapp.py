@@ -14,6 +14,7 @@ import paurubot.api.routes.webapp_cards as webapp_cards
 import paurubot.api.routes.webapp_payment_inbox as webapp_payment_inbox
 from paurubot.api.routes import (
     webapp_auto_renew,
+    webapp_discounts,
     webapp_gate,
     webapp_receipts,
     webapp_staff,
@@ -76,6 +77,7 @@ router.include_router(webapp_cards.router)
 router.include_router(webapp_payment_inbox.router)
 router.include_router(webapp_transfers.router)
 router.include_router(webapp_gate.router)
+router.include_router(webapp_discounts.router)
 MAX_RECEIPT = 8 * 1024 * 1024
 
 
@@ -93,6 +95,7 @@ def service_view(service: Service, cfg: dict[str, Any] | None = None) -> dict[st
         view.update(national_mode=True, subscription_url=None, download_url=None, delivery="stock")
         return view
     view["delivery"] = delivery
+    view["sub_formats"] = _sub_formats(service, view.get("subscription_url"))
     if delivery == "account":
         view["subscription_url"] = None
         view["account"] = {
@@ -104,6 +107,19 @@ def service_view(service: Service, cfg: dict[str, Any] | None = None) -> dict[st
         view["subscription_url"] = None
         view["download_url"] = f"{branded}?download=1" if branded else None
     return view
+
+
+def _sub_formats(service: Service, link: str | None) -> list[dict[str, str]]:
+    """The customer's link in each client format this panel serves (F-32).
+
+    Only the shop's branded link takes a format: the panel's own address is never built here.
+    """
+    from paurubot.panels.registry import formats_of
+    from paurubot.provisioning.subscription import branded_url
+
+    if not link or service.panel is None or link != branded_url(service):
+        return []
+    return [{"format": fmt, "url": f"{link}?format={fmt}"} for fmt in formats_of(service.panel.kind)]
 
 
 def _service_base(service: Service, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1171,6 +1187,7 @@ async def ticket_thread(
                 "has_attachment": bool(row.attachment_file_id or row.attachment_size),
                 "attachment_expired": row.attachment_expired,
                 "created_at": _iso(row.created_at),
+                "reaction": row.reaction if row.author_type == "staff" else None,
             }
             for row in reversed(page)
         ],
@@ -1206,6 +1223,28 @@ async def ticket_answer(ticket_id: int, body: TicketReplyBody, ctx: WebApp) -> d
         shop_id=ctx.shop.id,
     )
     return {"ticket": _ticket_view(ticket)}
+
+
+class ReactionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reaction: Literal["up", "down"] | None
+
+
+@router.put("/tickets/{ticket_id}/messages/{message_id}/reaction")
+async def react(ticket_id: int, message_id: int, body: ReactionBody, ctx: WebApp) -> dict[str, Any]:
+    """The customer rates a support reply, or takes the rating back (F-22)."""
+    ticket = await _own_ticket(ctx, ticket_id)
+    message = await ctx.session.get(TicketMessage, message_id)
+    if (
+        message is None
+        or message.ticket_id != ticket.id
+        or message.is_internal
+        or message.author_type != "staff"
+    ):
+        raise HTTPException(status_code=404, detail="message_not_found")
+    message.reaction = body.reaction
+    await ctx.session.commit()
+    return {"id": message.id, "reaction": message.reaction}
 
 
 @router.post("/tickets/{ticket_id}/close")

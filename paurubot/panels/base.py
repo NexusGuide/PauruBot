@@ -72,6 +72,9 @@ class PanelUser:
     usage_known: bool = False
 
 
+# Client formats a customer may ask for by name (F-32), in the order they are offered.
+SUB_FORMATS = ("v2ray", "clash", "clash-meta", "sing-box", "xray-json")
+
 SUBSCRIPTION_MAX_BYTES = 2 * 1024 * 1024
 # Headers client apps read from a subscription response; everything else is dropped.
 SUBSCRIPTION_HEADERS = {
@@ -307,6 +310,18 @@ class PanelDriver(ABC):
             return None
         headers = {k: v for k, v in resp.headers.items() if k.lower() in SUBSCRIPTION_HEADERS}
         return SubscriptionBody(resp.content, resp.headers.get("content-type", "text/plain"), headers)
+
+    # Subscription formats the customer can pick (F-32): our name -> the panel's path segment
+    # after the subscription URL. Empty: the panel picks the format from the client's User-Agent.
+    sub_formats: dict[str, str] = {}
+
+    def format_url(self, subscription_url: str | None, fmt: str) -> str | None:
+        """The subscription URL in one named format, or None when this panel cannot serve it."""
+        segment = self.sub_formats.get(fmt)
+        if not subscription_url or not segment:
+            return None
+        base, _, query = subscription_url.partition("?")
+        return f"{base.rstrip('/')}/{segment}" + (f"?{query}" if query else "")
 
     async def fetch_links(self, subscription_url: str | None) -> list[str]:
         """Read a subscription and return its config links (best effort)."""

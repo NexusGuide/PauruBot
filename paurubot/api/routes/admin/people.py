@@ -809,7 +809,16 @@ TICKET_FIELDS = [
 ]
 
 
-MESSAGE_FIELDS = ["id", "author_type", "author_id", "text", "attachment_kind", "is_internal", "created_at"]
+MESSAGE_FIELDS = [
+    "id",
+    "author_type",
+    "author_id",
+    "text",
+    "attachment_kind",
+    "is_internal",
+    "created_at",
+    "reaction",  # the customer's rating of a staff reply (F-22)
+]
 
 
 def _ticket_row(ticket: Ticket) -> dict[str, Any]:

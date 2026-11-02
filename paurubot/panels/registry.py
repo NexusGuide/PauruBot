@@ -110,6 +110,18 @@ def delivery_of(kind: PanelKind | str | None) -> str:
     return getattr(cls, "delivery", "subscription") if cls else "subscription"
 
 
+def formats_of(kind: PanelKind | str | None) -> list[str]:
+    """Subscription formats a customer can pick on this panel kind, in offer order (F-32)."""
+    from paurubot.panels.base import SUB_FORMATS
+
+    try:
+        cls = DRIVERS.get(PanelKind(kind)) if kind else None
+    except ValueError:
+        cls = None
+    offered = getattr(cls, "sub_formats", {}) if cls else {}
+    return [fmt for fmt in SUB_FORMATS if fmt in offered]
+
+
 def changes_of(kind: PanelKind | str | None) -> frozenset[str]:
     """What a sold account on this panel kind can still be changed with (renew, extras, gifts...)."""
     try:

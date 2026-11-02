@@ -420,6 +420,19 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
             {service.subscription_url}
           </button>
           <p className="mt-2 text-xs text-[var(--hint)]">{t("tap_to_copy")}</p>
+          {(service.sub_formats?.length ?? 0) > 0 && (
+            <div className="mt-4 text-start">
+              <p className="text-sm font-bold">{t("sub_formats")}</p>
+              <p className="mb-2 text-xs text-[var(--hint)]">{t("sub_formats_hint")}</p>
+              <div className="app-chips" role="group" aria-label={t("sub_formats")}>
+                {service.sub_formats?.map(item => (
+                  <button key={item.format} type="button" className="app-chip" onClick={() => copy(item.url)}>
+                    {t(`sub_format_${item.format}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {(showConfigs || canRevoke) && (
             <div className={`mt-4 grid gap-3 ${showConfigs && canRevoke ? "grid-cols-2" : "grid-cols-1"}`}>
               {showConfigs && (
