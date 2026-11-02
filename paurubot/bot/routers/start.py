@@ -70,7 +70,35 @@ async def home(
             await gone.delete()
         except Exception:  # cosmetic only
             pass
-    await message.answer(t(key, **params), reply_markup=menu(t, cfg, staff))
+    sent = await message.answer(t(key, **params), reply_markup=menu(t, cfg, staff))
+    if cfg.get("menu_cleanup") and message.chat.type == "private":
+        await replace_home(message.chat.id, sent)
+
+
+HOME_TTL = 48 * 3600  # Telegram lets a bot delete its own messages for 48 hours
+
+
+async def replace_home(chat_id: int, sent: Message) -> None:
+    """Delete the chat's previous home menu now that `sent` is the current one.
+
+    Only the message the bot itself sent as the home menu is ever deleted: its id is kept per
+    bot and chat. A message that is already gone or too old to delete is simply left.
+    """
+    from paurubot import kv
+
+    if sent.bot is None:
+        return
+    key = f"home:{sent.bot.id}:{chat_id}"
+    try:
+        previous = (await kv.marked([key])).get(key)
+        await kv.mark(key, HOME_TTL, str(sent.message_id))
+    except Exception:  # Redis trouble must never cost the customer the menu itself
+        return
+    if previous and previous.isdigit() and int(previous) != sent.message_id:
+        try:
+            await sent.bot.delete_message(chat_id, int(previous))
+        except Exception:  # deleted by the customer, too old, or not ours to delete
+            pass
 
 
 async def send_start_media(message: Message, cfg: dict[str, Any]) -> None:

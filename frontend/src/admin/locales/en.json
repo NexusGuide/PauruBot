@@ -1441,6 +1441,8 @@
   "payment_amount_differs": "A different amount arrived at the gateway: {amount} Toman. Approve to credit that amount, or reject.",
   "setting_ip_notice_enabled": "Tell customers when a device is cut off",
   "setting_ip_notice_enabled_hint": "For plans with a device limit on 3x-ui and Rebecca panels: when a new device pushes an older one off, the customer gets a short notice (at most once an hour).",
+  "setting_menu_cleanup": "Keep only the latest menu in the chat",
+  "setting_menu_cleanup_hint": "When the bot sends the home menu again it deletes the previous one in that chat, so stale buttons do not pile up. Other messages (orders, payments, configs) are left alone.",
   "settings_group_guest": "Buying on the web",
   "setting_guest_buy_enabled": "Guests can buy on the web",
   "setting_guest_buy_enabled_hint": "A public page at /buy on your server address sells plans without Telegram, paid through an online gateway. The buyer gets the link on a private page and can move it into the bot later.",
