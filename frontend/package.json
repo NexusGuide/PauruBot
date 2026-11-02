@@ -18,7 +18,7 @@
     "test:reseller-hub": "node --test tests/reseller-hub.test.mjs",
     "test:tickets": "node --test tests/ticket-desk.test.mjs",
     "test:usage": "node --test tests/usage-data.test.mjs",
-    "test:ux": "node --test tests/ux.test.mjs tests/topup-intents.test.mjs tests/wallet-transfer.test.mjs tests/card-verification.test.mjs tests/renewal-preview.test.mjs tests/announcements.test.mjs tests/service-pages.test.mjs"
+    "test:ux": "node --test tests/ux.test.mjs tests/topup-intents.test.mjs tests/wallet-transfer.test.mjs tests/card-verification.test.mjs tests/renewal-preview.test.mjs tests/announcements.test.mjs tests/service-pages.test.mjs tests/service-access.test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/vazirmatn": "^5.3.0",

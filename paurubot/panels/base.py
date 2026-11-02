@@ -61,6 +61,9 @@ class PanelUser:
     links: list[str] = field(default_factory=list)
     data: dict[str, Any] = field(default_factory=dict)
     online_at: datetime | None = None
+    # The User-Agent of the last subscription fetch the panel saw, and when (F-11).
+    sub_agent: str | None = None
+    sub_fetched_at: datetime | None = None
     note: str = ""
     owner: str | None = None  # the panel admin the user belongs to, when the panel has admins
     # False when the panel cannot report data and time limits (MikroTik, IBSng): ours are kept.

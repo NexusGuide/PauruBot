@@ -125,6 +125,21 @@ def _service_base(service: Service, cfg: dict[str, Any] | None = None) -> dict[s
         "extras": _extras(service, cfg),
         "changes": sorted(c for c in ("renew", "upgrade", "revoke") if orders.can_change(service, c)),
         "actions": _actions(service, cfg),
+        "access": _access(service),
+    }
+
+
+def _access(service: Service) -> dict[str, Any]:
+    """When the service was last online and which app last fetched it (F-11). No addresses here."""
+    from paurubot.panels.registry import DRIVERS
+
+    kind = service.panel.kind if service.panel is not None else None
+    driver = DRIVERS.get(kind) if kind is not None else None  # type: ignore[call-overload]
+    return {
+        "online_at": _iso(service.online_at),
+        "client": service.sub_client,
+        "client_at": _iso(service.sub_fetched_at),
+        "devices": bool(getattr(driver, "supports_ips", False)),
     }
 
 
@@ -822,6 +837,42 @@ async def service_detail(service_id: int, ctx: WebApp, refresh: bool = False) ->
         except PanelError:
             pass
     return {"service": service_view(service, ctx.cfg)}
+
+
+DEVICES_RATE = 6  # live address reads per service per minute
+
+
+@router.get("/services/{service_id}/devices")
+async def service_devices(service_id: int, ctx: WebApp) -> dict[str, Any]:
+    """The addresses the service is connected from right now, masked (F-11).
+
+    Read live from the panel and never stored here: the stored list belongs to the device-limit
+    notice (JOB-03), and this read must not shift what that notice compares against.
+    """
+    from paurubot import kv
+    from paurubot.panels.registry import driver_for
+    from paurubot.provisioning.ipwatch import mask
+
+    service = await _owned_service(ctx, service_id)
+    assert service is not None
+    panel = await ctx.session.get(Panel, service.panel_id)
+    if panel is None:
+        raise HTTPException(status_code=404, detail="service_not_found")
+    driver = await driver_for(panel)
+    if not driver.supports_ips:
+        raise HTTPException(status_code=409, detail="devices_unsupported")
+    allowed, _ = await kv.hit(f"devices:{service.id}", DEVICES_RATE, 60)
+    if not allowed:
+        raise HTTPException(status_code=429, detail="rate_limited")
+    try:
+        addresses = await driver.client_ips(lifecycle.ref(service))
+    except PanelError as exc:
+        raise HTTPException(status_code=503, detail="panel_unavailable") from exc
+    return {
+        "count": len(addresses),
+        "limit": int(service.plan.ip_limit or 0) if service.plan is not None else 0,
+        "addresses": [mask(address) for address in addresses[:20]],
+    }
 
 
 @router.get("/services/{service_id}/usage")

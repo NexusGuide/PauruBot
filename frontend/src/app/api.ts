@@ -228,7 +228,19 @@ export interface Service {
   changes?: string[];
   /** What the customer may do to the service itself (F-03): "cancel", "move". */
   actions?: string[];
+  /** Last online, and the app that last fetched the subscription (F-11). */
+  access?: ServiceAccess;
 }
+
+export interface ServiceAccess {
+  online_at: string | null;
+  client: string | null;
+  client_at: string | null;
+  /** Whether the panel can list the addresses connected right now. */
+  devices: boolean;
+}
+
+export interface ServiceDevices { count: number; limit: number; addresses: string[] }
 
 export interface Order {
   id: number;
@@ -410,6 +422,7 @@ export const api = {
   setAutoRenew: (id: number, body: AutoRenewBody) => post<unknown>(`/services/${id}/auto-renew`, body),
   links: (id: number) => get<{ links: string[] }>(`/services/${id}/links`),
   revoke: (id: number) => post<{ service: Service }>(`/services/${id}/revoke`),
+  serviceDevices: (id: number) => get<ServiceDevices>(`/services/${id}/devices`),
   cancelQuote: (id: number) => get<{ refund: number }>(`/services/${id}/cancel`),
   cancelService: (id: number) => post<{ refund: number }>(`/services/${id}/cancel`),
   moveOptions: (id: number) =>

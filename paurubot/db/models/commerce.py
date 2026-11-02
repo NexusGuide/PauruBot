@@ -79,6 +79,10 @@ class Service(Base, UpdatedMixin):
     # When the data ran out: set as the status becomes LIMITED, cleared when it leaves (SEC-F15).
     # Cleanup ages an exhausted service from here, not from its end date or last row update.
     limited_at: Mapped[datetime | None] = mapped_column()
+    # The client app that last fetched the subscription ("v2rayNG 1.8.0"), and when (F-11).
+    # Only a recognised app name and version are kept, never the raw User-Agent.
+    sub_client: Mapped[str | None] = mapped_column(String(48))
+    sub_fetched_at: Mapped[datetime | None] = mapped_column()
 
     customer: Mapped[Customer] = relationship(lazy="selectin")
     panel: Mapped[Panel] = relationship(lazy="selectin")

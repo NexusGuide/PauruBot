@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import re
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -23,6 +24,41 @@ CLIENT_UA = re.compile(
     r"foxray|v2box|karing|happ|quantumult|surge|loon|outline|npv|fair|exclave|husi|throne",
     re.IGNORECASE,
 )
+
+# One product token of a User-Agent: "v2rayNG/1.8.0", "HiddifyNext/2.5.7", "Happ/3.2.1".
+_PRODUCT = re.compile(r"([A-Za-z][A-Za-z0-9.+_-]{0,31})(?:/([0-9][0-9A-Za-z.+_-]{0,15}))?")
+CLIENT_NOTE_EVERY = timedelta(minutes=10)
+
+
+def client_app(user_agent: str | None) -> str | None:
+    """The client app's name and version from its User-Agent (F-11); None for anything else.
+
+    Only a recognised app is kept, never the raw header: it can carry device and OS details.
+    """
+    if not user_agent:
+        return None
+    text = user_agent[:300]
+    for match in _PRODUCT.finditer(text):
+        name, version = match.group(1), match.group(2)
+        if CLIENT_UA.search(name):
+            return (f"{name} {version}" if version else name)[:48]
+    hit = CLIENT_UA.search(text)
+    return hit.group(0)[:48] if hit else None
+
+
+def client_seen(service: Service, app: str | None, at: datetime) -> bool:
+    """Record a fetch by `app` at `at` on the service, when newer and worth a write. True if so."""
+    if app is None or (service.sub_fetched_at is not None and at <= service.sub_fetched_at):
+        return False
+    if (
+        service.sub_client == app
+        and service.sub_fetched_at
+        and at - service.sub_fetched_at < CLIENT_NOTE_EVERY
+    ):
+        return False
+    service.sub_client, service.sub_fetched_at = app, at
+    return True
+
 
 DEFAULT_APPS: list[dict[str, str]] = [
     {"name": "Hiddify", "url": "hiddify://import/{url}#{title}"},

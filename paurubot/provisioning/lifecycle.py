@@ -136,6 +136,10 @@ def apply_panel_user(service: Service, info: PanelUser) -> None:
         info.data_limit, info.expire_at = service.data_limit, service.expire_at
     if info.online_at:
         service.online_at = info.online_at
+    if info.sub_fetched_at is not None:  # the panel saw the subscription fetched (F-11)
+        from paurubot.provisioning.subscription import client_app, client_seen
+
+        client_seen(service, client_app(info.sub_agent), info.sub_fetched_at)
     if info.subscription_url:
         service.subscription_url = info.subscription_url
     if info.data:

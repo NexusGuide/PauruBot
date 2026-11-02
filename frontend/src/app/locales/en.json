@@ -612,5 +612,19 @@
   "cancel_done_refund": "The service was deleted and {amount} Toman went back to your wallet.",
   "checkout_move": "Change location",
   "err_move_unavailable": "This service cannot change its location.",
-  "err_self_delete_off": "Deleting a service yourself is not enabled."
+  "err_self_delete_off": "Deleting a service yourself is not enabled.",
+  "access_title": "Connection",
+  "access_online": "Last online",
+  "access_never": "Not connected yet",
+  "access_client": "App",
+  "access_unknown": "Unknown",
+  "access_client_at": "Subscription last updated {when}",
+  "access_devices_show": "Devices connected now",
+  "access_devices_refresh": "Refresh devices",
+  "access_devices": "{count} devices connected now",
+  "access_devices_of": "{count} of {limit} devices connected now",
+  "access_devices_none": "No device is connected right now.",
+  "access_devices_hint": "The last part of each address is hidden for privacy.",
+  "err_devices_unsupported": "This server does not list connected devices.",
+  "err_panel_unavailable": "The server is not answering right now; try again shortly."
 }

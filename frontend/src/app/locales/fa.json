@@ -612,5 +612,19 @@
   "cancel_done_refund": "سرویس حذف شد و {amount} تومان به کیف پولت برگشت.",
   "checkout_move": "تغییر لوکیشن",
   "err_move_unavailable": "تغییر لوکیشن برای این سرویس ممکن نیست.",
-  "err_self_delete_off": "حذف سرویس توسط مشتری فعال نیست."
+  "err_self_delete_off": "حذف سرویس توسط مشتری فعال نیست.",
+  "access_title": "اتصال",
+  "access_online": "آخرین اتصال",
+  "access_never": "هنوز وصل نشده",
+  "access_client": "برنامه",
+  "access_unknown": "نامشخص",
+  "access_client_at": "آخرین به‌روزرسانی اشتراک: {when}",
+  "access_devices_show": "دستگاه‌های وصل الان",
+  "access_devices_refresh": "به‌روزرسانی دستگاه‌ها",
+  "access_devices": "{count} دستگاه الان وصل است",
+  "access_devices_of": "{count} از {limit} دستگاه الان وصل است",
+  "access_devices_none": "الان هیچ دستگاهی وصل نیست.",
+  "access_devices_hint": "برای حفظ حریم خصوصی، بخش آخر نشانی‌ها پنهان است.",
+  "err_devices_unsupported": "این سرور فهرست دستگاه‌های وصل را نمی‌دهد.",
+  "err_panel_unavailable": "سرور الان پاسخ نمی‌دهد؛ کمی بعد دوباره امتحان کنید."
 }

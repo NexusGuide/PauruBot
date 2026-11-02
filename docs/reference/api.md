@@ -280,6 +280,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/webapp/services/{service_id}/auto-renew` | Mini App initData | Set auto renew |
 | GET | `/api/webapp/services/{service_id}/cancel` | Mini App initData | What deleting the service gives back now; the final amount is read again from the panel. |
 | POST | `/api/webapp/services/{service_id}/cancel` | Mini App initData | Cancel service |
+| GET | `/api/webapp/services/{service_id}/devices` | Mini App initData | The addresses the service is connected from right now, masked (F-11). |
 | GET | `/api/webapp/services/{service_id}/links` | Mini App initData | Service links |
 | GET | `/api/webapp/services/{service_id}/move` | Mini App initData | Move options |
 | POST | `/api/webapp/services/{service_id}/rename` | Mini App initData | Service rename |

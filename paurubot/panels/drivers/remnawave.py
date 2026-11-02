@@ -111,6 +111,8 @@ class RemnawaveDriver(PanelDriver):
             subscription_url=self.absolute_url(data.get("subscriptionUrl")),
             data={k: str(data[k]) for k in ("uuid", "shortUuid") if data.get(k)},
             online_at=parse_expire(traffic.get("onlineAt") or data.get("onlineAt")),
+            sub_agent=str(data["subLastUserAgent"]) if data.get("subLastUserAgent") else None,
+            sub_fetched_at=parse_expire(data.get("subLastOpenedAt")),
             note=str(data.get("description") or ""),
         )
 
