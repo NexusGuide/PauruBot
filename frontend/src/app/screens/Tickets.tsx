@@ -378,6 +378,7 @@ function Thread({ id, backTo }: { id: number; backTo: string }) {
               {message.from === "support" ? `${t("tickets_support")} · ` : ""}
               {message.created_at ? new Date(message.created_at).toLocaleString(locale) : ""}
             </time>
+            {message.from === "support" && <Reaction key={`r-${message.id}`} ticketId={id} messageId={message.id} initial={message.reaction ?? null} />}
           </li>
         ))}
       </ol>
@@ -415,4 +416,31 @@ function Thread({ id, backTo }: { id: number; backTo: string }) {
       {saving && <p role="status" className="sr-only">{t("tickets_loading")}</p>}
     </Screen>
   );
+}
+
+/** A thumbs up or down on a support reply (F-22); pressing the chosen one again takes it back. */
+function Reaction({ ticketId, messageId, initial }: { ticketId: number; messageId: number; initial: "up" | "down" | null }) {
+  const { t, toast } = useApp();
+  const [value, setValue] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const choose = async (next: "up" | "down") => {
+    if (busy) return;
+    const wanted = value === next ? null : next;
+    setBusy(true);
+    try {
+      setValue((await api.reactTicket(ticketId, messageId, wanted)).reaction);
+    } catch (err) {
+      toast(errorText(t, err), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <span className="mt-1 flex gap-1" role="group" aria-label={t("tickets_rate")}>
+    {(["up", "down"] as const).map((kind) => (
+      <button key={kind} type="button" className="app-chip px-2 py-1" aria-pressed={value === kind} disabled={busy}
+        aria-label={t(`tickets_rate_${kind}`)} onClick={() => void choose(kind)}>
+        {kind === "up" ? "👍" : "👎"}
+      </button>
+    ))}
+  </span>;
 }

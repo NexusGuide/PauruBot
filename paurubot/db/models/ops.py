@@ -117,6 +117,8 @@ class TicketMessage(Base, TimestampMixin):
     attachment_kind: Mapped[str | None] = mapped_column(String(16))
     # A staff-only note (F-14): never shown to the customer and never sent to them.
     is_internal: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # The customer's reaction to a staff reply (F-22): "up", "down" or none.
+    reaction: Mapped[str | None] = mapped_column(String(8))
 
 
 class TicketDepartment(Base, TimestampMixin):

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApiError } from "@shared/http";
 import { dateTime, money } from "@shared/format";
-import { api, type Order } from "../api";
+import { api, type MyCode, type Order } from "../api";
 import { Icon } from "../icons";
 import { prepareDraft, reviseDraft } from "../order-draft";
 import { actionGate } from "../topup-intents";
@@ -108,14 +108,15 @@ export function Checkout() {
   const methods = me.payment_methods;
   const method = methods[0] ?? "card";
 
-  const applyCode = async () => {
-    if (!code.trim() || !gate.current.enter()) return;
+  const applyCode = async (value: string = code) => {
+    const chosenCode = value.trim();
+    if (!chosenCode || !gate.current.enter()) return;
     setBusy("code");
     try {
       if (order) await api.cancelOrder(order.id);
       setOrder(null);
-      setParams(reviseDraft(params, code.trim(), order?.params.label ?? ""), { replace: true });
-      setAppliedCode(code.trim());
+      setParams(reviseDraft(params, chosenCode, order?.params.label ?? ""), { replace: true });
+      setAppliedCode(chosenCode);
     } catch (err) {
       haptic("error");
       toast(errorText(t, err), "error");
@@ -263,10 +264,11 @@ export function Checkout() {
               placeholder={t("discount_code")}
               autoCapitalize="characters"
             />
-            <Button tone="quiet" className="w-auto px-5" busy={busy === "code"} disabled={busy !== null} onClick={applyCode}>
+            <Button tone="quiet" className="w-auto px-5" busy={busy === "code"} disabled={busy !== null} onClick={() => void applyCode()}>
               {t("apply")}
             </Button>
           </div>
+          <CodeHints orderId={order.id} disabled={busy !== null} apply={(value) => { setCode(value); void applyCode(value); }} />
         </>
       )}
 
@@ -342,5 +344,29 @@ export function Done() {
         </div>
       </div>
     </Screen>
+  );
+}
+
+/** The customer's own codes that fit this order, best saving first (F-33). */
+function CodeHints({ orderId, disabled, apply }: { orderId: number; disabled: boolean; apply: (code: string) => void }) {
+  const { t, locale } = useApp();
+  const [codes, setCodes] = useState<MyCode[]>([]);
+  useEffect(() => {
+    let live = true;
+    api.myDiscounts(orderId).then((value) => { if (live) setCodes(value.codes.filter((c) => c.fits && (c.saving ?? 0) > 0)); })
+      .catch(() => { /* hints are optional; the code field still works */ });
+    return () => { live = false; };
+  }, [orderId]);
+  if (codes.length === 0) return null;
+  return (
+    <div className="mt-2 grid gap-2" role="group" aria-label={t("my_codes_fit")}>
+      <p className="text-xs text-[var(--hint)]">{t("my_codes_fit")}</p>
+      {codes.slice(0, 3).map((c) => (
+        <button key={c.code} type="button" className="app-chip justify-between" disabled={disabled} onClick={() => apply(c.code)}>
+          <span dir="ltr" className="font-bold">{c.code}</span>
+          <span>{t("my_codes_saves", { amount: money(c.saving ?? 0, locale) })}</span>
+        </button>
+      ))}
+    </div>
   );
 }

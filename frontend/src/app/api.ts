@@ -79,6 +79,8 @@ export interface TicketMessage {
   has_attachment: boolean;
   attachment_expired?: boolean;
   created_at: string | null;
+  /** The customer's rating of a support reply (F-22). */
+  reaction?: "up" | "down" | null;
 }
 export interface TicketList {
   items: Ticket[];
@@ -228,6 +230,8 @@ export interface Service {
   changes?: string[];
   /** What the customer may do to the service itself (F-03): "cancel", "move". */
   actions?: string[];
+  /** The branded link in each client format the panel serves (F-32). */
+  sub_formats?: { format: string; url: string }[];
   /** Last online, and the app that last fetched the subscription (F-11). */
   access?: ServiceAccess;
 }
@@ -238,6 +242,29 @@ export interface ServiceAccess {
   client_at: string | null;
   /** Whether the panel can list the addresses connected right now. */
   devices: boolean;
+}
+
+/** One of the customer's own discount codes, and whether it fits the order at hand (F-33). */
+export interface MyCode {
+  code: string;
+  kind: "percent" | "fixed";
+  value: number;
+  max_discount: number | null;
+  min_amount: number;
+  expires_at: string | null;
+  first_purchase_only: boolean;
+  sticky: boolean;
+  fits: boolean | null;
+  reason: string | null;
+  saving: number | null;
+}
+
+export interface MyDiscounts {
+  standing_percent: number;
+  reseller: boolean;
+  tier: { title: string; percent: number } | null;
+  next_tier: { title: string; percent: number; remaining: number } | null;
+  codes: MyCode[];
 }
 
 export interface ServiceDevices { count: number; limit: number; addresses: string[] }
@@ -354,6 +381,10 @@ export const api = {
   ticket: (id: number, before?: number, signal?: AbortSignal) => get<TicketThreadData>(`/tickets/${id}${before ? `?before=${before}` : ""}`, signal),
   newTicket: (body: { subject: string; text: string; department_id: number | null; service_id?: number | null; request_key?: string }) => post<{ ticket: Ticket }>("/tickets", body),
   replyTicket: (id: number, text: string, request_key?: string) => post<{ ticket: Ticket }>(`/tickets/${id}/reply`, { text, request_key }),
+  reactTicket: (id: number, messageId: number, reaction: "up" | "down" | null) =>
+    request<{ id: number; reaction: "up" | "down" | null }>(`/api/webapp/tickets/${id}/messages/${messageId}/reaction`, {
+      method: "PUT", body: { reaction }, headers: auth(),
+    }),
   closeTicket: (id: number) => post<{ ticket: Ticket }>(`/tickets/${id}/close`),
   catalog: () => get<Catalog>("/catalog"),
   accountPlans: (signal?: AbortSignal) => get<AccountPlans>("/account-plans", signal),
@@ -424,6 +455,7 @@ export const api = {
   setAutoRenew: (id: number, body: AutoRenewBody) => post<unknown>(`/services/${id}/auto-renew`, body),
   links: (id: number) => get<{ links: string[] }>(`/services/${id}/links`),
   revoke: (id: number) => post<{ service: Service }>(`/services/${id}/revoke`),
+  myDiscounts: (orderId?: number) => get<MyDiscounts>(`/discounts${orderId ? `?order_id=${orderId}` : ""}`),
   serviceDevices: (id: number) => get<ServiceDevices>(`/services/${id}/devices`),
   cancelQuote: (id: number) => get<{ refund: number }>(`/services/${id}/cancel`),
   cancelService: (id: number) => post<{ refund: number }>(`/services/${id}/cancel`),

@@ -403,7 +403,7 @@ async def test_miniapp_ticket_cursor_pages_never_expose_internal_notes_or_file_i
     assert latest["messages"][-1]["has_attachment"] is True
     assert all(m["from"] == "support" for m in visible)
     assert all(
-        set(m) == {"id", "from", "text", "has_attachment", "attachment_expired", "created_at"}
+        set(m) == {"id", "from", "text", "has_attachment", "attachment_expired", "created_at", "reaction"}
         for m in visible
     )
     assert (
