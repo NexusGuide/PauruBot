@@ -1,0 +1,17 @@
+{
+  "name": "Pauru",
+  "short_name": "Pauru",
+  "description": "VPN services, wallet and support",
+  "start_url": "/app/",
+  "scope": "/app/",
+  "display": "standalone",
+  "dir": "auto",
+  "lang": "fa",
+  "background_color": "#f5f8fd",
+  "theme_color": "#256fb6",
+  "icons": [
+    { "src": "/app/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/app/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/app/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
