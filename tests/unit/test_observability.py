@@ -117,6 +117,44 @@ async def test_pwa_files_are_served_as_files(tmp_path, monkeypatch) -> None:  # 
         assert "shell" in (await client.get("/admin/customers/12")).text
 
 
+def _public_frontend(into) -> list[tuple[str, str, bytes]]:  # type: ignore[no-untyped-def]
+    """(folder, file name, bytes) of every public frontend file, copied next to a stub shell."""
+    import shutil
+    from pathlib import Path
+
+    public = Path(__file__).resolve().parents[2] / "frontend" / "public"
+    files = []
+    for name in ("app", "admin"):
+        shutil.copytree(public / name, into / name)
+        (into / name / "index.html").write_text("<html>shell</html>")
+        files += [(name, file.name, file.read_bytes()) for file in sorted((public / name).iterdir())]
+    return files
+
+
+async def test_every_public_frontend_file_is_served_as_itself(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A file under frontend/public/{app,admin} that fell back to the app shell would break the app.
+
+    /app/launch.js did: served as index.html with nosniff, the browser refused it, so the Mini App
+    had neither Telegram's SDK nor its launch data and could not sign in.
+    """
+    import httpx
+
+    from paurubot.api.app import create_app
+    from paurubot.api.static import PUBLIC_FILES
+
+    files = _public_frontend(tmp_path)
+    monkeypatch.setenv("FRONTEND_DIR", str(tmp_path))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app()), base_url="http://t"
+    ) as client:
+        for folder, name, body in files:
+            assert name in PUBLIC_FILES, f"{folder}/{name} is not served as a file"
+            response = await client.get(f"/{folder}/{name}")
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith(PUBLIC_FILES[name]), name
+            assert response.content == body, name
+
+
 async def test_finished_jobs_follow_the_shop_log_retention(session) -> None:  # type: ignore[no-untyped-def]
     from datetime import timedelta
 

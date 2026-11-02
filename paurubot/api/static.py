@@ -15,6 +15,9 @@ DEFAULT_DIR = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 PUBLIC_FILES = {
     "manifest.webmanifest": "application/manifest+json",
     "sw.js": "application/javascript",
+    # The Mini App's start script (REF-03): it loads Telegram's SDK and reads the launch data, so
+    # it must arrive as a script; the app shell in its place is refused under nosniff.
+    "launch.js": "application/javascript",
     "icon-192.png": "image/png",
     "icon-512.png": "image/png",
     "icon-maskable-512.png": "image/png",
