@@ -118,6 +118,10 @@ SPECS: dict[str, Spec] = {
     # Set in the main shop: what a reseller pays from its wallet per trial its own bot gives (TEN-18).
     "resale_trial_fee": Spec(int, 2_000, "resale"),
     "miniapp_enabled": Spec(bool, True, "appearance"),
+    # The shop's own look in the Mini App (REF-08): a preset colour, the bot's photo, a notice.
+    "miniapp_accent": Spec(str, "", "appearance"),
+    "miniapp_logo": Spec(bool, False, "appearance"),
+    "miniapp_notice": Spec(str, "", "appearance"),
     # guest purchase on the web (CAT-08)
     "guest_buy_enabled": Spec(bool, False, "guest"),
     "guest_plan_ids": Spec(list, [], "guest"),

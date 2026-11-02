@@ -22,7 +22,14 @@ export interface Me {
   locale: string;
   balance: number;
   currency: string;
-  shop: { title: string; bot_username: string | null; support: string | null; languages: string[] };
+  shop: {
+    title: string;
+    bot_username: string | null;
+    support: string | null;
+    languages: string[];
+    /** The shop's own look (REF-08); missing from older servers. */
+    brand?: { accent: string | null; logo: boolean; notice: string | null };
+  };
   trial: { available: boolean; reason: string | null; days: number; gb: number };
   referral: { enabled: boolean; percent: number; count: number };
   reseller: { active: boolean; discount_percent: number };

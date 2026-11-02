@@ -1750,5 +1750,18 @@
   "err_card_sms_secret_short": "کلید وب‌هوک پیامک باید دست‌کم ۲۴ نویسه باشد.",
   "err_card_sms_secret_required": "برای روشن کردن تأیید با پیامک، اول کلید وب‌هوک پیامک را تعیین کنید.",
   "setting_trial_min_account_minutes": "انتظار حساب تازه پیش از تست (دقیقه)",
-  "setting_trial_min_account_minutes_hint": "حسابی که تازه وارد ربات شده تا این مدت تست رایگان نمی‌گیرد. ۰ یعنی خاموش. جلوی ساخت حساب فقط برای گرفتن تست را سخت‌تر می‌کند."
+  "setting_trial_min_account_minutes_hint": "حسابی که تازه وارد ربات شده تا این مدت تست رایگان نمی‌گیرد. ۰ یعنی خاموش. جلوی ساخت حساب فقط برای گرفتن تست را سخت‌تر می‌کند.",
+  "setting_miniapp_accent": "رنگ اصلی مینی‌اپ",
+  "setting_miniapp_accent_hint": "فقط از رنگ‌های آماده، تا متن در حالت روشن و تیره خوانا بماند. هر ربات نماینده رنگ خودش را دارد.",
+  "miniapp_accent_blue": "آبی (پیش‌فرض)",
+  "miniapp_accent_green": "سبز",
+  "miniapp_accent_purple": "بنفش",
+  "miniapp_accent_orange": "نارنجی",
+  "miniapp_accent_rose": "صورتی",
+  "miniapp_accent_teal": "فیروزه‌ای",
+  "setting_miniapp_logo": "لوگوی مینی‌اپ از عکس پروفایل ربات",
+  "setting_miniapp_logo_hint": "عکس پروفایل ربات در تلگرام کنار نام فروشگاه در صفحهٔ اصلی مینی‌اپ نشان داده می‌شود (تا چند ساعت کش می‌شود).",
+  "setting_miniapp_notice": "اطلاعیهٔ صفحهٔ اصلی مینی‌اپ",
+  "setting_miniapp_notice_hint": "یک بند کوتاه (حداکثر ۳۰۰ نویسه) بالای کیف پول. خالی یعنی بدون اطلاعیه.",
+  "err_miniapp_accent_invalid": "این رنگ در فهرست رنگ‌های آماده نیست."
 }

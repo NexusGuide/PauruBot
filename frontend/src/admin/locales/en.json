@@ -1750,5 +1750,18 @@
   "err_card_sms_secret_short": "The SMS webhook key must be at least 24 characters.",
   "err_card_sms_secret_required": "Set the SMS webhook key before turning SMS confirmation on.",
   "setting_trial_min_account_minutes": "New account wait before trial (minutes)",
-  "setting_trial_min_account_minutes_hint": "A brand-new account gets no free trial until this much time has passed. 0 turns it off. Makes accounts created only for a trial costlier."
+  "setting_trial_min_account_minutes_hint": "A brand-new account gets no free trial until this much time has passed. 0 turns it off. Makes accounts created only for a trial costlier.",
+  "setting_miniapp_accent": "Mini App accent colour",
+  "setting_miniapp_accent_hint": "Presets only, so text stays readable in light and dark. Each reseller bot has its own.",
+  "miniapp_accent_blue": "Blue (default)",
+  "miniapp_accent_green": "Green",
+  "miniapp_accent_purple": "Purple",
+  "miniapp_accent_orange": "Orange",
+  "miniapp_accent_rose": "Rose",
+  "miniapp_accent_teal": "Teal",
+  "setting_miniapp_logo": "Mini App logo from the bot's profile photo",
+  "setting_miniapp_logo_hint": "The bot's Telegram profile photo shows beside the shop name on the Mini App home screen (cached for a few hours).",
+  "setting_miniapp_notice": "Mini App home notice",
+  "setting_miniapp_notice_hint": "One short paragraph (300 characters at most) above the wallet. Empty means none.",
+  "err_miniapp_accent_invalid": "That colour is not one of the presets."
 }

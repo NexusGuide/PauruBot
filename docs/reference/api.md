@@ -248,6 +248,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/accounts` | Mini App initData | Accounts view |
 | POST | `/api/webapp/announcements/{row_id}/state` | Mini App initData | Customer state |
 | GET | `/api/webapp/announcements` | Mini App initData | Customer inbox |
+| GET | `/api/webapp/brand/logo` | Mini App initData | The shop's logo (REF-08): its bot's Telegram profile photo, cached for a few hours. |
 | GET | `/api/webapp/cards/verification` | Mini App initData | Own masked card verification status and the current shop policy. |
 | POST | `/api/webapp/cards/verification` | Mini App initData | Register one card photograph for existing staff review; never start a payment. |
 | GET | `/api/webapp/catalog` | Mini App initData | Catalog view |
