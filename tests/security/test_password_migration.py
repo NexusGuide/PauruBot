@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import bcrypt
 import httpx
 import pytest
 from sqlalchemy import select
@@ -38,18 +37,23 @@ def test_missing_or_invalid_hash_fails_closed(hashed: str | None) -> None:
     assert not verify_password("some candidate password", hashed)
 
 
-@pytest.mark.parametrize("password", ["a" * 10, "ش" * 40, "b" * 72 + "old suffix"])
-def test_legacy_bcrypt_still_works_without_silent_rehash(password: str) -> None:
-    legacy = bcrypt.hashpw(password.encode()[:72], bcrypt.gensalt(rounds=4)).decode()
-    assert verify_password(password, legacy)
-    assert not verify_password("different beginning", legacy)
+# A bcrypt hash checks only the first 72 bytes of a password, so any suffix logged in. Nothing
+# is installed yet and no older release wrote one, so the old reader is gone (AUD-10). Real
+# hashes, made once with bcrypt: of "a" * 10, and of "a" * 72.
+BCRYPT_OF_TEN_A = "$2b$04$ekOhIfXIgflkAjbiR6C9r.83tRt7sRbm0Qr5qxNcGbktFADjTj3re"
+BCRYPT_OF_72_A = "$2b$04$0kKjPTgwjpCQEd/DPZjg1OXVu4WNCqtCaBY4duxhzKPMo5XpMI2IC"
 
 
-async def test_legacy_login_then_explicit_password_change(session) -> None:  # type: ignore[no-untyped-def]
+@pytest.mark.parametrize("prefix", ["$2a$", "$2b$", "$2y$"])
+def test_a_bcrypt_hash_never_verifies_even_with_the_right_password(prefix: str) -> None:
+    assert not verify_password("a" * 10, prefix + BCRYPT_OF_TEN_A[4:])
+    assert not verify_password("a" * 72 + "any suffix", BCRYPT_OF_72_A)
+
+
+async def test_a_bcrypt_row_cannot_log_in_but_an_admin_can_set_a_new_password(session) -> None:  # type: ignore[no-untyped-def]
     app = create_app()
     transport = httpx.ASGITransport(app=app, client=("10.1.2.3", 5555))
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        old = "a" * 72 + "legacy-tail"
         token = await issue_token()
         response = await client.post(
             "/api/setup/complete",
@@ -57,40 +61,22 @@ async def test_legacy_login_then_explicit_password_change(session) -> None:  # t
                 "token": token,
                 "shop_title": "Passwords",
                 "username": "owner",
-                "password": old,
+                "password": "a" * 72 + "legacy-tail",
             },
         )
         assert response.status_code == 200, response.text
         row = await session.scalar(select(Staff).where(Staff.username == "owner"))
         assert row is not None
-        legacy = bcrypt.hashpw(old.encode()[:72], bcrypt.gensalt(rounds=4)).decode()
-        row.password_hash = legacy
+        row.password_hash = BCRYPT_OF_72_A
         await session.commit()
-        response = await client.post("/api/auth/login", json={"username": "owner", "password": old})
-        assert response.status_code == 200, response.text
-        await session.refresh(row)
-        assert row.password_hash == legacy  # never bless an ambiguous legacy suffix on login
-        replacement = "ش" * 40 + "fresh-tail"
         response = await client.post(
-            "/api/auth/password",
-            headers={
-                "x-csrf-token": response.json()["csrf_token"],
-            },
-            json={"current_password": old, "new_password": replacement},
+            "/api/auth/login", json={"username": "owner", "password": "a" * 72 + "anything"}
         )
-        assert response.status_code == 409, response.text
-        assert response.json()["error"] == "legacy_password_reset_required"
-        await session.refresh(row)
-        assert row.password_hash == legacy
-        # An independently authorized administrator can still explicitly rotate the secret.
-        # Public Telegram recovery is tested separately; login alone never blesses a suffix.
+        assert response.status_code == 401, response.text
+        replacement = "ش" * 40 + "fresh-tail"
         await staff_service.change_password(session, row, replacement)
         await session.commit()
         await session.refresh(row)
         assert row.password_hash.startswith("$argon2id$")
-        assert verify_password(replacement, row.password_hash)
-        assert not verify_password("ش" * 40 + "another-tail", row.password_hash)
-        assert row.session_version == 2
-        # Both the current-password check and normal staff authentication use the new verifier.
         logged = await staff_service.authenticate(session, "owner", replacement, "10.1.2.4")
         assert logged.id == row.id

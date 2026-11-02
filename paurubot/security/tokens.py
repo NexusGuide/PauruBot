@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qsl
 
-import bcrypt
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from argon2.low_level import Type
@@ -33,25 +32,22 @@ _DUMMY_HASH = _PASSWORD_HASHER.hash("timing-equaliser")
 
 
 def verify_password(password: str, hashed: str | None) -> bool:
-    """Read versioned hashes; legacy bcrypt retains its historical 72-byte semantics.
+    """Only Argon2id hashes verify; anything else is refused after the same amount of work.
 
-    A legacy hash cannot tell us whether the original password had a suffix. Do not
-    silently rehash it on login: only an explicit password change establishes a new secret.
+    bcrypt hashes are no longer read (AUD-10): bcrypt looks at the first 72 bytes only, so any
+    suffix of a long password logged in. Nothing is installed yet and no release wrote one; a
+    row that somehow holds one is reset by an administrator or through Telegram recovery.
     """
-    if not hashed:
+    if not hashed or not hashed.startswith("$argon2id$"):
         try:
             _PASSWORD_HASHER.verify(_DUMMY_HASH, password)
         except VerificationError:
             pass
         return False
     try:
-        if hashed.startswith("$argon2id$"):
-            return _PASSWORD_HASHER.verify(hashed, password)
-        if hashed.startswith(("$2a$", "$2b$", "$2y$")):
-            return bcrypt.checkpw(password.encode()[:72], hashed.encode())
+        return _PASSWORD_HASHER.verify(hashed, password)
     except (InvalidHashError, VerificationError, ValueError):
         return False
-    return False
 
 
 _PASSWORD_WORKERS = asyncio.Semaphore(2)
