@@ -1748,5 +1748,7 @@
   "setting_card_sms_secret": "SMS webhook key",
   "setting_card_sms_secret_hint": "At least 24 random characters. Anyone holding it can approve payments; enter it only in the forwarder app.",
   "err_card_sms_secret_short": "The SMS webhook key must be at least 24 characters.",
-  "err_card_sms_secret_required": "Set the SMS webhook key before turning SMS confirmation on."
+  "err_card_sms_secret_required": "Set the SMS webhook key before turning SMS confirmation on.",
+  "setting_trial_min_account_minutes": "New account wait before trial (minutes)",
+  "setting_trial_min_account_minutes_hint": "A brand-new account gets no free trial until this much time has passed. 0 turns it off. Makes accounts created only for a trial costlier."
 }

@@ -591,5 +591,7 @@
   "gate_terms_missing": "Terms are being updated. Try again in a moment.",
   "err_phone_required": "Share your phone number first.",
   "err_terms_required": "Accept the terms first.",
-  "err_terms_changed": "The terms have just changed. Please read the new version."
+  "err_terms_changed": "The terms have just changed. Please read the new version.",
+  "err_trial_phone_used": "This phone number has already had a free trial.",
+  "err_trial_too_new": "Your account is brand new; try again a little later."
 }

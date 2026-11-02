@@ -56,6 +56,28 @@ async def eligibility(session: AsyncSession, customer: Customer) -> str | None:
     )
     if taken:
         return "trial_already_used"
+    if customer.phone:
+        # One number, one trial: a second account with the same phone gets none (REF-04).
+        same_phone = await session.scalar(
+            select(TrialGrant.id)
+            .join(Customer, Customer.id == TrialGrant.customer_id)
+            .where(
+                TrialGrant.shop_id == customer.shop_id,
+                TrialGrant.generation == generation,
+                Customer.phone == customer.phone,
+                Customer.id != customer.id,
+            )
+            .limit(1)
+        )
+        if same_phone is not None:
+            return "trial_phone_used"
+    wait = int(policy.get("trial_min_account_minutes") or 0)
+    if (
+        wait > 0
+        and customer.created_at is not None
+        and customer.created_at > utcnow() - timedelta(minutes=wait)
+    ):
+        return "trial_too_new"  # accounts made just to take a trial must wait (REF-04)
     quota = int(policy["trial_daily_quota"] or 0)
     if quota:
         since = utcnow() - timedelta(days=1)

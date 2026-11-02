@@ -71,6 +71,7 @@ _GROUPS: dict[str, tuple[str, ...]] = {
         "wheel_every_hours",
         "business_reply_every_hours",
         "trial_daily_quota",
+        "trial_min_account_minutes",
     ),
     "stars": ("stars_enabled", "stars_rate"),
     "crypto": (
@@ -132,6 +133,7 @@ BOUNDS: dict[str, tuple[int, int]] = {
     "wheel_every_hours": (1, 24 * 30),
     "business_reply_every_hours": (1, 24 * 30),
     "trial_daily_quota": (0, 100_000),
+    "trial_min_account_minutes": (0, 7 * 24 * 60),
 }
 DEFAULT_BOUNDS = (0, 10**12)
 

@@ -43,6 +43,8 @@ SPECS: dict[str, Spec] = {
     "trial_generation": Spec(int, 1, "trial"),
     "trial_daily_quota": Spec(int, 0, "trial"),
     "trial_requires_phone": Spec(bool, False, "trial"),
+    # Minutes a new account waits before its free trial; 0 is off (REF-04).
+    "trial_min_account_minutes": Spec(int, 0, "trial"),
     # referral (GRW-01)
     "referral_enabled": Spec(bool, True, "growth"),
     "referral_percent": Spec(int, 10, "growth"),

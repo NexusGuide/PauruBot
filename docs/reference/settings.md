@@ -29,6 +29,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `trial_generation` | int | 1 | Trial round. Raising it lets everyone take a trial again |
 | `trial_daily_quota` | int | 0 | Daily trial limit. 0 means no limit |
 | `trial_requires_phone` | bool | false | Trial needs phone |
+| `trial_min_account_minutes` | int | 0 | New account wait before trial (minutes). A brand-new account gets no free trial until this much time has passed. 0 turns it off. Makes accounts created only for a trial costlier |
 
 ## Referrals
 
