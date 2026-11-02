@@ -97,7 +97,7 @@ class LockLost(LockNotAcquired):
 
 
 @asynccontextmanager
-async def lease(name: str, ttl: int = 60) -> AsyncIterator[str]:
+async def lease(name: str, ttl: int = 60, *, wait_seconds: float = 0.0) -> AsyncIterator[str]:
     """Renew an owner-checked lock; cancel cooperative work if ownership cannot be proved.
 
     This is not fencing of a remote API. Callers must persist ambiguous operations and must
@@ -108,7 +108,10 @@ async def lease(name: str, ttl: int = 60) -> AsyncIterator[str]:
     caller = asyncio.current_task()
     assert caller is not None
     lost = False
-    async with lock(name, ttl=ttl) as token:
+    held = (
+        lock(name, ttl=ttl, wait=True, wait_seconds=wait_seconds) if wait_seconds > 0 else lock(name, ttl=ttl)
+    )
+    async with held as token:
 
         async def keep() -> None:
             nonlocal lost

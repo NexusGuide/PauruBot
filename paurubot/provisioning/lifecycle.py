@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import secrets
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -90,6 +92,31 @@ async def lock_fresh(session: AsyncSession, service: Service, *, skip_locked: bo
             return False
     await session.refresh(service, with_for_update=True)
     return True
+
+
+# How long a person's change waits for a renewal or sync holding the service, before saying busy.
+EXCLUSIVE_WAIT = 5.0
+EXCLUSIVE_TTL = 60
+
+
+@asynccontextmanager
+async def exclusive(session: AsyncSession, service: Service) -> AsyncIterator[Service]:
+    """Own `service` for a staff or customer change of its panel account (SEC-F09).
+
+    Background work already held the service lease; changes made by people (enable, disable,
+    extend, delete, revoke, reset) did not, so one could compute its absolute values from a stale
+    copy while a renewal was applying its own, and write over it. This takes the same lease
+    (waiting a few seconds for a running job) and reloads the row under its lock, which then
+    lasts until the caller commits. Raises ServiceBusy when the service stays taken.
+    """
+    try:
+        async with kv.lease(service_lease(service.id), ttl=EXCLUSIVE_TTL, wait_seconds=EXCLUSIVE_WAIT):
+            await lock_fresh(session, service)
+            yield service
+    except kv.LockNotAcquired as exc:
+        if isinstance(exc, kv.LockLost):
+            raise
+        raise ServiceBusy(f"service {service.id} is being changed") from exc
 
 
 class ProvisionError(Exception):
@@ -871,9 +898,12 @@ async def _move_service(session: AsyncSession, order: Order) -> Service:
         else:
             raise ProvisionError("panel_username_unavailable")
     if info is None:
-        # The intent before the call: a retry adopts only an account it asked for itself.
+        # The intent before the call: a retry adopts only an account it asked for itself, and a
+        # job that gives up parks the move instead of refunding it (SEC-F08).
         move = {**move, "created": spec.username}
         order.params = params = {**(order.params or {}), "move": move}
+        create_state.attempt(order, target.id, spec.username)
+        params = dict(order.params)
         await session.commit()
         info = await driver.create_user(spec)
     service.panel_id = target.id
@@ -886,6 +916,7 @@ async def _move_service(session: AsyncSession, order: Order) -> Service:
         service.status = ServiceStatus.ON_HOLD
     params["moved"] = True
     order.params = params
+    create_state.confirm(order)
     await session.flush()
     from paurubot.worker import queue
 
@@ -1291,7 +1322,10 @@ async def extend(session: AsyncSession, service: Service, *, days: int = 0, gb: 
     limit = int(service.data_limit) + gb * GB if gb and service.data_limit else None
     if expire is UNSET and limit is None:
         return
-    info = await driver.update_user(ref(service), expire_at=expire, data_limit=limit, enabled=True)
+    # More time or data brings an expired or used-up service back, but never one a person or a
+    # rule switched off (ban, reseller suspension, voided payment): enabled stays as it is then.
+    enabled = None if service.status == ServiceStatus.DISABLED else True
+    info = await driver.update_user(ref(service), expire_at=expire, data_limit=limit, enabled=enabled)
     apply_panel_user(service, info)
     if expire is not UNSET:
         service.expire_at = expire

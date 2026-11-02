@@ -503,7 +503,9 @@ async def verify(session: AsyncSession, payment_id: int, params: dict[str, Any])
         payment.status == PaymentStatus.EXPIRED
         and getattr(prov, "late_ok", False)
         and payment.expires_at is not None
-        and payment.expires_at > utcnow() - LATE_CREDIT
+        # A provider whose confirmation is the charge itself (Telegram Stars) has no late limit:
+        # the customer has paid, however late we hear of it (SEC-F05).
+        and (getattr(prov, "late_unbounded", False) or payment.expires_at > utcnow() - LATE_CREDIT)
     )
     if payment.status not in OPEN_STATUSES and not late:
         return payment.status == PaymentStatus.PAID

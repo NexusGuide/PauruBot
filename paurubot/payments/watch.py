@@ -309,18 +309,25 @@ async def scan(session: AsyncSession, client: Client | None = None) -> int:
             matches = _match(transfer, open_payments, NETWORKS[network]["chain"])
             if len(matches) != 1:
                 if matches:
+                    # Unique amounts (SEC-F18) make this unreachable for payments created since;
+                    # if it ever happens, each candidate goes to the review queue that staff
+                    # already work, and the transfer's id lets only one of them be approved.
                     log.warning(
-                        "transfer %s matches %s payments; left for review", transfer.tx_id, len(matches)
+                        "transfer %s matches %s payments; sent to review", transfer.tx_id, len(matches)
                     )
+                    ids = [p.id for p in matches]
                     for candidate in matches:
+                        candidate.status = PaymentStatus.VERIFYING
                         candidate.meta = {
                             **(candidate.meta or {}),
-                            "crypto_ambiguity": {
-                                "tx_id": transfer.tx_id,
-                                "payment_ids": [p.id for p in matches],
-                            },
+                            "crypto_ambiguity": {"tx_id": transfer.tx_id, "payment_ids": ids},
+                            "late_tx": transfer.tx_id,
+                            "late_amount": transfer.amount,
                         }
-                    state.retry.append(transfer)
+                        candidate.review_note = (
+                            "one transfer matches payments " + ", ".join(f"#{i}" for i in ids)
+                        )[:255]
+                        open_payments.remove(candidate)
                 continue
             payment = matches[0]
             open_payments.remove(payment)

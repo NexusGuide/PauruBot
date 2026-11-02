@@ -822,7 +822,10 @@ async def service_revoke(service_id: int, ctx: WebApp) -> dict[str, Any]:
     service = await _owned_service(ctx, service_id)
     assert service is not None
     try:
-        await lifecycle.revoke(ctx.session, service)
+        async with lifecycle.exclusive(ctx.session, service):  # SEC-F09
+            await lifecycle.revoke(ctx.session, service)
+    except lifecycle.ServiceBusy as exc:
+        raise HTTPException(status_code=409, detail="service_busy") from exc
     except PanelError as exc:
         raise HTTPException(status_code=502, detail="panel_error") from exc
     return {"service": service_view(service, ctx.cfg)}

@@ -1763,5 +1763,6 @@
   "setting_miniapp_logo_hint": "The bot's Telegram profile photo shows beside the shop name on the Mini App home screen (cached for a few hours).",
   "setting_miniapp_notice": "Mini App home notice",
   "setting_miniapp_notice_hint": "One short paragraph (300 characters at most) above the wallet. Empty means none.",
-  "err_miniapp_accent_invalid": "That colour is not one of the presets."
+  "err_miniapp_accent_invalid": "That colour is not one of the presets.",
+  "err_service_busy": "This service is being changed right now (a renewal, for example). Try again in a few seconds."
 }

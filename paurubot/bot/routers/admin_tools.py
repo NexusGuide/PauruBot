@@ -389,17 +389,23 @@ async def service_action(
     ):
         await call.answer(t("button_expired"), show_alert=True)
         return
+    if action not in {"on", "off", "del"} and action not in EXTEND:
+        await call.answer()
+        return
     try:
-        if action in {"on", "off"}:
-            await lifecycle.set_enabled(session, service, action == "on", "staff")
-        elif action in EXTEND:
-            days, gb = EXTEND[action]
-            await lifecycle.extend(session, service, days=days, gb=gb)
-        elif action == "del":
-            await lifecycle.delete_service(session, service, "deleted by staff")
-        else:
-            await call.answer()
-            return
+        # One owner per service: never write over a renewal or sync in flight (SEC-F09).
+        async with lifecycle.exclusive(session, service):
+            if action in {"on", "off"}:
+                await lifecycle.set_enabled(session, service, action == "on", "staff")
+            elif action in EXTEND:
+                days, gb = EXTEND[action]
+                await lifecycle.extend(session, service, days=days, gb=gb)
+            else:
+                await lifecycle.delete_service(session, service, "deleted by staff")
+    except lifecycle.ServiceBusy:
+        await session.rollback()
+        await call.answer(t("service_busy"), show_alert=True)
+        return
     except PanelError:
         # The update middleware commits after the handler: drop whatever was half changed.
         await session.rollback()

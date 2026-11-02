@@ -165,25 +165,35 @@ async def bulk_service(session: AsyncSession, job: queue.Claimed) -> None:
         raise Permanent("service does not belong to this shop")
     action = str(data["action"])
     outcome = None
+    if action not in {"enable", "disable", "extend", "delete"}:
+        raise Permanent(f"unknown bulk action {action}")
     try:
-        if action in {"enable", "disable"}:
-            if action == "enable" and data.get("reason") and service.disabled_reason != data["reason"]:
-                return  # someone else disabled it since, for another reason
-            await lifecycle.set_enabled(session, service, action == "enable", data.get("reason") or "staff")
-        elif action == "extend":
-            if data.get("gift_target"):
-                from paurubot.core.service_gifts import apply_fixed
-
-                outcome = await apply_fixed(session, service, data["gift_target"])
-                await queue.update_payload(session, job, {**data, "outcome": outcome})
-            else:
-                await lifecycle.extend(
-                    session, service, days=int(data.get("days") or 0), gb=int(data.get("gb") or 0)
+        # The same owner as renewals and sync (SEC-F09), and every check below on the fresh row.
+        async with lifecycle.exclusive(session, service):
+            if service.status == ServiceStatus.DELETED:  # deleted while this job waited
+                if data.get("gift_target"):
+                    await queue.update_payload(session, job, {**data, "outcome": "skipped_ineligible"})
+                return
+            if action in {"enable", "disable"}:
+                if action == "enable" and data.get("reason") and service.disabled_reason != data["reason"]:
+                    return  # someone else disabled it since, for another reason
+                await lifecycle.set_enabled(
+                    session, service, action == "enable", data.get("reason") or "staff"
                 )
-        elif action == "delete":
-            await lifecycle.delete_service(session, service, data.get("reason") or "bulk delete")
-        else:
-            raise Permanent(f"unknown bulk action {action}")
+            elif action == "extend":
+                if data.get("gift_target"):
+                    from paurubot.core.service_gifts import apply_fixed
+
+                    outcome = await apply_fixed(session, service, data["gift_target"])
+                    await queue.update_payload(session, job, {**data, "outcome": outcome})
+                else:
+                    await lifecycle.extend(
+                        session, service, days=int(data.get("days") or 0), gb=int(data.get("gb") or 0)
+                    )
+            else:
+                await lifecycle.delete_service(session, service, data.get("reason") or "bulk delete")
+    except lifecycle.ServiceBusy as exc:
+        raise Defer(str(exc)) from exc
     except PanelUnavailable as exc:
         raise Retry(str(exc)) from exc
     await record(
@@ -592,6 +602,41 @@ async def daily_backup() -> None:
 
 
 # --- daily report (FIN-04, JOB-02) ----------------------------------------------
+
+
+@every(1800, "stars.reconcile")
+async def reconcile_stars() -> None:
+    """Credit Stars charges the bot never heard of (SEC-F05); see payments.stars_reconcile."""
+    from paurubot.core import settings as shop_settings
+    from paurubot.notifications.telegram import bot_for
+    from paurubot.payments import stars_reconcile
+
+    async with session_scope() as session:
+        shop_ids = list(await session.scalars(select(Shop.id)))
+    for shop_id in shop_ids:
+        async with session_scope() as session:
+            if not (await shop_settings.load(session, shop_id)).get("stars_enabled"):
+                continue
+            bot = await bot_for(shop_id)
+            if bot is None:
+                continue
+            try:
+                result = await stars_reconcile.reconcile_shop(session, shop_id, bot)
+            except Exception:
+                log.warning("stars reconciliation of shop %s failed", shop_id, exc_info=True)
+                continue
+            if result.unmatched:
+                await queue.enqueue(
+                    session,
+                    "notify",
+                    "stars_unmatched",
+                    {"charges": result.unmatched[:20]},
+                    shop_id=shop_id,
+                    dedupe_key=f"stars:unmatched:{shop_id}:{result.unmatched[0]}",
+                )
+                await session.commit()
+            if result.credited:
+                log.info("stars reconciliation credited payments %s", result.credited)
 
 
 @every(300, "reports.daily")

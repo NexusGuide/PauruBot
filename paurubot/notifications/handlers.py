@@ -438,6 +438,16 @@ async def payment_voided(session: AsyncSession, job: queue.Claimed) -> None:
     await _to_customer(session, customer, "\n\n".join(lines))
 
 
+async def stars_unmatched(session: AsyncSession, job: queue.Claimed) -> None:
+    """Stars charges the reconciliation could not tie to a payment (SEC-F05): staff decide."""
+    shop = await session.get(Shop, job.shop_id) if job.shop_id is not None else None
+    if shop is None:
+        return
+    t = await texts_for(session, shop.id, shop.default_locale)
+    charges = "\n".join(f"<code>{esc(str(c))}</code>" for c in job.payload.get("charges") or [])
+    await report(session, shop.id, "payments", t("report_stars_unmatched", charges=charges))
+
+
 async def card_sms(session: AsyncSession, job: queue.Claimed) -> None:
     """What a bank deposit SMS did (REF-02), in the payments log channel."""
     shop = await session.get(Shop, job.shop_id) if job.shop_id is not None else None
@@ -1304,6 +1314,7 @@ register_queue(
             "payment_rejected": payment_rejected,
             "payment_voided": payment_voided,
             "card_sms": card_sms,
+            "stars_unmatched": stars_unmatched,
             "receipt_review": receipt_review,
             "review_decided": review_decided,
             "payment_fix_requested": payment_fix_requested,

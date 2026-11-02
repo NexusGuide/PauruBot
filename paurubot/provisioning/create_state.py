@@ -28,7 +28,8 @@ from paurubot.db.models import Order, OrderKind
 
 ATTEMPTED, ABSENT, CONFIRMED = "attempted", "absent", "confirmed"
 STATES = (ATTEMPTED, ABSENT, CONFIRMED)
-KINDS = frozenset({OrderKind.PURCHASE, OrderKind.TRIAL})
+# A move creates the service's new account on the target panel, with the same uncertainty.
+KINDS = frozenset({OrderKind.PURCHASE, OrderKind.TRIAL, OrderKind.MOVE})
 # Read the panel only once the last create request is surely finished on the panel side.
 SETTLE_DELAY = timedelta(minutes=10)
 MAX_RESUMES = 3

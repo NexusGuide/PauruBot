@@ -201,7 +201,9 @@ async def test_failure_mid_sweep_keeps_what_was_read_and_resumes(session) -> Non
     assert any(r.get("max_timestamp") == str(now_ms - 199 * 2_000) for r in grid.requests[2:])
 
 
-async def test_ambiguous_transfer_is_retried_without_rereading_the_chain(session, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+async def test_an_ambiguous_transfer_goes_to_staff_and_credits_one_payment(session, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """SEC-F18: a transfer two payments could claim waits for a person, visibly, in the review
+    queue (it used to sit in meta, unseen), and its id lets only one of them be approved."""
     shop = await _shop(session)
     cust = await factories.customer(session, shop)
     first = await engine.start(session, cust, "usdt_trc20", 200_000)
@@ -212,12 +214,16 @@ async def test_ambiguous_transfer_is_retried_without_rereading_the_chain(session
     transfer = _trc20("a" * 64, first.payment.provider_amount or 0, now_ms - 1_000)
     grid = FakeTronGrid([transfer])
     client = Client(httpx.MockTransport(grid), pacing={})
-    assert await watch.scan(session, client) == 0  # two candidates: left for review
-    # The chain no longer returns it (outside the re-read margin), but the stored retry does.
-    grid.items.clear()
-    second.payment.status = PaymentStatus.FAILED
+    assert await watch.scan(session, client) == 0  # two candidates: nothing credited by itself
+    for started in (first, second):
+        await session.refresh(started.payment)
+        assert engine.awaiting_review(started.payment)
+        assert started.payment.meta["late_tx"] == "a" * 64
+    assert await engine.approve_manual(session, first.payment.id, staff_id=None)
     await session.commit()
-    assert await watch.scan(session, client) == 1
+    assert not await engine.approve_manual(
+        session, second.payment.id, staff_id=None
+    )  # one transfer, one credit
     await session.refresh(first.payment)
     assert first.payment.status == PaymentStatus.PAID and first.payment.provider_tx_id == "a" * 64
 

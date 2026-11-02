@@ -69,10 +69,19 @@ async def cancel(session: AsyncSession, customer: Customer, service: Service) ->
     cfg = await shop_settings.load(session, customer.shop_id)
     if not cfg["self_delete_enabled"]:
         raise CancelError("self_delete_off")
-    if service.customer_id != customer.id or service.status == ServiceStatus.DELETED:
-        raise CancelError("service_not_found")
-    amount = await quote(session, customer, service)
-    await lifecycle.delete_service(session, service, "deleted by customer")
+    try:
+        # Own the service and price it from what the panel shows now (SEC-F09): a stale copy
+        # could refund unused data the customer had already used, or race a renewal.
+        async with lifecycle.exclusive(session, service):
+            if service.customer_id != customer.id or service.status == ServiceStatus.DELETED:
+                raise CancelError("service_not_found")
+            await lifecycle.refresh(session, service)
+            if service.status == ServiceStatus.DELETED:
+                raise CancelError("service_not_found")
+            amount = await quote(session, customer, service)
+            await lifecycle.delete_service(session, service, "deleted by customer")
+    except lifecycle.ServiceBusy as exc:
+        raise CancelError("service_busy") from exc
     if amount > 0:
         source = await system_account(session, customer.shop_id, "revenue")
         target = await wallet_account(session, customer.shop_id, customer.id)
