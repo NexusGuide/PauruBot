@@ -310,6 +310,7 @@ MASTER_KEY=$(random_secret 64 64)
 BACKUP_PASSPHRASE=$passphrase
 POSTGRES_PASSWORD=$(random_secret 32 32)
 POSTGRES_APP_PASSWORD=$(random_secret 32 32)
+REDIS_PASSWORD=$(random_secret 32 32)
 BOT_MODE=polling
 TRUST_PROXY_HOPS=1
 TIMEZONE=Asia/Tehran
@@ -354,6 +355,7 @@ cmd_update() {
   done
   [[ -f $ENV_FILE ]] || die "not installed; run install first"
   [[ -n $(env_get POSTGRES_APP_PASSWORD) ]] || env_set POSTGRES_APP_PASSWORD "$(random_secret 32 32)"
+  [[ -n $(env_get REDIS_PASSWORD) ]] || env_set REDIS_PASSWORD "$(random_secret 32 32)"
   resolve_target "$channel" "$version"
   say "Updating to ${BOLD}$TARGET_REF${RESET} ($channel)…"
   say "Writing a backup first…"
