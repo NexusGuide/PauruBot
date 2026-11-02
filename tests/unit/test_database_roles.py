@@ -137,6 +137,11 @@ def test_deployment_gives_the_owner_only_to_migrate_and_restore() -> None:
         env = services[name]["environment"]
         assert "DATABASE_OWNER_URL" not in env and "POSTGRES_APP_USER" in env["DATABASE_URL"], name
     assert "POSTGRES_USER" in services["migrate"]["environment"]["DATABASE_OWNER_URL"]
+    # AUD-2: env_file loads all of .env, the owner's password too. The app containers get it
+    # blanked: compose reads it to build the migrate URL, no running process needs it.
+    for name in ("api", "bot", "worker", "migrate"):
+        assert services[name].get("env_file") == ".env", name
+        assert services[name]["environment"].get("POSTGRES_PASSWORD") == "", name
     installer = (root / "install.sh").read_text()
     assert "POSTGRES_APP_PASSWORD=$(random_secret" in installer
     assert "migrate restore " in installer and " api restore " not in installer

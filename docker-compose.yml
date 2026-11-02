@@ -4,6 +4,9 @@
 x-env: &env
   DATABASE_URL: postgresql+asyncpg://${POSTGRES_APP_USER:-paurubot_app}:${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_DB:-paurubot}
   REDIS_URL: redis://redis:6379/0
+  # env_file hands every container all of .env, the owner's password too (AUD-2). No running
+  # process needs it: compose reads it from .env to build the migrate service's URL.
+  POSTGRES_PASSWORD: ""
 
 x-app: &app
   image: ${PAURUBOT_IMAGE:-paurubot:local}
