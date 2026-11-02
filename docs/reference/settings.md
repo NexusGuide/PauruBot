@@ -123,6 +123,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `start_media` | dict | {} | — |
 | `buy_banner_file_id` | str | "" | — |
 | `menu_mode` | str | "reply" | — |
+| `menu_cleanup` | bool | true | Keep only the latest menu in the chat. When the bot sends the home menu again it deletes the previous one in that chat, so stale buttons do not pile up. Other messages (orders, payments, configs) are left alone |
 | `help_items` | list | [] | — |
 | `download_apps` | list | [] | — |
 | `app_cache_chat_id` | int | — | — |

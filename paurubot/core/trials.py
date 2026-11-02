@@ -3,6 +3,9 @@
 A reservation is the unique (shop, customer, generation) row in `trial_grants`. A transaction
 advisory lock also serializes the shared shop quota across different customers. Raising
 `trial_generation` lets every customer try again without resetting the rolling 24-hour quota.
+
+A panel can also carry its own rolling 24-hour cap (`options.trial_daily_quota`, F-20): trials go
+to the first panel that allows them and still has room, so a busy panel hands over to the next.
 """
 
 from __future__ import annotations
@@ -91,27 +94,58 @@ async def eligibility(session: AsyncSession, customer: Customer) -> str | None:
     return None
 
 
-async def _trial_panel(session: AsyncSession, shop_id: int, panel_id: int | None) -> Panel | None:
+PANEL_QUOTA = "trial_daily_quota"
+
+
+def panel_quota(panel: Panel) -> int:
+    """Trials this panel may give in any 24 hours; 0 is no cap of its own (F-20)."""
+    value = (panel.options or {}).get(PANEL_QUOTA)
+    return value if type(value) is int and value > 0 else 0
+
+
+async def panel_used(session: AsyncSession, panel_id: int) -> int:
+    """Trials given on this panel in the last 24 hours, by every shop selling on it."""
+    since = utcnow() - timedelta(days=1)
+    return int(
+        await session.scalar(
+            select(func.count(TrialGrant.id)).where(
+                TrialGrant.panel_id == panel_id, TrialGrant.created_at >= since
+            )
+        )
+        or 0
+    )
+
+
+async def _trial_panel(session: AsyncSession, shop_id: int, panel_id: int | None) -> Panel:
+    """The panel for the next trial: the chosen one, else the first that allows trials and has room."""
     if panel_id:
         panel = await session.get(Panel, int(panel_id))
-        if (
+        allowed = (
             panel is not None
             and panel.shop_id == shop_id
             and panel.is_active
             and (panel.options or {}).get("allow_trials") is not False
-        ):
-            return panel
-        return None
-    return await session.scalar(
-        select(Panel)
-        .where(
-            Panel.shop_id == shop_id,
-            Panel.is_active.is_(True),
-            Panel.options["allow_trials"].as_boolean().is_not(False),
         )
-        .order_by(Panel.id)
-        .limit(1)
-    )
+        candidates = [panel] if allowed and panel is not None else []
+    else:
+        candidates = list(
+            await session.scalars(
+                select(Panel)
+                .where(
+                    Panel.shop_id == shop_id,
+                    Panel.is_active.is_(True),
+                    Panel.options["allow_trials"].as_boolean().is_not(False),
+                )
+                .order_by(Panel.id)
+            )
+        )
+    if not candidates:
+        raise TrialError("trial_disabled")
+    for panel in candidates:
+        quota = panel_quota(panel)
+        if not quota or await panel_used(session, panel.id) < quota:
+            return panel
+    raise TrialError("trial_quota_reached")
 
 
 async def request(session: AsyncSession, customer: Customer) -> Order:
@@ -135,11 +169,12 @@ async def request(session: AsyncSession, customer: Customer) -> Order:
     generation = int(rules["trial_generation"] or 1)
     extra: dict[str, int] = {}
     # A reseller bot gives the parent shop's trial, on its panels, and pays a fee for it (TEN-18).
-    panel = await _trial_panel(
-        session, sale.parent_id if sale is not None else customer.shop_id, rules["trial_panel_id"]
-    )
-    if panel is None:
-        raise TrialError("trial_disabled")
+    owner = sale.parent_id if sale is not None else customer.shop_id
+    # Panel quotas are shared by the owner shop and every reseller selling on its panels, which
+    # the per-shop lock above does not cover: one more lock, always taken after it (F-20).
+    panels_key = func.hashtextextended(f"{_QUOTA_LOCK_NAMESPACE}panels:{owner}", 0)
+    await session.execute(select(func.pg_advisory_xact_lock(panels_key)))
+    panel = await _trial_panel(session, owner, rules["trial_panel_id"])
     if sale is not None:
         fee = int(rules["resale_trial_fee"] or 0)
         if fee > 0:
@@ -154,6 +189,7 @@ async def request(session: AsyncSession, customer: Customer) -> Order:
             shop_id=customer.shop_id,
             customer_id=customer.id,
             generation=generation,
+            panel_id=panel.id,
             status="reserved",
             created_at=utcnow(),
         )

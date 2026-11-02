@@ -214,6 +214,8 @@ SPECS: dict[str, Spec] = {
     "start_media": Spec(dict, {}, "appearance"),  # {"type": sticker|animation|photo, "file_id"} (BOT-11)
     "buy_banner_file_id": Spec(str, "", "appearance"),
     "menu_mode": Spec(str, "reply", "appearance"),  # reply | inline | miniapp (BOT-12)
+    # Keep one home menu per chat: a new one deletes the previous (P3, after PGClockBot).
+    "menu_cleanup": Spec(bool, True, "appearance"),
     "help_items": Spec(list, [], "appearance"),
     "download_apps": Spec(list, [], "appearance"),
     "app_cache_chat_id": Spec(int, None, "appearance"),

@@ -55,6 +55,7 @@ FEATURES: dict[str, list[str]] = {
         "card_verify_enabled",
         "miniapp_enabled",
         "premium_emoji_enabled",
+        "menu_cleanup",
     ],
     "users": [
         "reseller_applications_enabled",

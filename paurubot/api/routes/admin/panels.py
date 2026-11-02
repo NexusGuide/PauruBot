@@ -73,6 +73,7 @@ SAFE_OPTION_KEYS = {
     "profile",
     "group",
     "sync_concurrency",  # usage-sync reads in flight on this panel; never above the driver's (SEC-F27)
+    "trial_daily_quota",  # trials this panel gives in any 24 hours; the next panel takes over (F-20)
 }
 
 # Option values that end up in panel API paths or forms: short names only.
@@ -141,6 +142,9 @@ def _clean_options(options: dict[str, Any]) -> dict[str, Any]:
     width = options.get("sync_concurrency")
     if width is not None and (type(width) is not int or not 1 <= width <= 8):
         raise HTTPException(status_code=422, detail="sync_concurrency_invalid")
+    quota = options.get("trial_daily_quota")
+    if quota is not None and (type(quota) is not int or not 0 <= quota <= 1_000_000):
+        raise HTTPException(status_code=422, detail="trial_daily_quota_invalid")
     if options.get("guard_version") not in (None, "v1", "v2"):
         raise HTTPException(status_code=422, detail="guard_version_invalid")
     import re
