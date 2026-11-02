@@ -583,7 +583,7 @@ async def card_verify(session: AsyncSession, job: queue.Claimed) -> None:
 
 
 def _renew_markup(t: Texts, service_id: int) -> InlineKeyboardMarkup:
-    from paurubot.bot.callbacks import Svc
+    from paurubot.bot.callbacks import Svc, Wallet
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -594,9 +594,40 @@ def _renew_markup(t: Texts, service_id: int) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text=t("btn_extra_volume"), callback_data=Svc(action="extra_gb", id=service_id).pack()
                 ),
-            ]
+            ],
+            # Paying needs money first; a short wallet is the usual reason a reminder is ignored.
+            [InlineKeyboardButton(text=t("btn_topup"), callback_data=Wallet(action="topup").pack())],
         ]
     )
+
+
+# Reminders about one service that a newer one makes stale (REF-05): only the latest is kept.
+REPLACEABLE_ALERTS = frozenset({"low_volume", "expiring", "expired", "limited"})
+ALERT_MESSAGE_TTL = 30 * 86400
+
+
+async def _replace_alert(customer: Customer, service_id: int, message: Any) -> None:
+    """Remember the new alert message and delete the one it replaces. Best effort: a message
+    Telegram no longer lets the bot delete (over 48 hours old) simply stays."""
+    from paurubot import kv
+
+    message_id = getattr(message, "message_id", None)
+    if not isinstance(message_id, int):
+        return
+    previous = await kv.get_redis().set(
+        f"alert-msg:{customer.shop_id}:{service_id}", str(message_id), ex=ALERT_MESSAGE_TTL, get=True
+    )
+    if isinstance(previous, bytes):
+        previous = previous.decode()
+    if previous is None or not str(previous).isdigit() or int(previous) == message_id:
+        return
+    bot = await telegram.bot_for(customer.shop_id)
+    if bot is None:
+        return
+    try:
+        await bot.delete_message(customer.telegram_id, int(previous))
+    except Exception:  # already gone, too old, or chat closed: nothing to clean up
+        log.debug("stale alert %s for service %s was not deleted", previous, service_id)
 
 
 async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
@@ -626,7 +657,15 @@ async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
         await _to_customer(session, customer, text)
         return
     markup = None if alert == "deleted" or service.is_trial else _renew_markup(t, service.id)
-    await _to_customer(session, customer, text, reply_markup=markup)
+    try:
+        message = await telegram.send_text(
+            customer.telegram_id, text, shop_id=customer.shop_id, reply_markup=markup
+        )
+    except telegram.Undeliverable:
+        customer.blocked_bot_at = utcnow()
+        return
+    if alert in REPLACEABLE_ALERTS:
+        await _replace_alert(customer, service.id, message)
 
 
 async def auto_renew_notice(session: AsyncSession, job: queue.Claimed) -> None:
