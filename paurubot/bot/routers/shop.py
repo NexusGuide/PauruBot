@@ -473,7 +473,8 @@ async def renew_or_upgrade(
     if callback_data.action == "renew":
         plans = [p for p in plans if p.renewable]
     else:
-        plans = [p for p in plans if p.id != service.plan_id]
+        floor = await orders.upgrade_floor(session, service)
+        plans = [p for p in plans if orders.upgradable(p, service, floor)]
     if not plans:
         await call.answer(t("no_plans_for_service"), show_alert=True)
         return

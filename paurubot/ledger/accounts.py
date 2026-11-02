@@ -32,8 +32,12 @@ async def _ensure(
     )
     if existing is not None:
         return existing
-    # Missing-account races still resolve through the unique index, followed by
+    # Missing-account races still resolve through the unique indexes, followed by
     # a fresh read of the winner. Posting remains responsible for balance locks.
+    # No conflict target: a wallet row is unique on (shop_id, code) AND on customer_id.
+    # A concurrent creator can show up first on either index (index entries are
+    # inserted one at a time); an arbiter on one index alone turns the other into a
+    # spurious unique violation instead of "someone else created it".
     stmt = (
         insert(LedgerAccount)
         .values(
@@ -44,13 +48,15 @@ async def _ensure(
             balance=0,
             allow_negative=kind != LedgerAccountKind.WALLET,
         )
-        .on_conflict_do_nothing(index_elements=["shop_id", "code"])
+        .on_conflict_do_nothing()
     )
     await session.execute(stmt)
     account = await session.scalar(
         select(LedgerAccount).where(LedgerAccount.shop_id == shop_id, LedgerAccount.code == code)
     )
-    assert account is not None
+    if account is None:
+        # The conflict was on customer_id under another (shop, code): never guess which wallet.
+        raise RuntimeError(f"ledger account {code} conflicts with another account of the same customer")
     return account
 
 

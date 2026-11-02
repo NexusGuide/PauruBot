@@ -159,14 +159,27 @@ async def validate_code(
         )
         if int(used or 0) >= code.per_customer_limit:
             raise DiscountError("discount_already_used")
-    if code.first_purchase_only:
-        completed = await session.scalar(
-            select(func.count(Order.id)).where(
-                Order.customer_id == customer.id, Order.status == OrderStatus.COMPLETED, Order.amount > 0
-            )
-        )
-        if completed:
-            raise DiscountError("discount_first_purchase_only")
+    if code.first_purchase_only and await has_prior_purchase(session, customer.id):
+        raise DiscountError("discount_first_purchase_only")
+
+
+# Orders that count as "a purchase was made": paid (even if still provisioning or later completed),
+# and either charged money or used a discount code. A free 100% code order counts too, or a
+# first-purchase-only code could be used again and again.
+PURCHASED = (OrderStatus.PAID, OrderStatus.PROVISIONING, OrderStatus.COMPLETED)
+
+
+async def has_prior_purchase(
+    session: AsyncSession, customer_id: int, *, exclude_order_id: int | None = None
+) -> bool:
+    stmt = select(Order.id).where(
+        Order.customer_id == customer_id,
+        Order.status.in_(PURCHASED),
+        (Order.amount > 0) | (Order.code_discount > 0),
+    )
+    if exclude_order_id is not None:
+        stmt = stmt.where(Order.id != exclude_order_id)
+    return await session.scalar(stmt.limit(1)) is not None
 
 
 async def private_codes(session: AsyncSession, customer: Customer) -> list[DiscountCode]:

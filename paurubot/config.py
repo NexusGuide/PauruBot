@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     environment: Literal["production", "staging", "development", "test"] = "production"
 
     database_url: str = "postgresql+asyncpg://paurubot:paurubot@localhost:5432/paurubot"
+    # The schema owner (SEC-F26): only migrations, restore and full backup verification use it,
+    # and migrations grant the runtime role in DATABASE_URL its data rights. Empty: one role for all.
+    database_owner_url: str = ""
     redis_url: str = "redis://localhost:6379/0"
 
     bot_token: SecretStr = SecretStr("")
@@ -89,11 +92,18 @@ class Settings(BaseSettings):
             origins.append(self.public_url)
         return origins
 
+    @property
+    def owner_database_url(self) -> str:
+        """Credentials for schema changes, restore and full verification (SEC-F26)."""
+        return self.database_owner_url or self.database_url
+
     def validate_runtime(self) -> list[str]:
         """Problems that must stop a production process from starting."""
         problems: list[str] = []
         if not self.database_url.startswith("postgresql"):
             problems.append("DATABASE_URL must point to PostgreSQL")
+        if self.database_owner_url and not self.database_owner_url.startswith("postgresql"):
+            problems.append("DATABASE_OWNER_URL must point to PostgreSQL")
         if len(self.master_key.get_secret_value()) < 32:
             problems.append("MASTER_KEY must be at least 32 characters")
         if self.is_production and self.public_url and not self.public_url.startswith("https://"):

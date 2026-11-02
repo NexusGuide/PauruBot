@@ -27,6 +27,8 @@ interface WebApp {
   openLink(url: string): void;
   openTelegramLink(url: string): void;
   openInvoice(url: string, cb?: (status: string) => void): void;
+  /** Bot API 6.9+: Telegram sends the user's own contact to the bot after they confirm. */
+  requestContact?(cb?: (sent: boolean) => void): void;
   showAlert(message: string): void;
   close(): void;
   MainButton: BottomButton;

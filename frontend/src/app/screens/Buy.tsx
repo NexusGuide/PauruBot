@@ -251,18 +251,22 @@ function RenewPicker({ serviceId }: { serviceId: number }) {
   const [params] = useSearchParams();
   const kind = params.get("kind") === "upgrade" ? "upgrade" : "renew";
   const panelId = Number(params.get("panel")) || undefined;
+  const currentPlanId = Number(params.get("current")) || undefined;
   const { data: catalog, error, retry } = useResource(api.catalog);
   const [category, setCategory] = useState<number | null>(null);
 
   const plans = useMemo(() => {
     if (!catalog) return [];
+    // Upgrades go only to a more expensive plan (SEC-F01); the server enforces it either way.
+    const current = catalog.plans.find((plan) => plan.id === currentPlanId);
     return catalog.plans.filter(
       (plan) =>
         (panelId ? plan.panel_id === panelId : true) &&
         (category === null || plan.category_id === category) &&
-        (kind !== "renew" || plan.renewable),
+        (kind !== "renew" || plan.renewable) &&
+        (kind !== "upgrade" || (plan.id !== currentPlanId && (!current || plan.price > current.price))),
     );
-  }, [catalog, panelId, category, kind]);
+  }, [catalog, panelId, currentPlanId, category, kind]);
 
   const [selected, setSelected] = useSelectedPlan(plans);
   const chosen = plans.find((plan) => plan.id === selected) ?? null;

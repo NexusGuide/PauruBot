@@ -20,6 +20,8 @@ export function Notifications() {
 
 function NotificationFeed() {
   const { me, t, locale, toast } = useApp();
+  // The parent mounts this per customer (key={me.id}); read state is that customer's own.
+  const owner = me?.id ?? 0;
   const policy = parseAlertPolicy(me?.alert_policy);
   const navigate = useNavigate();
   const load = useCallback(async () => {
@@ -27,7 +29,7 @@ function NotificationFeed() {
     return { services: services.items, history: history.items };
   }, []);
   const { data, error, retry } = useResource(load);
-  const [read, setRead] = useState<Set<string>>(readAlertIds);
+  const [read, setRead] = useState<Set<string>>(() => readAlertIds(owner));
   const [filter, setFilter] = useState<Filter>("all");
 
   const alerts = useMemo(() => (data ? buildAlerts(data.services, data.history, t, locale, policy) : []), [data, t, locale, policy]);
@@ -42,14 +44,14 @@ function NotificationFeed() {
   ];
 
   const markAll = () => {
-    markAlertsRead(alerts.map((alert) => alert.id));
-    setRead(readAlertIds());
+    markAlertsRead(owner, alerts.map((alert) => alert.id));
+    setRead(readAlertIds(owner));
     haptic("success");
     toast(t("notif_marked"));
   };
   const open = (id: string, href: string | null) => {
-    markAlertsRead([id]);
-    setRead(readAlertIds());
+    markAlertsRead(owner, [id]);
+    setRead(readAlertIds(owner));
     if (href) navigate(href);
   };
 
