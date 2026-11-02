@@ -18,6 +18,9 @@ class StarsProvider(PaymentProvider):
     # A valid Telegram successful_payment can arrive after the local expiry sweep.
     # engine.verify still enforces its late window and transaction uniqueness.
     late_ok = True
+    # Telegram's successful_payment, or the bot's own transaction list, is the charge itself: a
+    # Stars payment is credited however late it is seen (SEC-F05), never only within two days.
+    late_unbounded = True
 
     async def enabled(self, cfg: dict[str, Any]) -> bool:
         return bool(cfg.get("stars_enabled") and int(cfg.get("stars_rate") or 0) > 0)

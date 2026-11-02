@@ -604,6 +604,41 @@ async def daily_backup() -> None:
 # --- daily report (FIN-04, JOB-02) ----------------------------------------------
 
 
+@every(1800, "stars.reconcile")
+async def reconcile_stars() -> None:
+    """Credit Stars charges the bot never heard of (SEC-F05); see payments.stars_reconcile."""
+    from paurubot.core import settings as shop_settings
+    from paurubot.notifications.telegram import bot_for
+    from paurubot.payments import stars_reconcile
+
+    async with session_scope() as session:
+        shop_ids = list(await session.scalars(select(Shop.id)))
+    for shop_id in shop_ids:
+        async with session_scope() as session:
+            if not (await shop_settings.load(session, shop_id)).get("stars_enabled"):
+                continue
+            bot = await bot_for(shop_id)
+            if bot is None:
+                continue
+            try:
+                result = await stars_reconcile.reconcile_shop(session, shop_id, bot)
+            except Exception:
+                log.warning("stars reconciliation of shop %s failed", shop_id, exc_info=True)
+                continue
+            if result.unmatched:
+                await queue.enqueue(
+                    session,
+                    "notify",
+                    "stars_unmatched",
+                    {"charges": result.unmatched[:20]},
+                    shop_id=shop_id,
+                    dedupe_key=f"stars:unmatched:{shop_id}:{result.unmatched[0]}",
+                )
+                await session.commit()
+            if result.credited:
+                log.info("stars reconciliation credited payments %s", result.credited)
+
+
 @every(300, "reports.daily")
 async def daily_report() -> None:
 
