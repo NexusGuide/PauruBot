@@ -24,6 +24,7 @@ from paurubot.api.deps import DB
 from paurubot.bot.views import qr_base64, qr_png
 from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import days_left, jdate, size
+from paurubot.db.base import utcnow
 from paurubot.db.models import Customer, Panel, Service, ServiceStatus, Shop
 from paurubot.i18n import Texts, texts_for
 from paurubot.panels import PanelError, driver_for
@@ -532,6 +533,8 @@ async def subscription_endpoint(token: str, request: Request, db: DB) -> Respons
         body = None
     if body is None:
         return Response("subscription unavailable", status_code=502, media_type="text/plain")
+    # Which app imported it, for the customer's own view (F-11); throttled, committed by DB.
+    subscription.client_seen(service, subscription.client_app(request.headers.get("user-agent")), utcnow())
     headers = dict(body.headers)
     headers["profile-title"] = subscription.profile_title(shop.title or "PauruBot")
     headers.setdefault("profile-update-interval", "12")

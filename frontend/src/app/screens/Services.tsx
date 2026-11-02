@@ -12,6 +12,7 @@ import { timeRatio, usageRatio } from "./Home";
 import { useResource } from "../useResource";
 import { AutoRenew } from "../autoRenew/AutoRenew";
 import { UsageChart } from "../usage/UsageChart";
+import { ServiceAccess } from "./ServiceAccess";
 import { createActionGate, runServiceAction } from "../service-read";
 import { normalizedServiceLabel } from "../service-label";
 import {
@@ -481,6 +482,7 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
       )}
 
       {service.id === serviceId && <Button tone="quiet" disabled={busy !== null} onClick={() => navigate(`/tickets/new?service=${service.id}`)}>{t("tickets_service_report")}</Button>}
+      {service.id === serviceId && !service.national_mode && <ServiceAccess key={`access-${service.id}`} serviceId={service.id} access={service.access} />}
       <UsageChart key={service.id} serviceId={service.id} />
 
       {(allowed("move") || allowed("cancel")) && (

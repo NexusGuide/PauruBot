@@ -97,6 +97,8 @@ class TokenApiDriver(PanelDriver):
             links=list(data.get("links") or []),
             data={"id": data["id"]} if data.get("id") is not None else {},
             online_at=parse_expire(data.get("online_at")),
+            sub_agent=str(data["sub_last_user_agent"]) if data.get("sub_last_user_agent") else None,
+            sub_fetched_at=parse_expire(data.get("sub_updated_at")),
             note=str(data.get("note") or ""),
             owner=_owner(data.get("admin")),
         )
