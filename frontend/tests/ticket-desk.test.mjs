@@ -62,6 +62,11 @@ test('ambiguous retry reuses a key, edited content uses a new key', () => {
 test('staff projects only minimal linked service information', () => {
   const parsed=m.parseTicket({...ticket(),service_id:3,service_context:{id:3,status:'active',password:'secret'}});
   assert.deepEqual(parsed.service_context,{id:3,status:'active'});
+  // REF-09: usage, end date and freshness pass through; anything else (or malformed) does not.
+  const live=m.parseTicket({...ticket(),service_id:3,service_context:{id:3,status:'active',used_bytes:5,data_limit:10,expire_at:null,checked:'live',panel_down:false,link:'x',used:'-1'}});
+  assert.deepEqual(live.service_context,{id:3,status:'active',used_bytes:5,data_limit:10,expire_at:null,checked:'live',panel_down:false});
+  const odd=m.parseTicket({...ticket(),service_id:3,service_context:{id:3,status:'active',used_bytes:-1,checked:'maybe',panel_down:'yes'}});
+  assert.deepEqual(odd.service_context,{id:3,status:'active'});
   assert.throws(()=>m.parseTicket({...ticket(),service_id:-1}));
 });
 test('expired attachment projection is strict', () => {

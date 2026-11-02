@@ -163,7 +163,17 @@ async def _prepare(
             raise PaymentError("card_blocked")
         if await cards.needs_verification(session, customer, amount):
             raise PaymentError("card_verify_required")
-        if cfg["card_random_tail"]:
+        if cfg.get("card_sms_enabled"):
+            # The bank SMS can only name a payment by its amount (REF-02): keep each one unique.
+            from paurubot.payments import bank_sms
+
+            reserved = await bank_sms.reserve_amount(
+                session, customer.shop_id, amount, high, tail=bool(cfg["card_random_tail"])
+            )
+            if reserved is None:
+                raise PaymentError("method_busy")
+            amount = reserved
+        elif cfg["card_random_tail"]:
             amount = cards.random_tail(amount, high)
     minutes = int(cfg["payment_expire_minutes"] or 60)
     payment = Payment(
@@ -268,8 +278,11 @@ async def auto_approvable(session: AsyncSession, payment: Payment, cfg: dict[str
         select(func.count(Payment.id)).where(
             Payment.customer_id == payment.customer_id,
             Payment.provider == "card",
-            Payment.status.in_([PaymentStatus.FAILED, PaymentStatus.DISPUTED]),
-            Payment.reviewed_at.is_not(None),
+            or_(
+                Payment.status.in_([PaymentStatus.FAILED, PaymentStatus.DISPUTED])
+                & Payment.reviewed_at.is_not(None),
+                Payment.status == PaymentStatus.VOIDED,  # a receipt staff later found false
+            ),
         )
     )
     return int(history or 0) >= int(cfg.get("card_auto_min_history") or 0) and not rejected

@@ -62,11 +62,13 @@ async def _texts(session: AsyncSession, customer: Customer) -> Texts:
     )
 
 
-async def _to_customer(session: AsyncSession, customer: Customer, text: str, **kwargs: Any) -> None:
+async def _to_customer(session: AsyncSession, customer: Customer, text: str, **kwargs: Any) -> Any:
+    """Send to the customer; the sent message, or None when they cannot be reached."""
     try:
-        await telegram.send_text(customer.telegram_id, text, shop_id=customer.shop_id, **kwargs)
+        return await telegram.send_text(customer.telegram_id, text, shop_id=customer.shop_id, **kwargs)
     except telegram.Undeliverable:
         customer.blocked_bot_at = utcnow()
+        return None
 
 
 async def staff_chats(session: AsyncSession, shop_id: int, permission: str) -> list[int]:
@@ -412,6 +414,51 @@ async def payment_rejected(session: AsyncSession, job: queue.Claimed) -> None:
     await _to_customer(session, customer, t("payment_rejected", amount=money(payment.amount), reason=reason))
 
 
+async def payment_voided(session: AsyncSession, job: queue.Claimed) -> None:
+    """Staff voided an approved payment (REF-01): say what was taken back and why."""
+    payment = await session.get(Payment, int(job.payload["payment_id"]))
+    if payment is None or payment.status != PaymentStatus.VOIDED:
+        return
+    customer = await session.get(Customer, payment.customer_id)
+    if customer is None:
+        return
+    t = await _texts(session, customer)
+    info = (payment.meta or {}).get("void") or {}
+    lines = [
+        t(
+            "payment_voided",
+            id=payment.id,
+            amount=money(payment.amount),
+            reason=t(f"void_reason_{info.get('reason') or 'other'}"),
+        )
+    ]
+    if info.get("service_id"):
+        lines.append(t("payment_voided_service"))
+    lines.append(t("payment_voided_support"))
+    await _to_customer(session, customer, "\n\n".join(lines))
+
+
+async def card_sms(session: AsyncSession, job: queue.Claimed) -> None:
+    """What a bank deposit SMS did (REF-02), in the payments log channel."""
+    shop = await session.get(Shop, job.shop_id) if job.shop_id is not None else None
+    if shop is None:
+        return
+    t = await texts_for(session, shop.id, shop.default_locale)
+    data = job.payload
+    rial = int(data.get("amount_rial") or 0)
+    values: dict[str, Any] = {
+        "amount": money(rial // 10),
+        "rial": money(rial),
+        "id": data.get("payment_id") or "-",
+        "count": int(data.get("candidates") or 0),
+        "text": esc(str(data.get("text") or "")),
+    }
+    outcome = str(data.get("outcome"))
+    if outcome not in {"approved", "unmatched", "ambiguous"}:
+        raise Permanent(f"unknown card sms outcome {outcome}")
+    await report(session, shop.id, "payments", t(f"report_card_sms_{outcome}", **values))
+
+
 async def receipt_review(session: AsyncSession, job: queue.Claimed) -> None:
     from paurubot.bot.routers.admin import receipt_caption, review_kb
 
@@ -538,7 +585,7 @@ async def card_verify(session: AsyncSession, job: queue.Claimed) -> None:
 
 
 def _renew_markup(t: Texts, service_id: int) -> InlineKeyboardMarkup:
-    from paurubot.bot.callbacks import Svc
+    from paurubot.bot.callbacks import Svc, Wallet
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -549,9 +596,40 @@ def _renew_markup(t: Texts, service_id: int) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text=t("btn_extra_volume"), callback_data=Svc(action="extra_gb", id=service_id).pack()
                 ),
-            ]
+            ],
+            # Paying needs money first; a short wallet is the usual reason a reminder is ignored.
+            [InlineKeyboardButton(text=t("btn_topup"), callback_data=Wallet(action="topup").pack())],
         ]
     )
+
+
+# Reminders about one service that a newer one makes stale (REF-05): only the latest is kept.
+REPLACEABLE_ALERTS = frozenset({"low_volume", "expiring", "expired", "limited"})
+ALERT_MESSAGE_TTL = 30 * 86400
+
+
+async def _replace_alert(customer: Customer, service_id: int, message: Any) -> None:
+    """Remember the new alert message and delete the one it replaces. Best effort: a message
+    Telegram no longer lets the bot delete (over 48 hours old) simply stays."""
+    from paurubot import kv
+
+    message_id = getattr(message, "message_id", None)
+    if not isinstance(message_id, int):
+        return
+    previous = await kv.get_redis().set(
+        f"alert-msg:{customer.shop_id}:{service_id}", str(message_id), ex=ALERT_MESSAGE_TTL, get=True
+    )
+    if isinstance(previous, bytes):
+        previous = previous.decode()
+    if previous is None or not str(previous).isdigit() or int(previous) == message_id:
+        return
+    bot = await telegram.bot_for(customer.shop_id)
+    if bot is None:
+        return
+    try:
+        await bot.delete_message(customer.telegram_id, int(previous))
+    except Exception:  # already gone, too old, or chat closed: nothing to clean up
+        log.debug("stale alert %s for service %s was not deleted", previous, service_id)
 
 
 async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
@@ -581,7 +659,9 @@ async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
         await _to_customer(session, customer, text)
         return
     markup = None if alert == "deleted" or service.is_trial else _renew_markup(t, service.id)
-    await _to_customer(session, customer, text, reply_markup=markup)
+    message = await _to_customer(session, customer, text, reply_markup=markup)
+    if message is not None and alert in REPLACEABLE_ALERTS:
+        await _replace_alert(customer, service.id, message)
 
 
 async def auto_renew_notice(session: AsyncSession, job: queue.Claimed) -> None:
@@ -753,6 +833,82 @@ async def _report_ticket(
     await report(session, ticket.shop_id, "tickets", text)
 
 
+TICKET_LIVE_SECONDS = 8
+TICKET_FRESH_SECONDS = 120
+
+
+async def _ticket_service(session: AsyncSession, ticket: Ticket) -> dict[str, Any] | None:
+    """The ticket's service as the panel shows it now (REF-09), saved on the ticket.
+
+    Read under the service lease like every other panel read (SEC-F09) and within a few seconds,
+    in this background job so the customer never waits. A busy service or an unreachable panel
+    keeps the last synced numbers, marked as such; a reading under two minutes old is reused.
+    """
+    from datetime import datetime
+
+    from paurubot import kv
+    from paurubot.core import ticket_media
+    from paurubot.panels import PanelError
+    from paurubot.provisioning import lifecycle, sync
+
+    if ticket.service_id is None:
+        return ticket.service_context
+    context = ticket.service_context or {}
+    synced = context.get("synced_at")
+    if context.get("checked") == "live" and isinstance(synced, str):
+        if (utcnow() - datetime.fromisoformat(synced)).total_seconds() < TICKET_FRESH_SECONDS:
+            return context
+    ticket_id, service_id = ticket.id, ticket.service_id  # a rollback below expires both objects
+    service = await session.get(Service, service_id)
+    if service is None or service.shop_id != ticket.shop_id or service.customer_id != ticket.customer_id:
+        return ticket.service_context
+    checked, down = "stored", False
+    if service.status != ServiceStatus.DELETED:
+        try:
+            async with kv.lease(lifecycle.service_lease(service.id), ttl=sync.BACKGROUND_LEASE_TTL):
+                previous = service.status
+                async with asyncio.timeout(TICKET_LIVE_SECONDS):
+                    await lifecycle.refresh(session, service)
+                if service.status != ServiceStatus.DELETED:
+                    await sync.evaluate_alerts(session, service, previous)  # never skip an alert
+                await session.commit()
+                checked = "live"
+        except kv.LockNotAcquired:
+            pass  # being changed right now: the stored numbers will do
+        except (PanelError, TimeoutError):
+            await session.rollback()
+            down = True
+        ticket = await session.get(Ticket, ticket_id, populate_existing=True) or ticket
+        service = await session.get(Service, service_id, populate_existing=True) or service
+    ticket.service_context = ticket_media.service_context(service, checked=checked, panel_down=down)
+    await session.commit()
+    return ticket.service_context
+
+
+def ticket_service_line(t: Texts, context: dict[str, Any]) -> str:
+    """One line for staff: status, usage, end date and where the numbers come from (REF-09)."""
+    from datetime import datetime
+
+    from paurubot.core.formatting import size
+
+    limit = int(context.get("data_limit") or 0)
+    used = int(context.get("used_bytes") or 0)
+    expire = context.get("expire_at")
+    line = t(
+        "adm_ticket_service",
+        id=context.get("id"),
+        status=t(f"status_{context.get('status')}"),
+        used=size(used),
+        limit=size(limit) if limit else t("unlimited"),
+        expires=jdate(datetime.fromisoformat(expire)) if isinstance(expire, str) else t("unlimited"),
+    )
+    if context.get("panel_down"):
+        return line + "\n" + t("adm_ticket_service_down")
+    if context.get("checked") != "live":
+        return line + "\n" + t("adm_ticket_service_stored")
+    return line
+
+
 async def ticket_new_message(session: AsyncSession, job: queue.Claimed) -> None:
     from paurubot.bot.callbacks import Admin
     from paurubot.core.tickets import PRIORITY_ICON
@@ -771,6 +927,13 @@ async def ticket_new_message(session: AsyncSession, job: queue.Claimed) -> None:
     if department is not None:
         details.insert(0, t("adm_ticket_department", department=esc(department.title)))
     text += "\n" + " · ".join(details)
+    # _ticket_service may roll back, which expires the loaded rows: keep their ids, reload after.
+    shop_id, department_id = shop.id, department.id if department is not None else None
+    context = await _ticket_service(session, ticket)
+    if context:
+        text += "\n" + ticket_service_line(t, context)
+    if department_id is not None:
+        department = await session.get(TicketDepartment, department_id, populate_existing=True)
     markup = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -782,7 +945,7 @@ async def ticket_new_message(session: AsyncSession, job: queue.Claimed) -> None:
     )
     for chat_id in await _ticket_staff_chats(session, ticket):
         try:
-            await telegram.send_text(chat_id, text, reply_markup=markup, shop_id=shop.id)
+            await telegram.send_text(chat_id, text, reply_markup=markup, shop_id=shop_id)
         except telegram.Undeliverable:
             continue
     await _report_ticket(session, ticket, department, text)
@@ -1139,6 +1302,8 @@ register_queue(
             "order_failed": order_failed,
             "payment_fulfilled": payment_fulfilled,
             "payment_rejected": payment_rejected,
+            "payment_voided": payment_voided,
+            "card_sms": card_sms,
             "receipt_review": receipt_review,
             "review_decided": review_decided,
             "payment_fix_requested": payment_fix_requested,

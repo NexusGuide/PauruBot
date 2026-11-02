@@ -37,3 +37,4 @@
 .td button.td-danger,.td-modal button.td-danger{background:#f9e1e5;color:#96203a;border-color:#c8344c}
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .td button.td-danger,:root:not([data-theme="light"]) .td-modal button.td-danger{background:#432633;color:#ffabc0;border-color:#ffabc0}}
 :root[data-theme="dark"] .td button.td-danger,:root[data-theme="dark"] .td-modal button.td-danger{background:#432633;color:#ffabc0;border-color:#ffabc0}
+.td-warning { color: var(--color-anar-700, #b42318); font-weight: 600; }

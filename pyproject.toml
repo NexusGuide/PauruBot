@@ -42,7 +42,7 @@ build-backend = "setuptools.build_meta"
 include = ["paurubot*"]
 
 [tool.setuptools.package-data]
-paurubot = ["i18n/*.json", "assets/fonts/*"]
+paurubot = ["i18n/*.json", "payments/*.json", "assets/fonts/*"]
 
 [tool.ruff]
 line-length = 110

@@ -132,6 +132,12 @@ def _check_appearance(values: dict[str, Any]) -> None:
                 values[key] = check(values[key])
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from None
+    from paurubot.core import brand
+
+    if "miniapp_accent" in values and values["miniapp_accent"] not in brand.ACCENTS:
+        raise HTTPException(status_code=422, detail="miniapp_accent_invalid")
+    if "miniapp_notice" in values:
+        values["miniapp_notice"] = brand.clean_notice(values["miniapp_notice"])
 
 
 def _check_custom(values: dict[str, Any]) -> None:

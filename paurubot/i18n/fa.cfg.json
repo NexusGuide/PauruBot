@@ -128,5 +128,6 @@
   "adm_cfg_cubepay_api_key": "کلید API",
   "adm_cfg_cubepay_fee_percent": "کارمزد (٪)",
   "adm_cfg_atlaspay_enabled": "فعال",
-  "adm_cfg_atlaspay_api_key": "کلید API"
+  "adm_cfg_atlaspay_api_key": "کلید API",
+  "adm_cfg_trial_min_account_minutes": "انتظار حساب تازه پیش از تست (دقیقه، ۰ = خاموش)"
 }

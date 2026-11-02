@@ -118,9 +118,11 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/panels` | `panels.read` | List panels |
 | POST | `/api/admin/panels` | `panels.write` | Create panel |
 | POST | `/api/admin/payments/{payment_id}/approve` | `payments.review` | Approve |
+| POST | `/api/admin/payments/{payment_id}/confirm-void` | `payments.refund` | Step one of a void (REF-01): type the amount to confirm, like a large refund. |
 | GET | `/api/admin/payments/{payment_id}/receipt` | `payments.read` | Receipt image |
 | POST | `/api/admin/payments/{payment_id}/reject` | `payments.review` | Reject |
 | POST | `/api/admin/payments/{payment_id}/tonpay-reconcile` | `payments.review` | Reconcile |
+| POST | `/api/admin/payments/{payment_id}/void` | `payments.refund` | Take back what a mistakenly approved payment gave (REF-01). |
 | GET | `/api/admin/payments` | `payments.read` | List payments |
 | GET | `/api/admin/plans/panel-options/{panel_id}` | `catalog.write` | Groups or inbounds a plan can pick from on one panel (PNL-14). |
 | GET | `/api/admin/plans/{plan_id}/stock` | `catalog.write` | List stock |
@@ -222,6 +224,12 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/setup/complete` | one-time setup token | Complete |
 | GET | `/api/setup/status` | public | Status |
 
+## `/api/sms`
+
+| Method | Path | Access | What it does |
+|---|---|---|---|
+| POST | `/api/sms/card/{shop_id}` | public | A bank deposit SMS from the shop's forwarder app (REF-02); the key is the shop's SMS secret. |
+
 ## `/api/telegram`
 
 | Method | Path | Access | What it does |
@@ -240,6 +248,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/accounts` | Mini App initData | Accounts view |
 | POST | `/api/webapp/announcements/{row_id}/state` | Mini App initData | Customer state |
 | GET | `/api/webapp/announcements` | Mini App initData | Customer inbox |
+| GET | `/api/webapp/brand/logo` | Mini App initData | The shop's logo (REF-08): its bot's Telegram profile photo, cached for a few hours. |
 | GET | `/api/webapp/cards/verification` | Mini App initData | Own masked card verification status and the current shop policy. |
 | POST | `/api/webapp/cards/verification` | Mini App initData | Register one card photograph for existing staff review; never start a payment. |
 | GET | `/api/webapp/catalog` | Mini App initData | Catalog view |

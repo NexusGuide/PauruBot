@@ -292,8 +292,10 @@ async def report_problem(
     if not allowed:
         await call.answer(t("report_wait"), show_alert=True)
         return
+    live = False
     try:
         await lifecycle.refresh(session, service)
+        live = True
     except PanelError as exc:
         log.info("refresh failed for reported service %s: %s", service.id, exc)
     panel = await session.get(Panel, service.panel_id)
@@ -315,6 +317,13 @@ async def report_problem(
             customer,
             t("report_subject", name=service.label or service.panel_username),
             source="report",
+        )
+        # The ticket names its service, with the state just read from the panel (REF-09).
+        from paurubot.core import ticket_media
+
+        ticket.service_id = service.id
+        ticket.service_context = ticket_media.service_context(
+            service, checked="live" if live else "stored", panel_down=down or not live
         )
         await tickets.add_message(
             session, ticket, author_type="customer", author_id=customer.id, text=details

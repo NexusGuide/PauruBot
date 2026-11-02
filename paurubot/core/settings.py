@@ -43,6 +43,8 @@ SPECS: dict[str, Spec] = {
     "trial_generation": Spec(int, 1, "trial"),
     "trial_daily_quota": Spec(int, 0, "trial"),
     "trial_requires_phone": Spec(bool, False, "trial"),
+    # Minutes a new account waits before its free trial; 0 is off (REF-04).
+    "trial_min_account_minutes": Spec(int, 0, "trial"),
     # referral (GRW-01)
     "referral_enabled": Spec(bool, True, "growth"),
     "referral_percent": Spec(int, 10, "growth"),
@@ -89,6 +91,9 @@ SPECS: dict[str, Spec] = {
     "card_auto_approve_after_minutes": Spec(int, 0, "payments"),
     "card_pick": Spec(str, "all", "payments"),
     "card_random_tail": Spec(bool, False, "payments"),
+    # Bank deposit SMS posted by a forwarder app approve card payments (REF-02).
+    "card_sms_enabled": Spec(bool, False, "payments"),
+    "card_sms_secret": Spec(str, "", "payments", secret=True),
     "card_verify_enabled": Spec(bool, False, "payments"),
     "card_verify_min_amount": Spec(int, 0, "payments"),
     "topup_bonus_rules": Spec(list, [], "payments"),
@@ -113,6 +118,10 @@ SPECS: dict[str, Spec] = {
     # Set in the main shop: what a reseller pays from its wallet per trial its own bot gives (TEN-18).
     "resale_trial_fee": Spec(int, 2_000, "resale"),
     "miniapp_enabled": Spec(bool, True, "appearance"),
+    # The shop's own look in the Mini App (REF-08): a preset colour, the bot's photo, a notice.
+    "miniapp_accent": Spec(str, "", "appearance"),
+    "miniapp_logo": Spec(bool, False, "appearance"),
+    "miniapp_notice": Spec(str, "", "appearance"),
     # guest purchase on the web (CAT-08)
     "guest_buy_enabled": Spec(bool, False, "guest"),
     "guest_plan_ids": Spec(list, [], "guest"),
@@ -341,6 +350,18 @@ async def set_many(session: AsyncSession, shop_id: int, values: dict[str, Any]) 
                 configuration(shop_id, merged, int(merged["min_topup"]), int(merged["max_topup"]))
             except (PaymentError, TypeError, ValueError):
                 raise SettingError("tonpay_custom_configuration_invalid") from None
+    if "card_sms_secret" in clean or clean.get("card_sms_enabled"):
+        # A guessable key would let anyone approve card payments (REF-02).
+        secret = clean.get("card_sms_secret")
+        if secret is not None and secret != "" and len(secret) < 24:
+            raise SettingError("card_sms_secret_short")
+        if secret is None and "card_sms_secret" not in clean:
+            secret = (await load(session, shop_id, fresh=True)).get("card_sms_secret")
+        enabled = clean.get("card_sms_enabled")
+        if enabled is None:
+            enabled = (await load(session, shop_id, fresh=True)).get("card_sms_enabled")
+        if enabled and not secret:
+            raise SettingError("card_sms_secret_required")
     for key, value in clean.items():
         stored = value
         if SPECS[key].secret and value:

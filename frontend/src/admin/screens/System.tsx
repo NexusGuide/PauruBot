@@ -322,6 +322,21 @@ function SettingControl({
       </fieldset>
     );
   }
+  if (item.key === "miniapp_accent") {
+    return (
+      <Field label={label} hint={hint}>
+        {(id) => (
+          <Select id={id} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
+            {["", "green", "purple", "orange", "rose", "teal"].map((accent) => (
+              <option key={accent || "blue"} value={accent}>
+                {t(`miniapp_accent_${accent || "blue"}`)}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+    );
+  }
   if (item.key === "fx_source") {
     return (
       <Field label={label} hint={hint}>

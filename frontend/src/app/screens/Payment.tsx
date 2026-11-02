@@ -95,7 +95,7 @@ export function Payment() {
   };
 
   const waiting = status === "verifying";
-  const closed = ["failed", "expired", "disputed", "refunded"].includes(status);
+  const closed = ["failed", "expired", "disputed", "refunded", "voided"].includes(status);
   const crypto = remembered?.crypto;
 
   if (provider === "tonpay_custom") {

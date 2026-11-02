@@ -1,0 +1,36 @@
+{
+  "_comment": "Words that tell a bank deposit SMS apart from other bank SMS (REF-02). Matched after digit and letter normalization.",
+  "deposit": [
+    "واریز",
+    "انتقال",
+    "بستانکار",
+    "نشست",
+    "دریافت",
+    "افزایش"
+  ],
+  "withdrawal": [
+    "برداشت",
+    "خرید",
+    "کسر",
+    "بدهکار",
+    "پرداخت",
+    "انتقال از"
+  ],
+  "amount": [
+    "مبلغ"
+  ],
+  "balance": [
+    "مانده",
+    "موجودی",
+    "قابل برداشت"
+  ],
+  "account": [
+    "حساب",
+    "کارت",
+    "شبا",
+    "سپرده"
+  ],
+  "toman": [
+    "تومان"
+  ]
+}

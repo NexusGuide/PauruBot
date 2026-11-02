@@ -43,6 +43,21 @@ class DailySummary:
     wallet_total: int
 
 
+def report_day(now: datetime, hour: int) -> datetime:
+    """A moment in the day the latest scheduled daily report covers (REF-06).
+
+    The report is due from `hour` on, not only during it: a worker that was down or busy for that
+    hour still sends it later. One sent in the small hours (before 06:00) covers the day that had
+    just ended, as before.
+    """
+    hour = max(0, min(23, int(hour)))
+    local = now.astimezone(get_settings().tz)
+    due = local.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if due > local:
+        due -= timedelta(days=1)
+    return due - timedelta(hours=6) if hour < 6 else due
+
+
 def day_bounds(day: datetime) -> tuple[datetime, datetime]:
     """Midnight to midnight in the shop's time zone, as aware datetimes."""
     tz = get_settings().tz

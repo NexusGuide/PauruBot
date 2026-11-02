@@ -74,7 +74,7 @@ def receipt_view(payment: Payment) -> dict[str, Any]:
         phase = "not_card"
     elif status == "paid":
         phase = "paid"
-    elif status in ("failed", "expired", "refunded", "disputed"):
+    elif status in ("failed", "expired", "refunded", "disputed", "voided"):
         phase = "closed"
     elif status == "verifying":
         phase = "under_review"

@@ -1,0 +1,5 @@
+{
+  "report_card_sms_approved": "📩 Bank deposit SMS: payment #{id} of {amount} Toman was approved automatically.",
+  "report_card_sms_unmatched": "📩 A deposit SMS of {rial} Rial ({amount} Toman) arrived, but no open card payment asks for that amount. If a customer sent a receipt, review it by hand.\n<blockquote>{text}</blockquote>",
+  "report_card_sms_ambiguous": "📩 A deposit SMS of {amount} Toman arrived, but {count} open payments ask for that amount, so none was approved automatically. Review the receipts by hand.\n<blockquote>{text}</blockquote>"
+}

@@ -491,6 +491,7 @@ const STATUS_TONES: Record<string, BadgeTone> = {
   failed: "loss",
   rejected: "loss",
   refunded: "loss",
+  voided: "loss",
   dead: "loss",
   deleted: "loss",
   answered: "brand",

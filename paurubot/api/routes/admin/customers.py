@@ -24,7 +24,7 @@ from paurubot.api.admin_common import (
 from paurubot.api.confirmations import ConfirmFields, challenge, guard
 from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record, snapshot
-from paurubot.core import confirm, customers
+from paurubot.core import confirm, customers, sub_links
 from paurubot.db.models import (
     Customer,
     Order,
@@ -375,7 +375,7 @@ async def list_services(
     ctx: Annotated[StaffContext, Depends(require("services.read"))],
     db: DB,
     page: Annotated[Page, Depends(page_params)],
-    q: str = Query("", max_length=64),
+    q: str = Query("", max_length=512),  # long enough for a pasted subscription link (REF-07)
     status: ServiceStatus | None = None,
     panel_id: int | None = None,
     customer_id: int | None = None,
@@ -390,7 +390,7 @@ async def list_services(
 
 
 class ServiceFilter(BaseModel):
-    q: str = Field(default="", max_length=64)
+    q: str = Field(default="", max_length=512)
     status: ServiceStatus | None = None
     panel_id: int | None = None
     customer_id: int | None = None
@@ -402,7 +402,13 @@ async def _filtered_services(db: DB, ctx: StaffContext, f: ServiceFilter) -> Sel
     stmt = await scope_services(db, stmt, ctx)
     if f.q.strip():
         text = f.q.strip()
-        stmt = stmt.where(or_(Service.panel_username.ilike(f"%{text}%"), Service.label.ilike(f"%{text}%")))
+        token = sub_links.link_token(text)
+        if token is not None:
+            stmt = stmt.where(sub_links.condition(token))  # a pasted subscription link (REF-07)
+        else:
+            stmt = stmt.where(
+                or_(Service.panel_username.ilike(f"%{text}%"), Service.label.ilike(f"%{text}%"))
+            )
     if f.status is not None:
         stmt = stmt.where(Service.status == f.status)
     else:

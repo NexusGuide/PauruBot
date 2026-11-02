@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select
 
@@ -23,6 +23,7 @@ from paurubot.api.routes import (
 from paurubot.api.webapp_auth import WebApp, forced_gate, forget_join_cache
 from paurubot.core import (
     alert_policy,
+    brand,
     catalog,
     customer_help,
     customer_preferences,
@@ -206,6 +207,7 @@ async def me(ctx: WebApp) -> dict[str, Any]:
             "bot_username": ctx.shop.bot_username,
             "support": cfg["support_username"] or None,
             "languages": cfg["languages"],
+            "brand": brand.view(cfg),
         },
         "trial": {
             "available": trial_reason is None,
@@ -836,6 +838,43 @@ async def service_rename(service_id: int, body: RenameBody, ctx: WebApp) -> dict
     assert service is not None
     service.label = body.label.strip()
     return {"service": service_view(service, ctx.cfg)}
+
+
+@router.get("/brand/logo")
+async def brand_logo(ctx: WebApp) -> Response:
+    """The shop's logo (REF-08): its bot's Telegram profile photo, cached for a few hours."""
+    import base64
+
+    from paurubot import kv
+    from paurubot.notifications.telegram import bot_for
+
+    if not ctx.cfg.get("miniapp_logo"):
+        raise HTTPException(status_code=404, detail="no_logo")
+    key = f"brand-logo:{ctx.shop.id}"
+    cached = await kv.get_redis().get(key)
+    if cached is None:
+        cached = "-"  # remembered too, so a bot without a photo is not asked on every open
+        bot = await bot_for(ctx.shop.id)
+        try:
+            if bot is not None:
+                me = await bot.get_me()
+                photos = await bot.get_user_profile_photos(me.id, limit=1)
+                if photos.photos:
+                    # The size closest to what the home screen shows, never the full-size original.
+                    size = min(photos.photos[0], key=lambda p: abs(p.width - 320))
+                    data = await bot.download(size.file_id)
+                    raw = data.read() if data else b""
+                    if 0 < len(raw) <= brand.LOGO_MAX_BYTES:
+                        cached = base64.b64encode(raw).decode()
+        except Exception:
+            log.warning("logo of shop %s could not be read from Telegram", ctx.shop.id)
+            raise HTTPException(status_code=502, detail="telegram_unavailable") from None
+        await kv.get_redis().set(key, cached, ex=brand.LOGO_TTL)
+    if cached == "-":
+        raise HTTPException(status_code=404, detail="no_logo")
+    return Response(
+        base64.b64decode(cached), media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"}
+    )
 
 
 @router.post("/trial")

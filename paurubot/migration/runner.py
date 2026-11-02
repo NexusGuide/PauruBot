@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.auth import rbac
 from paurubot.core import customers as customer_service
+from paurubot.core import phones
 from paurubot.db.models import Customer, Panel, ResellerProfile, Service, ServiceStatus
 from paurubot.ledger import wallet
 from paurubot.migration.sources import Extract
@@ -89,7 +90,7 @@ async def apply(
         )
         owners[old.telegram_id] = customer
         if old.phone and not customer.phone:
-            customer.phone = old.phone
+            customer.phone = phones.normalize(old.phone)
         if old.banned and not customer.is_banned:
             customer.is_banned, customer.ban_reason = True, f"imported from {extract.source}"
         if old.balance > 0:

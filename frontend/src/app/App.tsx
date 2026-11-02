@@ -19,7 +19,7 @@ import { Extra, ServiceDetail, Services } from "./screens/Services";
 import { NewTicket, TicketThread, Tickets } from "./screens/Tickets";
 import { Wallet } from "./screens/Wallet";
 import { AppProvider, useApp } from "./state";
-import { tg } from "./telegram";
+import { initData, sdkFailed, tg } from "./telegram";
 import { parentForPath } from "./navigation";
 import { Loading, Screen, TabBar, Toast } from "./ui";
 
@@ -115,11 +115,15 @@ function Shell() {
     );
   }
   if (error && !me) {
+    // No launch data and no Telegram script: telegram.org is out of reach, not a wrong link (REF-03).
+    const unreachable = error === "invalid_init_data" && !initData() && sdkFailed();
     return (
       <Screen>
         <div className="flex min-h-[70dvh] flex-col items-center justify-center gap-2 text-center">
-          <p className="text-xl font-bold">{t(error === "invalid_init_data" ? "open_from_bot" : `err_${error}`)}</p>
-          <p className="max-w-xs text-sm text-[var(--hint)]">{t("open_from_bot_hint")}</p>
+          <p className="text-xl font-bold">
+            {t(unreachable ? "telegram_unreachable" : error === "invalid_init_data" ? "open_from_bot" : `err_${error}`)}
+          </p>
+          <p className="max-w-xs text-sm text-[var(--hint)]">{t(unreachable ? "telegram_unreachable_hint" : "open_from_bot_hint")}</p>
           {error !== "invalid_init_data" && (
             <button type="button" className="app-rip-host mt-3 rounded-xl px-5 py-3" disabled={retrying} onClick={() => { void retry(); }}>
               {retrying ? "…" : t("ui_retry")}

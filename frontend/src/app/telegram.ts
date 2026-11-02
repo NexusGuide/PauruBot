@@ -40,13 +40,50 @@ interface WebApp {
 declare global {
   interface Window {
     Telegram?: { WebApp: WebApp };
+    /** Set by /app/launch.js before the app loads (REF-03). */
+    __pauruLaunch?: { initData: string; sdk: Promise<boolean> };
   }
 }
 
-export const tg: WebApp | undefined = window.Telegram?.WebApp;
+/** Telegram's SDK object; a live binding, filled in whenever the SDK script arrives. */
+export let tg: WebApp | undefined = window.Telegram?.WebApp;
+let sdkState: "pending" | "ready" | "failed" = tg ? "ready" : window.__pauruLaunch ? "pending" : "failed";
 
+/** The signed launch data: the SDK's copy, or the one Telegram put in the address. */
 export function initData(): string {
-  return tg?.initData ?? "";
+  return tg?.initData || window.__pauruLaunch?.initData || "";
+}
+
+/** True when Telegram's script could not be loaded (telegram.org unreachable). */
+export function sdkFailed(): boolean {
+  return sdkState === "failed" && !tg;
+}
+
+function connect(): void {
+  tg = window.Telegram?.WebApp;
+  sdkState = tg ? "ready" : "failed";
+  if (!tg) return;
+  tg.ready();
+  tg.expand();
+  tg.onEvent("themeChanged", () => {
+    if (themePref() === "auto") applyTheme("auto");
+  });
+  applyTheme();
+}
+
+/** Wait for the SDK at most `ms`, then go on with or without it; a late SDK still connects. */
+export async function whenTelegram(ms: number): Promise<boolean> {
+  const launch = window.__pauruLaunch;
+  if (tg || !launch) {
+    if (tg) connect();
+    return Boolean(tg);
+  }
+  const settled = launch.sdk.then(
+    () => connect(),
+    () => connect(),
+  );
+  await Promise.race([settled, new Promise((resolve) => window.setTimeout(resolve, ms))]);
+  return Boolean(tg);
 }
 
 const THEME_KEY = "pauru.theme";
@@ -78,14 +115,12 @@ export function setThemePref(pref: ThemePref): void {
   applyTheme(pref);
 }
 
-export function boot(): void {
+/** How long the first screen waits for Telegram's script before starting without it. */
+export const SDK_WAIT_MS = 2500;
+
+export async function boot(): Promise<void> {
   applyTheme();
-  if (!tg) return;
-  tg.ready();
-  tg.expand();
-  tg.onEvent("themeChanged", () => {
-    if (themePref() === "auto") applyTheme("auto");
-  });
+  await whenTelegram(SDK_WAIT_MS);
 }
 
 export function haptic(kind: "success" | "error" | "warning" | "select"): void {

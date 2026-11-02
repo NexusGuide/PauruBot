@@ -91,6 +91,8 @@ class PaymentStatus(enum.StrEnum):
     EXPIRED = "expired"
     REFUNDED = "refunded"
     DISPUTED = "disputed"
+    # A person approved it by mistake and staff took back what it paid for (REF-01).
+    VOIDED = "voided"
 
 
 class PaymentPurpose(enum.StrEnum):

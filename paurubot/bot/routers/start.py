@@ -291,9 +291,11 @@ async def contact(
     if message.contact.user_id != customer.telegram_id:
         await message.answer(t("phone_not_yours"))
         return
-    phone = message.contact.phone_number.lstrip("+")
+    from paurubot.core import phones
+
+    phone = phones.normalize(message.contact.phone_number)
     allowed = [str(code).lstrip("+") for code in cfg["phone_country_codes"] or []]
-    if allowed and not any(phone.startswith(code) for code in allowed):
+    if phone is None or (allowed and not any(phone.startswith(code) for code in allowed)):
         await message.answer(t("phone_country_not_allowed"))
         return
     customer.phone = phone

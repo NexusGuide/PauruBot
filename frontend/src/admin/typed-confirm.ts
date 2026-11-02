@@ -7,6 +7,7 @@ export interface ConfirmFields {
 export type ConfirmationTarget =
   | { action: "service.delete"; id: number }
   | { action: "order.refund"; id: number }
+  | { action: "payment.void"; id: number }
   | { action: "service.bulk_delete" | "service.bulk_disable"; body: Record<string, unknown> };
 
 export interface ConfirmationChallenge {
@@ -23,9 +24,11 @@ export function confirmationSpec(target: ConfirmationTarget) {
     if (!Number.isSafeInteger(target.id) || target.id < 1) throw new Error("invalid_confirmation_target");
     return {
       action: target.action,
-      path: target.action === "service.delete"
-        ? `/api/admin/services/${target.id}/confirm-delete`
-        : `/api/admin/orders/${target.id}/confirm-refund`,
+      path: {
+        "service.delete": `/api/admin/services/${target.id}/confirm-delete`,
+        "order.refund": `/api/admin/orders/${target.id}/confirm-refund`,
+        "payment.void": `/api/admin/payments/${target.id}/confirm-void`,
+      }[target.action],
       body: undefined,
     };
   }

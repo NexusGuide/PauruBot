@@ -6,6 +6,14 @@ import fa from "./locales/fa.json";
 
 const DICTS: Record<string, Record<string, string>> = { fa, en };
 
+/** The shop's preset accent colour (REF-08); the palettes live in app.css. */
+const ACCENTS = new Set(["green", "purple", "orange", "rose", "teal"]);
+
+export function applyBrand(accent: string | null): void {
+  if (accent && ACCENTS.has(accent)) document.documentElement.dataset.accent = accent;
+  else delete document.documentElement.dataset.accent;
+}
+
 interface AppState {
   me: Me | null;
   error: string | null;
@@ -45,6 +53,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const profile = await api.me();
       if (revision.current !== initialRevision || reloadId.current !== requestId) return;
       setMe(profile);
+      applyBrand(profile.shop.brand?.accent ?? null);
       setError(null);
       setJoin(null);
       setGate(null);

@@ -705,6 +705,13 @@ async def refund_failed(session: AsyncSession, order: Order, reason: str, actor:
     await wallet.refund(
         session, order.shop_id, order.customer_id, order.amount, order_id=order.id, actor=actor
     )
+    order.status = OrderStatus.REFUNDED
+    order.error = reason[:500]
+    await release_holds(session, order)
+
+
+async def release_holds(session: AsyncSession, order: Order) -> None:
+    """Give back what a refunded order held: a reserved stock item and its discount code use."""
     from paurubot.core import stock
     from paurubot.db.models import StockItem
 
@@ -713,8 +720,6 @@ async def refund_failed(session: AsyncSession, order: Order, reason: str, actor:
         .where(StockItem.order_id == order.id, StockItem.status == stock.RESERVED)
         .values(status=stock.AVAILABLE, order_id=None, customer_id=None, sold_at=None)
     )
-    order.status = OrderStatus.REFUNDED
-    order.error = reason[:500]
     await session.execute(delete(DiscountRedemption).where(DiscountRedemption.order_id == order.id))
     if order.discount_code_id:
         await session.execute(

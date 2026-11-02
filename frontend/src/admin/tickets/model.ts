@@ -17,7 +17,17 @@ export interface Ticket {
     awaiting: boolean;
     customer?: string | null;
     service_id?: number | null;
-    service_context?: { id: number; status: string } | null;
+    service_context?: ServiceContext | null;
+}
+/** The ticket's service as staff last saw it (REF-09); only these fields, never credentials. */
+export interface ServiceContext {
+    id: number;
+    status: string;
+    used_bytes?: number;
+    data_limit?: number;
+    expire_at?: string | null;
+    checked?: "live" | "stored";
+    panel_down?: boolean;
 }
 export interface Message {
     id: number;
@@ -65,7 +75,7 @@ export function parseTicket(v: unknown): Ticket {
         return invalid();
     if (v.service_id !== undefined && !nullableId(v.service_id)) return invalid();
     if (v.service_context != null && (!record(v.service_context) || !positive(v.service_context.id) || typeof v.service_context.status !== "string")) return invalid();
-    const context = record(v.service_context) ? { id: v.service_context.id as number, status: v.service_context.status as string } : null;
+    const context = record(v.service_context) ? serviceContext(v.service_context) : null;
     return { service_id: v.service_id as number | null | undefined, service_context: context, id: v.id, subject: v.subject, status: v.status, source: v.source, customer_id: v.customer_id, department_id: v.department_id as number | null, priority: v.priority as Priority, is_complaint: v.is_complaint === true, assigned_staff_id: v.assigned_staff_id as number | null, last_customer_at: v.last_customer_at as string | null, last_staff_at: v.last_staff_at as string | null, created_at: v.created_at as string, updated_at: v.updated_at as string, awaiting: v.awaiting, customer: v.customer as string | null | undefined };
 }
 export function parseMessage(v: unknown): Message {
@@ -159,4 +169,14 @@ export function listPath(params: URLSearchParams): {
     q.set('limit', '25');
     q.set('offset', String(page * 25));
     return { path: '/api/admin/tickets?' + q.toString(), page };
+}
+
+function serviceContext(c: Record<string, unknown>): ServiceContext {
+    const out: ServiceContext = { id: c.id as number, status: c.status as string };
+    if (Number.isSafeInteger(c.used_bytes) && (c.used_bytes as number) >= 0) out.used_bytes = c.used_bytes as number;
+    if (Number.isSafeInteger(c.data_limit) && (c.data_limit as number) >= 0) out.data_limit = c.data_limit as number;
+    if (typeof c.expire_at === "string" || c.expire_at === null) out.expire_at = c.expire_at as string | null;
+    if (c.checked === "live" || c.checked === "stored") out.checked = c.checked;
+    if (typeof c.panel_down === "boolean") out.panel_down = c.panel_down;
+    return out;
 }

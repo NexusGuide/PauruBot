@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { daysLeft, money, size } from "@shared/format";
 import { api, type Service } from "../api";
 import { buildAlerts, lowVolumeWarning, parseAlertPolicy, readAlertIds } from "../alerts";
 import { Icon } from "../icons";
 import { errorText, useApp } from "../state";
-import { haptic } from "../telegram";
+import { haptic, initData } from "../telegram";
 import { Chevron, CountUp, Item, ReadFailure, Screen, Spinner } from "../ui";
 
 import { useResource } from "../useResource";
@@ -21,6 +21,30 @@ export function timeRatio(service: Service, totalDays = 30): number | null {
   return Math.min(1, left / totalDays);
 }
 
+/** The shop's logo (REF-08), fetched with the Mini App's credentials; null until it loads. */
+function useBrandLogo(enabled: boolean): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    const abort = new AbortController();
+    let created: string | null = null;
+    void fetch("/api/webapp/brand/logo", { headers: { "X-Telegram-Init-Data": initData() }, signal: abort.signal })
+      .then(async (response) => {
+        if (!response.ok) return;
+        created = URL.createObjectURL(await response.blob());
+        setUrl(created);
+      })
+      .catch(() => {
+        // no logo: the title alone is fine
+      });
+    return () => {
+      abort.abort();
+      if (created) URL.revokeObjectURL(created);
+    };
+  }, [enabled]);
+  return url;
+}
+
 export function Home() {
   const { me } = useApp();
   return me ? <HomeBody key={me.id} /> : null;
@@ -28,6 +52,7 @@ export function Home() {
 
 function HomeBody() {
   const { me, t, locale, reload, toast } = useApp();
+  const logo = useBrandLogo(Boolean(me?.shop.brand?.logo));
   const navigate = useNavigate();
   const { data, error, retry } = useResource(api.services);
   const { data: history } = useResource(api.history);
@@ -65,6 +90,7 @@ function HomeBody() {
   return (
     <Screen>
       <header className="app-heading">
+        {logo && <img className="app-brand-logo" src={logo} alt="" />}
         <div className="app-heading-grow">
           <p className="app-hint text-sm font-semibold">{me.shop.title}</p>
           <h1>{t("home_hello", { name: me.name ?? "" })}</h1>
@@ -83,6 +109,12 @@ function HomeBody() {
           </button>
         </div>
       </header>
+
+      {me.shop.brand?.notice && (
+        <p className="app-brand-notice" dir="auto">
+          {me.shop.brand.notice}
+        </p>
+      )}
 
       <div className="app-wcard">
         <p className="app-wcard-label">{t("home_wallet")}</p>

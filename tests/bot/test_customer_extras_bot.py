@@ -97,6 +97,9 @@ async def test_report_a_problem_opens_a_ticket(session, env) -> None:  # type: i
     await send(callback_update(UID + 4, Svc(action="report", id=service.id).pack()))
     ticket = await session.scalar(select(Ticket).where(Ticket.customer_id == customer.id))
     assert ticket is not None and ticket.source == "report"
+    # REF-09: the ticket names its service, marked as not read live (the panel is down here).
+    assert ticket.service_id == service.id
+    assert ticket.service_context["id"] == service.id and ticket.service_context["panel_down"] is True
     note = await session.scalar(select(TicketMessage).where(TicketMessage.ticket_id == ticket.id))
     assert note is not None and "u_broken" in (note.text or "")
     assert fake.last(EditMessageText).text == FA("report_known_outage", id=ticket.id)
