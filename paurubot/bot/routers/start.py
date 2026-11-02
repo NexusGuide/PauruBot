@@ -71,7 +71,9 @@ async def home(
         except Exception:  # cosmetic only
             pass
     sent = await message.answer(t(key, **params), reply_markup=menu(t, cfg, staff))
-    if cfg.get("menu_cleanup") and message.chat.type == "private":
+    # Only the plain menu is replaced. One that carries an outcome ("payment received", "added to
+    # your account") stays in the chat, or the next menu would take the customer's record (AUD-7).
+    if cfg.get("menu_cleanup") and message.chat.type == "private" and key == "welcome":
         await replace_home(message.chat.id, sent)
 
 
