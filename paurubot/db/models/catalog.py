@@ -257,6 +257,8 @@ class TrialGrant(Base, TimestampMixin):
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id", ondelete="CASCADE"))
     generation: Mapped[int] = mapped_column(Integer, default=1)
     service_id: Mapped[int | None] = mapped_column(ForeignKey("services.id", ondelete="SET NULL"))
+    # The panel the trial was given on, for each panel's own daily trial quota (F-20).
+    panel_id: Mapped[int | None] = mapped_column(ForeignKey("panels.id", ondelete="SET NULL"), index=True)
     status: Mapped[str] = mapped_column(String(16), default="reserved")
     error: Mapped[str | None] = mapped_column(Text)
 

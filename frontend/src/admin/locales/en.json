@@ -431,6 +431,8 @@
   "panel_api_token_hint": "When 3x-ui has an API token, it is used instead of the password.",
   "panel_capacity": "Capacity",
   "panel_capacity_hint": "Most services on this panel; empty means no limit.",
+  "panel_trial_quota": "Daily trial quota",
+  "panel_trial_quota_hint": "Most trials this panel gives in any 24 hours (across every shop and reseller selling on it). Once full, the next trial goes to the next panel that allows trials. Empty means no cap of its own.",
   "panel_down": "Down",
   "panel_flow": "Flow",
   "panel_flow_hint": "Usually xtls-rprx-vision for VLESS Reality.",

@@ -23,6 +23,7 @@ from paurubot.bot.routers.admin_navigation import menu
 from paurubot.bot.utils import StaffOnly, show
 from paurubot.config import get_settings
 from paurubot.core import settings as shop_settings
+from paurubot.core import trials
 from paurubot.core.formatting import esc, money, parse_int
 from paurubot.db.base import utcnow
 from paurubot.db.models import (
@@ -44,6 +45,9 @@ router = Router(name="admin_panels")
 router.callback_query.filter(StaffOnly())
 router.message.filter(StaffOnly())
 PAGE = 10
+
+
+VALUE_FIELDS = {"name", "capacity", "prefix", "trial_quota"}
 
 
 class PanelAdminStates(StatesGroup):
@@ -105,6 +109,7 @@ def management_kb(t: Texts, panel: Panel, staff: StaffIdentity) -> InlineKeyboar
             btn(t, "adm_pcfg_method", "pmgr", panel.id, "methods"),
             btn(t, "adm_pcfg_capacity", "pmgr", panel.id, "capacity"),
         )
+        kb.row(btn(t, "adm_pcfg_trial_quota", "pmgr", panel.id, "trial_quota"))
         controls = [btn(t, "adm_pcfg_prefix", "pmgr", panel.id, "prefix")]
         if "renew" in registry.changes_of(panel.kind):
             controls.append(btn(t, "adm_pm_reset", "pmgr", panel.id, "reset"))
@@ -152,6 +157,7 @@ async def panel_text(session: AsyncSession, t: Texts, panel: Panel) -> str:
         active=statuses.get(ServiceStatus.ACTIVE, 0),
         plans=plans,
         capacity=panel.capacity or t("unlimited"),
+        trial_quota=trials.panel_quota(panel) or t("unlimited"),
         method=t(f"adm_pcfg_method_{panel.username_method.value}"),
         prefix=esc(panel.username_prefix or "—"),
     )
@@ -279,6 +285,7 @@ async def management(
     permission = {
         "name": "panels.write",
         "capacity": "panels.write",
+        "trial_quota": "panels.write",
         "prefix": "panels.write",
         "methods": "panels.write",
         "method": "panels.write",
@@ -299,7 +306,7 @@ async def management(
         await call.answer()
         await show(call, t("adm_pm_closed"))
         return
-    if action in {"name", "capacity", "prefix"}:
+    if action in VALUE_FIELDS:
         await state.clear()
         await state.set_state(PanelAdminStates.value)
         await state.update_data(panel_id=panel.id, panel_shop_id=shop.id, panel_field=action)
@@ -509,11 +516,7 @@ async def value_input(
 ) -> None:
     data = await state.get_data()
     field = data.get("panel_field")
-    if (
-        not staff.can("panels.write")
-        or data.get("panel_shop_id") != shop.id
-        or field not in {"name", "capacity", "prefix"}
-    ):
+    if not staff.can("panels.write") or data.get("panel_shop_id") != shop.id or field not in VALUE_FIELDS:
         await state.clear()
         await message.answer(t("adm_forbidden"))
         return
@@ -535,6 +538,33 @@ async def value_input(
             await message.answer(t("adm_cfg_range", low=0, high=1_000_000))
             return
         column, value = "capacity", number or None
+    elif field == "trial_quota":
+        number = 0 if raw == "-" else parse_int(raw)
+        if number is None or not 0 <= number <= 1_000_000:
+            await message.answer(t("adm_cfg_range", low=0, high=1_000_000))
+            return
+        options = dict(panel.options or {})
+        before_quota = options.get(trials.PANEL_QUOTA)
+        if number:
+            options[trials.PANEL_QUOTA] = number
+        else:
+            options.pop(trials.PANEL_QUOTA, None)
+        if before_quota != options.get(trials.PANEL_QUOTA):
+            panel.options = options
+            await audit(
+                session,
+                shop,
+                staff,
+                panel,
+                {trials.PANEL_QUOTA: before_quota},
+                {trials.PANEL_QUOTA: options.get(trials.PANEL_QUOTA)},
+            )
+        else:
+            await session.commit()
+        await state.clear()
+        await message.answer(t("adm_saved"), reply_markup=menu(t, cfg, staff))
+        await message.answer(await panel_text(session, t, panel), reply_markup=management_kb(t, panel, staff))
+        return
     else:
         prefix = "" if raw == "-" else raw.lower()
         if not re.fullmatch(r"[a-z0-9_]{0,16}", prefix):

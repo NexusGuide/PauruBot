@@ -496,6 +496,16 @@ function PanelSheet({
           <Field label={t("panel_capacity")} hint={t("panel_capacity_hint")}>
             {(id) => <NumberInput id={id} value={form.capacity} onChange={(v) => set("capacity", v && v > 0 ? v : null)} allowEmpty />}
           </Field>
+          <Field label={t("panel_trial_quota")} hint={t("panel_trial_quota_hint")}>
+            {(id) => (
+              <NumberInput
+                id={id}
+                value={typeof form.options.trial_daily_quota === "number" ? form.options.trial_daily_quota : null}
+                onChange={(v) => setOption("trial_daily_quota", v && v > 0 ? Math.min(v, 1_000_000) : null)}
+                allowEmpty
+              />
+            )}
+          </Field>
           <Field label={t("username_method")}>
             {(id) => (
               <Select id={id} value={form.username_method} onChange={(e) => set("username_method", e.target.value)}>

@@ -202,6 +202,22 @@ async def test_panel_input_validation_and_saved_view(session, env, field, raw, e
         assert "&lt;New Panel&gt;" in result.text
 
 
+@pytest.mark.parametrize(("raw", "expected"), [("۱۲", 12), ("0", None), ("-", None)])
+async def test_trial_quota_is_set_from_the_bot(session, env, raw, expected):  # type: ignore[no-untyped-def]
+    panel = env["panel"]
+    panel.options = {**(panel.options or {}), trials.PANEL_QUOTA: 3, "inbounds": ["vless:x"]}
+    await session.commit()
+    await env["send"](callback_update(OWNER, Admin(section="pmgr", action="trial_quota", id=panel.id).pack()))
+    await env["send"](message_update(OWNER, "abc"))  # not a number: asked again, nothing saved
+    await session.refresh(panel)
+    assert panel.options[trials.PANEL_QUOTA] == 3
+    await env["send"](message_update(OWNER, raw))
+    await session.refresh(panel)
+    assert panel.options.get(trials.PANEL_QUOTA) == expected
+    assert panel.options["inbounds"] == ["vless:x"]  # the other options are kept
+    assert trials.panel_quota(panel) == (expected or 0)
+
+
 async def test_invalid_input_method_picker_and_cancel(session, env):  # type: ignore[no-untyped-def]
     panel = env["panel"]
     old_name = panel.name
@@ -248,7 +264,8 @@ async def test_trial_toggle_changes_selection_and_provisioning(session, env):  #
     other = await factories.panel(session, env["shop"])
     panel.options = {"allow_trials": False}
     await session.commit()
-    assert await trials._trial_panel(session, panel.shop_id, panel.id) is None
+    with pytest.raises(trials.TrialError, match="trial_disabled"):
+        await trials._trial_panel(session, panel.shop_id, panel.id)
     assert (await trials._trial_panel(session, panel.shop_id, None)).id == other.id
     order = Order(
         shop_id=panel.shop_id,
