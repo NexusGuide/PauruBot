@@ -779,6 +779,7 @@ async def services(
     before: int | None = Query(None, ge=1, le=2**63 - 1),
     q: str | None = Query(None, max_length=120),
     status: ServiceStatus | None = None,
+    group: int | None = Query(None, ge=0, le=2**31 - 1),
 ) -> dict[str, Any]:
     from paurubot.api import service_pages
 
@@ -786,7 +787,7 @@ async def services(
         raise HTTPException(status_code=422, detail="unsupported_service_status")
     # Preserve existing unparameterized Home/derived-alert clients. Explicit paging/search
     # is bounded; silently truncating legacy callers would drop their older service alerts.
-    paged = any(value is not None for value in (limit, before, q, status))
+    paged = any(value is not None for value in (limit, before, q, status, group))
     rows, next_before = await service_pages.read(
         ctx.session,
         ctx.shop.id,
@@ -795,11 +796,20 @@ async def services(
         before=before,
         query=q,
         status=status,
+        group=group,
     )
     result: dict[str, Any] = {"items": [service_view(s, ctx.cfg) for s in rows]}
     if paged:
         result["next_before"] = next_before
     return result
+
+
+@router.get("/services/groups")
+async def service_groups(ctx: WebApp) -> dict[str, Any]:
+    """How many services the customer has in each location (F-19); the list filters by `group`."""
+    from paurubot.api import service_pages
+
+    return {"groups": await service_pages.groups(ctx.session, ctx.shop.id, ctx.customer.id)}
 
 
 @router.get("/services/{service_id}")

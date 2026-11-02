@@ -9,10 +9,18 @@ export function serviceFilter(value: string | null): ServiceFilter {
   return SERVICE_STATUSES.includes(value as typeof SERVICE_STATUSES[number]) ? value as ServiceFilter : "";
 }
 
-export function servicePageUrl(q: string, status: ServiceFilter, before?: number) {
+/** A location group of the services list (F-19): a location id, 0 for "no location", or null for all. */
+export function serviceGroup(value: string | null): number | null {
+  if (value === null || !/^\d{1,10}$/.test(value)) return null;
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n <= 2 ** 31 - 1 ? n : null;
+}
+
+export function servicePageUrl(q: string, status: ServiceFilter, before?: number, group: number | null = null) {
   const params = new URLSearchParams({ limit: String(SERVICE_PAGE_SIZE) });
   if (q.trim()) params.set("q", q.trim().slice(0, 120));
   if (status) params.set("status", status);
+  if (group !== null) params.set("group", String(group));
   if (before !== undefined) {
     if (!Number.isSafeInteger(before) || before <= 0) throw Error("invalid_service_cursor");
     params.set("before", String(before));
@@ -39,8 +47,21 @@ export function servicesReturnTo(value: unknown): string {
   const url = new URL(value, "https://local.invalid");
   const q = (url.searchParams.get("q") ?? "").trim().slice(0, 120);
   const status = serviceFilter(url.searchParams.get("status"));
+  const group = serviceGroup(url.searchParams.get("group"));
   const params = new URLSearchParams();
   if (q) params.set("q", q);
   if (status) params.set("status", status);
+  if (group !== null) params.set("group", String(group));
   return `/services${params.size ? `?${params}` : ""}`;
+}
+
+export interface ServiceGroup { id: number; title: string | null; flag: string | null; count: number }
+
+/** Groups worth showing: only when the services live in two or more places (never for one service). */
+export function readServiceGroups(value: unknown): ServiceGroup[] {
+  if (!value || typeof value !== "object" || !("groups" in value) || !Array.isArray(value.groups)) return [];
+  const groups = value.groups.filter((g): g is ServiceGroup =>
+    Boolean(g) && Number.isSafeInteger(g.id) && g.id >= 0 && Number.isSafeInteger(g.count) && g.count > 0
+    && (g.title === null || typeof g.title === "string") && (g.flag === null || typeof g.flag === "string"));
+  return groups.length >= 2 ? groups : [];
 }

@@ -275,6 +275,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/receipts` | Mini App initData | Inbox |
 | GET | `/api/webapp/reseller/desk` | Mini App initData | Reseller desk view |
 | POST | `/api/webapp/reseller/renew` | Mini App initData | Reseller renew |
+| GET | `/api/webapp/services/groups` | Mini App initData | How many services the customer has in each location (F-19); the list filters by `group`. |
 | GET | `/api/webapp/services/{service_id}/auto-renew` | Mini App initData | Get auto renew |
 | POST | `/api/webapp/services/{service_id}/auto-renew` | Mini App initData | Set auto renew |
 | GET | `/api/webapp/services/{service_id}/cancel` | Mini App initData | What deleting the service gives back now; the final amount is read again from the panel. |

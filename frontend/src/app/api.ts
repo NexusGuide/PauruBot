@@ -400,8 +400,9 @@ export const api = {
   redeemGift: (code: string) => post<{ amount: number; balance: number }>("/wallet/gift", { code }),
   history: (before?: number) => get<{ items: HistoryItem[] }>(`/wallet/history${before ? `?before=${before}` : ""}`),
   services: () => get<{ items: Service[] }>("/services"),
-  servicePage: (q: string, status: ServiceFilter, before: number | undefined, signal: AbortSignal) =>
-    request<unknown>(`/api/webapp${servicePageUrl(q, status, before)}`, { headers: auth(), signal }),
+  servicePage: (q: string, status: ServiceFilter, before: number | undefined, signal: AbortSignal, group: number | null = null) =>
+    request<unknown>(`/api/webapp${servicePageUrl(q, status, before, group)}`, { headers: auth(), signal }),
+  serviceGroups: (signal?: AbortSignal) => request<unknown>("/api/webapp/services/groups", { headers: auth(), signal }),
   service: (id: number, refresh = false) => get<{ service: Service }>(`/services/${id}${refresh ? "?refresh=true" : ""}`),
   usage: (id: number, days: 7 | 30, signal?: AbortSignal) =>
     request<UsageHistory>(`/api/webapp/services/${id}/usage?days=${days}`, { headers: auth(), signal }),
