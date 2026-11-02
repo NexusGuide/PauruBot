@@ -615,7 +615,18 @@ async def test_ticket_linked_service_minimal_snapshot_and_foreign_rejection(sess
     response = await client.post("/api/webapp/tickets", headers=h(81911), json=body)
     assert response.status_code == 200, response.text
     context = response.json()["ticket"]["service_context"]
-    assert set(context) == {"id", "status", "used_bytes", "data_limit", "expire_at"}
+    # REF-09 adds when it was read and from where; still no links, credentials or panel data.
+    assert set(context) == {
+        "id",
+        "status",
+        "used_bytes",
+        "data_limit",
+        "expire_at",
+        "online_at",
+        "synced_at",
+        "checked",
+        "panel_down",
+    }
     assert context["id"] == service.id and context["status"] == "active"
     assert "DO_NOT_EXPOSE" not in response.text and "secret" not in response.text
     service.status = ServiceStatus.DISABLED

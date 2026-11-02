@@ -1011,5 +1011,8 @@
   "national_service_notice": "National-network mode is active. Statistics above describe the original service. Renewal delivers a replacement; retrieve its files from your ready-made configurations.",
   "national_checkout_notice": "Delivery uses national-network inventory. Renewal provides a new replacement configuration, without changing the original panel subscription’s quota or expiry.",
   "trial_phone_used": "This phone number has already had a free trial.",
-  "trial_too_new": "Your account is brand new; try the free trial again a little later."
+  "trial_too_new": "Your account is brand new; try the free trial again a little later.",
+  "adm_ticket_service": "🔌 Service #{id}: {status} · used {used} of {limit} · ends {expires}",
+  "adm_ticket_service_down": "⚠️ This service's panel cannot be reached right now; the numbers are from the last sync.",
+  "adm_ticket_service_stored": "ℹ️ The numbers are from the last sync."
 }

@@ -62,11 +62,13 @@ async def _texts(session: AsyncSession, customer: Customer) -> Texts:
     )
 
 
-async def _to_customer(session: AsyncSession, customer: Customer, text: str, **kwargs: Any) -> None:
+async def _to_customer(session: AsyncSession, customer: Customer, text: str, **kwargs: Any) -> Any:
+    """Send to the customer; the sent message, or None when they cannot be reached."""
     try:
-        await telegram.send_text(customer.telegram_id, text, shop_id=customer.shop_id, **kwargs)
+        return await telegram.send_text(customer.telegram_id, text, shop_id=customer.shop_id, **kwargs)
     except telegram.Undeliverable:
         customer.blocked_bot_at = utcnow()
+        return None
 
 
 async def staff_chats(session: AsyncSession, shop_id: int, permission: str) -> list[int]:
@@ -657,14 +659,8 @@ async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
         await _to_customer(session, customer, text)
         return
     markup = None if alert == "deleted" or service.is_trial else _renew_markup(t, service.id)
-    try:
-        message = await telegram.send_text(
-            customer.telegram_id, text, shop_id=customer.shop_id, reply_markup=markup
-        )
-    except telegram.Undeliverable:
-        customer.blocked_bot_at = utcnow()
-        return
-    if alert in REPLACEABLE_ALERTS:
+    message = await _to_customer(session, customer, text, reply_markup=markup)
+    if message is not None and alert in REPLACEABLE_ALERTS:
         await _replace_alert(customer, service.id, message)
 
 
@@ -837,6 +833,82 @@ async def _report_ticket(
     await report(session, ticket.shop_id, "tickets", text)
 
 
+TICKET_LIVE_SECONDS = 8
+TICKET_FRESH_SECONDS = 120
+
+
+async def _ticket_service(session: AsyncSession, ticket: Ticket) -> dict[str, Any] | None:
+    """The ticket's service as the panel shows it now (REF-09), saved on the ticket.
+
+    Read under the service lease like every other panel read (SEC-F09) and within a few seconds,
+    in this background job so the customer never waits. A busy service or an unreachable panel
+    keeps the last synced numbers, marked as such; a reading under two minutes old is reused.
+    """
+    from datetime import datetime
+
+    from paurubot import kv
+    from paurubot.core import ticket_media
+    from paurubot.panels import PanelError
+    from paurubot.provisioning import lifecycle, sync
+
+    if ticket.service_id is None:
+        return ticket.service_context
+    context = ticket.service_context or {}
+    synced = context.get("synced_at")
+    if context.get("checked") == "live" and isinstance(synced, str):
+        if (utcnow() - datetime.fromisoformat(synced)).total_seconds() < TICKET_FRESH_SECONDS:
+            return context
+    ticket_id, service_id = ticket.id, ticket.service_id  # a rollback below expires both objects
+    service = await session.get(Service, service_id)
+    if service is None or service.shop_id != ticket.shop_id or service.customer_id != ticket.customer_id:
+        return ticket.service_context
+    checked, down = "stored", False
+    if service.status != ServiceStatus.DELETED:
+        try:
+            async with kv.lease(lifecycle.service_lease(service.id), ttl=sync.BACKGROUND_LEASE_TTL):
+                previous = service.status
+                async with asyncio.timeout(TICKET_LIVE_SECONDS):
+                    await lifecycle.refresh(session, service)
+                if service.status != ServiceStatus.DELETED:
+                    await sync.evaluate_alerts(session, service, previous)  # never skip an alert
+                await session.commit()
+                checked = "live"
+        except kv.LockNotAcquired:
+            pass  # being changed right now: the stored numbers will do
+        except (PanelError, TimeoutError):
+            await session.rollback()
+            down = True
+        ticket = await session.get(Ticket, ticket_id, populate_existing=True) or ticket
+        service = await session.get(Service, service_id, populate_existing=True) or service
+    ticket.service_context = ticket_media.service_context(service, checked=checked, panel_down=down)
+    await session.commit()
+    return ticket.service_context
+
+
+def ticket_service_line(t: Texts, context: dict[str, Any]) -> str:
+    """One line for staff: status, usage, end date and where the numbers come from (REF-09)."""
+    from datetime import datetime
+
+    from paurubot.core.formatting import size
+
+    limit = int(context.get("data_limit") or 0)
+    used = int(context.get("used_bytes") or 0)
+    expire = context.get("expire_at")
+    line = t(
+        "adm_ticket_service",
+        id=context.get("id"),
+        status=t(f"status_{context.get('status')}"),
+        used=size(used),
+        limit=size(limit) if limit else t("unlimited"),
+        expires=jdate(datetime.fromisoformat(expire)) if isinstance(expire, str) else t("unlimited"),
+    )
+    if context.get("panel_down"):
+        return line + "\n" + t("adm_ticket_service_down")
+    if context.get("checked") != "live":
+        return line + "\n" + t("adm_ticket_service_stored")
+    return line
+
+
 async def ticket_new_message(session: AsyncSession, job: queue.Claimed) -> None:
     from paurubot.bot.callbacks import Admin
     from paurubot.core.tickets import PRIORITY_ICON
@@ -855,6 +927,13 @@ async def ticket_new_message(session: AsyncSession, job: queue.Claimed) -> None:
     if department is not None:
         details.insert(0, t("adm_ticket_department", department=esc(department.title)))
     text += "\n" + " · ".join(details)
+    # _ticket_service may roll back, which expires the loaded rows: keep their ids, reload after.
+    shop_id, department_id = shop.id, department.id if department is not None else None
+    context = await _ticket_service(session, ticket)
+    if context:
+        text += "\n" + ticket_service_line(t, context)
+    if department_id is not None:
+        department = await session.get(TicketDepartment, department_id, populate_existing=True)
     markup = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -866,7 +945,7 @@ async def ticket_new_message(session: AsyncSession, job: queue.Claimed) -> None:
     )
     for chat_id in await _ticket_staff_chats(session, ticket):
         try:
-            await telegram.send_text(chat_id, text, reply_markup=markup, shop_id=shop.id)
+            await telegram.send_text(chat_id, text, reply_markup=markup, shop_id=shop_id)
         except telegram.Undeliverable:
             continue
     await _report_ticket(session, ticket, department, text)

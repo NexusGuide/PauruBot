@@ -49,7 +49,9 @@ async def replayed(
     return previous
 
 
-def service_context(service: Service) -> dict[str, Any]:
+def service_context(service: Service, *, checked: str = "stored", panel_down: bool = False) -> dict[str, Any]:
+    """What staff need to see about a ticket's service (REF-09). `checked` says where the numbers
+    come from: "live" (read from the panel just now) or "stored" (the last sync, at `synced_at`)."""
     # Never snapshot credentials, links, arbitrary panel data or private configuration.
     return {
         "id": service.id,
@@ -57,6 +59,10 @@ def service_context(service: Service) -> dict[str, Any]:
         "used_bytes": service.used_bytes,
         "data_limit": service.data_limit,
         "expire_at": service.expire_at.isoformat() if service.expire_at else None,
+        "online_at": service.online_at.isoformat() if service.online_at else None,
+        "synced_at": service.synced_at.isoformat() if service.synced_at else None,
+        "checked": checked,
+        "panel_down": panel_down,
     }
 
 
