@@ -3,8 +3,10 @@
 Every other Mini App route answers `phone_required` or `terms_required` until the customer has
 done what the shop asks, the same order and the same rules as the bot. These two routes stay
 open. The screen reads what is missing. Terms are accepted here, for the exact version shown.
-The phone is shared with Telegram's own contact request: Telegram sends it to the bot, which
-checks that it is the customer's own number and its country code, like a contact typed in chat.
+The phone is shared with Telegram's own contact request. Telegram sends it to the bot, which
+checks that it is the customer's own number and its country code, like a contact typed in chat;
+and it hands the Mini App a signed copy, which /gate/phone checks and saves at once (F-12), so
+the screen does not depend on the bot receiving that message.
 """
 
 from __future__ import annotations
@@ -17,7 +19,10 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from paurubot.api.webapp_auth import WebApp, account_gate
+from paurubot.config import get_settings
+from paurubot.core import phones
 from paurubot.i18n import texts_for
+from paurubot.security.tokens import InitDataError, validate_shared_contact
 
 router = APIRouter()
 
@@ -27,6 +32,15 @@ _TAG = re.compile(r"<[^>]{0,500}>")
 def plain(text: str) -> str:
     """Telegram HTML to plain text for the Mini App: tags dropped, entities decoded."""
     return html.unescape(_TAG.sub("", text.replace("<br>", "\n"))).strip()
+
+
+CONTACT_MAX_AGE = 600  # a contact is shared and sent on in one go
+
+
+class PhoneBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # Telegram's signed contact response, as the Mini App received it from requestContact.
+    response: str = Field(min_length=1, max_length=2048)
 
 
 class TermsBody(BaseModel):
@@ -47,6 +61,34 @@ async def _view(ctx: Any) -> dict[str, Any]:
 @router.get("/gate")
 async def gate(ctx: WebApp) -> dict[str, Any]:
     """What the customer must still do, phone then terms, before the rest of the Mini App answers (SEC-F11)."""
+    return await _view(ctx)
+
+
+async def _bot_token(ctx: Any) -> str:
+    """The token of the bot this Mini App runs in: the shop's own reseller bot, else the main one."""
+    if ctx.shop.parent_id is not None:
+        from paurubot.core import resale
+
+        for shop, token in await resale.bots(ctx.session):
+            if shop.id == ctx.shop.id:
+                return token
+    return get_settings().bot_token.get_secret_value()
+
+
+@router.post("/gate/phone")
+async def share_phone(body: PhoneBody, ctx: WebApp) -> dict[str, Any]:
+    """Save the phone from the Mini App's signed contact (F-12), with the bot's own rules."""
+    try:
+        contact = validate_shared_contact(body.response, await _bot_token(ctx), max_age=CONTACT_MAX_AGE)
+    except InitDataError as exc:
+        raise HTTPException(status_code=400, detail="invalid_contact") from exc
+    if contact.user_id != ctx.customer.telegram_id:
+        raise HTTPException(status_code=403, detail="phone_not_yours")
+    phone = phones.allowed(contact.phone, ctx.cfg["phone_country_codes"])
+    if phone is None:
+        raise HTTPException(status_code=422, detail="phone_country_not_allowed")
+    ctx.customer.phone = phone
+    await ctx.session.commit()
     return await _view(ctx)
 
 

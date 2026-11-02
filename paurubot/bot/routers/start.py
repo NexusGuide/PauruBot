@@ -293,9 +293,8 @@ async def contact(
         return
     from paurubot.core import phones
 
-    phone = phones.normalize(message.contact.phone_number)
-    allowed = [str(code).lstrip("+") for code in cfg["phone_country_codes"] or []]
-    if phone is None or (allowed and not any(phone.startswith(code) for code in allowed)):
+    phone = phones.allowed(message.contact.phone_number, cfg["phone_country_codes"])
+    if phone is None:
         await message.answer(t("phone_country_not_allowed"))
         return
     customer.phone = phone

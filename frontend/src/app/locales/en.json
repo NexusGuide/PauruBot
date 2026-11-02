@@ -626,5 +626,7 @@
   "access_devices_none": "No device is connected right now.",
   "access_devices_hint": "The last part of each address is hidden for privacy.",
   "err_devices_unsupported": "This server does not list connected devices.",
-  "err_panel_unavailable": "The server is not answering right now; try again shortly."
+  "err_panel_unavailable": "The server is not answering right now; try again shortly.",
+  "err_phone_country_not_allowed": "This number isn't accepted. Please try an allowed number.",
+  "err_phone_not_yours": "Please share your own number."
 }

@@ -118,10 +118,10 @@ class WebAppUser:
     raw: dict[str, Any]
 
 
-def validate_init_data(
-    init_data: str, bot_token: str, *, max_age: int, now: float | None = None
-) -> WebAppUser:
-    """Validate Telegram Mini App initData per the WebApp spec, including auth_date freshness."""
+def _signed_fields(
+    init_data: str, bot_token: str, *, max_age: int, now: float | None
+) -> tuple[dict[str, str], int]:
+    """The fields of a WebApp-signed query string and its auth_date, once hash and age check out."""
     if not init_data or not bot_token:
         raise InitDataError("missing init data")
     pairs = dict(parse_qsl(init_data, keep_blank_values=True, strict_parsing=False))
@@ -148,6 +148,14 @@ def validate_init_data(
     current = time.time() if now is None else now
     if auth_date <= 0 or current - auth_date > max_age or auth_date - current > 60:
         raise InitDataError("init data expired")
+    return pairs, auth_date
+
+
+def validate_init_data(
+    init_data: str, bot_token: str, *, max_age: int, now: float | None = None
+) -> WebAppUser:
+    """Validate Telegram Mini App initData per the WebApp spec, including auth_date freshness."""
+    pairs, auth_date = _signed_fields(init_data, bot_token, max_age=max_age, now=now)
     try:
         user = json.loads(pairs.get("user", "{}"))
     except json.JSONDecodeError as exc:
@@ -162,6 +170,34 @@ def validate_init_data(
         auth_date=auth_date,
         raw=user,
     )
+
+
+@dataclass(slots=True)
+class SharedContact:
+    user_id: int
+    phone: str
+
+
+def validate_shared_contact(
+    response: str, bot_token: str, *, max_age: int, now: float | None = None
+) -> SharedContact:
+    """The contact a Mini App got back from `requestContact` (F-12), checked like initData.
+
+    Telegram signs the shared contact with the same WebAppData key as initData, so the Mini App
+    can hand it to us directly instead of waiting for the bot to receive the contact message.
+    """
+    pairs, _ = _signed_fields(response, bot_token, max_age=max_age, now=now)
+    try:
+        contact = json.loads(pairs.get("contact", "{}"))
+    except json.JSONDecodeError as exc:
+        raise InitDataError("bad contact payload") from exc
+    if (
+        not isinstance(contact, dict)
+        or not isinstance(contact.get("user_id"), int)
+        or not isinstance(contact.get("phone_number"), str)
+    ):
+        raise InitDataError("missing contact")
+    return SharedContact(user_id=contact["user_id"], phone=contact["phone_number"])
 
 
 def sign_init_data(fields: dict[str, str], bot_token: str) -> str:
