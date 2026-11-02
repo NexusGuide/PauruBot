@@ -118,9 +118,11 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/panels` | `panels.read` | List panels |
 | POST | `/api/admin/panels` | `panels.write` | Create panel |
 | POST | `/api/admin/payments/{payment_id}/approve` | `payments.review` | Approve |
+| POST | `/api/admin/payments/{payment_id}/confirm-void` | `payments.refund` | Step one of a void (REF-01): type the amount to confirm, like a large refund. |
 | GET | `/api/admin/payments/{payment_id}/receipt` | `payments.read` | Receipt image |
 | POST | `/api/admin/payments/{payment_id}/reject` | `payments.review` | Reject |
 | POST | `/api/admin/payments/{payment_id}/tonpay-reconcile` | `payments.review` | Reconcile |
+| POST | `/api/admin/payments/{payment_id}/void` | `payments.refund` | Take back what a mistakenly approved payment gave (REF-01). |
 | GET | `/api/admin/payments` | `payments.read` | List payments |
 | GET | `/api/admin/plans/panel-options/{panel_id}` | `catalog.write` | Groups or inbounds a plan can pick from on one panel (PNL-14). |
 | GET | `/api/admin/plans/{plan_id}/stock` | `catalog.write` | List stock |

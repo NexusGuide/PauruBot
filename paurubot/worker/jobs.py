@@ -13,7 +13,7 @@ from paurubot.core import orders
 from paurubot.db.base import utcnow
 from paurubot.db.models import Job, JobStatus, Order, Panel, Service, ServiceStatus, Shop
 from paurubot.db.session import session_scope
-from paurubot.panels import PanelError, PanelUnavailable
+from paurubot.panels import PanelError, PanelNotFound, PanelUnavailable
 from paurubot.payments import engine as payments
 from paurubot.provisioning import lifecycle, sync
 from paurubot.worker import queue
@@ -44,6 +44,10 @@ async def provision_order(session: AsyncSession, job: queue.Claimed) -> None:
 async def provision_dead(session: AsyncSession, job: queue.Claimed, error: str) -> None:
     if job.kind == "refresh_service":
         log.warning("panel refresh exhausted for service %s", job.payload.get("service_id"))
+        return
+    if job.kind == "void_service":
+        # Staff already got the dead-job report; the void itself stands.
+        log.warning("could not stop voided service %s: %s", job.payload.get("service_id"), error[:200])
         return
     if job.kind != "order":
         log.warning("gave up removing a moved account: %s", error[:200])
@@ -95,10 +99,43 @@ async def refresh_panel_hint(session: AsyncSession, job: queue.Claimed) -> None:
         raise Defer("service is being changed") from exc
 
 
+async def stop_voided_service(session: AsyncSession, job: queue.Claimed) -> None:
+    """Turn off the service a voided payment bought (REF-01), under the service lease (SEC-F09).
+
+    Idempotent: a retry after an unknown panel answer asks the panel to disable it again.
+    """
+    service = await session.get(Service, int(job.payload["service_id"]))
+    if service is None:
+        return
+    if job.shop_id is None or service.shop_id != job.shop_id:
+        raise Permanent("void scope mismatch")
+    try:
+        async with kv.lease(lifecycle.service_lease(service.id), ttl=sync.BACKGROUND_LEASE_TTL):
+            await lifecycle.lock_fresh(session, service)
+            if service.status == ServiceStatus.DELETED:
+                return
+            try:
+                await lifecycle.set_enabled(session, service, False, "void")
+            except PanelUnavailable as exc:
+                raise Retry(str(exc)) from exc
+            except PanelNotFound:
+                log.warning("voided service %s is no longer on its panel", service.id)
+                return
+            service.auto_renew = None
+            await session.commit()
+    except kv.LockNotAcquired as exc:
+        raise Defer("service is being changed") from exc
+
+
 register_queue(
     "provision",
     QueueSpec(
-        {"order": provision_order, "cleanup_user": cleanup_panel_user, "refresh_service": refresh_panel_hint},
+        {
+            "order": provision_order,
+            "cleanup_user": cleanup_panel_user,
+            "refresh_service": refresh_panel_hint,
+            "void_service": stop_voided_service,
+        },
         on_dead=provision_dead,
         batch=5,
         lease_seconds=180,

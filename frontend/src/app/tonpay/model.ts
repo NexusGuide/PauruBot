@@ -12,7 +12,7 @@ const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v ===
 /** Fail closed on old/malformed DTOs, unsafe JS amounts or inappropriate card disclosure. */
 export function payment(value: unknown): CustomPayment {
   if (!object(value) || !integer(value.payment_id) || !integer(value.request_amount) ||
-      !["created", "pending", "verifying", "paid", "failed", "expired", "disputed", "refunded"].includes(String(value.status))) throw Error("invalid_tonpay_state");
+      !["created", "pending", "verifying", "paid", "failed", "expired", "disputed", "refunded", "voided"].includes(String(value.status))) throw Error("invalid_tonpay_state");
   for (const key of ["consented", "uncertain", "provider_paid", "can_consent", "can_receipt", "can_change_card"])
     if (typeof value[key] !== "boolean") throw Error("invalid_tonpay_state");
   for (const key of ["payable_amount", "quote_revision", "receipt_ready_at"])

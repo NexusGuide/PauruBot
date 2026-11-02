@@ -18,6 +18,7 @@ import {
   Status,
   Table,
   Textarea,
+  Toggle,
   Toolbar,
   When,
   useTypedConfirm,
@@ -25,7 +26,8 @@ import {
 } from "../ui";
 
 const ORDER_STATUSES = ["pending", "awaiting_payment", "paid", "provisioning", "completed", "failed", "canceled", "refunded"];
-const PAYMENT_STATUSES = ["created", "pending", "verifying", "paid", "failed", "expired", "refunded", "disputed"];
+const PAYMENT_STATUSES = ["created", "pending", "verifying", "paid", "failed", "expired", "refunded", "disputed", "voided"];
+const VOID_REASONS = ["fake_receipt", "wrong_amount", "duplicate", "mistake", "other"];
 const PROVIDERS = ["card", "zarinpal", "stars", "usdt_trc20", "trx", "ton", "nowpayments", "plisio", "aqayepardakht", "tetra98", "variza", "abangateway", "blupal", "tronado", "cubepay", "atlaspay"];
 
 export function Orders() {
@@ -171,6 +173,36 @@ export function PaymentSheet({
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const reviewable = can("payments.review") && payment.reviewable;
+  const typedConfirm = useTypedConfirm();
+  const [voiding, setVoiding] = useState(false);
+  const [voidReason, setVoidReason] = useState(VOID_REASONS[0]);
+  const [voidNote, setVoidNote] = useState("");
+  const [blockCard, setBlockCard] = useState(false);
+  const voidable = can("payments.refund") && payment.voidable;
+
+  const voidPayment = async () => {
+    try {
+      const result = await run(async () => {
+        const fields = await typedConfirm({
+          title: t("void_title", { id: payment.id }),
+          body: t("void_confirm_body"),
+          confirm: t("void"),
+          target: { action: "payment.void", id: payment.id },
+        });
+        if (fields === null) return null;
+        return call<{ payment: Payment; kept: string[] }>(`/api/admin/payments/${payment.id}/void`, {
+          method: "POST",
+          body: { ...fields, reason: voidReason, note: voidNote.trim(), block_card: blockCard },
+        });
+      });
+      if (!result) return;
+      onChange({ ...payment, ...result.payment });
+      setVoiding(false);
+      toast(result.kept.length ? t("voided_toast_kept") : t("voided_toast"), result.kept.length ? "error" : "ok");
+    } catch (err) {
+      toast(err instanceof ApiError && err.status === 428 ? t("err_confirmation_required") : errorText(err), "error");
+    }
+  };
 
   const approve = async () => {
     try {
@@ -225,6 +257,19 @@ export function PaymentSheet({
               </Button>
             </>
           )
+        ) : voidable ? (
+          voiding ? (
+            <>
+              <Button onClick={() => setVoiding(false)}>{t("cancel")}</Button>
+              <Button tone="danger" busy={busy} onClick={() => void voidPayment()}>
+                {t("void")}
+              </Button>
+            </>
+          ) : (
+            <Button tone="danger" onClick={() => setVoiding(true)}>
+              {t("void")}
+            </Button>
+          )
         ) : undefined
       }
     >
@@ -277,6 +322,40 @@ export function PaymentSheet({
           <Field label={t("reject_reason")} hint={t("reject_reason_hint")}>
             {(id) => <Textarea id={id} value={reason} maxLength={200} onChange={(event) => setReason(event.target.value)} />}
           </Field>
+        )}
+        {payment.void && (
+          <div className="flex flex-col gap-1 rounded-xl bg-anar-100 px-3 py-2 text-[0.85rem] text-anar-700">
+            <p className="font-semibold">
+              {t("void_done_line", { reason: t(`void_reason_${payment.void.reason}`) })} · <When iso={payment.void.at} time />
+            </p>
+            {payment.void.note && <p dir="auto">{payment.void.note}</p>}
+            {payment.void.order_id && <p>{t("void_done_order", { id: payment.void.order_id })}</p>}
+            {payment.void.service_id && <p>{t("void_done_service", { id: payment.void.service_id })}</p>}
+            {payment.void.kept.length > 0 && (
+              <p>{t("void_done_kept", { items: payment.void.kept.map((item) => t(`void_kept_${item}`)).join("، ") })}</p>
+            )}
+            {payment.void.block_card && <p>{t("void_done_blocked")}</p>}
+          </div>
+        )}
+        {voiding && (
+          <div className="flex flex-col gap-3 rounded-xl ring-1 ring-anar-200 p-3">
+            <p className="text-[0.85rem] leading-relaxed">{t("void_explain")}</p>
+            <Field label={t("void_reason")}>
+              {(id) => (
+                <Select id={id} value={voidReason} onChange={(event) => setVoidReason(event.target.value)}>
+                  {VOID_REASONS.map((value) => (
+                    <option key={value} value={value}>
+                      {t(`void_reason_${value}`)}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <Field label={t("void_note")}>
+              {(id) => <Textarea id={id} value={voidNote} maxLength={200} onChange={(event) => setVoidNote(event.target.value)} />}
+            </Field>
+            <Toggle checked={blockCard} onChange={setBlockCard} label={t("void_block_card")} hint={t("void_block_card_hint")} />
+          </div>
         )}
       </div>
     </Sheet>

@@ -412,6 +412,30 @@ async def payment_rejected(session: AsyncSession, job: queue.Claimed) -> None:
     await _to_customer(session, customer, t("payment_rejected", amount=money(payment.amount), reason=reason))
 
 
+async def payment_voided(session: AsyncSession, job: queue.Claimed) -> None:
+    """Staff voided an approved payment (REF-01): say what was taken back and why."""
+    payment = await session.get(Payment, int(job.payload["payment_id"]))
+    if payment is None or payment.status != PaymentStatus.VOIDED:
+        return
+    customer = await session.get(Customer, payment.customer_id)
+    if customer is None:
+        return
+    t = await _texts(session, customer)
+    info = (payment.meta or {}).get("void") or {}
+    lines = [
+        t(
+            "payment_voided",
+            id=payment.id,
+            amount=money(payment.amount),
+            reason=t(f"void_reason_{info.get('reason') or 'other'}"),
+        )
+    ]
+    if info.get("service_id"):
+        lines.append(t("payment_voided_service"))
+    lines.append(t("payment_voided_support"))
+    await _to_customer(session, customer, "\n\n".join(lines))
+
+
 async def receipt_review(session: AsyncSession, job: queue.Claimed) -> None:
     from paurubot.bot.routers.admin import receipt_caption, review_kb
 
@@ -1139,6 +1163,7 @@ register_queue(
             "order_failed": order_failed,
             "payment_fulfilled": payment_fulfilled,
             "payment_rejected": payment_rejected,
+            "payment_voided": payment_voided,
             "receipt_review": receipt_review,
             "review_decided": review_decided,
             "payment_fix_requested": payment_fix_requested,

@@ -195,6 +195,20 @@ export interface Payment {
   has_receipt: boolean;
   reviewable: boolean;
   review_amount: number | null;
+  voidable: boolean;
+  void: PaymentVoid | null;
+}
+
+/** What a void did (REF-01), stored on the payment. */
+export interface PaymentVoid {
+  at: string;
+  by: string;
+  reason: string;
+  note: string | null;
+  order_id: number | null;
+  service_id: number | null;
+  kept: string[];
+  block_card: boolean;
 }
 
 export interface CustomerDetail {

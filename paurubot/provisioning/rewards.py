@@ -59,9 +59,14 @@ async def reward_referrer(session: AsyncSession, order: Order) -> int:
         percent = int(cfg["referral_repeat_percent"])
     reward = order.amount * percent // 100
     customer.referral_rewarded = True
+    key = f"referral:{customer.id}:order:{order.id}" if repeat else f"referral:{customer.id}"
+    # What this order did, so voiding its payment can take it back (REF-01).
+    order.params = {
+        **(order.params or {}),
+        "referral": {"key": key if reward > 0 else None, "first": not repeat},
+    }
     if reward <= 0:
         return 0
-    key = f"referral:{customer.id}:order:{order.id}" if repeat else f"referral:{customer.id}"
     await wallet.reward(
         session,
         order.shop_id,

@@ -25,6 +25,7 @@ from paurubot.audit.log import record
 from paurubot.db.models import Order, OrderStatus, Payment, PaymentStatus
 from paurubot.notifications import review_sync
 from paurubot.payments import engine as payments
+from paurubot.payments import voids
 from paurubot.worker import queue
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -73,6 +74,8 @@ def payment_view(payment: Payment) -> dict[str, Any]:
     data = plain(payment, PAYMENT_FIELDS)
     data["reviewable"] = payments.awaiting_review(payment)
     data["review_amount"] = payments.disputed_credit(payment)
+    data["voidable"] = voids.voidable(payment)
+    data["void"] = (payment.meta or {}).get("void")
     return data
 
 
@@ -222,6 +225,55 @@ async def reject(
     await review_sync.announce(db, payment.id, ctx.shop_id, "rejected", review_sync.label(ctx.staff))
     await db.refresh(payment)
     return {"payment": payment_view(payment)}
+
+
+class VoidBody(ConfirmFields):
+    reason: str = Field(pattern=r"^(fake_receipt|wrong_amount|duplicate|mistake|other)$")
+    note: str = Field(default="", max_length=200)
+    block_card: bool = False
+
+
+@router.post("/payments/{payment_id}/confirm-void")
+async def confirm_void(
+    payment_id: int, ctx: Annotated[StaffContext, Depends(require("payments.refund"))], db: DB
+) -> dict[str, Any]:
+    """Step one of a void (REF-01): type the amount to confirm, like a large refund."""
+    payment = await owned(db, Payment, payment_id, ctx)
+    if not voids.voidable(payment):
+        raise HTTPException(status_code=409, detail="void_not_voidable")
+    return {**await challenge(ctx, "payment.void", payment.id, str(payment.amount)), "required": True}
+
+
+@router.post("/payments/{payment_id}/void")
+async def void_payment(
+    payment_id: int,
+    body: VoidBody,
+    ctx: Annotated[StaffContext, Depends(require("payments.refund"))],
+    db: DB,
+) -> dict[str, Any]:
+    """Take back what a mistakenly approved payment gave (REF-01)."""
+    payment = await owned(db, Payment, payment_id, ctx)
+    await guard(db, ctx, "payment.void", payment.id, str(payment.amount), body)
+    try:
+        result = await voids.void(
+            db,
+            payment.id,
+            shop_id=ctx.shop_id,
+            actor=ctx.actor,
+            reason=body.reason,
+            note=body.note,
+            block_card=body.block_card,
+        )
+    except voids.VoidError as exc:
+        raise HTTPException(status_code=409, detail=exc.key) from exc
+    await db.commit()
+    await db.refresh(payment)
+    return {
+        "payment": payment_view(payment),
+        "order_id": result.order.id if result.order else None,
+        "service_id": result.service_id,
+        "kept": result.kept,
+    }
 
 
 def _refundable(order: Order) -> bool:

@@ -107,6 +107,8 @@
   "pay_due": "You're {amount} Toman short; pay just that amount:",
   "pay_from_wallet": "Pay from wallet",
   "payment_disputed": "This payment needs support review.",
+  "payment_voided": "This payment was voided. Contact support for details.",
+  "payment_refunded": "This payment was refunded.",
   "payment_expired": "This payment has expired.",
   "payment_failed": "This payment was not approved.",
   "price": "Price",

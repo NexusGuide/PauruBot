@@ -268,8 +268,11 @@ async def auto_approvable(session: AsyncSession, payment: Payment, cfg: dict[str
         select(func.count(Payment.id)).where(
             Payment.customer_id == payment.customer_id,
             Payment.provider == "card",
-            Payment.status.in_([PaymentStatus.FAILED, PaymentStatus.DISPUTED]),
-            Payment.reviewed_at.is_not(None),
+            or_(
+                Payment.status.in_([PaymentStatus.FAILED, PaymentStatus.DISPUTED])
+                & Payment.reviewed_at.is_not(None),
+                Payment.status == PaymentStatus.VOIDED,  # a receipt staff later found false
+            ),
         )
     )
     return int(history or 0) >= int(cfg.get("card_auto_min_history") or 0) and not rejected

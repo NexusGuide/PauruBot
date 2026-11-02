@@ -11,10 +11,14 @@ for (const [input, expected] of [
   ['۱٬۰۰۰٬۰۰۰', '1000000'], ['١,٠٠٠,٠٠٠', '1000000'], [' A  \n B ', 'a b'],
 ]) test(`normalization: ${JSON.stringify(input)}`, () => assert.equal(normalizeConfirmation(input), expected));
 
-for (const action of ['service.delete', 'order.refund']) test(`endpoint for ${action}`, () => {
+for (const [action, path] of [
+  ['service.delete', '/api/admin/services/9/confirm-delete'],
+  ['order.refund', '/api/admin/orders/9/confirm-refund'],
+  ['payment.void', '/api/admin/payments/9/confirm-void'],
+]) test(`endpoint for ${action}`, () => {
   const spec = confirmationSpec({ action, id: 9 });
   assert.equal(spec.action, action);
-  assert.equal(spec.path, action === 'service.delete' ? '/api/admin/services/9/confirm-delete' : '/api/admin/orders/9/confirm-refund');
+  assert.equal(spec.path, path);
 });
 for (const id of [0, -1, 1.5, NaN, Infinity]) test(`reject invalid id ${id}`, () => assert.throws(() => confirmationSpec({ action: 'service.delete', id })));
 

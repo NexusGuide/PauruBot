@@ -59,6 +59,7 @@ export function parseReceipt(raw: unknown, expectedId?: number): ReceiptState {
       "expired",
       "refunded",
       "disputed",
+      "voided",
     ].includes(status)
   )
     throw Error("invalid_receipt_state");
@@ -113,7 +114,7 @@ export function parseReceipt(raw: unknown, expectedId?: number): ReceiptState {
     throw Error("invalid_receipt_state");
   if (
     phase === "closed" &&
-    !["failed", "expired", "refunded", "disputed"].includes(status)
+    !["failed", "expired", "refunded", "disputed", "voided"].includes(status)
   )
     throw Error("invalid_receipt_state");
   if ((provider !== "card") !== (phase === "not_card"))
