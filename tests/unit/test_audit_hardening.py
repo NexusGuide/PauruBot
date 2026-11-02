@@ -441,7 +441,7 @@ def test_installer_fails_closed_on_unverified_release(mode):
 
     stub = r"""
 set -Eeuo pipefail
-REPO=mehdialij/PauruBot
+REPO=NexusGuide/PauruBot
 registry_login() { :; }
 ok() { :; }
 die() { exit 17; }
@@ -452,7 +452,7 @@ command() {
 }
 docker() {
   if [[ "$1" == pull ]]; then [[ "$MODE" != pull_failed ]]; return; fi
-  if [[ "$MODE" != no_digest ]]; then echo 'ghcr.io/mehdialij/paurubot@sha256:synthetic'; fi
+  if [[ "$MODE" != no_digest ]]; then echo 'ghcr.io/nexusguide/paurubot@sha256:synthetic'; fi
 }
 cosign() { [[ "$MODE" != bad_signature ]]; }
 """
@@ -460,13 +460,13 @@ cosign() { [[ "$MODE" != bad_signature ]]; }
         stub
         + f"\nMODE={mode}\n"
         + installer_function("fetch_image")
-        + '\nfetch_image ghcr.io/mehdialij/paurubot:edge\nprintf "%s" "$PINNED_IMAGE"\n'
+        + '\nfetch_image ghcr.io/nexusguide/paurubot:edge\nprintf "%s" "$PINNED_IMAGE"\n'
     )
     result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=5)
     assert result.returncode == (0 if mode == "ok" else 17)
     assert "UNSAFE_BUILD" not in result.stdout
     if mode == "ok":
-        assert result.stdout == "ghcr.io/mehdialij/paurubot@sha256:synthetic"
+        assert result.stdout == "ghcr.io/nexusguide/paurubot@sha256:synthetic"
 
 
 def test_installer_backup_failure_prevents_source_image_or_environment_changes(tmp_path):

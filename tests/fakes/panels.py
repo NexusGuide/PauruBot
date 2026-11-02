@@ -554,6 +554,7 @@ class FakeRebeccaPanel(FakeTokenPanel):
         super().__init__("marzban")
         self.v2_bodies: list[dict[str, Any]] = []
         self.sources: dict[str, list[str]] = {}
+        self.insight_reads = 0
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -561,6 +562,7 @@ class FakeRebeccaPanel(FakeTokenPanel):
             if path == "/api/v2/services":
                 return httpx.Response(200, json={"services": [{"id": 7, "name": "Main"}]})
             if path == "/api/core/access/insights":
+                self.insight_reads += 1
                 items = [{"user_key": k, "user_label": k, "sources": v} for k, v in self.sources.items()]
                 return httpx.Response(200, json={"items": items})
             if path == "/api/v2/users" and request.method == "POST":

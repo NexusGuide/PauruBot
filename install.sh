@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PauruBot installer and manager.
 #
-#   bash <(curl -fsSL https://raw.githubusercontent.com/mehdialij/PauruBot/main/install.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/NexusGuide/PauruBot/main/install.sh)
 #
 # Without arguments it opens a menu. Every action also works non-interactively:
 #   install.sh install --domain bot.example.com --token 123:ABC --owner 123456 [--channel stable|beta] [--version v1.2.3] [--https-port 443]
@@ -16,8 +16,8 @@
 
 set -Eeuo pipefail
 
-REPO="mehdialij/PauruBot"
-IMAGE_REPO="ghcr.io/mehdialij/paurubot"
+REPO="NexusGuide/PauruBot"
+IMAGE_REPO="ghcr.io/nexusguide/paurubot"
 DIR="${PAURUBOT_DIR:-/opt/paurubot}"
 ENV_FILE="$DIR/.env"
 
@@ -223,7 +223,7 @@ fetch_image() {
 
 # Docker Hub refuses many Iranian addresses; fall back to the copies published next to our image.
 pick_base_images() {
-  local mirror="ghcr.io/mehdialij/paurubot-mirror" pair key image
+  local mirror="ghcr.io/nexusguide/paurubot-mirror" pair key image
   for pair in POSTGRES_IMAGE=postgres:16-alpine REDIS_IMAGE=redis:7-alpine CADDY_IMAGE=caddy:2-alpine; do
     key=${pair%%=*}
     image=${pair#*=}
@@ -310,6 +310,7 @@ MASTER_KEY=$(random_secret 64 64)
 BACKUP_PASSPHRASE=$passphrase
 POSTGRES_PASSWORD=$(random_secret 32 32)
 POSTGRES_APP_PASSWORD=$(random_secret 32 32)
+REDIS_PASSWORD=$(random_secret 32 32)
 BOT_MODE=polling
 TRUST_PROXY_HOPS=1
 TIMEZONE=Asia/Tehran
@@ -354,6 +355,7 @@ cmd_update() {
   done
   [[ -f $ENV_FILE ]] || die "not installed; run install first"
   [[ -n $(env_get POSTGRES_APP_PASSWORD) ]] || env_set POSTGRES_APP_PASSWORD "$(random_secret 32 32)"
+  [[ -n $(env_get REDIS_PASSWORD) ]] || env_set REDIS_PASSWORD "$(random_secret 32 32)"
   resolve_target "$channel" "$version"
   say "Updating to ${BOLD}$TARGET_REF${RESET} ($channel)…"
   say "Writing a backup first…"

@@ -15,7 +15,8 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
         ),
         r"\1\2<redacted>",
     ),
-    (re.compile(r"(?i)(://[^/\s:@]+:)[^@\s/]+@"), r"\1<redacted>@"),
+    # user:password@ and the password-only :password@ that a Redis URL uses (AUD-11).
+    (re.compile(r"(?i)(://[^/\s:@]*:)[^@\s/]+@"), r"\1<redacted>@"),
     (re.compile(r"\b(?:\d[ -]?){16}\b"), "<card>"),
 ]
 

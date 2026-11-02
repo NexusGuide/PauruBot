@@ -21,7 +21,7 @@ from paurubot import kv
 from paurubot.core import alert_policy, orders
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import utcnow
-from paurubot.db.models import Order, OrderStatus, Panel, Service, ServiceStatus
+from paurubot.db.models import Job, JobStatus, Order, OrderStatus, Panel, Service, ServiceStatus
 from paurubot.db.session import session_scope
 from paurubot.panels import PanelError, PanelUser
 from paurubot.provisioning.lifecycle import delete_service, lock_fresh, refresh, service_lease
@@ -260,6 +260,22 @@ async def apply_webhook_user(session: AsyncSession, panel: Panel, info: PanelUse
     )
     if service is None or service.status == ServiceStatus.DELETED:
         return None
+    # A refresh that has not started yet reads the panel when it runs, so later events can join
+    # it (AUD-3): a burst no longer buries paid orders in the provision queue. A running or
+    # finished one may already be behind this event, so it never absorbs it.
+    waiting = await session.scalar(
+        select(Job.id)
+        .where(
+            Job.queue == "provision",
+            Job.status == JobStatus.QUEUED,
+            Job.kind == "refresh_service",
+            Job.shop_id == service.shop_id,
+            Job.payload["service_id"].as_integer() == service.id,
+        )
+        .limit(1)
+    )
+    if waiting is not None:
+        return service
     await queue.enqueue(
         session,
         "provision",

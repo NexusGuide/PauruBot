@@ -165,7 +165,51 @@ async def test_delayed_job_handles_resource_changes(session, monkeypatch, condit
 
 
 async def test_later_webhooks_are_not_permanently_deduplicated(session) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import JobStatus
+
     panel, service = await env(session)
-    for _ in range(2):
-        await sync.apply_webhook_user(session, panel, PanelUser("hint-user"))
+    await sync.apply_webhook_user(session, panel, PanelUser("hint-user"))
+    first = await session.scalar(select(Job).where(Job.kind == "refresh_service"))
+    first.status = JobStatus.DONE  # a finished refresh never swallows a later event (AUD-3)
+    await session.flush()
+    await sync.apply_webhook_user(session, panel, PanelUser("hint-user"))
     assert await session.scalar(select(func.count(Job.id)).where(Job.kind == "refresh_service")) == 2
+
+
+async def test_a_burst_of_events_waits_on_one_queued_refresh(session) -> None:  # type: ignore[no-untyped-def]
+    """AUD-3: a refresh that has not started yet reads fresh state anyway; later events join it.
+
+    Every event used to queue its own refresh on the provision queue, so a chatty panel could
+    bury paid orders behind thousands of identical reads.
+    """
+    from paurubot.db.models import JobStatus
+
+    panel, service = await env(session)
+    for _ in range(50):
+        await sync.apply_webhook_user(session, panel, PanelUser("hint-user"))
+    jobs = list(await session.scalars(select(Job).where(Job.kind == "refresh_service")))
+    assert len(jobs) == 1
+    # Once that refresh has started (or finished), the next event must queue a new one: the
+    # running read may already be behind the change this event reports.
+    jobs[0].status = JobStatus.RUNNING
+    await session.flush()
+    await sync.apply_webhook_user(session, panel, PanelUser("hint-user"))
+    jobs[0].status = JobStatus.DONE
+    await session.flush()
+    await sync.apply_webhook_user(session, panel, PanelUser("hint-user"))
+    statuses = sorted(
+        j.status for j in await session.scalars(select(Job).where(Job.kind == "refresh_service"))
+    )
+    assert statuses == sorted([JobStatus.DONE, JobStatus.QUEUED])
+    # Another service on the same panel still gets its own.
+    other = Service(
+        shop_id=service.shop_id,
+        customer_id=service.customer_id,
+        panel_id=panel.id,
+        panel_username="hint-other",
+        status=ServiceStatus.ACTIVE,
+    )
+    session.add(other)
+    await session.flush()
+    await sync.apply_webhook_user(session, panel, PanelUser("hint-other"))
+    assert await session.scalar(select(func.count(Job.id)).where(Job.kind == "refresh_service")) == 3

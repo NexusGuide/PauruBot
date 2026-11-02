@@ -60,6 +60,36 @@ def test_pyproject_dependencies_are_all_in_requirements() -> None:
     assert declared <= listed, declared - listed
 
 
+# Requirements the code never imports by name: drivers and plugins loaded by another package.
+LOADED_INDIRECTLY = {
+    "asyncpg": "SQLAlchemy's postgresql+asyncpg driver",
+    "python-multipart": "FastAPI's form parsing",
+}
+IMPORT_NAMES = {
+    "pillow": "PIL",
+    "argon2-cffi": "argon2",
+    "sentry-sdk": "sentry_sdk",
+    "pydantic-settings": "pydantic_settings",
+}
+
+
+def test_every_requirement_is_used() -> None:
+    """AUD-8: apscheduler and jinja2 were shipped and kept up to date although nothing used them."""
+    import re
+
+    sources = "\n".join(
+        path.read_text(encoding="utf-8")
+        for folder in ("paurubot", "migrations")
+        for path in (ROOT / folder).rglob("*.py")
+    )
+    for requirement in _requirements():
+        name = canonicalize_name(requirement.name)
+        if name in LOADED_INDIRECTLY:
+            continue
+        module = IMPORT_NAMES.get(name, name.replace("-", "_"))
+        assert re.search(rf"^\s*(?:import|from) {re.escape(module)}\b", sources, re.MULTILINE), name
+
+
 def test_image_and_ci_install_only_the_hashed_lock() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text()
     assert "pip wheel --require-hashes --wheel-dir /wheels -r requirements.lock" in dockerfile

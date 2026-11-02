@@ -3,7 +3,11 @@
 # role its rights. Restores run through the migrate service for the same reason (SEC-F26).
 x-env: &env
   DATABASE_URL: postgresql+asyncpg://${POSTGRES_APP_USER:-paurubot_app}:${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_DB:-paurubot}
-  REDIS_URL: redis://redis:6379/0
+  # Redis holds staff sessions, login locks and leases: it asks every client for a password (AUD-11).
+  REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379/0
+  # env_file hands every container all of .env, the owner's password too (AUD-2). No running
+  # process needs it: compose reads it from .env to build the migrate service's URL.
+  POSTGRES_PASSWORD: ""
 
 x-app: &app
   image: ${PAURUBOT_IMAGE:-paurubot:local}
@@ -76,11 +80,20 @@ services:
   redis:
     image: ${REDIS_IMAGE:-redis:7-alpine}
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory-policy
+      - noeviction
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
     volumes:
       - redis:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -97,6 +110,12 @@ services:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+    # Caddy's admin endpoint answers on localhost only; a dead proxy now shows as unhealthy (AUD-12).
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     depends_on:
       - api
 

@@ -87,3 +87,17 @@ async def test_group_chats_are_left_alone(telegram, redis_clean) -> None:  # typ
     for _ in range(2):
         await start.home(group.as_(bot), t, cfg, None)
     assert _deleted(requests) == []
+
+
+async def test_a_menu_that_carries_an_outcome_is_kept(telegram, redis_clean) -> None:  # type: ignore[no-untyped-def]
+    """AUD-7: "payment received" or "added to your account" came with the menu and was then deleted."""
+    bot, requests = telegram
+    t, cfg = Texts("en"), cfg_for("reply")
+    await start.home(incoming(bot), t, cfg, None)
+    plain = _sent(requests)[-1]
+    await start.home(incoming(bot), t, cfg, None, "payment_return_paid", pid=7)
+    outcome = _sent(requests)[-1]
+    await start.home(incoming(bot), t, cfg, None)
+    await start.home(incoming(bot), t, cfg, None)
+    assert outcome not in _deleted(requests)  # the customer keeps the outcome
+    assert plain in _deleted(requests)  # stale plain menus still go

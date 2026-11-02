@@ -153,3 +153,10 @@ def test_panel_path_segments_cannot_leave_their_place() -> None:
     assert seg("user_1") == "user_1"
     assert seg("../admin?x=1#y") == "..%2Fadmin%3Fx%3D1%23y"
     assert TokenApiDriver.user_path(None, PanelRef("../../api/admin")) == "/api/user/..%2F..%2Fapi%2Fadmin"  # type: ignore[arg-type]
+
+
+def test_a_password_only_url_is_redacted() -> None:
+    """AUD-11: Redis takes a password with no user name (redis://:secret@host)."""
+    assert redact("redis://:S3cretRedisPass@redis:6379/0") == "redis://:<redacted>@redis:6379/0"
+    assert redact("postgresql://app:S3cret@db/x") == "postgresql://app:<redacted>@db/x"
+    assert redact("https://example.com:8443/path") == "https://example.com:8443/path"
