@@ -482,33 +482,37 @@ async def service_action(
         await guard(db, ctx, "service.delete", service.id, service.panel_username, body)
     before = snapshot(service, ["status", "expire_at", "data_limit", "subscription_url"])
     try:
-        if body.action in {"enable", "disable"}:
-            await lifecycle.set_enabled(db, service, body.action == "enable", "staff")
-        elif body.action == "revoke":
-            from paurubot.core.orders import can_change
+        # One owner per service: never write over a renewal or sync in flight (SEC-F09).
+        async with lifecycle.exclusive(db, service):
+            if body.action in {"enable", "disable"}:
+                await lifecycle.set_enabled(db, service, body.action == "enable", "staff")
+            elif body.action == "revoke":
+                from paurubot.core.orders import can_change
 
-            if not can_change(service, "revoke"):
-                raise HTTPException(status_code=422, detail="panel_cannot_revoke")
-            await lifecycle.revoke(db, service)
-        elif body.action == "reset_usage":
-            if ctx.scoped:  # fresh data for nothing: the same as a free extension
-                raise HTTPException(status_code=403, detail="forbidden")
-            panel = await db.get(Panel, service.panel_id)
-            assert panel is not None
-            from paurubot.panels import driver_for
+                if not can_change(service, "revoke"):
+                    raise HTTPException(status_code=422, detail="panel_cannot_revoke")
+                await lifecycle.revoke(db, service)
+            elif body.action == "reset_usage":
+                if ctx.scoped:  # fresh data for nothing: the same as a free extension
+                    raise HTTPException(status_code=403, detail="forbidden")
+                panel = await db.get(Panel, service.panel_id)
+                assert panel is not None
+                from paurubot.panels import driver_for
 
-            await (await driver_for(panel)).reset_usage(lifecycle.ref(service))
-            await lifecycle.refresh(db, service)
-        elif body.action == "delete":
-            await lifecycle.delete_service(db, service, body.reason or "deleted by staff")
-        else:
-            if ctx.scoped:
-                raise HTTPException(status_code=403, detail="forbidden")
-            from paurubot.core.orders import can_change
+                await (await driver_for(panel)).reset_usage(lifecycle.ref(service))
+                await lifecycle.refresh(db, service)
+            elif body.action == "delete":
+                await lifecycle.delete_service(db, service, body.reason or "deleted by staff")
+            else:
+                if ctx.scoped:
+                    raise HTTPException(status_code=403, detail="forbidden")
+                from paurubot.core.orders import can_change
 
-            if not can_change(service, "gift"):
-                raise HTTPException(status_code=422, detail="panel_cannot_extend")
-            await lifecycle.extend(db, service, days=body.days, gb=body.gb)
+                if not can_change(service, "gift"):
+                    raise HTTPException(status_code=422, detail="panel_cannot_extend")
+                await lifecycle.extend(db, service, days=body.days, gb=body.gb)
+    except lifecycle.ServiceBusy as exc:
+        raise HTTPException(status_code=409, detail="service_busy") from exc
     except PanelError as exc:
         raise HTTPException(status_code=502, detail="panel_error") from exc
     await record(

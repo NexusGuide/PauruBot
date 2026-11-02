@@ -167,12 +167,13 @@ async def test_customer_deletes_service_with_refund_once(session) -> None:  # ty
         )
         session.add(service)
         await session.flush()
+        # The panel is the truth the refund is priced from (SEC-F09): the same numbers as the row.
         fake.users["u_cancel"] = {
             "username": "u_cancel",
             "status": "active",
-            "used_traffic": 0,
-            "data_limit": 0,
-            "expire": 0,
+            "used_traffic": 2 * GB,
+            "data_limit": 10 * GB,
+            "expire": int(service.expire_at.timestamp()),
             "sub": "s",
         }
         paid = await _paid(session, shop, cust, 100_000)
@@ -188,6 +189,50 @@ async def test_customer_deletes_service_with_refund_once(session) -> None:  # ty
         assert await wallet_balance(session, shop.id, cust.id) == 40_000
         with pytest.raises(cancellation.CancelError):
             await cancellation.cancel(session, cust, service)
+    finally:
+        registry.test_transports.clear()
+        registry._cache.clear()
+
+
+async def test_a_refund_is_priced_from_the_panel_not_a_stale_copy(session) -> None:  # type: ignore[no-untyped-def]
+    """SEC-F09: data used since the last sync is not refunded as unused."""
+    shop = await factories.shop(session)
+    panel = await factories.panel(session, shop, PanelKind.MARZBAN)
+    fake = FakeTokenPanel("marzban")
+    registry.test_transports[panel.id] = transport(fake)
+    try:
+        plan = await factories.plan(session, shop, panel, price=100_000, days=30, data_gb=10)
+        cust = await factories.customer(session, shop)
+        expire = utcnow() + timedelta(days=30)
+        service = Service(
+            shop_id=shop.id,
+            customer_id=cust.id,
+            panel_id=panel.id,
+            plan_id=plan.id,
+            panel_username="u_stale",
+            status=ServiceStatus.ACTIVE,
+            data_limit=10 * GB,
+            used_bytes=0,  # the last sync saw nothing used...
+            expire_at=expire,
+        )
+        session.add(service)
+        await session.flush()
+        fake.users["u_stale"] = {
+            "username": "u_stale",
+            "status": "active",
+            "used_traffic": 9 * GB,  # ...but the customer has used 90% since
+            "data_limit": 10 * GB,
+            "expire": int(expire.timestamp()),
+            "sub": "s",
+        }
+        paid = await _paid(session, shop, cust, 100_000)
+        paid.service_id, paid.completed_at = service.id, utcnow()
+        await session.refresh(service, ["plan"])
+        await shop_settings.set_many(
+            session, shop.id, {"self_delete_enabled": True, "self_delete_refund_percent": 100}
+        )
+        assert await cancellation.quote(session, cust, service) >= 99_000  # what the stale row says
+        assert await cancellation.cancel(session, cust, service) == 10_000  # what is really left
     finally:
         registry.test_transports.clear()
         registry._cache.clear()

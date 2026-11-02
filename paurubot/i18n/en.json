@@ -1014,5 +1014,6 @@
   "trial_too_new": "Your account is brand new; try the free trial again a little later.",
   "adm_ticket_service": "🔌 Service #{id}: {status} · used {used} of {limit} · ends {expires}",
   "adm_ticket_service_down": "⚠️ This service's panel cannot be reached right now; the numbers are from the last sync.",
-  "adm_ticket_service_stored": "ℹ️ The numbers are from the last sync."
+  "adm_ticket_service_stored": "ℹ️ The numbers are from the last sync.",
+  "service_busy": "This service is being changed right now (a renewal, for example). Try again in a few seconds."
 }

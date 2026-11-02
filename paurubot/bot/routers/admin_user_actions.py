@@ -462,10 +462,10 @@ async def account_power(
     failed = 0
     for service in services:
         try:
-            async with session.begin_nested():
+            async with lifecycle.exclusive(session, service), session.begin_nested():
                 await lifecycle.set_enabled(session, service, enable, "staff")
-        except PanelError:
-            failed += 1
+        except (PanelError, lifecycle.ServiceBusy):
+            failed += 1  # a busy service is left for a second try, like an unreachable panel
             continue
         done.append(service.id)
         if not enable:

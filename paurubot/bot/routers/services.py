@@ -596,7 +596,12 @@ async def revoke(
         await call.answer(t("service_not_found"), show_alert=True)
         return
     try:
-        await lifecycle.revoke(session, service)
+        async with lifecycle.exclusive(session, service):  # SEC-F09
+            await lifecycle.revoke(session, service)
+    except lifecycle.ServiceBusy:
+        await session.rollback()
+        await call.answer(t("service_busy"), show_alert=True)
+        return
     except PanelError as exc:
         # The update middleware commits after the handler: drop whatever was half changed.
         await session.rollback()

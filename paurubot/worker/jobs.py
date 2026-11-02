@@ -165,25 +165,35 @@ async def bulk_service(session: AsyncSession, job: queue.Claimed) -> None:
         raise Permanent("service does not belong to this shop")
     action = str(data["action"])
     outcome = None
+    if action not in {"enable", "disable", "extend", "delete"}:
+        raise Permanent(f"unknown bulk action {action}")
     try:
-        if action in {"enable", "disable"}:
-            if action == "enable" and data.get("reason") and service.disabled_reason != data["reason"]:
-                return  # someone else disabled it since, for another reason
-            await lifecycle.set_enabled(session, service, action == "enable", data.get("reason") or "staff")
-        elif action == "extend":
-            if data.get("gift_target"):
-                from paurubot.core.service_gifts import apply_fixed
-
-                outcome = await apply_fixed(session, service, data["gift_target"])
-                await queue.update_payload(session, job, {**data, "outcome": outcome})
-            else:
-                await lifecycle.extend(
-                    session, service, days=int(data.get("days") or 0), gb=int(data.get("gb") or 0)
+        # The same owner as renewals and sync (SEC-F09), and every check below on the fresh row.
+        async with lifecycle.exclusive(session, service):
+            if service.status == ServiceStatus.DELETED:  # deleted while this job waited
+                if data.get("gift_target"):
+                    await queue.update_payload(session, job, {**data, "outcome": "skipped_ineligible"})
+                return
+            if action in {"enable", "disable"}:
+                if action == "enable" and data.get("reason") and service.disabled_reason != data["reason"]:
+                    return  # someone else disabled it since, for another reason
+                await lifecycle.set_enabled(
+                    session, service, action == "enable", data.get("reason") or "staff"
                 )
-        elif action == "delete":
-            await lifecycle.delete_service(session, service, data.get("reason") or "bulk delete")
-        else:
-            raise Permanent(f"unknown bulk action {action}")
+            elif action == "extend":
+                if data.get("gift_target"):
+                    from paurubot.core.service_gifts import apply_fixed
+
+                    outcome = await apply_fixed(session, service, data["gift_target"])
+                    await queue.update_payload(session, job, {**data, "outcome": outcome})
+                else:
+                    await lifecycle.extend(
+                        session, service, days=int(data.get("days") or 0), gb=int(data.get("gb") or 0)
+                    )
+            else:
+                await lifecycle.delete_service(session, service, data.get("reason") or "bulk delete")
+    except lifecycle.ServiceBusy as exc:
+        raise Defer(str(exc)) from exc
     except PanelUnavailable as exc:
         raise Retry(str(exc)) from exc
     await record(
