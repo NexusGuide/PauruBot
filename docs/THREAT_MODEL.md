@@ -34,7 +34,7 @@
 | T8 | SSRF through panel base URLs | Scheme allow-list, DNS resolution check on every request, metadata and link-local always blocked, private ranges only with explicit owner approval, no cross-host redirects | SEC-10 |
 | T9 | MITM on panels with self-signed certificates | TLS always verified; self-signed panels use a pinned certificate approved by the owner | PNL-* |
 | T10 | Secret leakage via logs, backups, errors | Redaction filter, encrypted secrets at rest, encrypted backups, generic API errors with correlation IDs | SEC-09, SEC-12 |
-| T11 | Admin credential stuffing | Login guard keyed by account and trusted-hop client IP, bcrypt, session versioning | SEC-04, SEC-07 |
+| T11 | Admin credential stuffing | Login guard keyed by account and trusted-hop client IP, Argon2id, session versioning | SEC-04, SEC-07 |
 | T12 | CSRF / XSS on the admin panel | Double-submit CSRF + Origin check, strict CSP without inline scripts, React escaping | SEC-05, SEC-06 |
 | T13 | Takeover of a fresh install | Setup wizard requires a one-time token printed to the operator console | SEC-08 |
 | T14 | Webhook spoofing (panel, gateway) | Secret token compared in constant time, provider signature checks | SEC-11, PNL-03 |

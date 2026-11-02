@@ -241,8 +241,6 @@ async def change_password(body: PasswordBody, ctx: CurrentStaff, response: Respo
     )
     if locked is None or not locked.is_active or locked.session_version != ctx.session.session_version:
         raise HTTPException(status_code=401, detail="session_revoked")
-    if (locked.password_hash or "").startswith(("$2a$", "$2b$", "$2y$")):
-        raise HTTPException(status_code=409, detail="legacy_password_reset_required")
     if not await verify_password_async(body.current_password, ctx.staff.password_hash):
         raise HTTPException(status_code=400, detail="wrong_password")
     await staff_service.change_password(db, ctx.staff, body.new_password)

@@ -6,7 +6,6 @@ import asyncio
 import re
 from unittest.mock import AsyncMock
 
-import bcrypt
 import httpx
 import pytest
 
@@ -16,7 +15,7 @@ from paurubot.auth import password_reset, sessions
 from paurubot.auth import staff as staff_service
 from paurubot.db.models import StaffRole
 from paurubot.notifications import telegram
-from paurubot.security.tokens import verify_password
+from paurubot.security.tokens import hash_password, verify_password
 from tests import factories
 
 pytestmark = pytest.mark.security
@@ -33,7 +32,7 @@ async def recovery_env(session, monkeypatch):  # type: ignore[no-untyped-def]
         password=None,
         telegram_id=88201,
     )
-    staff.password_hash = bcrypt.hashpw(b"a" * 72, bcrypt.gensalt(rounds=4)).decode()
+    staff.password_hash = hash_password("a" * 72)
     await session.commit()
     delivery = AsyncMock()
     monkeypatch.setattr(telegram, "send_text", delivery)
@@ -103,7 +102,7 @@ async def test_state_changes_or_expiry_invalidate_token(session, recovery_env, c
     elif condition == "version":
         staff.session_version += 1
     elif condition == "password":
-        staff.password_hash = bcrypt.hashpw(b"replacement", bcrypt.gensalt(rounds=4)).decode()
+        staff.password_hash = hash_password("replacement-password")
     else:
         await kv.get_redis().delete(password_reset._key(token))
     await session.commit()
@@ -166,24 +165,22 @@ async def test_failed_telegram_delivery_removes_challenge(recovery_env):  # type
     assert not [key for key in keys if b":send:" not in (key.encode() if isinstance(key, str) else key)]
 
 
-async def test_legacy_cookie_cannot_rotate_secret_with_a_suffix_collision(session, recovery_env):  # type: ignore[no-untyped-def]
+async def test_a_suffix_of_the_password_cannot_sign_in_or_rotate_it(session, recovery_env):  # type: ignore[no-untyped-def]
+    """bcrypt let "a" * 72 plus any tail sign in; with Argon2id only the exact password does (AUD-10)."""
     env = recovery_env
-    response = await env["client"].post(
-        "/api/auth/login",
-        json={"username": "recover-owner", "password": "a" * 72 + "attacker-tail"},
+    original = env["staff"].password_hash
+    for tail in ("attacker-tail", "another-tail"):
+        response = await env["client"].post(
+            "/api/auth/login",
+            json={"username": "recover-owner", "password": "a" * 72 + tail},
+        )
+        assert response.status_code == 401
+    exact = await env["client"].post(
+        "/api/auth/login", json={"username": "recover-owner", "password": "a" * 72}
     )
-    assert response.status_code == 200
-    result = await env["client"].post(
-        "/api/auth/password",
-        headers={"x-csrf-token": response.json()["csrf_token"]},
-        json={
-            "current_password": "a" * 72 + "another-tail",
-            "new_password": "attacker-replacement",
-        },
-    )
-    assert result.status_code == 409 and result.json()["error"] == "legacy_password_reset_required"
+    assert exact.status_code == 200
     await session.refresh(env["staff"])
-    assert env["staff"].password_hash.startswith("$2b$")
+    assert env["staff"].password_hash == original and original.startswith("$argon2id$")
 
 
 async def test_requester_cannot_supply_destination_or_target_account(recovery_env):  # type: ignore[no-untyped-def]

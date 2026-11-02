@@ -21,7 +21,7 @@
 | یافته | وضعیت فعلی | شاهد |
 |---|---|---|
 | S01 ارسال خطای یک shop به همهٔ tenantها | ✅ رفع شد | `logs.py` حالا `shop_id` را در envelope می‌گذارد. `notifications/error_reports.py` خطا را فقط به کانال errors همان shop می‌فرستد، یا اگر shop نامعلوم باشد فقط به `owner_telegram_ids`. `deliver()` هم مقصد را دوباره بررسی می‌کند. |
-| S02 بریدن رمز در ۷۲ بایت | ✅ رفع شد (با باقیماندهٔ legacy) | `security/tokens.py`: hashهای جدید Argon2id هستند. hashهای قدیمی bcrypt همچنان با `[:72]` verify می‌شوند و عمداً rehash خودکار ندارند. این رفتار مستند است، ولی کاربران قدیمی تا تعویض رمز همان collision را دارند. |
+| S02 بریدن رمز در ۷۲ بایت | ✅ رفع شد | `security/tokens.py`: فقط hashهای Argon2id پذیرفته می‌شوند. خوانندهٔ bcrypt (که فقط ۷۲ بایت اول را می‌دید) و خود وابستگی `bcrypt` در AUD-10 حذف شدند. |
 | S03 اعتماد کارت قبل از سقف/ریسک | ✅ رفع شد | `payments/engine.py:auto_approvable`: اول flag، بعد سقف (سقف ≤۰ یعنی رد)، بعد trust. trust فقط شرط سابقه را کنار می‌گذارد. |
 | S04 overwrite وضعیت با webhook کهنه | ✅ رفع شد | webhook دیگر state را اعمال نمی‌کند. `apply_webhook_user` فقط job `refresh_service` می‌سازد و پاسخ `applied: 0` است. |
 | S05 DNS rebinding / TOCTOU | ✅ رفع شد | `panels/transport.py` ← `security/http.ValidatedTransport`: اتصال به همان IPهای validateشده bind می‌شود. |
