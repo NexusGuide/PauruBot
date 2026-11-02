@@ -57,3 +57,42 @@ async def test_panel_webhook_rejects_missing_or_wrong_secret(client, session) ->
         f"/api/webhooks/panel/{panel.id}", json=[], headers={"x-webhook-secret": "the-right-secret-value"}
     )
     assert right.status_code == 200 and right.json()["received"] == 0
+
+
+async def test_telegram_is_answered_before_the_update_is_handled(client, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """AUD-4: a slow handler must not hold Telegram's request open.
+
+    The update was handled inside the request. Past Telegram's timeout it sends the same update
+    again, and handlers that already started work would run twice. Its body was also read whole,
+    with no size limit, unlike every other webhook.
+    """
+    import asyncio
+
+    from paurubot.api.routes import telegram as route
+
+    monkeypatch.setattr(get_settings(), "bot_mode", "webhook")
+    release, seen = asyncio.Event(), []
+
+    class Slow:
+        async def feed_update(self, bot, update, **kwargs):  # type: ignore[no-untyped-def]
+            seen.append(update.update_id)
+            await release.wait()
+
+    monkeypatch.setattr(route, "dispatcher", lambda: Slow())
+    monkeypatch.setattr("paurubot.notifications.telegram.get_bot", lambda: None)
+    headers = {"x-telegram-bot-api-secret-token": webhook_secret()}
+    response = await asyncio.wait_for(
+        client.post("/api/telegram/webhook", json={"update_id": 7}, headers=headers), timeout=2
+    )
+    assert response.status_code == 200
+    await asyncio.sleep(0)
+    assert seen == [7]  # handled, just not while Telegram waited
+    release.set()
+    await route.drain(grace=2)
+    assert not route._handling
+
+    huge = b'{"update_id": 8, "pad": "' + b"x" * (route.MAX_UPDATE + 1) + b'"}'
+    response = await client.post(
+        "/api/telegram/webhook", content=huge, headers={**headers, "content-type": "application/json"}
+    )
+    assert response.status_code == 413 and seen == [7]

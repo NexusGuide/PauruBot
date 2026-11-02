@@ -26,7 +26,10 @@ PRIVATE_NETWORKS = [
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
+    from paurubot.api.routes import telegram
     from paurubot.db.session import dispose_engine
+
+    await telegram.drain()  # updates already answered to Telegram finish first (AUD-4)
     from paurubot.kv import close_redis
     from paurubot.panels import close_all
 
