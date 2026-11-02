@@ -22,3 +22,12 @@ def normalize(raw: str | None) -> str | None:
     if not 7 <= len(digits) <= MAX_DIGITS:
         return None
     return digits
+
+
+def allowed(raw: str | None, country_codes: list[str] | None) -> str | None:
+    """The normalized number when the shop accepts it (its country codes, if any), else None."""
+    phone = normalize(raw)
+    codes = [str(code).lstrip("+") for code in country_codes or []]
+    if phone is None or (codes and not any(phone.startswith(code) for code in codes)):
+        return None
+    return phone

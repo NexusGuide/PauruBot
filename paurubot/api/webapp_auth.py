@@ -36,7 +36,7 @@ JOIN_CACHE_TTL = 300
 # The join screen calls these two; they must work before the customer has joined (GRW-07).
 JOIN_PATHS = {"/api/webapp/join", "/api/webapp/join/check"}
 # The phone/terms screen calls these; they must work before the customer passes that gate (SEC-F11).
-GATE_PATHS = {"/api/webapp/gate", "/api/webapp/gate/terms"}
+GATE_PATHS = {"/api/webapp/gate", "/api/webapp/gate/terms", "/api/webapp/gate/phone"}
 
 _reseller_tokens_cache: tuple[float, list[tuple[int, str]]] | None = None
 

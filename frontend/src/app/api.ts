@@ -343,6 +343,8 @@ export const api = {
   checkJoin: () => post<{ ok: boolean; channels: JoinChannel[] }>("/join/check"),
   gate: () => get<GateInfo>("/gate"),
   acceptTerms: (version: number) => post<GateInfo>("/gate/terms", { version }),
+  /** The signed contact from requestContact, checked and saved by the server (F-12). */
+  sharePhone: (response: string) => post<GateInfo>("/gate/phone", { response }),
   setAlerts: (muted: boolean) => post<{ alerts_muted: boolean }>("/me/alerts", { alerts_muted: muted }),
   setMarketing: (optOut: boolean) =>
     post<MarketingPreference>("/me/marketing", { marketing_opt_out: optOut }),

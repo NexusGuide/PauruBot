@@ -25,9 +25,14 @@ export function Gate() {
   };
 
   // Telegram hands the contact to the bot, which saves it; give it a moment, then ask again.
+  // Done once the phone is no longer what is missing: the terms may still be next.
   const settle = async () => {
     for (let attempt = 0; attempt < 5; attempt++) {
-      if (await checkGate()) return true;
+      const answer = await api.gate();
+      if (answer.requirement !== "phone_required") {
+        await checkGate(answer);
+        return true;
+      }
       await wait(1200);
     }
     return false;
@@ -39,10 +44,29 @@ export function Gate() {
         openBot();
         return;
       }
-      const sent = await new Promise<boolean>((resolve) => tg?.requestContact?.((ok) => resolve(Boolean(ok))));
-      if (!sent) {
+      const shared = await new Promise<{ sent: boolean; signed: string | null }>((resolve) =>
+        tg?.requestContact?.((ok, result) => resolve({
+          sent: Boolean(ok),
+          signed: typeof result?.response === "string" && result.response ? result.response : null,
+        })));
+      if (!shared.sent) {
         toast(t("gate_phone_cancelled"), "error");
         return;
+      }
+      // The signed copy settles it at once (F-12); without one, wait for the bot to save it.
+      if (shared.signed) {
+        try {
+          const next = await api.sharePhone(shared.signed);
+          haptic("success");
+          await checkGate(next); // the phone is saved; the terms may still be next
+          return;
+        } catch (err) {
+          const code = err instanceof Error ? err.message : "";
+          if (code === "phone_country_not_allowed" || code === "phone_not_yours") {
+            toast(t(`err_${code}`), "error");
+            return;
+          }
+        }
       }
       if (!(await settle())) toast(t("gate_phone_not_yet"), "error");
     });

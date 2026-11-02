@@ -252,6 +252,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/cards/verification` | Mini App initData | Own masked card verification status and the current shop policy. |
 | POST | `/api/webapp/cards/verification` | Mini App initData | Register one card photograph for existing staff review; never start a payment. |
 | GET | `/api/webapp/catalog` | Mini App initData | Catalog view |
+| POST | `/api/webapp/gate/phone` | Mini App initData | Save the phone from the Mini App's signed contact (F-12), with the bot's own rules. |
 | POST | `/api/webapp/gate/terms` | Mini App initData | Accept the terms version that was shown; a newer version answers 409 terms_changed. |
 | GET | `/api/webapp/gate` | Mini App initData | What the customer must still do, phone then terms, before the rest of the Mini App answers (SEC-F11). |
 | GET | `/api/webapp/help` | Mini App initData | Customer help view |
