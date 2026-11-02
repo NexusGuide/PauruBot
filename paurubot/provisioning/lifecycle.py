@@ -898,9 +898,12 @@ async def _move_service(session: AsyncSession, order: Order) -> Service:
         else:
             raise ProvisionError("panel_username_unavailable")
     if info is None:
-        # The intent before the call: a retry adopts only an account it asked for itself.
+        # The intent before the call: a retry adopts only an account it asked for itself, and a
+        # job that gives up parks the move instead of refunding it (SEC-F08).
         move = {**move, "created": spec.username}
         order.params = params = {**(order.params or {}), "move": move}
+        create_state.attempt(order, target.id, spec.username)
+        params = dict(order.params)
         await session.commit()
         info = await driver.create_user(spec)
     service.panel_id = target.id
@@ -913,6 +916,7 @@ async def _move_service(session: AsyncSession, order: Order) -> Service:
         service.status = ServiceStatus.ON_HOLD
     params["moved"] = True
     order.params = params
+    create_state.confirm(order)
     await session.flush()
     from paurubot.worker import queue
 
