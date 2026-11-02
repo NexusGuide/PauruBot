@@ -596,13 +596,11 @@ async def daily_backup() -> None:
 
 @every(300, "reports.daily")
 async def daily_report() -> None:
-    from datetime import timedelta
 
     from paurubot import kv
-    from paurubot.config import get_settings
     from paurubot.core import settings as shop_settings
     from paurubot.core.formatting import jdate, money
-    from paurubot.core.reports import as_params, daily_summary, day_bounds
+    from paurubot.core.reports import as_params, daily_summary, day_bounds, report_day
     from paurubot.i18n import Texts, load_overrides
     from paurubot.notifications import telegram
     from paurubot.notifications.handlers import staff_chats
@@ -613,11 +611,9 @@ async def daily_report() -> None:
     for shop_id in shop_ids:
         async with session_scope() as session:
             cfg = await shop_settings.load(session, shop_id)
-            local = now.astimezone(get_settings().tz)
-            if local.hour != int(cfg.get("daily_report_hour") or 23):
-                continue
-            # A report sent in the small hours covers the day that just ended.
-            start, end = day_bounds(now - timedelta(hours=6) if local.hour < 6 else now)
+            hour = cfg.get("daily_report_hour")
+            # Due from its hour on, so a missed hour sends it late instead of never (REF-06).
+            start, end = day_bounds(report_day(now, 23 if hour is None else int(hour)))
             marker = f"report:daily:{shop_id}:{start.date().isoformat()}"
             if not await kv.get_redis().set(marker, "1", nx=True, ex=3 * 86400):
                 continue

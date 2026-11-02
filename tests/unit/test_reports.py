@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import timedelta
 
+import pytest
+
 from paurubot.core.reports import daily_summary, day_bounds
 from paurubot.db.base import utcnow
 from paurubot.db.models import Order, OrderKind, OrderStatus, Payment, PaymentPurpose, PaymentStatus
@@ -91,3 +93,56 @@ def test_no_dsn_means_no_monitoring(monkeypatch) -> None:  # type: ignore[no-unt
 
     monkeypatch.setattr(get_settings(), "sentry_dsn", SecretStr(""))
     assert setup_error_monitoring("api") is False
+
+
+# --- REF-06: a missed report hour still sends the report --------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("now", "hour", "day"),
+    [
+        ("2026-11-02T23:10", 23, "2026-11-02"),  # on time
+        ("2026-11-03T02:30", 23, "2026-11-02"),  # the worker missed 23:00: yesterday's report, late
+        ("2026-11-03T10:00", 23, "2026-11-02"),  # still yesterday's until 23:00 comes again
+        ("2026-11-03T00:20", 0, "2026-11-02"),  # midnight now works (it used to read as 23)
+        ("2026-11-03T05:59", 0, "2026-11-02"),
+        ("2026-11-03T09:00", 9, "2026-11-03"),
+        ("2026-11-03T08:59", 9, "2026-11-02"),
+    ],
+)
+def test_report_day_is_due_from_its_hour_on(now: str, hour: int, day: str) -> None:
+    from datetime import datetime
+
+    from paurubot.config import get_settings
+    from paurubot.core.reports import day_bounds, report_day
+
+    local = datetime.fromisoformat(now).replace(tzinfo=get_settings().tz)
+    start, _ = day_bounds(report_day(local, hour))
+    assert start.date().isoformat() == day
+
+
+async def test_a_missed_hour_sends_the_report_late_and_once(session, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from paurubot import kv
+    from paurubot.config import get_settings
+    from paurubot.core import settings as shop_settings
+    from paurubot.db.models import LogChannel
+    from paurubot.notifications import telegram
+    from paurubot.worker import jobs
+
+    shop = await factories.shop(session)
+    session.add(LogChannel(shop_id=shop.id, topic="reports", chat_id=-100777))
+    hour = (utcnow().astimezone(get_settings().tz) - timedelta(hours=2)).hour  # two hours ago
+    await shop_settings.set_many(session, shop.id, {"daily_report_hour": hour})
+    await session.commit()
+    sent: list[int] = []
+
+    async def capture(chat_id, text, **kwargs):  # type: ignore[no-untyped-def]
+        sent.append(chat_id)
+
+    monkeypatch.setattr(telegram, "send_text", capture)
+    await kv.get_redis().delete(
+        *[k async for k in kv.get_redis().scan_iter(f"report:daily:{shop.id}:*")] or ["-"]
+    )
+    await jobs.daily_report()
+    await jobs.daily_report()  # the next 5-minute run: already sent
+    assert sent.count(-100777) == 1
