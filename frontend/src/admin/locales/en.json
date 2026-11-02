@@ -581,7 +581,7 @@
   "save_changes": "Save changes",
   "saved": "Saved.",
   "search_customers": "Username, name, phone or ID",
-  "search_services": "Service name or panel username",
+  "search_services": "Service name, panel username or subscription link",
   "search_texts": "Search key or text",
   "secret_set_hint": "Set. Type a new value to replace it.",
   "secret_unchanged_hint": "Leave empty to keep the current one.",

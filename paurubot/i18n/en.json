@@ -15,7 +15,7 @@
   "adm_found": "Found:",
   "adm_home": "⚙️ <b>Admin panel</b>",
   "adm_lookup": "🔎 Find a user",
-  "adm_lookup_ask": "Send the user's numeric ID, username or phone number:",
+  "adm_lookup_ask": "Send the user's numeric ID, username, phone number or subscription link:",
   "adm_maintenance_off": "✅ Leave maintenance mode",
   "adm_maintenance_on": "🛠 Enable maintenance mode",
   "adm_no_applications": "No applications waiting.",

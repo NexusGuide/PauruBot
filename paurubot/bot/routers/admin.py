@@ -854,8 +854,23 @@ async def lookup(
     cfg: dict[str, Any],
     state: FSMContext,
 ) -> None:
-    rows, _ = await customers.search(session, shop.id, message.text or "", limit=1)
     await state.clear()
+    from paurubot.core import sub_links
+
+    linked = await sub_links.find(session, shop.id, message.text)
+    if linked is not None:
+        # A pasted subscription link: its service, or its owner for staff who cannot see services (REF-07).
+        await message.answer(t("adm_found"), reply_markup=menu(t, cfg, staff))
+        if staff.can("services.read"):
+            from paurubot.bot.routers.admin_tools import service_kb, service_text
+
+            await message.answer(service_text(t, linked), reply_markup=service_kb(t, linked, staff))
+        owner = await customers.get(session, shop.id, linked.customer_id)
+        if owner is not None:
+            text, kb = await customer_card(session, t, owner, staff)
+            await message.answer(text, reply_markup=kb)
+        return
+    rows, _ = await customers.search(session, shop.id, message.text or "", limit=1)
     if not rows:
         # Not a customer: maybe a service's panel username or label (ADM-09).
         query = (message.text or "").strip().lstrip("@")[:64]
