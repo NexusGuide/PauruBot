@@ -8,6 +8,7 @@ from fastapi import FastAPI
 OPTIONAL_ROUTERS: list[str] = [
     "pay",
     "webhooks",
+    "card_sms",
     "telegram",
     "webapp",
     "tonpay_custom",

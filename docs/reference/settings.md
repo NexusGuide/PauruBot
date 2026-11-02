@@ -74,6 +74,8 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `card_auto_approve_after_minutes` | int | 0 | Approve unreviewed receipts after (minutes). 0 turns it off. Only up to the auto-approve amount; duplicates and risky customers always wait for a person |
 | `card_pick` | str | "all" | Which card customers see. all, random (one at random) or rotate (one card after another) |
 | `card_random_tail` | bool | false | Add a random tail to card amounts. A few Toman (up to 999) so every receipt matches one payment; the extra goes to the customer's wallet |
+| `card_sms_enabled` | bool | false | Confirm card payments by bank SMS. An SMS forwarder app on the phone that receives the account's SMS posts each message to https://<domain>/api/sms/card/<shop id> with the key in the X-Api-Key header (or a key field). A deposit SMS whose amount matches exactly one open payment approves it. While on, every card payment asks for a unique amount |
+| `card_sms_secret` | str (secret) | — | SMS webhook key. At least 24 random characters. Anyone holding it can approve payments; enter it only in the forwarder app |
 | `card_verify_enabled` | bool | false | Customers register their card first. Before paying card to card, the customer sends the card number and a photo of the card; staff approve it in the bot. Trusted customers skip this |
 | `card_verify_min_amount` | int | 0 | Card registration needed from (Toman). 0 means for every card payment |
 | `topup_bonus_rules` | list | [] | Top-up bonus. A share of each top-up added as a gift. The largest matching bonus applies |

@@ -436,6 +436,27 @@ async def payment_voided(session: AsyncSession, job: queue.Claimed) -> None:
     await _to_customer(session, customer, "\n\n".join(lines))
 
 
+async def card_sms(session: AsyncSession, job: queue.Claimed) -> None:
+    """What a bank deposit SMS did (REF-02), in the payments log channel."""
+    shop = await session.get(Shop, job.shop_id) if job.shop_id is not None else None
+    if shop is None:
+        return
+    t = await texts_for(session, shop.id, shop.default_locale)
+    data = job.payload
+    rial = int(data.get("amount_rial") or 0)
+    values: dict[str, Any] = {
+        "amount": money(rial // 10),
+        "rial": money(rial),
+        "id": data.get("payment_id") or "-",
+        "count": int(data.get("candidates") or 0),
+        "text": esc(str(data.get("text") or "")),
+    }
+    outcome = str(data.get("outcome"))
+    if outcome not in {"approved", "unmatched", "ambiguous"}:
+        raise Permanent(f"unknown card sms outcome {outcome}")
+    await report(session, shop.id, "payments", t(f"report_card_sms_{outcome}", **values))
+
+
 async def receipt_review(session: AsyncSession, job: queue.Claimed) -> None:
     from paurubot.bot.routers.admin import receipt_caption, review_kb
 
@@ -1164,6 +1185,7 @@ register_queue(
             "payment_fulfilled": payment_fulfilled,
             "payment_rejected": payment_rejected,
             "payment_voided": payment_voided,
+            "card_sms": card_sms,
             "receipt_review": receipt_review,
             "review_decided": review_decided,
             "payment_fix_requested": payment_fix_requested,

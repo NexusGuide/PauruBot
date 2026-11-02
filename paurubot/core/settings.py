@@ -89,6 +89,9 @@ SPECS: dict[str, Spec] = {
     "card_auto_approve_after_minutes": Spec(int, 0, "payments"),
     "card_pick": Spec(str, "all", "payments"),
     "card_random_tail": Spec(bool, False, "payments"),
+    # Bank deposit SMS posted by a forwarder app approve card payments (REF-02).
+    "card_sms_enabled": Spec(bool, False, "payments"),
+    "card_sms_secret": Spec(str, "", "payments", secret=True),
     "card_verify_enabled": Spec(bool, False, "payments"),
     "card_verify_min_amount": Spec(int, 0, "payments"),
     "topup_bonus_rules": Spec(list, [], "payments"),
@@ -341,6 +344,18 @@ async def set_many(session: AsyncSession, shop_id: int, values: dict[str, Any]) 
                 configuration(shop_id, merged, int(merged["min_topup"]), int(merged["max_topup"]))
             except (PaymentError, TypeError, ValueError):
                 raise SettingError("tonpay_custom_configuration_invalid") from None
+    if "card_sms_secret" in clean or clean.get("card_sms_enabled"):
+        # A guessable key would let anyone approve card payments (REF-02).
+        secret = clean.get("card_sms_secret")
+        if secret is not None and secret != "" and len(secret) < 24:
+            raise SettingError("card_sms_secret_short")
+        if secret is None and "card_sms_secret" not in clean:
+            secret = (await load(session, shop_id, fresh=True)).get("card_sms_secret")
+        enabled = clean.get("card_sms_enabled")
+        if enabled is None:
+            enabled = (await load(session, shop_id, fresh=True)).get("card_sms_enabled")
+        if enabled and not secret:
+            raise SettingError("card_sms_secret_required")
     for key, value in clean.items():
         stored = value
         if SPECS[key].secret and value:

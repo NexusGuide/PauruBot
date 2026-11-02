@@ -224,6 +224,12 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/setup/complete` | one-time setup token | Complete |
 | GET | `/api/setup/status` | public | Status |
 
+## `/api/sms`
+
+| Method | Path | Access | What it does |
+|---|---|---|---|
+| POST | `/api/sms/card/{shop_id}` | public | A bank deposit SMS from the shop's forwarder app (REF-02); the key is the shop's SMS secret. |
+
 ## `/api/telegram`
 
 | Method | Path | Access | What it does |

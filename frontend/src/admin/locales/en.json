@@ -1742,5 +1742,11 @@
   "err_void_service_missing": "The service of this order was not found. Check the order first.",
   "err_void_service_changed": "Another payment was made on this order's service later. Turning it off would also take away that purchase; handle it by hand.",
   "err_void_order_state": "The order of this payment is in a state that cannot be voided.",
-  "err_void_wallet_spent": "The customer already spent this payment's credit. Cancel the other purchase or adjust the wallet by hand first."
+  "err_void_wallet_spent": "The customer already spent this payment's credit. Cancel the other purchase or adjust the wallet by hand first.",
+  "setting_card_sms_enabled": "Confirm card payments by bank SMS",
+  "setting_card_sms_enabled_hint": "An SMS forwarder app on the phone that receives the account's SMS posts each message to https://<domain>/api/sms/card/<shop id> with the key in the X-Api-Key header (or a key field). A deposit SMS whose amount matches exactly one open payment approves it. While on, every card payment asks for a unique amount.",
+  "setting_card_sms_secret": "SMS webhook key",
+  "setting_card_sms_secret_hint": "At least 24 random characters. Anyone holding it can approve payments; enter it only in the forwarder app.",
+  "err_card_sms_secret_short": "The SMS webhook key must be at least 24 characters.",
+  "err_card_sms_secret_required": "Set the SMS webhook key before turning SMS confirmation on."
 }
