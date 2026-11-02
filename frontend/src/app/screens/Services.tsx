@@ -14,7 +14,10 @@ import { AutoRenew } from "../autoRenew/AutoRenew";
 import { UsageChart } from "../usage/UsageChart";
 import { createActionGate, runServiceAction } from "../service-read";
 import { normalizedServiceLabel } from "../service-label";
-import { SERVICE_STATUSES, readServicePage, serviceFilter, servicesReturnTo, type ServiceFilter } from "../service-pages";
+import {
+  SERVICE_STATUSES, readServiceGroups, readServicePage, serviceFilter, serviceGroup, servicesReturnTo,
+  type ServiceFilter, type ServiceGroup,
+} from "../service-pages";
 
 /** Badge tone for a service status: green while healthy, saffron while settling, red once it is gone. */
 function statusTone(status: string) {
@@ -39,13 +42,23 @@ export function Services() {
     if (navigationType !== "REPLACE" || location.state?.serviceFilterEditor !== editor) setQuery(urlQuery);
   }, [urlQuery, location.key, location.state, navigationType, editor]);
   const status = serviceFilter(params.get("status"));
+  const group = serviceGroup(params.get("group"));
   const query = q.trim();
   const returnTo = servicesReturnTo(`/services?${params}`);
-  const change = (nextQuery: string, nextStatus: ServiceFilter) => {
+  // Services by location (F-19): offered only when they live in two or more places.
+  const [groups, setGroups] = useState<ServiceGroup[]>([]);
+  useEffect(() => {
+    const current = new AbortController();
+    void api.serviceGroups(current.signal).then(value => { if (!current.signal.aborted) setGroups(readServiceGroups(value)); })
+      .catch(() => { /* the list still works without its groups */ });
+    return () => current.abort();
+  }, []);
+  const change = (nextQuery: string, nextStatus: ServiceFilter, nextGroup: number | null = group) => {
     setQuery(nextQuery);
     const next = new URLSearchParams();
     if (nextQuery) next.set("q", nextQuery);
     if (nextStatus) next.set("status", nextStatus);
+    if (nextGroup !== null) next.set("group", String(nextGroup));
     setParams(next, { replace: true, state: { serviceFilterEditor: editor } });
   };
   return <Screen title={t("my_services")}>
@@ -60,17 +73,28 @@ export function Services() {
         <option value="">{t("all")}</option>
         {SERVICE_STATUSES.map(value => <option key={value} value={value}>{t(`status_${value}`)}</option>)}
       </select>
-      {(query || status) && <Button tone="quiet" onClick={() => change("", "")}>{t("services_clear")}</Button>}
+      {(query || status || group !== null) && <Button tone="quiet" onClick={() => change("", "", null)}>{t("services_clear")}</Button>}
     </div>
+    {groups.length > 0 && <div className="app-chips" role="group" aria-label={t("services_group")}>
+      <button type="button" className="app-chip" aria-pressed={group === null} onClick={() => change(q, status, null)}>
+        {t("services_group_all")}
+      </button>
+      {groups.map(g => <button key={g.id} type="button" className="app-chip" aria-pressed={group === g.id}
+        onClick={() => change(q, status, g.id)}>
+        {g.flag && <span aria-hidden="true">{g.flag}</span>}
+        <span>{g.title || t("services_group_other")}</span>
+        <span className="opacity-70">{g.count}</span>
+      </button>)}
+    </div>}
     <StockInventory />
-    <ServiceResults key={JSON.stringify([query, status])} q={query} status={status} returnTo={returnTo} />
+    <ServiceResults key={JSON.stringify([query, status, group])} q={query} status={status} group={group} returnTo={returnTo} />
     <Button onClick={() => navigate("/buy")}>
       <span className="inline-flex items-center gap-2"><Icon name="bag" />{t("buy_new_service")}</span>
     </Button>
   </Screen>;
 }
 
-function ServiceResults({ q, status, returnTo }: { q: string; status: ServiceFilter; returnTo: string }) {
+function ServiceResults({ q, status, group, returnTo }: { q: string; status: ServiceFilter; group: number | null; returnTo: string }) {
   const { t, locale } = useApp();
   const navigate = useNavigate();
   const [items, setItems] = useState<Service[] | null>(null);
@@ -91,13 +115,13 @@ function ServiceResults({ q, status, returnTo }: { q: string; status: ServiceFil
     controller.current = current;
     const valid = () => active.current && id === sequence.current && !current.signal.aborted;
     const timer = window.setTimeout(() => {
-      void api.servicePage(q, status, undefined, current.signal).then(value => readServicePage(value))
+      void api.servicePage(q, status, undefined, current.signal, group).then(value => readServicePage(value))
         .then(page => { if (valid()) { setItems(page.items); setNextBefore(page.next_before); } })
         .catch(reason => { if (valid()) setError(reason); })
         .finally(() => { if (valid()) { busy.current = false; setLoading(false); } });
     }, q ? 250 : 0);
     return () => { active.current = false; sequence.current++; window.clearTimeout(timer); current.abort(); controller.current?.abort(); };
-  }, [q, status, attempt]);
+  }, [q, status, group, attempt]);
 
   const more = async () => {
     if (!active.current || busy.current || nextBefore === null) return;
@@ -110,7 +134,7 @@ function ServiceResults({ q, status, returnTo }: { q: string; status: ServiceFil
     controller.current = current;
     const valid = () => active.current && id === sequence.current && !current.signal.aborted;
     try {
-      const page = readServicePage(await api.servicePage(q, status, before, current.signal), before);
+      const page = readServicePage(await api.servicePage(q, status, before, current.signal, group), before);
       if (valid()) { setItems(previous => [...(previous ?? []), ...page.items]); setNextBefore(page.next_before); }
     } catch (reason) {
       if (valid()) setError(reason);
@@ -122,8 +146,8 @@ function ServiceResults({ q, status, returnTo }: { q: string; status: ServiceFil
   return <div aria-busy={loading}>
     {Boolean(error) && <ReadFailure error={error} retry={() => { if (items === null) setAttempt(value => value + 1); else void more(); }} />}
     {items === null && loading && <Loading />}
-    {items?.length === 0 && <Empty title={t(q || status ? "services_no_matches" : "no_service_yet")}
-      hint={t(q || status ? "services_no_matches_hint" : "no_service_hint")} />}
+    {items?.length === 0 && <Empty title={t(q || status || group !== null ? "services_no_matches" : "no_service_yet")}
+      hint={t(q || status || group !== null ? "services_no_matches_hint" : "no_service_hint")} />}
     {items && <>
       <ul className="flex flex-col">
         {items.map((service) => {
@@ -195,6 +219,8 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
   const [renaming, setRenaming] = useState(false);
   const [label, setLabel] = useState("");
   const [renameError, setRenameError] = useState<unknown>(null);
+  const [moving, setMoving] = useState<{ price: number; targets: { location_id: number; title: string; flag: string | null }[] } | null>(null);
+  const [cancelling, setCancelling] = useState<number | null>(null);
   const gate = useRef(createActionGate());
   useEffect(() => {
     const current = createActionGate();
@@ -258,6 +284,31 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
   };
 
   const can = (change: string) => !service.changes || service.changes.includes(change);
+  const allowed = (action: string) => Boolean(service.actions?.includes(action));
+
+  // Changing the location (F-03): the destinations the shop offers, then the usual checkout.
+  const openMove = () => runServiceAction(gate.current, () => {
+    setBusy("move");
+    return api.moveOptions(service.id);
+  }, result => {
+    if (result.targets.length === 0) toast(t("move_no_targets"), "error");
+    else setMoving(result);
+  }, err => toast(errorText(t, err), "error"), () => setBusy(null));
+
+  // Deleting the service (F-03): what comes back first, then an explicit confirmation.
+  const openCancel = () => runServiceAction(gate.current, () => {
+    setBusy("cancel");
+    return api.cancelQuote(service.id);
+  }, result => setCancelling(result.refund), err => toast(errorText(t, err), "error"), () => setBusy(null));
+
+  const confirmCancel = () => runServiceAction(gate.current, () => {
+    setBusy("cancel_go");
+    return api.cancelService(service.id);
+  }, result => {
+    haptic("success");
+    toast(result.refund ? t("cancel_done_refund", { amount: money(result.refund, locale) }) : t("cancel_done"));
+    navigate(backTo, { replace: true });
+  }, err => toast(errorText(t, err), "error"), () => { setBusy(null); setCancelling(null); });
 
   const go = (kind: string) =>
     navigate(
@@ -431,6 +482,49 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
 
       {service.id === serviceId && <Button tone="quiet" disabled={busy !== null} onClick={() => navigate(`/tickets/new?service=${service.id}`)}>{t("tickets_service_report")}</Button>}
       <UsageChart key={service.id} serviceId={service.id} />
+
+      {(allowed("move") || allowed("cancel")) && (
+        <Panel className="mt-4">
+          {moving ? (
+            <div>
+              <p className="mb-1 text-sm font-bold">{t("move_title")}</p>
+              <p className="mb-3 text-sm text-[var(--hint)]">
+                {moving.price ? t("move_price_note", { amount: money(moving.price, locale) }) : t("move_free_note")}
+              </p>
+              <ul className="mb-3 flex flex-col gap-2">
+                {moving.targets.map(target => (
+                  <li key={target.location_id}>
+                    <Button tone="quiet" onClick={() => navigate(`/checkout?kind=move&service=${service.id}&loc=${target.location_id}`)}>
+                      {target.flag ? `${target.flag} ` : ""}{target.title}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+              <Button tone="quiet" onClick={() => setMoving(null)}>{t("cancel")}</Button>
+            </div>
+          ) : cancelling !== null ? (
+            <div role="alertdialog" aria-labelledby="cancel-title">
+              <p id="cancel-title" className="mb-1 text-sm font-bold">{t("cancel_title")}</p>
+              <p className="mb-3 text-sm">
+                {cancelling ? t("cancel_refund_note", { amount: money(cancelling, locale) }) : t("cancel_no_refund_note")}
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <Button tone="danger" busy={busy === "cancel_go"} disabled={busy !== null} onClick={confirmCancel}>{t("cancel_confirm")}</Button>
+                <Button tone="quiet" disabled={busy !== null} onClick={() => setCancelling(null)}>{t("cancel")}</Button>
+              </div>
+            </div>
+          ) : (
+            <div className={`grid gap-3 ${allowed("move") && allowed("cancel") ? "grid-cols-2" : "grid-cols-1"}`}>
+              {allowed("move") && (
+                <Button tone="quiet" busy={busy === "move"} disabled={busy !== null} onClick={openMove}>{t("move_service")}</Button>
+              )}
+              {allowed("cancel") && (
+                <Button tone="danger" busy={busy === "cancel"} disabled={busy !== null} onClick={openCancel}>{t("cancel_service")}</Button>
+              )}
+            </div>
+          )}
+        </Panel>
+      )}
     </Screen>
   );
 }

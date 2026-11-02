@@ -61,6 +61,7 @@ export function Checkout() {
         account_plan_id: Number(params.get("aplan")) || undefined,
         account_id: Number(params.get("acc")) || undefined,
         account_amount: Number(params.get("amt")) || undefined,
+        location_id: Number(params.get("loc")) || undefined,
         code: params.get("draft_code") || undefined,
         label: params.get("draft_label") || undefined,
       };

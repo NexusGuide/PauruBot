@@ -226,6 +226,8 @@ export interface Service {
   account?: { username: string; password: string | null };
   download_url?: string | null;
   changes?: string[];
+  /** What the customer may do to the service itself (F-03): "cancel", "move". */
+  actions?: string[];
 }
 
 export interface Order {
@@ -359,6 +361,7 @@ export const api = {
     account_plan_id?: number;
     account_id?: number;
     account_amount?: number;
+    location_id?: number;
   }) => post<{ order: Order; balance: number; due: number }>("/orders", body),
   resellerDesk: (days: number) => get<ResellerDesk>(`/reseller/desk?days=${days}`),
   renewMany: (ids: number[]) =>
@@ -397,8 +400,9 @@ export const api = {
   redeemGift: (code: string) => post<{ amount: number; balance: number }>("/wallet/gift", { code }),
   history: (before?: number) => get<{ items: HistoryItem[] }>(`/wallet/history${before ? `?before=${before}` : ""}`),
   services: () => get<{ items: Service[] }>("/services"),
-  servicePage: (q: string, status: ServiceFilter, before: number | undefined, signal: AbortSignal) =>
-    request<unknown>(`/api/webapp${servicePageUrl(q, status, before)}`, { headers: auth(), signal }),
+  servicePage: (q: string, status: ServiceFilter, before: number | undefined, signal: AbortSignal, group: number | null = null) =>
+    request<unknown>(`/api/webapp${servicePageUrl(q, status, before, group)}`, { headers: auth(), signal }),
+  serviceGroups: (signal?: AbortSignal) => request<unknown>("/api/webapp/services/groups", { headers: auth(), signal }),
   service: (id: number, refresh = false) => get<{ service: Service }>(`/services/${id}${refresh ? "?refresh=true" : ""}`),
   usage: (id: number, days: 7 | 30, signal?: AbortSignal) =>
     request<UsageHistory>(`/api/webapp/services/${id}/usage?days=${days}`, { headers: auth(), signal }),
@@ -406,6 +410,10 @@ export const api = {
   setAutoRenew: (id: number, body: AutoRenewBody) => post<unknown>(`/services/${id}/auto-renew`, body),
   links: (id: number) => get<{ links: string[] }>(`/services/${id}/links`),
   revoke: (id: number) => post<{ service: Service }>(`/services/${id}/revoke`),
+  cancelQuote: (id: number) => get<{ refund: number }>(`/services/${id}/cancel`),
+  cancelService: (id: number) => post<{ refund: number }>(`/services/${id}/cancel`),
+  moveOptions: (id: number) =>
+    get<{ price: number; targets: { location_id: number; title: string; flag: string | null }[] }>(`/services/${id}/move`),
   rename: (id: number, label: string) => post<{ service: Service }>(`/services/${id}/rename`, { label }),
   trial: () => post<{ order: Order }>("/trial"),
   staffDashboard: () => get<StaffDashboard>("/staff/dashboard"),

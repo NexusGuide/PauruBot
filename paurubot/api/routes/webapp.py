@@ -47,6 +47,7 @@ from paurubot.db.models import (
     Order,
     OrderKind,
     OrderStatus,
+    Panel,
     PanelAccount,
     Payment,
     Plan,
@@ -123,7 +124,20 @@ def _service_base(service: Service, cfg: dict[str, Any] | None = None) -> dict[s
         "panel_id": service.panel_id,
         "extras": _extras(service, cfg),
         "changes": sorted(c for c in ("renew", "upgrade", "revoke") if orders.can_change(service, c)),
+        "actions": _actions(service, cfg),
     }
+
+
+def _actions(service: Service, cfg: dict[str, Any] | None) -> list[str]:
+    """What the customer may do to the service itself, as in the bot (F-03); the routes re-check."""
+    if cfg is None or service.status == ServiceStatus.DELETED:
+        return []
+    actions = []
+    if cfg.get("self_delete_enabled"):
+        actions.append("cancel")
+    if cfg.get("move_enabled") and not service.is_trial and service.status in orders.MOVABLE:
+        actions.append("move")
+    return actions
 
 
 def _extras(service: Service, cfg: dict[str, Any] | None) -> dict[str, int | None] | None:
@@ -439,6 +453,7 @@ class OrderBody(BaseModel):
         "extra_volume",
         "extra_days",
         "upgrade",
+        "move",
         "account_purchase",
         "account_renew",
         "account_gb",
@@ -456,6 +471,8 @@ class OrderBody(BaseModel):
     account_id: int | None = None
     # GB or user slots for the two account add-ons
     account_amount: int = Field(default=0, ge=0, le=100_000)
+    # The location a "move" order takes the service to (F-03).
+    location_id: int | None = None
 
 
 async def _owned_service(ctx: WebApp, service_id: int | None) -> Service | None:
@@ -522,6 +539,7 @@ async def _create_order(body: OrderBody, ctx: WebApp) -> Order:
             label=body.label,
             custom_gb=body.custom_gb if body.kind == "purchase" and not plan else 0,
             custom_days=body.custom_days if body.kind == "purchase" and not plan else 0,
+            move_to=await _move_panel(ctx, service, body.location_id) if body.kind == "move" else None,
         )
         try:
             order = await orders.create(ctx.session, ctx.customer, draft, code=code, source="webapp")
@@ -761,6 +779,7 @@ async def services(
     before: int | None = Query(None, ge=1, le=2**63 - 1),
     q: str | None = Query(None, max_length=120),
     status: ServiceStatus | None = None,
+    group: int | None = Query(None, ge=0, le=2**31 - 1),
 ) -> dict[str, Any]:
     from paurubot.api import service_pages
 
@@ -768,7 +787,7 @@ async def services(
         raise HTTPException(status_code=422, detail="unsupported_service_status")
     # Preserve existing unparameterized Home/derived-alert clients. Explicit paging/search
     # is bounded; silently truncating legacy callers would drop their older service alerts.
-    paged = any(value is not None for value in (limit, before, q, status))
+    paged = any(value is not None for value in (limit, before, q, status, group))
     rows, next_before = await service_pages.read(
         ctx.session,
         ctx.shop.id,
@@ -777,11 +796,20 @@ async def services(
         before=before,
         query=q,
         status=status,
+        group=group,
     )
     result: dict[str, Any] = {"items": [service_view(s, ctx.cfg) for s in rows]}
     if paged:
         result["next_before"] = next_before
     return result
+
+
+@router.get("/services/groups")
+async def service_groups(ctx: WebApp) -> dict[str, Any]:
+    """How many services the customer has in each location (F-19); the list filters by `group`."""
+    from paurubot.api import service_pages
+
+    return {"groups": await service_pages.groups(ctx.session, ctx.shop.id, ctx.customer.id)}
 
 
 @router.get("/services/{service_id}")
@@ -878,6 +906,59 @@ async def brand_logo(ctx: WebApp) -> Response:
     return Response(
         base64.b64decode(cached), media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"}
     )
+
+
+# --- the service's own actions, as in the bot (F-03) --------------------------------------------
+
+
+async def _move_panel(ctx: WebApp, service: Service | None, location_id: int | None) -> Panel | None:
+    """The panel a move goes to: only one of the service's offered destinations."""
+    if service is None or not location_id:
+        return None
+    for location, panel in await orders.move_targets(ctx.session, service):
+        if location.id == location_id:
+            return panel
+    raise HTTPException(status_code=400, detail="move_unavailable")
+
+
+@router.get("/services/{service_id}/move")
+async def move_options(service_id: int, ctx: WebApp) -> dict[str, Any]:
+    service = await _owned_service(ctx, service_id)
+    assert service is not None
+    if "move" not in _actions(service, ctx.cfg):
+        raise HTTPException(status_code=409, detail="move_unavailable")
+    targets = await orders.move_targets(ctx.session, service)
+    return {
+        "price": int(ctx.cfg.get("move_price") or 0),
+        "targets": [{"location_id": loc.id, "title": loc.title, "flag": loc.flag} for loc, _panel in targets],
+    }
+
+
+@router.get("/services/{service_id}/cancel")
+async def cancel_quote(service_id: int, ctx: WebApp) -> dict[str, Any]:
+    """What deleting the service gives back now; the final amount is read again from the panel."""
+    from paurubot.core import cancellation
+
+    service = await _owned_service(ctx, service_id)
+    assert service is not None
+    if not ctx.cfg.get("self_delete_enabled"):
+        raise HTTPException(status_code=409, detail="self_delete_off")
+    return {"refund": await cancellation.quote(ctx.session, ctx.customer, service)}
+
+
+@router.post("/services/{service_id}/cancel")
+async def cancel_service(service_id: int, ctx: WebApp) -> dict[str, Any]:
+    from paurubot.core import cancellation
+
+    service = await _owned_service(ctx, service_id)
+    assert service is not None
+    try:
+        refund = await cancellation.cancel(ctx.session, ctx.customer, service)
+    except cancellation.CancelError as exc:
+        raise HTTPException(status_code=409, detail=exc.key) from exc
+    except PanelError as exc:
+        raise HTTPException(status_code=502, detail="panel_busy") from exc
+    return {"refund": refund}
 
 
 @router.post("/trial")
