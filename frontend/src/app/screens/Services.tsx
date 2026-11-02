@@ -195,6 +195,8 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
   const [renaming, setRenaming] = useState(false);
   const [label, setLabel] = useState("");
   const [renameError, setRenameError] = useState<unknown>(null);
+  const [moving, setMoving] = useState<{ price: number; targets: { location_id: number; title: string; flag: string | null }[] } | null>(null);
+  const [cancelling, setCancelling] = useState<number | null>(null);
   const gate = useRef(createActionGate());
   useEffect(() => {
     const current = createActionGate();
@@ -258,6 +260,31 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
   };
 
   const can = (change: string) => !service.changes || service.changes.includes(change);
+  const allowed = (action: string) => Boolean(service.actions?.includes(action));
+
+  // Changing the location (F-03): the destinations the shop offers, then the usual checkout.
+  const openMove = () => runServiceAction(gate.current, () => {
+    setBusy("move");
+    return api.moveOptions(service.id);
+  }, result => {
+    if (result.targets.length === 0) toast(t("move_no_targets"), "error");
+    else setMoving(result);
+  }, err => toast(errorText(t, err), "error"), () => setBusy(null));
+
+  // Deleting the service (F-03): what comes back first, then an explicit confirmation.
+  const openCancel = () => runServiceAction(gate.current, () => {
+    setBusy("cancel");
+    return api.cancelQuote(service.id);
+  }, result => setCancelling(result.refund), err => toast(errorText(t, err), "error"), () => setBusy(null));
+
+  const confirmCancel = () => runServiceAction(gate.current, () => {
+    setBusy("cancel_go");
+    return api.cancelService(service.id);
+  }, result => {
+    haptic("success");
+    toast(result.refund ? t("cancel_done_refund", { amount: money(result.refund, locale) }) : t("cancel_done"));
+    navigate(backTo, { replace: true });
+  }, err => toast(errorText(t, err), "error"), () => { setBusy(null); setCancelling(null); });
 
   const go = (kind: string) =>
     navigate(
@@ -431,6 +458,49 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
 
       {service.id === serviceId && <Button tone="quiet" disabled={busy !== null} onClick={() => navigate(`/tickets/new?service=${service.id}`)}>{t("tickets_service_report")}</Button>}
       <UsageChart key={service.id} serviceId={service.id} />
+
+      {(allowed("move") || allowed("cancel")) && (
+        <Panel className="mt-4">
+          {moving ? (
+            <div>
+              <p className="mb-1 text-sm font-bold">{t("move_title")}</p>
+              <p className="mb-3 text-sm text-[var(--hint)]">
+                {moving.price ? t("move_price_note", { amount: money(moving.price, locale) }) : t("move_free_note")}
+              </p>
+              <ul className="mb-3 flex flex-col gap-2">
+                {moving.targets.map(target => (
+                  <li key={target.location_id}>
+                    <Button tone="quiet" onClick={() => navigate(`/checkout?kind=move&service=${service.id}&loc=${target.location_id}`)}>
+                      {target.flag ? `${target.flag} ` : ""}{target.title}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+              <Button tone="quiet" onClick={() => setMoving(null)}>{t("cancel")}</Button>
+            </div>
+          ) : cancelling !== null ? (
+            <div role="alertdialog" aria-labelledby="cancel-title">
+              <p id="cancel-title" className="mb-1 text-sm font-bold">{t("cancel_title")}</p>
+              <p className="mb-3 text-sm">
+                {cancelling ? t("cancel_refund_note", { amount: money(cancelling, locale) }) : t("cancel_no_refund_note")}
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <Button tone="danger" busy={busy === "cancel_go"} disabled={busy !== null} onClick={confirmCancel}>{t("cancel_confirm")}</Button>
+                <Button tone="quiet" disabled={busy !== null} onClick={() => setCancelling(null)}>{t("cancel")}</Button>
+              </div>
+            </div>
+          ) : (
+            <div className={`grid gap-3 ${allowed("move") && allowed("cancel") ? "grid-cols-2" : "grid-cols-1"}`}>
+              {allowed("move") && (
+                <Button tone="quiet" busy={busy === "move"} disabled={busy !== null} onClick={openMove}>{t("move_service")}</Button>
+              )}
+              {allowed("cancel") && (
+                <Button tone="danger" busy={busy === "cancel"} disabled={busy !== null} onClick={openCancel}>{t("cancel_service")}</Button>
+              )}
+            </div>
+          )}
+        </Panel>
+      )}
     </Screen>
   );
 }

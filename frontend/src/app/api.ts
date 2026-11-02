@@ -226,6 +226,8 @@ export interface Service {
   account?: { username: string; password: string | null };
   download_url?: string | null;
   changes?: string[];
+  /** What the customer may do to the service itself (F-03): "cancel", "move". */
+  actions?: string[];
 }
 
 export interface Order {
@@ -359,6 +361,7 @@ export const api = {
     account_plan_id?: number;
     account_id?: number;
     account_amount?: number;
+    location_id?: number;
   }) => post<{ order: Order; balance: number; due: number }>("/orders", body),
   resellerDesk: (days: number) => get<ResellerDesk>(`/reseller/desk?days=${days}`),
   renewMany: (ids: number[]) =>
@@ -406,6 +409,10 @@ export const api = {
   setAutoRenew: (id: number, body: AutoRenewBody) => post<unknown>(`/services/${id}/auto-renew`, body),
   links: (id: number) => get<{ links: string[] }>(`/services/${id}/links`),
   revoke: (id: number) => post<{ service: Service }>(`/services/${id}/revoke`),
+  cancelQuote: (id: number) => get<{ refund: number }>(`/services/${id}/cancel`),
+  cancelService: (id: number) => post<{ refund: number }>(`/services/${id}/cancel`),
+  moveOptions: (id: number) =>
+    get<{ price: number; targets: { location_id: number; title: string; flag: string | null }[] }>(`/services/${id}/move`),
   rename: (id: number, label: string) => post<{ service: Service }>(`/services/${id}/rename`, { label }),
   trial: () => post<{ order: Order }>("/trial"),
   staffDashboard: () => get<StaffDashboard>("/staff/dashboard"),

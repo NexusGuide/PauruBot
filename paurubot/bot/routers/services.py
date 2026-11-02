@@ -277,66 +277,22 @@ async def report_problem(
 ) -> None:
     """A customer's "it doesn't work": a ticket with the service's state attached, and an honest
     answer when its panel is already known to be down (SUP-05)."""
-    from paurubot import kv
-    from paurubot.core import tickets
-    from paurubot.core.formatting import jdate
-    from paurubot.db.models import Panel
-    from paurubot.panels import GB
-    from paurubot.worker import queue
+    from paurubot.core import service_report
 
     service = await owned(session, customer, callback_data.id)
     if service is None:
         await call.answer(t("service_not_found"), show_alert=True)
         return
-    allowed, _ = await kv.hit(f"report:{service.id}", 1, 1800)
-    if not allowed:
-        await call.answer(t("report_wait"), show_alert=True)
-        return
-    live = False
     try:
-        await lifecycle.refresh(session, service)
-        live = True
-    except PanelError as exc:
-        log.info("refresh failed for reported service %s: %s", service.id, exc)
-    panel = await session.get(Panel, service.panel_id)
-    down = panel is not None and (panel.is_healthy is False or not panel.is_active)
-    details = t(
-        "report_details",
-        name=esc(service.label or service.panel_username),
-        username=esc(service.panel_username),
-        status=t(f"status_{service.status.value}"),
-        used=round(int(service.used_bytes) / GB, 2),
-        limit=round(int(service.data_limit) / GB, 2) if service.data_limit else t("unlimited"),
-        expires=jdate(service.expire_at) if service.expire_at else t("unlimited"),
-        panel=esc(panel.name if panel else "-"),
-        health=t("report_panel_down") if down else t("report_panel_up"),
-    )
-    try:
-        ticket = await tickets.open_ticket(
-            session,
-            customer,
-            t("report_subject", name=service.label or service.panel_username),
-            source="report",
-        )
-        # The ticket names its service, with the state just read from the panel (REF-09).
-        from paurubot.core import ticket_media
-
-        ticket.service_id = service.id
-        ticket.service_context = ticket_media.service_context(
-            service, checked="live" if live else "stored", panel_down=down or not live
-        )
-        await tickets.add_message(
-            session, ticket, author_type="customer", author_id=customer.id, text=details
-        )
-    except tickets.TicketError as exc:
+        reported = await service_report.report(session, customer, service, t)
+    except service_report.ReportError as exc:
         await call.answer(t(exc.key), show_alert=True)
         return
-    await queue.enqueue(
-        session, "notify", "ticket_new_message", {"ticket_id": ticket.id}, shop_id=customer.shop_id
-    )
     await session.commit()
     await call.answer()
-    await show(call, t("report_known_outage" if down else "report_sent", id=ticket.id))
+    await show(
+        call, t("report_known_outage" if reported.panel_down else "report_sent", id=reported.ticket.id)
+    )
 
 
 async def _resale_service_markup(session: AsyncSession, t: Texts, service: Service, cfg: dict[str, Any]):  # type: ignore[no-untyped-def]
