@@ -104,14 +104,13 @@ async def _synced(maker, panel_id: int) -> int:  # type: ignore[no-untyped-def]
 async def test_reads_run_in_parallel_up_to_the_driver_limit(maker) -> None:  # type: ignore[no-untyped-def]
     probe = Probe(delay=0.15)
     panel_id = await _panel(maker, probe, services=9)
-    started = time.monotonic()
     results = await sync.sync_all([panel_id])
-    elapsed = time.monotonic() - started
     assert results[panel_id] == (9, 0)
     assert await _synced(maker, panel_id) == 9
-    assert probe.peak == 3  # Marzban's token driver: three reads in flight, never more
-    serial = probe.calls * probe.delay
-    assert elapsed < serial * 0.6, (elapsed, serial)
+    # Measured where it happens, not by the clock: three reads were in flight at once, never more
+    # (Marzban's token driver). A wall-clock bound also counted the database writes between reads
+    # and failed on a busy CI runner although the reads did overlap.
+    assert probe.peak == 3
 
 
 async def test_a_slow_panel_does_not_hold_up_the_others(maker) -> None:  # type: ignore[no-untyped-def]
