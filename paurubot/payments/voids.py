@@ -179,6 +179,11 @@ async def _undo_sale(
         )
         if taken is False:
             kept.append("referral")
+    if params.get("referral_counted"):
+        # This purchase no longer counts as an invite toward the referrer's reward config.
+        counted = await session.get(Customer, order.customer_id)
+        if counted is not None:
+            counted.referral_counted_at = None
     if referral.get("first") and "referral" not in kept:
         # The referred customer's first purchase did not happen after all.
         customer = await session.get(Customer, order.customer_id)

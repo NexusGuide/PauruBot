@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.bot import keyboards
+from paurubot.bot.callbacks import Nav
 from paurubot.bot.callbacks import Ticket as TicketCb
 from paurubot.bot.routers.start import menu
 from paurubot.bot.states import ResellerStates, TicketStates
@@ -101,11 +102,74 @@ async def referral(
         return
     username = shop.bot_username or (await bot.me()).username
     link = f"https://t.me/{username}?start=ref_{customer.telegram_id}"
+    text, markup = await referral_screen(session, customer, t, cfg, link)
+    await message.answer(text, reply_markup=markup, disable_web_page_preview=True)
+
+
+def reward_label(t: Texts, info: dict[str, Any]) -> str:
+    reward = info["reward"]
+    if reward["plan_title"]:
+        return esc(str(reward["plan_title"]))
+    return t("referral_config_size", gb=reward["gb"], days=reward["days"])
+
+
+async def referral_screen(
+    session: AsyncSession, customer: Customer, t: Texts, cfg: dict[str, Any], link: str
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    """The invite text: the cash share, a reward config with its progress, or both."""
+    from paurubot.core import referral_rewards
+
     count = await customers.referral_count(session, customer.id)
-    await message.answer(
-        t("referral_text", link=link, count=count, percent=cfg["referral_percent"]),
-        disable_web_page_preview=True,
-    )
+    if not referral_rewards.config_on(cfg):
+        return t("referral_text", link=link, count=count, percent=cfg["referral_percent"]), None
+    lines = [t("referral_head", link=link, count=count)]
+    if referral_rewards.cash_on(cfg):
+        lines.append(t("referral_cash_line", percent=cfg["referral_percent"]))
+    given = await referral_rewards.reward(session, customer.shop_id, cfg)
+    info = referral_rewards.view(await referral_rewards.status(session, customer, cfg), given)
+    markup = None
+    if given is not None:
+        rule = (
+            "referral_config_rule_join" if cfg["referral_config_counts"] == "join" else "referral_config_rule"
+        )
+        lines.append(t(rule, every=info["every"], reward=reward_label(t, info)))
+        lines.append(t("referral_config_progress", progress=info["progress"], every=info["every"]))
+        if info["available"]:
+            lines.append(t("referral_config_available", available=info["available"]))
+            markup = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text=t("btn_referral_claim"), callback_data=Nav(to="ref_claim").pack()
+                        )
+                    ]
+                ]
+            )
+    return "\n\n".join(lines), markup
+
+
+@router.callback_query(Nav.filter(F.to == "ref_claim"))
+async def referral_claim(
+    call: CallbackQuery,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+) -> None:
+    """Take one reward config for counted invites; it arrives like any purchase."""
+    from paurubot.core import referral_rewards
+
+    try:
+        await referral_rewards.claim(session, customer, cfg)
+    except referral_rewards.RewardError as exc:
+        await session.rollback()
+        await call.answer(t(exc.key), show_alert=True)
+        return
+    await session.commit()
+    await call.answer()
+    if isinstance(call.message, Message):
+        await call.message.edit_reply_markup(reply_markup=None)
+        await call.message.answer(t("referral_config_claimed"))
 
 
 @router.message(Btn("btn_reseller"))

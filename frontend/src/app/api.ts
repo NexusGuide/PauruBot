@@ -31,7 +31,15 @@ export interface Me {
     brand?: { accent: string | null; logo: boolean; notice: string | null };
   };
   trial: { available: boolean; reason: string | null; days: number; gb: number };
-  referral: { enabled: boolean; percent: number; count: number };
+  referral: {
+    enabled: boolean;
+    percent: number;
+    count: number;
+    /** False when invites earn a config only, no cash share; missing from older servers. */
+    cash?: boolean;
+    /** Every N counted invites earn a free config; null when that reward is off. */
+    config?: ReferralConfig | null;
+  };
   reseller: { active: boolean; discount_percent: number };
   panel_accounts: boolean;
   extras: { enabled: boolean; gb_price: number; day_price: number; upgrade: boolean };
@@ -267,6 +275,15 @@ export interface MyDiscounts {
   codes: MyCode[];
 }
 
+export interface ReferralConfig {
+  every: number;
+  counted: number;
+  progress: number;
+  available: number;
+  counts: "purchase" | "join";
+  reward: { plan_title: string | null; gb: number; days: number } | null;
+}
+
 export interface ServiceDevices { count: number; limit: number; addresses: string[] }
 
 export interface Order {
@@ -456,6 +473,7 @@ export const api = {
   links: (id: number) => get<{ links: string[] }>(`/services/${id}/links`),
   revoke: (id: number) => post<{ service: Service }>(`/services/${id}/revoke`),
   myDiscounts: (orderId?: number) => get<MyDiscounts>(`/discounts${orderId ? `?order_id=${orderId}` : ""}`),
+  claimReferral: () => post<{ order_id: number; cash: boolean; config: ReferralConfig | null }>("/referral/claim"),
   serviceDevices: (id: number) => get<ServiceDevices>(`/services/${id}/devices`),
   cancelQuote: (id: number) => get<{ refund: number }>(`/services/${id}/cancel`),
   cancelService: (id: number) => post<{ refund: number }>(`/services/${id}/cancel`),

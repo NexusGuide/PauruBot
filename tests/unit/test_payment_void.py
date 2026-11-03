@@ -247,6 +247,34 @@ async def test_referral_reward_is_taken_back_or_reported(session, fakes) -> None
     assert await reconcile(session, shop.id) == []
 
 
+async def test_a_voided_purchase_no_longer_counts_toward_a_reward_config(session, fakes) -> None:  # type: ignore[no-untyped-def]
+    """A fake receipt must not earn the inviter a free config (referral reward config)."""
+    from paurubot.core import referral_rewards
+
+    shop, _, plan, buyer, _ = await _card_shop(session, fakes)
+    await shop_settings.set_many(
+        session,
+        shop.id,
+        {
+            "referral_enabled": True,
+            "referral_reward_mode": "config",
+            "referral_config_every": 1,
+            "referral_config_plan_id": plan.id,
+        },
+    )
+    inviter = await factories.customer(session, shop)
+    buyer.referrer_id = inviter.id
+    await session.commit()
+    cfg = await shop_settings.load(session, shop.id, fresh=True)
+    payment, _ = await _pay_by_card(session, buyer, plan)
+    assert (await referral_rewards.status(session, inviter, cfg)).available == 1
+    await voids.void(session, payment.id, shop_id=shop.id, actor=STAFF, reason="fake_receipt")
+    await session.commit()
+    await session.refresh(buyer)
+    assert buyer.referral_counted_at is None
+    assert (await referral_rewards.status(session, inviter, cfg)).available == 0
+
+
 async def test_a_partial_cancellation_refund_is_not_paid_twice(session, fakes) -> None:  # type: ignore[no-untyped-def]
     shop, _, plan, buyer, _ = await _card_shop(session, fakes)
     payment, order = await _pay_by_card(session, buyer, plan)

@@ -42,6 +42,14 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `referral_monthly_max` | int | 0 | Referral rewards per inviter per 30 days. 0 means no limit |
 | `referral_every_purchase` | bool | false | Referral reward on every purchase. Off: only the invited customer's first purchase pays the inviter |
 | `referral_repeat_percent` | int | — | Referral percent on later purchases. Empty uses the same percent as the first purchase |
+| `referral_reward_mode` | str | "cash" | Invite reward. What the inviter gets: a share of the friend's purchase in the wallet, a free config for every few invites, or both |
+| `referral_config_counts` | str | "purchase" | When an invite counts. “On purchase”: a friend counts with their first qualifying purchase (the same minimum as the cash reward), so fake accounts gain nothing. “On join”: as soon as they join with the link. Banned customers never count |
+| `referral_config_every` | int | 5 | Invites per config. One free config for every this many counted invites (1 to 1000) |
+| `referral_config_source` | str | "plan" | Free config source. One of the shop's plans, or a size and duration on a panel |
+| `referral_config_plan_id` | int | — | Free config plan. Used when the source is “A plan” |
+| `referral_config_gb` | int | 5 | Free config size (GB). Used when the source is “Custom size and days” |
+| `referral_config_days` | int | 30 | Free config duration (days). Used when the source is “Custom size and days” |
+| `referral_config_panel_id` | int | — | Free config panel. Used when the source is “Custom size and days”: the config is made on this panel |
 | `start_gift_amount` | int | 0 | Welcome gift for new customers (Toman). Added to the wallet once, on first /start. 0 turns it off; keep it small |
 | `start_gift_referred_only` | bool | true | Welcome gift only for invited customers |
 | `loyalty_enabled` | bool | false | Loyalty levels. Customers who spend more get a standing discount. Resellers keep their own discount |

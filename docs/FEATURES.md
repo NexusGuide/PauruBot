@@ -168,6 +168,7 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | GRW-08 | Trust channel | v2 | done |
 | GRW-09 | Welcome gift and referral limits (minimum order, daily cap per referrer, banned referrers) | v1.1* | done |
 | GRW-10 | Private discount codes and My discounts; referral reward on every purchase with a monthly cap | v1.1* | done |
+| GRW-11 | Referral reward config: every N counted invites (on the friend's purchase or on join, shop's choice) earn a free config from a plan or a custom size and panel, instead of or beside the cash share; claimed in the bot and Mini App, given back if the order fails, taken back if the counted purchase is voided (`docs/referral-config.md`) | v1.1* | done |
 
 ## Telegram Bot UX
 

@@ -650,5 +650,18 @@
   "my_codes_saves": "{amount} تومان کمتر",
   "tickets_rate": "این پاسخ چطور بود؟",
   "tickets_rate_up": "پاسخ مفید بود",
-  "tickets_rate_down": "پاسخ مفید نبود"
+  "tickets_rate_down": "پاسخ مفید نبود",
+  "referral_config_title": "🎁 کانفیگ رایگان دعوت",
+  "referral_config_rule": "به ازای هر {every} دوستی که خرید کند، یک کانفیگ رایگان می‌گیرید: {reward}",
+  "referral_config_rule_join": "به ازای هر {every} دوستی که با لینک شما عضو شود، یک کانفیگ رایگان می‌گیرید: {reward}",
+  "referral_config_size": "{gb} گیگ، {days} روزه",
+  "referral_config_progress": "پیشرفت تا کانفیگ بعدی: {progress} از {every}",
+  "referral_config_available": "{available} کانفیگ رایگان آماده‌ی دریافت است.",
+  "referral_config_claim": "دریافت کانفیگ رایگان",
+  "referral_config_claimed": "کانفیگ رایگان شما در حال ساخت است و تا چند لحظه‌ی دیگر می‌رسد.",
+  "invite_hint_config": "هر {every} دعوت، یک کانفیگ رایگان",
+  "err_referral_config_not_enough": "هنوز دعوت کافی برای یک کانفیگ رایگان ندارید.",
+  "err_referral_config_wait": "کانفیگ رایگان شما در راه است؛ چند لحظه صبر کنید.",
+  "err_referral_config_off": "کانفیگ رایگان دعوت الان فعال نیست.",
+  "err_referral_config_unavailable": "کانفیگ رایگان دعوت فعلاً آماده نیست؛ کمی بعد دوباره امتحان کنید."
 }

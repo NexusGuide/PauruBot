@@ -292,6 +292,22 @@ class GiftRedemption(Base, TimestampMixin):
     amount: Mapped[int] = mapped_column()
 
 
+class ReferralClaim(Base, TimestampMixin):
+    """A free config a customer took for their counted invites (see paurubot.core.referral_rewards).
+
+    `invites` is what the claim used up. A claim whose order failed, was canceled or refunded
+    gives them back: only claims with a live order count as spent.
+    """
+
+    __tablename__ = "referral_claims"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"))
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id", ondelete="CASCADE"), index=True)
+    invites: Mapped[int] = mapped_column(Integer)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id", ondelete="SET NULL"), unique=True)
+
+
 class VerifiedCard(Base, TimestampMixin):
     """A bank card a customer registered before paying card to card (PAY-18)."""
 

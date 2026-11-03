@@ -650,5 +650,18 @@
   "my_codes_saves": "saves {amount} Toman",
   "tickets_rate": "How was this reply?",
   "tickets_rate_up": "Helpful reply",
-  "tickets_rate_down": "Not helpful"
+  "tickets_rate_down": "Not helpful",
+  "referral_config_title": "🎁 Free config for invites",
+  "referral_config_rule": "For every {every} friends who buy, you get a free config: {reward}",
+  "referral_config_rule_join": "For every {every} friends who join with your link, you get a free config: {reward}",
+  "referral_config_size": "{gb} GB, {days} days",
+  "referral_config_progress": "Progress to the next config: {progress} of {every}",
+  "referral_config_available": "{available} free config(s) ready to take.",
+  "referral_config_claim": "Get my free config",
+  "referral_config_claimed": "Your free config is being made and arrives in a moment.",
+  "invite_hint_config": "A free config for every {every} invites",
+  "err_referral_config_not_enough": "You do not have enough invites for a free config yet.",
+  "err_referral_config_wait": "Your free config is on its way; give it a moment.",
+  "err_referral_config_off": "Invite configs are not on right now.",
+  "err_referral_config_unavailable": "Invite configs are not available at the moment; try again shortly."
 }

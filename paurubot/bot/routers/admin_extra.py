@@ -37,6 +37,14 @@ GROUPS: dict[str, tuple[str, ...]] = {
         "referral_min_order",
         "referral_daily_max",
         "referral_monthly_max",
+        "referral_reward_mode",
+        "referral_config_counts",
+        "referral_config_every",
+        "referral_config_source",
+        "referral_config_plan_id",
+        "referral_config_gb",
+        "referral_config_days",
+        "referral_config_panel_id",
         "start_gift_amount",
         "start_gift_referred_only",
     ),
@@ -68,6 +76,11 @@ BOUNDS: dict[str, tuple[int, int]] = {
     "referral_percent": (0, 100),
     "referral_repeat_percent": (0, 100),
     "self_delete_refund_percent": (0, 100),
+    "referral_config_every": (1, 1_000),
+    "referral_config_gb": (1, 10_000),
+    "referral_config_days": (1, 3_650),
+    "referral_config_plan_id": (1, 2**31 - 1),
+    "referral_config_panel_id": (1, 2**31 - 1),
     "custom_min_gb": (1, 10_000),
     "custom_max_gb": (1, 10_000),
     "custom_min_days": (1, 3_650),
@@ -120,11 +133,24 @@ def home_kb(t: Texts) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
+def choices(key: str) -> tuple[str, ...] | None:
+    """The fixed values of a text setting, switched by tapping it (referral reward config)."""
+    from paurubot.core import referral_rewards
+
+    return referral_rewards.CHOICES.get(key)
+
+
+def value_label(t: Texts, key: str, value: Any) -> str:
+    if choices(key) is not None:
+        return t(f"adm_x_{key}_{value}")
+    return shown(key, value)
+
+
 def group_kb(t: Texts, group: str, cfg: dict[str, Any]) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for key in GROUPS[group]:
         name = t(f"adm_x_{key}")
-        label = f"{name}: {shown(key, cfg.get(key))}"
+        label = f"{name}: {value_label(t, key, cfg.get(key))}"
         kb.row(_btn(label, Admin(section=SECTION, action="set", id=KEYS.index(key))))
     kb.row(_back(t, Admin(section=SECTION)))
     return kb.as_markup()
@@ -148,6 +174,18 @@ async def extra_config(
             return
         key = KEYS[callback_data.id]
         cfg = await shop_settings.load(session, shop.id, fresh=True)
+        options = choices(key)
+        if options is not None:
+            current = cfg.get(key)
+            following = (
+                options[(options.index(current) + 1) % len(options)] if current in options else options[0]
+            )
+            await save(session, shop, staff, key, following)
+            await call.answer(t("adm_saved"))
+            group = group_of(key)
+            fresh = await shop_settings.load(session, shop.id, fresh=True)
+            await show(call, t(f"adm_x_group_{group}"), group_kb(t, group, fresh))
+            return
         if shop_settings.SPECS[key].kind is not bool:
             await call.answer()
             await state.set_state(AdminStates.extra_value)
@@ -198,6 +236,14 @@ async def extra_value(
     if value is not None and not pair_ok(key, value, cfg):
         await message.answer(t("adm_x_pair"))
         return
+    if key.startswith("referral_config_") and value is not None:
+        from paurubot.core import referral_rewards
+
+        try:  # a plan or panel must be this shop's own
+            await referral_rewards.check_settings(session, shop.id, {key: value})
+        except referral_rewards.RewardError:
+            await message.answer(t("adm_x_not_found"))
+            return
     await state.clear()
     await save(session, shop, staff, key, value)
     group = group_of(key)

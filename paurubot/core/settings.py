@@ -53,6 +53,16 @@ SPECS: dict[str, Spec] = {
     "referral_monthly_max": Spec(int, 0, "growth"),
     "referral_every_purchase": Spec(bool, False, "growth"),
     "referral_repeat_percent": Spec(int, None, "growth"),  # None: the same as referral_percent
+    # A free config for every N counted invites, instead of or beside the cash reward
+    # (see paurubot.core.referral_rewards). Mode: cash | config | both.
+    "referral_reward_mode": Spec(str, "cash", "growth"),
+    "referral_config_counts": Spec(str, "purchase", "growth"),  # purchase | join
+    "referral_config_every": Spec(int, 5, "growth"),
+    "referral_config_source": Spec(str, "plan", "growth"),  # plan | custom
+    "referral_config_plan_id": Spec(int, None, "growth"),
+    "referral_config_gb": Spec(int, 5, "growth"),
+    "referral_config_days": Spec(int, 30, "growth"),
+    "referral_config_panel_id": Spec(int, None, "growth"),
     "start_gift_amount": Spec(int, 0, "growth"),
     "start_gift_referred_only": Spec(bool, True, "growth"),
     "loyalty_enabled": Spec(bool, False, "growth"),
