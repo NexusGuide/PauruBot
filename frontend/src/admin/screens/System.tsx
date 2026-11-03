@@ -229,6 +229,13 @@ function AppLinks({ value, onChange }: { value: AppLink[]; onChange: (value: App
   );
 }
 
+// Text settings with a fixed set of values: shown as a choice, labelled setting_<key>_<value>.
+const CHOICES: Record<string, string[]> = {
+  referral_reward_mode: ["cash", "config", "both"],
+  referral_config_counts: ["purchase", "join"],
+  referral_config_source: ["plan", "custom"],
+};
+
 function RefSelect({
   id,
   kind,
@@ -236,16 +243,21 @@ function RefSelect({
   onChange,
 }: {
   id: string;
-  kind: "panel" | "location";
+  kind: "panel" | "location" | "plan";
   value: unknown;
   onChange: (value: number | null) => void;
 }) {
   const panels = useLoad<{ items: { id: number; name: string }[] }>(kind === "panel" ? "/api/admin/panels" : null);
-  const catalog = useLoad<{ locations: { id: number; title: string }[] }>(kind === "location" ? "/api/admin/catalog" : null);
+  const catalog = useLoad<{
+    locations: { id: number; title: string }[];
+    plans: { id: number; title: string; is_active: boolean }[];
+  }>(kind === "panel" ? null : "/api/admin/catalog");
   const options =
     kind === "panel"
       ? (panels.data?.items ?? []).map((p) => ({ id: p.id, title: p.name }))
-      : (catalog.data?.locations ?? []).map((l) => ({ id: l.id, title: l.title }));
+      : kind === "plan"
+        ? (catalog.data?.plans ?? []).filter((p) => p.is_active).map((p) => ({ id: p.id, title: p.title }))
+        : (catalog.data?.locations ?? []).map((l) => ({ id: l.id, title: l.title }));
   return (
     <Select id={id} value={typeof value === "number" ? value : ""} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}>
       <option value="">—</option>
@@ -422,10 +434,27 @@ function SettingControl({
       </Field>
     );
   }
-  if (item.key.endsWith("_panel_id") || item.key.endsWith("_location_id")) {
+  const choices = CHOICES[item.key];
+  if (choices) {
     return (
       <Field label={label} hint={hint}>
-        {(id) => <RefSelect id={id} kind={item.key.endsWith("_panel_id") ? "panel" : "location"} value={value} onChange={onChange} />}
+        {(id) => (
+          <Select id={id} value={typeof value === "string" ? value : choices[0]} onChange={(e) => onChange(e.target.value)}>
+            {choices.map((choice) => (
+              <option key={choice} value={choice}>
+                {t(`setting_${item.key}_${choice}`)}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+    );
+  }
+  if (item.key.endsWith("_panel_id") || item.key.endsWith("_location_id") || item.key.endsWith("_plan_id")) {
+    const kind = item.key.endsWith("_panel_id") ? "panel" : item.key.endsWith("_plan_id") ? "plan" : "location";
+    return (
+      <Field label={label} hint={hint}>
+        {(id) => <RefSelect id={id} kind={kind} value={value} onChange={onChange} />}
       </Field>
     );
   }

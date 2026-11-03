@@ -43,3 +43,19 @@ def test_dynamic_labels_exist_in_both_locales() -> None:
         texts = json.loads((I18N / f"{locale}.xcfg.json").read_text(encoding="utf-8"))
         missing = [key for key in keys if key not in texts]
         assert not missing, (locale, missing)
+
+
+def test_referral_config_choices_have_labels_and_bounds() -> None:
+    from paurubot.core import referral_rewards
+    from paurubot.i18n import Texts
+
+    for key, options in referral_rewards.CHOICES.items():
+        assert key in x.KEYS and x.choices(key) == options
+        for locale in ("fa", "en"):
+            labels = {x.value_label(Texts(locale), key, option) for option in options}
+            assert len(labels) == len(options) and not any(label.startswith("adm_x_") for label in labels)
+    assert x.choices("referral_percent") is None
+    assert x.parse_extra("referral_config_every", "0")[1] is False
+    assert x.parse_extra("referral_config_every", "5") == (5, True)
+    assert x.parse_extra("referral_config_plan_id", "-") == (None, True)
+    assert x.parse_extra("referral_config_gb", "10001")[1] is False

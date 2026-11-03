@@ -40,6 +40,12 @@ async def reward_referrer(session: AsyncSession, order: Order) -> int:
     cfg = await shop_settings.load(session, order.shop_id)
     if not cfg["referral_enabled"]:
         return 0
+    from paurubot.core import referral_rewards
+
+    # Toward the referrer's reward config, whatever the cash rules say below.
+    await referral_rewards.count_purchase(session, order, customer, cfg)
+    if not referral_rewards.cash_on(cfg):
+        return 0
     repeat = customer.referral_rewarded
     if repeat and not cfg["referral_every_purchase"]:
         return 0

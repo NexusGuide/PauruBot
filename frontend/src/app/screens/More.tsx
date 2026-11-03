@@ -4,6 +4,7 @@ import { Icon } from "../icons";
 import { useApp } from "../state";
 import { haptic, setThemePref, tg, themePref, type ThemePref } from "../telegram";
 import { CustomerSettings } from "../CustomerSettings";
+import { ReferralReward } from "./ReferralReward";
 import { Item, Screen, Seg } from "../ui";
 
 export function More() {
@@ -22,7 +23,9 @@ export function More() {
     ...(me.referral.enabled
       ? [
           { label: t("stat_invites"), value: money(me.referral.count, locale) },
-          { label: t("stat_reward"), value: `${money(me.referral.percent, locale)}${t("percent")}` },
+          ...(me.referral.cash !== false
+            ? [{ label: t("stat_reward"), value: `${money(me.referral.percent, locale)}${t("percent")}` }]
+            : []),
         ]
       : []),
   ];
@@ -84,6 +87,8 @@ export function More() {
         />
       </div>
 
+      {me.referral.enabled && me.referral.config && <ReferralReward config={me.referral.config} />}
+
       <CustomerSettings />
 
       <p className="app-lbl">{t("account")}</p>
@@ -93,7 +98,9 @@ export function More() {
             icon={<Icon name="gift" />}
             tone="orange"
             title={t("invite_title")}
-            sub={t("invite_hint", { percent: money(me.referral.percent, locale) })}
+            sub={me.referral.cash === false && me.referral.config
+              ? t("invite_hint_config", { every: money(me.referral.config.every, locale) })
+              : t("invite_hint", { percent: money(me.referral.percent, locale) })}
             onClick={share}
           />
         )}

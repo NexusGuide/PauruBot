@@ -741,6 +741,8 @@ async def simple_customer(session: AsyncSession, job: queue.Claimed) -> None:
         text = t("referral_joined", name=esc(str(job.payload.get("name", ""))))
     elif job.kind == "referral_reward":
         text = t("referral_reward", amount=money(int(job.payload["amount"])))
+    elif job.kind == "referral_config_ready":
+        text = t("referral_config_ready", available=int(job.payload.get("available") or 1))
     elif job.kind == "wallet_adjusted":
         delta = int(job.payload["delta"])
         text = t("wallet_credited" if delta > 0 else "wallet_debited", amount=money(abs(delta)))
@@ -1322,6 +1324,7 @@ register_queue(
             "auto_renew_notice": auto_renew_notice,
             "referral_joined": simple_customer,
             "referral_reward": simple_customer,
+            "referral_config_ready": simple_customer,
             "wallet_adjusted": simple_customer,
             "reseller_decision": simple_customer,
             "transfer_received": simple_customer,

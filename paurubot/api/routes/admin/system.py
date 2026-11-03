@@ -294,6 +294,12 @@ async def write_settings(
     _check_custom(body.values)
     _check_appearance(body.values)
     _check_growth(body.values)
+    from paurubot.core import referral_rewards
+
+    try:
+        await referral_rewards.check_settings(db, ctx.shop_id, body.values)
+    except referral_rewards.RewardError as exc:
+        raise HTTPException(status_code=422, detail=exc.key) from None
     before = shop_settings.public_view(await shop_settings.load(db, ctx.shop_id, fresh=True))
     try:
         await shop_settings.set_many(db, ctx.shop_id, body.values)

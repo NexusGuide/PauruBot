@@ -68,6 +68,9 @@ class Customer(Base, TimestampMixin):
     terms_accepted_version: Mapped[int | None] = mapped_column(Integer)
     referrer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"))
     referral_rewarded: Mapped[bool] = mapped_column(Boolean, default=False)
+    # When this customer's first qualifying purchase counted as an invite for their referrer's
+    # reward config (referral_config_counts = "purchase"); cleared again if that order is voided.
+    referral_counted_at: Mapped[datetime | None] = mapped_column()
     tags: Mapped[list[str]] = mapped_column(JSON, default=list)
     note: Mapped[str | None] = mapped_column(Text)
     # Staff markers (BOT-08): a colour to spot someone at a glance and a risk level that tightens rules.

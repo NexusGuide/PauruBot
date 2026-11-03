@@ -275,6 +275,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/payments/{payment_id}` | Mini App initData | Payment status |
 | GET | `/api/webapp/payments` | Mini App initData | Pending payments |
 | GET | `/api/webapp/receipts` | Mini App initData | Inbox |
+| POST | `/api/webapp/referral/claim` | Mini App initData | Take one reward config for counted invites; it is made and delivered like any purchase. |
 | GET | `/api/webapp/reseller/desk` | Mini App initData | Reseller desk view |
 | POST | `/api/webapp/reseller/renew` | Mini App initData | Reseller renew |
 | GET | `/api/webapp/services/groups` | Mini App initData | How many services the customer has in each location (F-19); the list filters by `group`. |

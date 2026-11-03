@@ -213,6 +213,10 @@ async def start(
                     {"customer_id": referrer.id, "name": customer.display_name},
                     shop_id=shop.id,
                 )
+                if cfg["referral_config_counts"] == "join":
+                    from paurubot.core import referral_rewards
+
+                    await referral_rewards.maybe_announce(session, referrer, cfg)
         gift = int(cfg["start_gift_amount"] or 0)
         if gift > 0 and (customer.referrer_id or not cfg["start_gift_referred_only"]):
             from paurubot.ledger import wallet

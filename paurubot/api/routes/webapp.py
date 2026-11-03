@@ -42,6 +42,7 @@ from paurubot.core import (
 from paurubot.db.models import (
     AccountPlan,
     Category,
+    Customer,
     DiscountCode,
     ForcedChannel,
     Location,
@@ -120,6 +121,25 @@ def _sub_formats(service: Service, link: str | None) -> list[dict[str, str]]:
     if not link or service.panel is None or link != branded_url(service):
         return []
     return [{"format": fmt, "url": f"{link}?format={fmt}"} for fmt in formats_of(service.panel.kind)]
+
+
+async def _referral_rewards(session: Any, customer: Customer, cfg: dict[str, Any]) -> dict[str, Any]:
+    """Whether invites pay cash, a config or both, and the config progress when they do."""
+    from paurubot.core import referral_rewards
+
+    if not referral_rewards.config_on(cfg):
+        return {"cash": True, "config": None}
+    given = await referral_rewards.reward(session, customer.shop_id, cfg)
+    state = await referral_rewards.status(session, customer, cfg)
+    return {
+        "cash": referral_rewards.cash_on(cfg),
+        "config": {
+            **referral_rewards.view(state, given),
+            "counts": cfg["referral_config_counts"],
+        }
+        if given is not None
+        else None,
+    }
 
 
 def _service_base(service: Service, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -264,6 +284,7 @@ async def me(ctx: WebApp) -> dict[str, Any]:
             "enabled": bool(cfg["referral_enabled"]),
             "percent": cfg["referral_percent"],
             "count": await customers.referral_count(ctx.session, customer.id),
+            **await _referral_rewards(ctx.session, customer, cfg),
         },
         "reseller": {
             "active": bool(profile and profile.is_current),
@@ -833,6 +854,19 @@ async def services(
     if paged:
         result["next_before"] = next_before
     return result
+
+
+@router.post("/referral/claim")
+async def referral_claim(ctx: WebApp) -> dict[str, Any]:
+    """Take one reward config for counted invites; it is made and delivered like any purchase."""
+    from paurubot.core import referral_rewards
+
+    try:
+        order = await referral_rewards.claim(ctx.session, ctx.customer, ctx.cfg)
+    except referral_rewards.RewardError as exc:
+        raise HTTPException(status_code=409, detail=exc.key) from exc
+    await ctx.session.commit()
+    return {"order_id": order.id, **await _referral_rewards(ctx.session, ctx.customer, ctx.cfg)}
 
 
 @router.get("/services/groups")
