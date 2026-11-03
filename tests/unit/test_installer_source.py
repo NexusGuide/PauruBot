@@ -56,3 +56,16 @@ def test_the_release_workflow_publishes_where_the_installer_looks() -> None:
     installer = (ROOT / "install.sh").read_text()
     assert "identity_repo=${REPO//./\\\\.}" in installer
     assert "\\.github/workflows/release\\.yml@refs/" in installer
+
+
+def test_a_manual_release_is_checked_before_anything_is_published() -> None:
+    """A release can also be a manual run on main: it tags the commit it built itself, but only after
+    checking the version against pyproject.toml and that the tag does not exist yet."""
+    release = (ROOT / ".github" / "workflows" / "release.yml").read_text()
+    check = release.index("Check the version being released")
+    assert check < release.index("docker/build-push-action")  # before any image is pushed
+    for guard in ("pyproject.toml", "refs/heads/main", "git/ref/tags/${RELEASE}"):
+        assert guard in release[check : release.index("docker/setup-qemu-action")], guard
+    publish = release[release.index("Publish the release") :]
+    assert 'ref="refs/tags/${RELEASE}" -f sha="${GITHUB_SHA}"' in publish
+    assert "--verify-tag" in publish
