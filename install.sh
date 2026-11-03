@@ -119,10 +119,40 @@ install_docker() {
   ok "Docker is ready"
 }
 
+# cosign checks the release image's signature before it runs. A fresh server has none, so take
+# sigstore's own release build and accept it only when it matches its published checksum.
+COSIGN_URL=${PAURUBOT_COSIGN_URL:-https://github.com/sigstore/cosign/releases/latest/download}
+COSIGN_BIN=${PAURUBOT_COSIGN_BIN:-/usr/local/bin/cosign}
+
+install_cosign() {
+  command -v cosign >/dev/null && return
+  local arch tmp
+  case $(uname -m) in
+    x86_64 | amd64) arch=amd64 ;;
+    aarch64 | arm64) arch=arm64 ;;
+    *) die "no cosign build for $(uname -m); install cosign by hand and run this again" ;;
+  esac
+  say "Installing cosign to verify the release image…"
+  tmp=$(mktemp -d)
+  if ! curl -fsSL -o "$tmp/cosign-linux-$arch" "$COSIGN_URL/cosign-linux-$arch" ||
+    ! curl -fsSL -o "$tmp/checksums.txt" "$COSIGN_URL/cosign_checksums.txt"; then
+    rm -rf "$tmp"
+    die "cannot download cosign from GitHub; install it by hand and run this again"
+  fi
+  if ! (cd "$tmp" && grep " cosign-linux-$arch\$" checksums.txt | sha256sum -c --status); then
+    rm -rf "$tmp"
+    die "the downloaded cosign does not match its published checksum; refusing to use it"
+  fi
+  install -m 755 "$tmp/cosign-linux-$arch" "$COSIGN_BIN"
+  rm -rf "$tmp"
+  ok "cosign is installed"
+}
+
 check_system() {
   command -v curl >/dev/null || { apt-get update -q && apt-get install -yq curl; }
   command -v openssl >/dev/null || apt-get install -yq openssl
   command -v git >/dev/null || apt-get install -yq git
+  install_cosign
   local mem
   mem=$(awk '/MemTotal/ { print int($2 / 1024) }' /proc/meminfo)
   ((mem >= 900)) || warn "only ${mem} MB RAM; 1 GB or more is recommended"
@@ -188,10 +218,11 @@ fetch_source() {
   if [[ -d $DIR/.git ]]; then
     git -C "$DIR" remote set-url origin "$(repo_url)"
     git -C "$DIR" fetch --depth 1 origin "$ref" -q
-    git -C "$DIR" checkout -q --force FETCH_HEAD
+    git -C "$DIR" -c advice.detachedHead=false checkout -q --force FETCH_HEAD
   else
     mkdir -p "$DIR"
-    git clone -q --depth 1 --branch "$ref" "$(repo_url)" "$DIR.tmp"
+    # A release is a tag, so git would print its long "detached HEAD" notice: not an error.
+    git -c advice.detachedHead=false clone -q --depth 1 --branch "$ref" "$(repo_url)" "$DIR.tmp"
     cp -a "$DIR.tmp/." "$DIR/"
     rm -rf "$DIR.tmp"
   fi
@@ -205,7 +236,7 @@ fetch_image() {
   registry_login
   if docker pull -q "$image" >/dev/null 2>&1; then
     digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image" 2>/dev/null || true)
-    command -v cosign >/dev/null || die "cosign is required to verify release images; install cosign before continuing"
+    command -v cosign >/dev/null || install_cosign  # an update on a server installed without it
     [[ -n $digest ]] || die "image has no immutable digest; refusing unverified release"
     identity_repo=${REPO//./\\.}
     if [[ -n $digest ]]; then
@@ -271,7 +302,12 @@ cmd_install() {
   fi
   https_port=$((10#$https_port))
   ((https_port != 80)) || die "port 80 stays reserved for the TLS challenge; choose another --https-port"
-  [[ -f $ENV_FILE ]] && die "already installed in $DIR; use update"
+  if [[ -f $ENV_FILE ]]; then
+    # PAURUBOT_IMAGE is written just before the services start: without it nothing ever ran, so
+    # an install that stopped half-way (no cosign, no network) can simply start over.
+    [[ -z $(env_get PAURUBOT_IMAGE) ]] || die "already installed in $DIR; use update"
+    warn "an earlier install stopped before starting anything; starting over"
+  fi
   check_system
   install_docker
   say ""
@@ -497,7 +533,8 @@ show_setup_link() {
     say "${BOLD}Open this link to finish setup (valid for 24 hours):${RESET}"
     say "  $link"
   else
-    say "Admin panel: https://$(env_get DOMAIN)/admin/"
+    # PUBLIC_URL carries the port when the panel is not on 443 (--https-port).
+    say "Admin panel: $(env_get PUBLIC_URL)/admin/"
   fi
 }
 

@@ -455,6 +455,8 @@ docker() {
   if [[ "$MODE" != no_digest ]]; then echo 'ghcr.io/nexusguide/paurubot@sha256:synthetic'; fi
 }
 cosign() { [[ "$MODE" != bad_signature ]]; }
+# The installer now fetches cosign itself; when even that fails, nothing unverified may run.
+install_cosign() { die "cosign could not be installed"; }
 """
     script = (
         stub
