@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse, Response
 
 from paurubot import __version__
 from paurubot.api.middleware import (
+    BodyLimitMiddleware,
     CorrelationMiddleware,
     MetricsMiddleware,
     OriginCheckMiddleware,
@@ -47,11 +48,12 @@ def create_app() -> FastAPI:
         openapi_url=None,
         lifespan=lifespan,
     )
-    # Starlette runs middlewares in reverse order of registration: correlation is outermost.
+    # Starlette runs middlewares in reverse order of registration: the body limit is outermost.
     app.add_middleware(MetricsMiddleware)
     app.add_middleware(OriginCheckMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(CorrelationMiddleware)
+    app.add_middleware(BodyLimitMiddleware)  # outermost: no layer reads an unbounded body
 
     @app.exception_handler(HTTPException)
     async def http_error(_: Request, exc: HTTPException) -> JSONResponse:

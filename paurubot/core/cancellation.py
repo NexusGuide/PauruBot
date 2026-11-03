@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core import pricing
 from paurubot.core import settings as shop_settings
-from paurubot.db.models import Customer, Order, OrderKind, OrderStatus, Service, ServiceStatus
+from paurubot.db.models import Customer, Order, OrderKind, OrderStatus, Plan, Service, ServiceStatus
 from paurubot.ledger.accounts import system_account, wallet_account
 from paurubot.ledger.posting import transfer
 
@@ -47,6 +47,20 @@ def unused_share(service: Service, days: int) -> float:
     return min(shares) if shares else 0.0
 
 
+async def period_days(session: AsyncSession, service: Service, paid: Order) -> int:
+    """The period the last payment bought: its plan's, a custom order's own, else the service plan's.
+
+    A custom service has no plan; without the order's own days its unused time counted as all of it.
+    """
+    plan = await session.get(Plan, paid.plan_id) if paid.plan_id else None
+    if plan is not None and plan.days:
+        return int(plan.days)
+    custom = (paid.params or {}).get("custom")
+    if isinstance(custom, dict) and int(custom.get("days") or 0) > 0:
+        return int(custom["days"])
+    return int(service.plan.days) if service.plan is not None and service.plan.days else 0
+
+
 async def quote(session: AsyncSession, customer: Customer, service: Service) -> int:
     """What deleting this service gives back, after the shop's percentage."""
     cfg = await shop_settings.load(session, customer.shop_id)
@@ -57,7 +71,7 @@ async def quote(session: AsyncSession, customer: Customer, service: Service) -> 
     paid = await last_payment(session, service)
     if paid is None:
         return 0
-    days = service.plan.days if service.plan is not None else 0
+    days = await period_days(session, service, paid)
     value = paid.amount * unused_share(service, days) * percent / 100
     return pricing.round_price(value) if value >= 100 else 0
 
@@ -79,6 +93,7 @@ async def cancel(session: AsyncSession, customer: Customer, service: Service) ->
             if service.status == ServiceStatus.DELETED:
                 raise CancelError("service_not_found")
             amount = await quote(session, customer, service)
+            refunded = await last_payment(session, service) if amount > 0 else None
             await lifecycle.delete_service(session, service, "deleted by customer")
     except lifecycle.ServiceBusy as exc:
         raise CancelError("service_busy") from exc
@@ -97,4 +112,8 @@ async def cancel(session: AsyncSession, customer: Customer, service: Service) ->
             reference_id=service.id,
             memo="service deleted by the customer",
         )
+        if refunded is not None and (refunded.params or {}).get("referral_counted"):
+            # A purchase taken back for a refund no longer counts as an invite toward the
+            # referrer's reward config; otherwise buying and deleting at once farms configs.
+            customer.referral_counted_at = None
     return amount

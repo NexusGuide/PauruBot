@@ -3,7 +3,7 @@ from __future__ import annotations
 import secrets
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot import kv
@@ -97,6 +97,13 @@ async def change_password(session: AsyncSession, staff: Staff, new_password: str
     staff = locked
     staff.password_hash = await hash_password_async(new_password)
     staff.session_version += 1
+    # A new password ends every way in: browser sessions and personal API keys alike. A key
+    # made by someone who knew the old password must not outlive the change.
+    await session.execute(
+        update(StaffApiKey)
+        .where(StaffApiKey.staff_id == staff.id, StaffApiKey.revoked_at.is_(None))
+        .values(revoked_at=utcnow())
+    )
     await session.flush()
     await sessions.destroy_all(staff.id)
 

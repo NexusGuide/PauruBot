@@ -406,7 +406,11 @@ async def got_discount(
     staff: Any,
     state: FSMContext,
 ) -> None:
-    code = await pricing.find_code(session, customer.shop_id, message.text or "")
+    try:
+        code = await pricing.lookup_code(session, customer, message.text or "")
+    except pricing.DiscountError as exc:
+        await message.answer(t(exc.key))
+        return
     if code is None:
         await message.answer(t("discount_invalid"))
         return

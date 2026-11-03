@@ -39,8 +39,12 @@ COPY --chown=paurubot:paurubot pyproject.toml alembic.ini README.md ./
 COPY --chown=paurubot:paurubot migrations ./migrations
 COPY --chown=paurubot:paurubot paurubot ./paurubot
 COPY --from=frontend --chown=paurubot:paurubot /build/dist ./frontend/dist
-ENV FRONTEND_DIR=/app/frontend/dist
-RUN pip install --no-deps . && mkdir -p /var/lib/paurubot/backups && chown -R paurubot /var/lib/paurubot
+ENV FRONTEND_DIR=/app/frontend/dist PYTHONPATH=/app
+# The code runs from /app as it is. Installing it with pip would fetch an unpinned, unhashed
+# build backend (setuptools) from PyPI; the `paurubot` command is a wrapper instead.
+RUN printf '#!/bin/sh\nexec python -m paurubot "$@"\n' > /usr/local/bin/paurubot \
+    && chmod 755 /usr/local/bin/paurubot \
+    && mkdir -p /var/lib/paurubot/backups && chown -R paurubot /var/lib/paurubot
 USER paurubot
 EXPOSE 8080
 ENTRYPOINT ["/usr/bin/tini", "--", "python", "-m", "paurubot"]

@@ -6,8 +6,9 @@ import logging
 import uuid
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import JSONResponse, Response
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from paurubot.config import get_settings
 from paurubot.logs import correlation_id
@@ -48,6 +49,9 @@ class CorrelationMiddleware(BaseHTTPMiddleware):
         token = correlation_id.set(cid)
         try:
             response = await call_next(request)
+        except ClientDisconnect:
+            # The client went away, or BodyLimitMiddleware cut an oversized body off: not our error.
+            response = JSONResponse({"error": "client_disconnected", "correlation_id": cid}, status_code=400)
         except Exception:
             log.exception("unhandled error on %s %s", request.method, request.url.path)
             response = JSONResponse({"error": "internal_error", "correlation_id": cid}, status_code=500)
@@ -120,3 +124,74 @@ class MetricsMiddleware(BaseHTTPMiddleware):
                 request.method, route, response.status_code, time.perf_counter() - started
             )
         return response
+
+
+# The largest request anything here needs: a receipt photo, a stock list or a usernames import.
+MAX_BODY = 10 * 1024 * 1024
+# The owner's import of another bot's database is the one big upload; it checks its own 300 MB cap.
+LARGE_BODIES = {"/api/admin/migration/upload": 301 * 1024 * 1024}
+
+
+def body_limit(path: str) -> int:
+    return LARGE_BODIES.get(path.rstrip("/"), MAX_BODY)
+
+
+class BodyLimitMiddleware:
+    """Cap every request body before any route reads it, the anonymous ones included.
+
+    FastAPI reads a JSON body into memory, and spools a multipart upload to disk, before the
+    route's own checks or its sign-in run; without a cap one request could fill either.
+    A declared Content-Length over the cap is refused at once; a body that streams past it is cut
+    off there (the route sees a disconnect) and answered 413.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        limit = body_limit(scope.get("path", ""))
+        declared = next((v for k, v in scope.get("headers", []) if k == b"content-length"), b"")
+        if declared.isdigit() and (len(declared) > 12 or int(declared) > limit):
+            await _too_large(send)
+            return
+        received = 0
+        exceeded = started = False
+
+        async def guarded_receive() -> Message:
+            nonlocal received, exceeded
+            if exceeded:
+                return {"type": "http.disconnect"}
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    exceeded = True
+                    return {"type": "http.disconnect"}
+            return message
+
+        async def guarded_send(message: Message) -> None:
+            nonlocal started
+            if exceeded and not started:
+                return  # the route's answer to the cut-off body is replaced by ours
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, guarded_receive, guarded_send)
+        except Exception:
+            if not exceeded:
+                raise
+        if exceeded and not started:
+            await _too_large(send)
+
+
+async def _too_large(send: Send) -> None:
+    response = JSONResponse({"error": "too_large"}, status_code=413, headers={"Connection": "close"})
+    await send(
+        {"type": "http.response.start", "status": response.status_code, "headers": response.raw_headers}
+    )
+    await send({"type": "http.response.body", "body": response.body})

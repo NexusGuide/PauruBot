@@ -143,6 +143,7 @@
   "discount_expired": "مهلت این کد تخفیف تموم شده.",
   "discount_first_purchase_only": "این کد فقط برای اولین خریده.",
   "discount_invalid": "این کد تخفیف معتبر نیست.",
+  "discount_too_many_attempts": "تلاش زیاد بود. یک ساعت دیگر دوباره کد را بفرست.",
   "discount_min_amount": "مبلغ سفارش برای این کد کمه.",
   "discount_not_started": "این کد هنوز فعال نشده.",
   "discount_used_up": "ظرفیت این کد تخفیف پر شده.",

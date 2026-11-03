@@ -149,7 +149,7 @@ async def card_verification(ctx: WebApp) -> JSONResponse:
 @router.post("/cards/verification")
 async def submit_card_verification(request: Request, ctx: WebApp) -> JSONResponse:
     """Register one card photograph for existing staff review; never start a payment."""
-    allowed, _ = await kv.hit(f"webapp-card:{ctx.shop.id}:{ctx.customer.id}", 10, 60)
+    allowed, _ = await kv.hit(f"webapp-card:{ctx.shop.id}:{ctx.customer.telegram_id}", 10, 60)
     if not allowed:
         raise HTTPException(429, "rate_limited")
     key, number, raw = await read_body(request)

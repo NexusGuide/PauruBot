@@ -22,7 +22,9 @@ class GiftError(Exception):
 
 async def redeem(session: AsyncSession, customer: Customer, text: str) -> int:
     """Credit a gift code once per customer and return the amount. Commits nothing."""
-    allowed, _ = await kv.hit(f"gift:{customer.id}", ATTEMPTS_PER_HOUR, 3600)
+    # By Telegram account: a new user's failed try is rolled back with their customer row, so a
+    # customer-id key would start over on every try.
+    allowed, _ = await kv.hit(f"gift:{customer.shop_id}:{customer.telegram_id}", ATTEMPTS_PER_HOUR, 3600)
     if not allowed:
         raise GiftError("gift_too_many_attempts")
     code_text = text.strip()

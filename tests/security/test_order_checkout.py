@@ -472,3 +472,66 @@ async def test_api_stars_response_reuses_link_instead_of_legacy_serializer_io(se
     assert first.json()["payment"] == again.json()["payment"]
     assert first.json()["payment"]["invoice_link"] == "https://t.me/$same-order-link"
     bot.create_invoice_link.assert_awaited_once()
+
+
+async def test_a_mini_app_stars_topup_is_invoiced_by_the_shops_own_bot(session, app_env, monkeypatch):  # type: ignore[no-untyped-def]
+    """A reseller bot's customer pays Stars to that bot; the main bot would not credit them."""
+    from paurubot.notifications import telegram
+
+    client, shop = app_env["client"], app_env["shop"]
+    await shop_settings.set_many(session, shop.id, {"stars_enabled": True, "stars_rate": 1000})
+    await session.commit()
+    bot = AsyncMock()
+    bot.create_invoice_link.return_value = "https://t.me/$shop-bot-topup"
+    choose_bot = AsyncMock(return_value=bot)
+    monkeypatch.setattr(telegram, "bot_for", choose_bot)
+
+    def main_bot():
+        raise AssertionError("the top-up invoice must come from the shop's own bot")
+
+    monkeypatch.setattr(telegram, "get_bot", main_bot)
+    resp = await client.post(
+        "/api/webapp/wallet/topup", headers=h(89104), json={"amount": 50_000, "method": "stars"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["payment"]["invoice_link"] == "https://t.me/$shop-bot-topup"
+    choose_bot.assert_awaited_once_with(shop.id)
+    assert (
+        bot.create_invoice_link.call_args.kwargs["payload"] == f"pay:{resp.json()['payment']['payment_id']}"
+    )
+
+
+async def test_discount_codes_cannot_be_guessed_at_the_request_rate(session, app_env):  # type: ignore[no-untyped-def]
+    """Public codes are meant to stay secret; tries per customer are limited like gift codes."""
+    from paurubot.core import pricing
+    from paurubot.db.models import DiscountCode, DiscountKind
+
+    client, plan, shop = app_env["client"], app_env["plan"], app_env["shop"]
+    session.add(DiscountCode(shop_id=shop.id, code="SECRET77", kind=DiscountKind.PERCENT, value=50))
+    await session.commit()
+    order = {"kind": "purchase", "plan_id": plan.id}
+    for guess in range(pricing.CODE_TRIES_PER_HOUR):
+        miss = await client.post(
+            "/api/webapp/orders", headers=h(89105), json={**order, "code": f"GUESS{guess}"}
+        )
+        assert miss.status_code == 400 and miss.json()["error"] == "discount_invalid"
+    hit = await client.post("/api/webapp/orders", headers=h(89105), json={**order, "code": "SECRET77"})
+    assert hit.status_code == 429 and hit.json()["error"] == "discount_too_many_attempts"
+    other = await client.post("/api/webapp/orders", headers=h(89106), json={**order, "code": "SECRET77"})
+    assert other.status_code == 200, other.text  # another customer is not affected
+
+
+async def test_gift_guessing_by_a_brand_new_user_is_limited_too(session, app_env):  # type: ignore[no-untyped-def]
+    """A new user's failed request is rolled back with their customer row, so each try used to get
+    a new customer id and a fresh limit; the limit follows the Telegram account instead."""
+    from paurubot.core import gifts
+    from paurubot.db.models import GiftCode
+
+    client, shop = app_env["client"], app_env["shop"]
+    session.add(GiftCode(shop_id=shop.id, code="GIFT-REAL-1", amount=50_000))
+    await session.commit()
+    for guess in range(gifts.ATTEMPTS_PER_HOUR):
+        miss = await client.post("/api/webapp/wallet/gift", headers=h(89107), json={"code": f"G{guess}"})
+        assert miss.status_code == 400, miss.text
+    hit = await client.post("/api/webapp/wallet/gift", headers=h(89107), json={"code": "GIFT-REAL-1"})
+    assert hit.status_code == 400 and hit.json()["error"] == "gift_too_many_attempts"

@@ -90,6 +90,32 @@ async def test_api_keys(env) -> None:  # type: ignore[no-untyped-def]
         assert (await bare.get("/api/admin/dashboard", headers=bearer)).status_code == 401
 
 
+async def test_a_password_change_also_revokes_api_keys(env) -> None:  # type: ignore[no-untyped-def]
+    """Changing a password to lock someone out must not leave their API key working."""
+    client = env["client"]
+    login = await client.post("/api/auth/login", json={"username": "code_owner", "password": PASSWORD})
+    csrf = login.json()["csrf_token"]
+    made = await client.post(
+        "/api/auth/api-keys", json={"name": "left-behind", "read_only": True}, headers={"x-csrf-token": csrf}
+    )
+    bearer = {"authorization": f"Bearer {made.json()['key']}"}
+    async with httpx.AsyncClient(transport=client._transport, base_url="http://testserver") as bare:
+        assert (await bare.get("/api/admin/dashboard", headers=bearer)).status_code == 200
+        changed = await client.post(
+            "/api/auth/password",
+            json={"current_password": PASSWORD, "new_password": "another-strong-pass"},
+            headers={"x-csrf-token": csrf},
+        )
+        assert changed.status_code == 200
+        assert (await bare.get("/api/admin/dashboard", headers=bearer)).status_code == 401
+    # The changer stays signed in with the fresh session and can make a new key.
+    fresh = changed.json()["csrf_token"]
+    again = await client.post(
+        "/api/auth/api-keys", json={"name": "new", "read_only": True}, headers={"x-csrf-token": fresh}
+    )
+    assert again.status_code == 200
+
+
 async def test_metrics_endpoint_is_private(env) -> None:  # type: ignore[no-untyped-def]
     resp = await env["client"].get("/metrics")
     assert resp.status_code == 200
