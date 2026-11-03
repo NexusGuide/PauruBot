@@ -358,3 +358,39 @@ async def test_a_double_tap_takes_one_config_even_with_two_ready(session, env) -
     await session.rollback()
     await session.refresh(referrer)
     assert (await referral_rewards.status(session, referrer, cfg)).available == 1  # the second is still there
+
+
+async def test_a_purchase_deleted_for_a_refund_no_longer_counts(session, env) -> None:  # type: ignore[no-untyped-def]
+    """Buying and at once deleting the service for a refund must not farm invites."""
+    from paurubot.core import cancellation, orders
+    from paurubot.ledger import wallet
+
+    shop, plan, referrer = env["shop"], env["plan"], env["cust"]
+    cfg = await _configure(
+        session,
+        shop,
+        referral_reward_mode="config",
+        referral_config_every=1,
+        referral_config_plan_id=plan.id,
+        self_delete_enabled=True,
+        self_delete_refund_percent=100,
+    )
+    friend = await _friend(session, shop, referrer)
+    await wallet.topup(session, shop.id, friend.id, 100_000, provider="card", payment_id=friend.id + 10_000)
+    order = await orders.create(
+        session, friend, await orders.draft(session, friend, OrderKind.PURCHASE, plan=plan)
+    )
+    await orders.settle_from_wallet(session, order.id)
+    await session.commit()
+    await drain(session, "provision")
+    await session.refresh(order)
+    assert order.status == OrderStatus.COMPLETED, order.error
+    assert (await referral_rewards.status(session, referrer, cfg)).available == 1
+
+    service = await session.get(Service, order.service_id, populate_existing=True)
+    assert service is not None
+    await session.refresh(friend)
+    refund = await cancellation.cancel(session, friend, service)
+    await session.commit()
+    assert refund > 0
+    assert (await referral_rewards.status(session, referrer, cfg)).available == 0

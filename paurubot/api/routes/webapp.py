@@ -574,7 +574,10 @@ async def _create_order(body: OrderBody, ctx: WebApp) -> Order:
     service = await _owned_service(ctx, body.service_id)
     code: DiscountCode | None = None
     if body.code:
-        code = await pricing.find_code(ctx.session, ctx.shop.id, body.code)
+        try:
+            code = await pricing.lookup_code(ctx.session, ctx.customer, body.code)
+        except pricing.DiscountError as exc:
+            raise HTTPException(status_code=429, detail=exc.key) from exc
         if code is None:
             raise HTTPException(status_code=400, detail="discount_invalid")
     else:
@@ -673,9 +676,14 @@ async def _payment_view(ctx: WebApp, started: payments.Started) -> dict[str, Any
     elif payment.provider == "stars":
         from aiogram.types import LabeledPrice
 
-        from paurubot.notifications.telegram import get_bot
+        from paurubot.notifications.telegram import bot_for
 
-        view["invoice_link"] = await get_bot().create_invoice_link(
+        # The shop's own bot: a reseller bot's customer paying the main bot would not be credited,
+        # since the main bot looks the payer up in its own shop.
+        bot = await bot_for(payment.shop_id)
+        if bot is None:
+            raise HTTPException(status_code=503, detail="gateway_error")
+        view["invoice_link"] = await bot.create_invoice_link(
             title="Top-up",
             description=f"Payment #{payment.id}",
             payload=str(checkout.instructions["payload"]),

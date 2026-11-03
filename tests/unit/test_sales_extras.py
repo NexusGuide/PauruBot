@@ -194,6 +194,50 @@ async def test_customer_deletes_service_with_refund_once(session) -> None:  # ty
         registry._cache.clear()
 
 
+async def test_a_custom_service_refund_counts_the_time_already_used(session) -> None:  # type: ignore[no-untyped-def]
+    """A custom service has no plan: its period comes from the order, so used days are not refunded."""
+    shop = await factories.shop(session)
+    panel = await factories.panel(session, shop, PanelKind.MARZBAN)
+    fake = FakeTokenPanel("marzban")
+    registry.test_transports[panel.id] = transport(fake)
+    try:
+        cust = await factories.customer(session, shop)
+        expire = utcnow() + timedelta(days=15)  # half of a 30-day custom period is gone
+        service = Service(
+            shop_id=shop.id,
+            customer_id=cust.id,
+            panel_id=panel.id,
+            plan_id=None,
+            panel_username="u_custom",
+            status=ServiceStatus.ACTIVE,
+            data_limit=10 * GB,
+            used_bytes=2 * GB,  # 80% of the data left
+            expire_at=expire,
+        )
+        session.add(service)
+        await session.flush()
+        fake.users["u_custom"] = {
+            "username": "u_custom",
+            "status": "active",
+            "used_traffic": 2 * GB,
+            "data_limit": 10 * GB,
+            "expire": int(expire.timestamp()),
+            "sub": "s",
+        }
+        paid = await _paid(session, shop, cust, 100_000)
+        paid.params = {"custom": {"gb": 10, "days": 30}}
+        paid.service_id, paid.completed_at = service.id, utcnow()
+        await session.refresh(service, ["plan"])
+        await shop_settings.set_many(
+            session, shop.id, {"self_delete_enabled": True, "self_delete_refund_percent": 80}
+        )
+        assert await cancellation.quote(session, cust, service) == 40_000  # 100k x 50% left x 80%
+        assert await cancellation.cancel(session, cust, service) == 40_000
+    finally:
+        registry.test_transports.clear()
+        registry._cache.clear()
+
+
 async def test_a_refund_is_priced_from_the_panel_not_a_stale_copy(session) -> None:  # type: ignore[no-untyped-def]
     """SEC-F09: data used since the last sync is not refunded as unused."""
     shop = await factories.shop(session)

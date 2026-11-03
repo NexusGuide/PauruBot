@@ -102,3 +102,11 @@ def test_image_and_ci_install_only_the_hashed_lock() -> None:
     node_image = re.search(r"FROM node:(\d+)-alpine", dockerfile)
     assert python_image and f'"{python_image.group(1)}"' in ci
     assert node_image and f'node-version: "{node_image.group(1)}"' in ci
+
+
+def test_the_image_fetches_nothing_unhashed() -> None:
+    """Every pip install in the image is offline: `pip install .` fetched setuptools unpinned."""
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    installs = re.findall(r"pip install[^\n]*", dockerfile)
+    assert installs and all("--no-index" in line for line in installs), installs
+    assert "PYTHONPATH=/app" in dockerfile and "/usr/local/bin/paurubot" in dockerfile

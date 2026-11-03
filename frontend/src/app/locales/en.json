@@ -37,6 +37,7 @@
   "err_discount_expired": "This discount code has expired.",
   "err_discount_first_purchase_only": "This code is for first purchases only.",
   "err_discount_invalid": "This discount code isn't valid.",
+  "err_discount_too_many_attempts": "Too many tries. Try the code again in an hour.",
   "err_discount_min_amount": "The order total is too low for this code.",
   "err_discount_not_started": "This code isn't active yet.",
   "err_discount_used_up": "This discount code is fully used.",

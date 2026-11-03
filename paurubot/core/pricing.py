@@ -122,6 +122,22 @@ async def plan_quote(
     return Quote(base, base - after, off, max(0, after - off), code)
 
 
+CODE_TRIES_PER_HOUR = 20
+
+
+async def lookup_code(session: AsyncSession, customer: Customer, text: str) -> DiscountCode | None:
+    """A code the customer typed, with a limit on tries: public codes are meant to stay secret,
+    and without one a script could guess them at the Mini App's request rate. Raises DiscountError."""
+    from paurubot import kv
+
+    # By Telegram account, not customer id: a new user's failed try is rolled back with the row.
+    key = f"discount-try:{customer.shop_id}:{customer.telegram_id}"
+    allowed, _ = await kv.hit(key, CODE_TRIES_PER_HOUR, 3600)
+    if not allowed:
+        raise DiscountError("discount_too_many_attempts")
+    return await find_code(session, customer.shop_id, text)
+
+
 async def find_code(session: AsyncSession, shop_id: int, text: str) -> DiscountCode | None:
     text = text.strip()
     if not text or len(text) > 32:

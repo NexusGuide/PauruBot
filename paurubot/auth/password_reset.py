@@ -9,14 +9,13 @@ from __future__ import annotations
 import json
 from html import escape
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot import kv
 from paurubot.audit.log import Actor, record
 from paurubot.auth import staff as staff_service
-from paurubot.db.base import utcnow
-from paurubot.db.models import Staff, StaffApiKey
+from paurubot.db.models import Staff
 from paurubot.i18n import Texts
 from paurubot.notifications import telegram
 from paurubot.security import login_guard
@@ -132,12 +131,7 @@ async def confirm(session: AsyncSession, token: str, new_password: str, ip: str)
         raise ResetError("invalid_reset")
     if not await redis.eval(CONSUME, 1, _key(token), raw):
         raise ResetError("invalid_reset")
-    await staff_service.change_password(session, staff, new_password)
-    await session.execute(
-        update(StaffApiKey)
-        .where(StaffApiKey.staff_id == staff.id, StaffApiKey.revoked_at.is_(None))
-        .values(revoked_at=utcnow())
-    )
+    await staff_service.change_password(session, staff, new_password)  # also revokes API keys
     await record(
         session,
         shop_id=staff.shop_id,

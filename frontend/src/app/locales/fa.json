@@ -37,6 +37,7 @@
   "err_discount_expired": "مهلت کد تخفیف تموم شده.",
   "err_discount_first_purchase_only": "این کد فقط برای اولین خریده.",
   "err_discount_invalid": "کد تخفیف معتبر نیست.",
+  "err_discount_too_many_attempts": "تلاش زیاد بود. یک ساعت دیگر دوباره امتحان کن.",
   "err_discount_min_amount": "مبلغ سفارش برای این کد کمه.",
   "err_discount_not_started": "این کد هنوز فعال نشده.",
   "err_discount_used_up": "ظرفیت کد تخفیف پر شده.",
