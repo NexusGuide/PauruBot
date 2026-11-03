@@ -533,7 +533,8 @@ show_setup_link() {
     say "${BOLD}Open this link to finish setup (valid for 24 hours):${RESET}"
     say "  $link"
   else
-    say "Admin panel: https://$(env_get DOMAIN)/admin/"
+    # PUBLIC_URL carries the port when the panel is not on 443 (--https-port).
+    say "Admin panel: $(env_get PUBLIC_URL)/admin/"
   fi
 }
 

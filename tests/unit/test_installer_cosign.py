@@ -99,3 +99,14 @@ def test_a_finished_install_still_refuses_a_second_install(tmp_path) -> None:  #
     result = _run(tmp_path, STUB_INSTALL)
     assert result.returncode != 0 and "already installed" in result.stderr
     assert "REACHED_DOWNLOAD" not in result.stdout
+
+
+def test_the_panel_address_keeps_a_custom_https_port(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Next to a VPN panel the site runs on --https-port; the address shown must carry that port."""
+    (tmp_path / "opt").mkdir()
+    (tmp_path / "opt" / ".env").write_text(
+        "DOMAIN=bot.example.com\nPUBLIC_URL=https://bot.example.com:8443\n"
+    )
+    result = _run(tmp_path, "compose() { :; }\nshow_setup_link")
+    assert result.returncode == 0, result.stderr
+    assert "https://bot.example.com:8443/admin/" in result.stdout
