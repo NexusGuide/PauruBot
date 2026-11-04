@@ -110,6 +110,7 @@ export const NAV_GROUPS: NavGroup[] = [
           page("/texts", "nav_texts", "texts", { permission: "texts.write" }),
           page("/bot-menu", "nav_bot_menu", "texts", { permission: "settings.read" }),
           page("/channels", "nav_channels", "channels", { permission: "settings.read" }),
+          page("/appearance", "nav_appearance", "account", { permission: "settings.read" }),
         ],
       },
       {

@@ -45,7 +45,7 @@ test("tabs follow permissions: a hub shows only what this person may open", () =
   const support = nav.visibleFor((p) => ["customers.read", "services.read", "settings.read"].includes(p), "support");
   const groups = nav.visibleGroups(support);
   const bot = nav.hubFor(groups, "/settings");
-  assert.deepEqual(bot.tabs.map((tab) => tab.to), ["/settings", "/bot-menu", "/channels"]); // no texts.write
+  assert.deepEqual(bot.tabs.map((tab) => tab.to), ["/settings", "/bot-menu", "/channels", "/appearance"]); // no texts.write
   assert.equal(nav.hubFor(groups, "/staff"), undefined, "no server hub without its rights");
 
   const reseller = nav.visibleFor(() => true, "reseller");
@@ -147,4 +147,17 @@ test("every new label exists in both admin languages", () => {
     assert.ok(key in fa, `fa is missing ${key}`);
     assert.ok(key in en, `en is missing ${key}`);
   }
+});
+
+test("the Mini App look page edits real appearance settings, each with a label", () => {
+  const system = readFileSync(src("screens/System.tsx"), "utf8");
+  const keys = JSON.parse(system.match(/export const LOOK_KEYS = (\[[^\]]+\])/)[1]);
+  const specs = readFileSync(new URL("../../paurubot/core/settings.py", import.meta.url), "utf8");
+  const fa = locale("fa"), en = locale("en");
+  assert.equal(keys.length, 4);
+  for (const key of keys) {
+    assert.match(specs, new RegExp(`"${key}": Spec\\([^)]*"appearance"\\)`), `${key} is an appearance setting`);
+    assert.ok(`setting_${key}` in fa && `setting_${key}` in en, `label for ${key}`);
+  }
+  assert.ok(nav.allPaths().includes("/appearance"));
 });

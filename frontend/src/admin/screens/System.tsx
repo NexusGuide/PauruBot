@@ -668,6 +668,121 @@ export function Settings() {
   );
 }
 
+// ---------------------------------------------------------------- Mini App look (REF-08)
+
+// The Mini App's appearance group also holds the bot menu's layout (edited on the bot-menu
+// screen); these four are the Mini App's own look, which no screen used to offer.
+export const LOOK_KEYS = ["miniapp_enabled", "miniapp_accent", "miniapp_logo", "miniapp_notice"];
+// The light-theme accents from the Mini App's app.css ([data-accent=…]); "" is its default blue.
+const ACCENTS: Record<string, { ink: string; soft: string }> = {
+  "": { ink: "#256fb6", soft: "#e8f1fa" },
+  green: { ink: "#1f7a4d", soft: "#e6f4ec" },
+  purple: { ink: "#6b46c1", soft: "#f0ebfb" },
+  orange: { ink: "#b45309", soft: "#fdf1e3" },
+  rose: { ink: "#be2d5a", soft: "#fcebf0" },
+  teal: { ink: "#0f766e", soft: "#e3f4f2" },
+};
+
+export function MiniAppLook() {
+  const { t, can, toast, errorText } = useSession();
+  const { data, error, reload } = useLoad<{ groups: Record<string, SettingItem[]> }>("/api/admin/settings");
+  const [changes, setChanges] = useState<Record<string, unknown>>({});
+  const [busy, run] = useAction();
+  const writable = can("settings.write");
+  const dirty = Object.keys(changes).length > 0;
+
+  const save = async () => {
+    try {
+      await run(() => call("/api/admin/settings", { method: "PUT", body: { values: changes } }));
+      setChanges({});
+      toast(t("saved"));
+      void reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  return (
+    <Page
+      title={t("nav_appearance")}
+      actions={
+        writable && (
+          <>
+            {dirty && <Button onClick={() => setChanges({})}>{t("discard")}</Button>}
+            <Button tone="primary" busy={busy} disabled={!dirty} onClick={() => void save()}>
+              {t("save_changes")}
+            </Button>
+          </>
+        )
+      }
+    >
+      <Async data={data} error={error} reload={reload}>
+        {(value) => {
+          const items = LOOK_KEYS.map((key) => (value.groups.appearance ?? []).find((item) => item.key === key)).filter(
+            (item): item is SettingItem => Boolean(item),
+          );
+          const valueOf = (key: string) => (key in changes ? changes[key] : items.find((item) => item.key === key)?.value);
+          const accent = ACCENTS[String(valueOf("miniapp_accent") ?? "")] ?? ACCENTS[""];
+          const enabled = Boolean(valueOf("miniapp_enabled"));
+          const notice = String(valueOf("miniapp_notice") ?? "").trim();
+          return (
+            <div className="flex flex-wrap items-start gap-6">
+              <div className="min-w-0 flex-[2_1_420px]">
+                <Section title={t("appearance_settings")}>
+                  <div className="flex flex-col gap-5">
+                    {items.map((item) => (
+                      <SettingControl
+                        key={item.key}
+                        item={item}
+                        value={valueOf(item.key)}
+                        canSecrets={false}
+                        onChange={(next) => writable && setChanges((prev) => ({ ...prev, [item.key]: next }))}
+                      />
+                    ))}
+                  </div>
+                </Section>
+              </div>
+              <div className="min-w-0 flex-[1_1_280px]">
+                <Section title={t("appearance_preview")}>
+                  <div
+                    aria-label={t("appearance_preview")}
+                    className={`flex flex-col gap-3 rounded-2xl bg-[var(--bg)] p-4 ${enabled ? "" : "opacity-50"}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      {Boolean(valueOf("miniapp_logo")) && (
+                        <span
+                          aria-hidden="true"
+                          className="grid size-10 place-items-center rounded-full font-extrabold text-white"
+                          style={{ background: accent?.ink }}
+                        >
+                          {t("appearance_logo_letter")}
+                        </span>
+                      )}
+                      <strong className="text-[0.95rem]">{t("appearance_shop_name")}</strong>
+                    </div>
+                    {notice && (
+                      <p className="rounded-xl px-3 py-2 text-[0.85rem]" style={{ background: accent?.soft, color: accent?.ink }}>
+                        {notice}
+                      </p>
+                    )}
+                    <span
+                      className="flex min-h-11 items-center justify-center rounded-xl text-[0.9rem] font-bold text-white"
+                      style={{ background: accent?.ink }}
+                    >
+                      {t("appearance_sample_button")}
+                    </span>
+                  </div>
+                  {!enabled && <p className="mt-3 text-[0.82rem] text-[var(--hint)]">{t("appearance_off")}</p>}
+                </Section>
+              </div>
+            </div>
+          );
+        }}
+      </Async>
+    </Page>
+  );
+}
+
 // ---------------------------------------------------------------- texts
 
 interface TextsData {

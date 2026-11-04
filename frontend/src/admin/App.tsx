@@ -16,7 +16,7 @@ import { AdminAccounts } from "./screens/AdminAccounts";
 import { Desk } from "./screens/Desk";
 import { MyBilling, Resellers, Staff, SubResellers, TicketPage, Tickets } from "./screens/People";
 import { Services } from "./screens/Services";
-import { Account, Audit, Backups, Channels, Health, Jobs, Reports, Settings, Texts } from "./screens/System";
+import { Account, Audit, Backups, Channels, Health, Jobs, MiniAppLook, Reports, Settings, Texts } from "./screens/System";
 import { SessionProvider, useSession } from "./session";
 import { ConfirmProvider, Empty, Loading, Page, Section, Toasts } from "./ui";
 
@@ -77,6 +77,7 @@ function Routed() {
         <Route path="/settings" element={g("settings.read", <Settings />)} />
         <Route path="/texts" element={g("texts.write", <Texts />)} />
         <Route path="/channels" element={g("settings.read", <Channels />)} />
+        <Route path="/appearance" element={g("settings.read", <MiniAppLook />)} />
         <Route path="/staff" element={g("staff.manage", <Staff />)} />
         <Route path="/audit" element={g("audit.read", <Audit />)} />
         <Route path="/jobs" element={g("settings.write", <Jobs />)} />
