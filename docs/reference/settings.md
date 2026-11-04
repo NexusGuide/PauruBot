@@ -120,7 +120,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `miniapp_enabled` | bool | true | — |
+| `miniapp_enabled` | bool | true | Mini App is on. The bot shows the button that opens the Mini App |
 | `miniapp_accent` | str | "" | Mini App accent colour. Presets only, so text stays readable in light and dark. Each reseller bot has its own |
 | `miniapp_logo` | bool | false | Mini App logo from the bot's profile photo. The bot's Telegram profile photo shows beside the shop name on the Mini App home screen (cached for a few hours) |
 | `miniapp_notice` | str | "" | Mini App home notice. One short paragraph (300 characters at most) above the wallet. Empty means none |
