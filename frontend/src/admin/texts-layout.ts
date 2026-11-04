@@ -48,7 +48,7 @@ export function isButton(key: string): boolean {
 
 /** The order inside a section: the welcome text first, then buttons, then the rest by key. */
 export function bySectionOrder(a: string, b: string): number {
-  const rank = (key: string) => (key === "welcome" || key.startsWith("start_") ? 0 : isButton(key) ? 1 : 2);
+  const rank = (key: string) => (key === "welcome" ? 0 : key.startsWith("start_") ? 1 : isButton(key) ? 2 : 3);
   return rank(a) - rank(b) || a.localeCompare(b);
 }
 

@@ -105,7 +105,10 @@ test("texts: each goes to the part of the bot it belongs to", () => {
   assert.equal(texts.sectionOf("zzz_unknown"), "other");
   assert.equal(texts.sectionOf("all_configs_caption"), "services");
   assert.equal(texts.sectionOf("badge_hot"), "purchase");
-  assert.deepEqual(["status_x", "btn_trial", "welcome", "btn_buy"].sort(texts.bySectionOrder), ["welcome", "btn_buy", "btn_trial", "status_x"]);
+  assert.deepEqual(
+    ["status_x", "btn_trial", "start_gift", "welcome", "btn_buy"].sort(texts.bySectionOrder),
+    ["welcome", "start_gift", "btn_buy", "btn_trial", "status_x"],
+  );
   assert.equal(texts.isButton("btn_buy"), true);
   assert.equal(texts.isButton("acc_btn_login"), true);
   assert.equal(texts.isButton("welcome"), false);

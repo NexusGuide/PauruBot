@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import { useSession } from "./session";
 import { Button, Icon, Sheet } from "./ui";
 import {
@@ -24,9 +24,10 @@ function useGroups(): NavGroup[] {
 function HubEntry({ hub, active, onNavigate }: { hub: Hub; active: boolean; onNavigate?: () => void }) {
   const { t } = useSession();
   return (
-    <NavLink
+    // A plain link: the hub is active on any of its pages, not only the one it opens (NavLink
+    // would mark aria-current only on that one).
+    <Link
       to={hubTarget(hub)}
-      end={hubTarget(hub) === "/"}
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
       className={`flex items-center gap-3 rounded-xl px-3 py-2 text-[0.88rem] font-semibold transition-colors ${
@@ -37,7 +38,7 @@ function HubEntry({ hub, active, onNavigate }: { hub: Hub; active: boolean; onNa
     >
       <Icon name={hub.icon} size={19} />
       {t(hubLabel(hub))}
-    </NavLink>
+    </Link>
   );
 }
 
@@ -159,16 +160,16 @@ export function Shell({ children }: { children: ReactNode }) {
         <ul className="flex">
           {tabs.map((hub) => (
             <li key={hub.key} className="flex-1">
-              <NavLink
+              <Link
                 to={hubTarget(hub)}
-                end={hubTarget(hub) === "/"}
+                aria-current={hub === current ? "page" : undefined}
                 className={`flex flex-col items-center gap-0.5 py-2 text-[0.7rem] font-semibold ${
                   hub === current ? "text-firouzeh-600" : "text-[var(--hint)]"
                 }`}
               >
                 <Icon name={hub.icon} size={22} />
                 {label(hub)}
-              </NavLink>
+              </Link>
             </li>
           ))}
           <li className="flex-1">

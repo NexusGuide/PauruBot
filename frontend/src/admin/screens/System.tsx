@@ -806,6 +806,7 @@ function TextSheet({ item, locales, globals, onClose, onSaved }: { item: TextIte
   const pick = (next: string) => {
     setLocale(next);
     setValue(item.overrides[next] ?? item.defaults[next] ?? "");
+    setCaret(null); // the cursor belonged to the other language's text
   };
   const save = async () => {
     try {
@@ -863,11 +864,14 @@ function TextSheet({ item, locales, globals, onClose, onSaved }: { item: TextIte
             setCaret(e.target.selectionStart);
           }}
           onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+          // Clicking a variable takes focus from the text: keep where the cursor was.
+          onBlur={(e) => setCaret(e.currentTarget.selectionStart)}
         />
         <div className="flex flex-col gap-1.5">
           <p className="text-[0.8rem] font-semibold">{t("text_variables")}</p>
           <p className="flex flex-wrap gap-1.5" dir="ltr">
-            {[...item.variables, ...globals].map((name) => (
+            {/* A text's own variable can also be a global one: list each name once. */}
+            {[...new Set([...item.variables, ...globals])].map((name) => (
               <button
                 key={name}
                 type="button"
