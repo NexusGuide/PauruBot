@@ -452,10 +452,11 @@ test("owner-keyed mounted subtree, backend auth and UI navigation are wired", ()
     admin,
     /path="\/announcements" element=\{g\("broadcast.send", <Announcements/,
   );
-  const layout = readFileSync(root("admin/layout.tsx"), "utf8");
+  // The admin menu lives in nav.ts since the hub regroup.
+  const nav = readFileSync(root("admin/nav.ts"), "utf8");
   assert.match(
-    layout,
-    /to: "\/announcements"[^\n]*permission: "broadcast.send"[^\n]*shopWide: true/,
+    nav,
+    /page\("\/announcements"[^\n]*permission: "broadcast.send"[^\n]*shopWide: true/,
   );
 });
 

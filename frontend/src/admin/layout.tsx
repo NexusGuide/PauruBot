@@ -2,119 +2,92 @@ import { useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useSession } from "./session";
 import { Button, Icon, Sheet } from "./ui";
+import {
+  hubFor,
+  hubLabel,
+  hubTarget,
+  matches,
+  MOBILE_HUBS,
+  visibleFor,
+  visibleGroups,
+  type Hub,
+  type NavGroup,
+} from "./nav";
 
-export interface NavItem {
-  to: string;
-  key: string;
-  icon: string;
-  permission?: string;
-  /** Hidden from resellers, whose scope is only their own customers. */
-  shopWide?: boolean;
-  /** Only for reseller accounts. */
-  resellerOnly?: boolean;
-}
+export { NAV_GROUPS, type NavItem } from "./nav";
 
-export const NAV_GROUPS: { key: string; items: NavItem[] }[] = [
-  {
-    key: "nav_group_daily",
-    items: [
-      { to: "/", key: "nav_inbox", icon: "inbox", permission: "dashboard.view" },
-      { to: "/customers", key: "nav_customers", icon: "users", permission: "customers.read", shopWide: true },
-      { to: "/services", key: "nav_services", icon: "services", permission: "services.read" },
-      { to: "/orders", key: "nav_orders", icon: "orders", permission: "orders.read" },
-      { to: "/payments", key: "nav_payments", icon: "payments", permission: "payments.read" },
-      { to: "/tickets", key: "nav_tickets", icon: "tickets", permission: "tickets.read" },
-      { to: "/billing", key: "nav_reseller_hub", icon: "resellers", permission: "dashboard.view", resellerOnly: true },
-    ],
-  },
-  {
-    key: "nav_group_shop",
-    items: [
-      { to: "/manual-sales", key: "nav_manual_sales", icon: "catalog", permission: "catalog.read", shopWide: true },
-      { to: "/catalog", key: "nav_catalog", icon: "catalog", permission: "catalog.read", shopWide: true },
-      { to: "/panels", key: "nav_panels", icon: "panels", permission: "panels.read" },
-      { to: "/discounts", key: "nav_discounts", icon: "discounts", permission: "discounts.write" },
-      { to: "/announcements", key: "nav_announcements", icon: "inbox", permission: "broadcast.send", shopWide: true },
-      { to: "/broadcasts", key: "nav_broadcasts", icon: "broadcast", permission: "broadcast.send" },
-      { to: "/lotteries", key: "nav_lotteries", icon: "discounts", permission: "broadcast.send", shopWide: true },
-      { to: "/resellers", key: "nav_resellers", icon: "resellers", permission: "resellers.manage" },
-      { to: "/admin-accounts", key: "nav_admin_accounts", icon: "panels", permission: "resellers.manage", shopWide: true },
-      { to: "/desk", key: "nav_desk", icon: "catalog", permission: "services.create", resellerOnly: true },
-      { to: "/sub-resellers", key: "nav_sub_resellers", icon: "resellers", permission: "resellers.sub", resellerOnly: true },
-      { to: "/my-bot", key: "nav_my_bot", icon: "channels", permission: "resellers.bot", resellerOnly: true },
-      { to: "/reports", key: "nav_reports", icon: "reports", permission: "reports.read" },
-    ],
-  },
-  {
-    key: "nav_group_system",
-    items: [
-      { to: "/settings", key: "nav_settings", icon: "settings", permission: "settings.read" },
-      { to: "/texts", key: "nav_texts", icon: "texts", permission: "texts.write" },
-      { to: "/bot-menu", key: "nav_bot_menu", icon: "texts", permission: "settings.read" },
-      { to: "/channels", key: "nav_channels", icon: "channels", permission: "settings.read" },
-      { to: "/staff", key: "nav_staff", icon: "staff", permission: "staff.manage" },
-      { to: "/audit", key: "nav_audit", icon: "audit", permission: "audit.read" },
-      { to: "/jobs", key: "nav_jobs", icon: "jobs", permission: "settings.write" },
-      { to: "/health", key: "nav_health", icon: "jobs", permission: "settings.write" },
-      { to: "/backups", key: "nav_backups", icon: "backup", permission: "backups.manage" },
-      { to: "/migration", key: "nav_migration", icon: "backup", permission: "backups.manage" },
-      { to: "/updates", key: "nav_updates", icon: "refresh", permission: "backups.manage" },
-      { to: "/help", key: "nav_help", icon: "help" },
-    ],
-  },
-];
-
-const MOBILE_TABS = ["/", "/customers", "/services", "/payments"];
-
-function useVisible(): (item: NavItem) => boolean {
+function useGroups(): NavGroup[] {
   const { can, me } = useSession();
-  return (item) => {
-    if (item.permission && !can(item.permission)) return false;
-    if (item.shopWide && me?.role === "reseller") return false;
-    if (item.resellerOnly && me?.role !== "reseller") return false;
-    return true;
-  };
+  return visibleGroups(visibleFor(can, me?.role));
 }
 
-function NavEntry({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
+function HubEntry({ hub, active, onNavigate }: { hub: Hub; active: boolean; onNavigate?: () => void }) {
   const { t } = useSession();
   return (
     <NavLink
-      to={item.to}
-      end={item.to === "/"}
+      to={hubTarget(hub)}
+      end={hubTarget(hub) === "/"}
       onClick={onNavigate}
-      className={({ isActive }) =>
-        `flex items-center gap-3 rounded-xl px-3 py-2 text-[0.88rem] font-semibold transition-colors ${
-          isActive
-            ? "bg-firouzeh-600 text-white"
-            : "text-[var(--hint)] hover:bg-[var(--line)] hover:text-[var(--text)]"
-        }`
-      }
+      aria-current={active ? "page" : undefined}
+      className={`flex items-center gap-3 rounded-xl px-3 py-2 text-[0.88rem] font-semibold transition-colors ${
+        active
+          ? "bg-firouzeh-600 text-white"
+          : "text-[var(--hint)] hover:bg-[var(--line)] hover:text-[var(--text)]"
+      }`}
     >
-      <Icon name={item.icon} size={19} />
-      {t(item.key)}
+      <Icon name={hub.icon} size={19} />
+      {t(hubLabel(hub))}
     </NavLink>
   );
 }
 
 function NavList({ onNavigate }: { onNavigate?: () => void }) {
   const { t } = useSession();
-  const visible = useVisible();
+  const groups = useGroups();
+  const { pathname } = useLocation();
+  const current = hubFor(groups, pathname);
   return (
     <nav className="flex flex-col gap-5">
-      {NAV_GROUPS.map((group) => {
-        const items = group.items.filter(visible);
-        if (items.length === 0) return null;
-        return (
-          <div key={group.key} className="flex flex-col gap-0.5">
-            <p className="px-3 pb-1 text-[0.75rem] font-semibold text-[var(--hint)]">{t(group.key)}</p>
-            {items.map((item) => (
-              <NavEntry key={item.to} item={item} onNavigate={onNavigate} />
-            ))}
-          </div>
-        );
-      })}
+      {groups.map((group) => (
+        <div key={group.key} className="flex flex-col gap-0.5">
+          <p className="px-3 pb-1 text-[0.75rem] font-semibold text-[var(--hint)]">{t(group.key)}</p>
+          {group.hubs.map((hub) => (
+            <HubEntry key={hub.key} hub={hub} active={hub === current} onNavigate={onNavigate} />
+          ))}
+        </div>
+      ))}
     </nav>
+  );
+}
+
+/** The pages of the current hub, as tabs above the page (APP-ADMIN regroup). */
+function HubTabs({ hub }: { hub: Hub }) {
+  const { t } = useSession();
+  const { pathname } = useLocation();
+  return (
+    <div className="mx-auto w-full max-w-7xl px-4 pt-4 md:px-8 md:pt-6">
+      <nav aria-label={t(hub.key)} className="flex gap-1 overflow-x-auto border-b border-[var(--line)]">
+        {hub.tabs.map((item) => {
+          const active = matches(item, pathname);
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === "/"}
+              aria-current={active ? "page" : undefined}
+              className={`-mb-px flex min-h-11 shrink-0 items-center gap-2 whitespace-nowrap border-b-[3px] px-4 text-[0.9rem] font-semibold transition-colors ${
+                active
+                  ? "border-firouzeh-600 text-firouzeh-700"
+                  : "border-transparent text-[var(--hint)] hover:text-[var(--text)]"
+              }`}
+            >
+              <Icon name={item.icon} size={17} />
+              {t(item.key)}
+            </NavLink>
+          );
+        })}
+      </nav>
+    </div>
   );
 }
 
@@ -149,16 +122,15 @@ function AccountBlock({ onNavigate }: { onNavigate?: () => void }) {
 
 export function Shell({ children }: { children: ReactNode }) {
   const { t } = useSession();
-  const visible = useVisible();
+  const groups = useGroups();
   const location = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
-  const allItems = NAV_GROUPS.flatMap((group) => group.items).filter(visible);
-  const tabs = MOBILE_TABS.map((to) => allItems.find((item) => item.to === to)).filter(
-    (item): item is NavItem => Boolean(item),
+  const hubs = groups.flatMap((group) => group.hubs);
+  const tabs = MOBILE_HUBS.map((key) => hubs.find((hub) => hub.key === key || hubLabel(hub) === key)).filter(
+    (hub): hub is Hub => Boolean(hub),
   );
-  const current = allItems.find((item) =>
-    item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to),
-  );
+  const current = hubFor(groups, location.pathname);
+  const label = (hub: Hub) => t(hubLabel(hub));
 
   return (
     <div className="min-h-dvh md:flex">
@@ -172,29 +144,30 @@ export function Shell({ children }: { children: ReactNode }) {
 
       <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-[var(--line)] bg-[var(--bg)]/95 px-4 backdrop-blur md:hidden">
         <p className="font-extrabold text-firouzeh-700">{t("brand")}</p>
-        <p className="text-[0.85rem] font-semibold text-[var(--hint)]">{current ? t(current.key) : ""}</p>
+        <p className="text-[0.85rem] font-semibold text-[var(--hint)]">{current ? label(current) : ""}</p>
       </header>
 
-      <main className="min-w-0 flex-1">{children}</main>
+      <main className="min-w-0 flex-1">
+        {current && current.tabs.length > 1 && <HubTabs hub={current} />}
+        {children}
+      </main>
 
       <nav
         className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--line)] bg-[var(--bg)]/95 backdrop-blur md:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <ul className="flex">
-          {tabs.map((item) => (
-            <li key={item.to} className="flex-1">
+          {tabs.map((hub) => (
+            <li key={hub.key} className="flex-1">
               <NavLink
-                to={item.to}
-                end={item.to === "/"}
-                className={({ isActive }) =>
-                  `flex flex-col items-center gap-0.5 py-2 text-[0.7rem] font-semibold ${
-                    isActive ? "text-firouzeh-600" : "text-[var(--hint)]"
-                  }`
-                }
+                to={hubTarget(hub)}
+                end={hubTarget(hub) === "/"}
+                className={`flex flex-col items-center gap-0.5 py-2 text-[0.7rem] font-semibold ${
+                  hub === current ? "text-firouzeh-600" : "text-[var(--hint)]"
+                }`}
               >
-                <Icon name={item.icon} size={22} />
-                {t(item.key)}
+                <Icon name={hub.icon} size={22} />
+                {label(hub)}
               </NavLink>
             </li>
           ))}
