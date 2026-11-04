@@ -1,6 +1,6 @@
 import { PasswordRecovery } from "../password-recovery/PasswordRecovery";
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { money } from "@shared/format";
 import { call, qs, type AuditRow, type Channels as ChannelData, type JobRow, type SalesReport, type SettingItem, type TextItem } from "../api";
 import { Columns } from "../chart";
@@ -35,6 +35,8 @@ import {
   useConfirm,
 } from "../ui";
 import { compact } from "./Home";
+import { categorize, controllers, matchesQuery, shown } from "../settings-layout";
+import { bySectionOrder, countBySection, isButton, preview, sectionOf, SECTIONS, type PreviewNode, type Section as TextSection } from "../texts-layout";
 
 // ---------------------------------------------------------------- settings
 
@@ -520,7 +522,168 @@ function SettingControl({
   );
 }
 
+const WIDE_SETTINGS = ["card_accounts", "topup_bonus_rules", "app_links", "loyalty_tiers", "wheel_prizes", "business_rules", "business_reply", "guest_plan_ids"];
+// Edited elsewhere: the trust channel on the channels screen; appearance and resale on their own screens.
+const HIDDEN_GROUPS = ["appearance", "resale"];
+const HIDDEN_SETTINGS = ["trust_channel_id"];
+
 export function Settings() {
+  const { t, can, toast, errorText } = useSession();
+  const { data, error, reload } = useLoad<{ groups: Record<string, SettingItem[]> }>("/api/admin/settings");
+  const [changes, setChanges] = useState<Record<string, unknown>>({});
+  const [query, setQuery] = useState("");
+  const [params, setParams] = useSearchParams();
+  const [busy, run] = useAction();
+  const writable = can("settings.write");
+  const dirty = Object.keys(changes).length > 0;
+
+  const save = async () => {
+    try {
+      await run(() => call("/api/admin/settings", { method: "PUT", body: { values: changes } }));
+      setChanges({});
+      toast(t("saved"));
+      void reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  return (
+    <Page title={t("nav_settings")} wide>
+      <Async data={data} error={error} reload={reload}>
+        {(value) => {
+          const groups = Object.fromEntries(
+            Object.entries(value.groups)
+              .filter(([group]) => !HIDDEN_GROUPS.includes(group))
+              .map(([group, items]) => [group, items.filter((item) => !HIDDEN_SETTINGS.includes(item.key))]),
+          );
+          const names = Object.keys(groups);
+          const asked = params.get("group");
+          const selected = asked && names.includes(asked) ? asked : names[0];
+          const label = (key: string) => t(`setting_${key}`);
+          const hintOf = (key: string) => {
+            const hint = t(`setting_${key}_hint`);
+            return hint === `setting_${key}_hint` ? undefined : hint;
+          };
+          const shownGroups = query.trim() ? names : selected ? [selected] : [];
+          const changed = Object.keys(changes);
+          return (
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-wrap items-start gap-6">
+                <aside aria-label={t("settings_categories")} className="flex w-full flex-col gap-3 md:sticky md:top-6 md:w-64 md:shrink-0">
+                  <SearchBox value={query} onChange={setQuery} placeholder={t("settings_search")} />
+                  <nav className="flex flex-col gap-0.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-2">
+                    {categorize(names).map((category) => (
+                      <div key={category.key} className="flex flex-col gap-0.5">
+                        <p className="px-3 pb-0.5 pt-2 text-[0.75rem] font-semibold text-[var(--hint)]">{t(`settings_category_${category.key}`)}</p>
+                        {category.groups.map((group) => {
+                          const active = !query.trim() && group === selected;
+                          return (
+                            <button
+                              key={group}
+                              type="button"
+                              aria-current={active ? "true" : undefined}
+                              onClick={() => {
+                                setQuery("");
+                                setParams((prev) => {
+                                  const next = new URLSearchParams(prev);
+                                  next.set("group", group);
+                                  return next;
+                                }, { replace: true });
+                              }}
+                              className={`flex min-h-11 items-center gap-2 rounded-xl px-3 text-start text-[0.9rem] font-semibold ${
+                                active ? "bg-firouzeh-50 text-firouzeh-700" : "hover:bg-[var(--line)]"
+                              }`}
+                            >
+                              {t(`settings_group_${group}`)}
+                              <span className="ms-auto text-[0.75rem] font-normal text-[var(--hint)]">{groups[group]?.length ?? 0}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </nav>
+                </aside>
+
+                <div className="flex min-w-0 flex-1 flex-col gap-5">
+                  {shownGroups.map((group) => {
+                    const items = groups[group] ?? [];
+                    const deps = controllers(items.map((item) => item.key));
+                    const valueOf = (key: string) => (key in changes ? changes[key] : items.find((item) => item.key === key)?.value);
+                    const visible = items.filter((item) =>
+                      query.trim() ? matchesQuery(query, label(item.key), hintOf(item.key), item.key) : shown(item.key, deps, valueOf),
+                    );
+                    if (query.trim() && visible.length === 0) return null;
+                    return (
+                      <Section key={group} title={t(`settings_group_${group}`)}>
+                        <div className="grid gap-5 md:grid-cols-2">
+                          {visible.map((item) => {
+                            const nested = !query.trim() && (deps[item.key]?.length ?? 0) > 0;
+                            const wide = WIDE_SETTINGS.includes(item.key) || item.type === "bool";
+                            return (
+                              <div
+                                key={item.key}
+                                className={`${wide ? "md:col-span-2" : ""} ${nested ? "border-s-2 border-firouzeh-100 ps-4" : ""}`}
+                              >
+                                <SettingControl
+                                  item={item}
+                                  value={valueOf(item.key)}
+                                  canSecrets={can("panels.secrets") && writable}
+                                  onChange={(next) => writable && setChanges((prev) => ({ ...prev, [item.key]: next }))}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </Section>
+                    );
+                  })}
+                  {query.trim() && shownGroups.every((group) => !(groups[group] ?? []).some((item) => matchesQuery(query, label(item.key), hintOf(item.key), item.key))) && (
+                    <Empty title={t("empty_list")} />
+                  )}
+                </div>
+              </div>
+
+              {writable && dirty && (
+                <div
+                  role="status"
+                  className="sticky bottom-20 z-10 flex flex-wrap items-center gap-3 rounded-2xl bg-[var(--text)] px-5 py-3 text-[var(--bg)] shadow-lg md:bottom-4"
+                >
+                  <span className="font-bold">{t("settings_unsaved", { count: changed.length })}</span>
+                  <span className="min-w-0 flex-1 truncate text-[0.85rem] opacity-80">
+                    {changed.slice(0, 3).map(label).join("، ")}
+                    {changed.length > 3 ? "…" : ""}
+                  </span>
+                  <Button onClick={() => setChanges({})}>{t("discard")}</Button>
+                  <Button tone="primary" busy={busy} onClick={() => void save()}>
+                    {t("save_changes")}
+                  </Button>
+                </div>
+              )}
+            </div>
+          );
+        }}
+      </Async>
+    </Page>
+  );
+}
+
+// ---------------------------------------------------------------- Mini App look (REF-08)
+
+// The Mini App's appearance group also holds the bot menu's layout (edited on the bot-menu
+// screen); these four are the Mini App's own look, which no screen used to offer.
+export const LOOK_KEYS = ["miniapp_enabled", "miniapp_accent", "miniapp_logo", "miniapp_notice"];
+// The light-theme accents from the Mini App's app.css ([data-accent=…]); "" is its default blue.
+const ACCENTS: Record<string, { ink: string; soft: string }> = {
+  "": { ink: "#256fb6", soft: "#e8f1fa" },
+  green: { ink: "#1f7a4d", soft: "#e6f4ec" },
+  purple: { ink: "#6b46c1", soft: "#f0ebfb" },
+  orange: { ink: "#b45309", soft: "#fdf1e3" },
+  rose: { ink: "#be2d5a", soft: "#fcebf0" },
+  teal: { ink: "#0f766e", soft: "#e3f4f2" },
+};
+
+export function MiniAppLook() {
   const { t, can, toast, errorText } = useSession();
   const { data, error, reload } = useLoad<{ groups: Record<string, SettingItem[]> }>("/api/admin/settings");
   const [changes, setChanges] = useState<Record<string, unknown>>({});
@@ -541,7 +704,7 @@ export function Settings() {
 
   return (
     <Page
-      title={t("nav_settings")}
+      title={t("nav_appearance")}
       actions={
         writable && (
           <>
@@ -554,27 +717,67 @@ export function Settings() {
       }
     >
       <Async data={data} error={error} reload={reload}>
-        {(value) => (
-          <>
-            {Object.entries(value.groups).filter(([group]) => group !== "appearance" && group !== "resale").map(([group, items]) => (
-              <Section key={group} title={t(`settings_group_${group}`)}>
-                <div className="grid gap-5 md:grid-cols-2">
-                  {/* The trust channel lives on the channels screen now, with its own report kinds. */}
-                  {items.filter((item) => item.key !== "trust_channel_id").map((item) => (
-                    <div key={item.key} className={["card_accounts", "topup_bonus_rules", "app_links", "loyalty_tiers", "wheel_prizes", "business_rules", "business_reply", "guest_plan_ids"].includes(item.key) || item.type === "bool" ? "md:col-span-2" : ""}>
+        {(value) => {
+          const items = LOOK_KEYS.map((key) => (value.groups.appearance ?? []).find((item) => item.key === key)).filter(
+            (item): item is SettingItem => Boolean(item),
+          );
+          const valueOf = (key: string) => (key in changes ? changes[key] : items.find((item) => item.key === key)?.value);
+          const accent = ACCENTS[String(valueOf("miniapp_accent") ?? "")] ?? ACCENTS[""];
+          const enabled = Boolean(valueOf("miniapp_enabled"));
+          const notice = String(valueOf("miniapp_notice") ?? "").trim();
+          return (
+            <div className="flex flex-wrap items-start gap-6">
+              <div className="min-w-0 flex-[2_1_420px]">
+                <Section title={t("appearance_settings")}>
+                  <div className="flex flex-col gap-5">
+                    {items.map((item) => (
                       <SettingControl
+                        key={item.key}
                         item={item}
-                        value={item.key in changes ? changes[item.key] : item.value}
-                        canSecrets={can("panels.secrets") && writable}
+                        value={valueOf(item.key)}
+                        canSecrets={false}
                         onChange={(next) => writable && setChanges((prev) => ({ ...prev, [item.key]: next }))}
                       />
+                    ))}
+                  </div>
+                </Section>
+              </div>
+              <div className="min-w-0 flex-[1_1_280px]">
+                <Section title={t("appearance_preview")}>
+                  <div
+                    aria-label={t("appearance_preview")}
+                    className={`flex flex-col gap-3 rounded-2xl bg-[var(--bg)] p-4 ${enabled ? "" : "opacity-50"}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      {Boolean(valueOf("miniapp_logo")) && (
+                        <span
+                          aria-hidden="true"
+                          className="grid size-10 place-items-center rounded-full font-extrabold text-white"
+                          style={{ background: accent?.ink }}
+                        >
+                          {t("appearance_logo_letter")}
+                        </span>
+                      )}
+                      <strong className="text-[0.95rem]">{t("appearance_shop_name")}</strong>
                     </div>
-                  ))}
-                </div>
-              </Section>
-            ))}
-          </>
-        )}
+                    {notice && (
+                      <p className="rounded-xl px-3 py-2 text-[0.85rem]" style={{ background: accent?.soft, color: accent?.ink }}>
+                        {notice}
+                      </p>
+                    )}
+                    <span
+                      className="flex min-h-11 items-center justify-center rounded-xl text-[0.9rem] font-bold text-white"
+                      style={{ background: accent?.ink }}
+                    >
+                      {t("appearance_sample_button")}
+                    </span>
+                  </div>
+                  {!enabled && <p className="mt-3 text-[0.82rem] text-[var(--hint)]">{t("appearance_off")}</p>}
+                </Section>
+              </div>
+            </div>
+          );
+        }}
       </Async>
     </Page>
   );
@@ -592,11 +795,18 @@ function TextSheet({ item, locales, globals, onClose, onSaved }: { item: TextIte
   const { t, toast, errorText } = useSession();
   const [locale, setLocale] = useState(locales[0] ?? "fa");
   const [value, setValue] = useState(item.overrides[locale] ?? item.defaults[locale] ?? "");
+  const [caret, setCaret] = useState<number | null>(null);
   const [busy, run] = useAction();
+  const insert = (name: string) => {
+    const at = caret ?? value.length;
+    setValue(`${value.slice(0, at)}{${name}}${value.slice(at)}`);
+    setCaret(at + name.length + 2);
+  };
 
   const pick = (next: string) => {
     setLocale(next);
     setValue(item.overrides[next] ?? item.defaults[next] ?? "");
+    setCaret(null); // the cursor belonged to the other language's text
   };
   const save = async () => {
     try {
@@ -644,15 +854,47 @@ function TextSheet({ item, locales, globals, onClose, onSaved }: { item: TextIte
             </Button>
           ))}
         </div>
-        <Textarea aria-label={item.key} rows={10} dir={locale === "fa" ? "rtl" : "ltr"} value={value} onChange={(e) => setValue(e.target.value)} />
+        <Textarea
+          aria-label={item.key}
+          rows={8}
+          dir={locale === "fa" ? "rtl" : "ltr"}
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setCaret(e.target.selectionStart);
+          }}
+          onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+          // Clicking a variable takes focus from the text: keep where the cursor was.
+          onBlur={(e) => setCaret(e.currentTarget.selectionStart)}
+        />
         <div className="flex flex-col gap-1.5">
           <p className="text-[0.8rem] font-semibold">{t("text_variables")}</p>
           <p className="flex flex-wrap gap-1.5" dir="ltr">
-            {[...item.variables, ...globals].map((name) => (
-              <code key={name} className="rounded-md bg-[var(--bg)] px-1.5 py-0.5 text-[0.78rem]">{`{${name}}`}</code>
+            {/* A text's own variable can also be a global one: list each name once. */}
+            {[...new Set([...item.variables, ...globals])].map((name) => (
+              <button
+                key={name}
+                type="button"
+                onClick={() => insert(name)}
+                aria-label={t("text_insert_variable", { name })}
+                className="min-h-8 rounded-md bg-[var(--bg)] px-2 font-mono text-[0.78rem] hover:bg-firouzeh-50 hover:text-firouzeh-700"
+              >
+                {`{${name}}`}
+              </button>
             ))}
           </p>
           <p className="text-[0.78rem] text-[var(--hint)]">{t("text_html_hint")}</p>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <p className="text-[0.8rem] font-semibold">{t("text_preview")}</p>
+          <div className="rounded-2xl bg-[var(--bg)] p-4">
+            <div
+              className="max-w-[90%] whitespace-pre-wrap break-words rounded-2xl rounded-bl-md bg-[var(--surface)] px-3.5 py-2.5 text-[0.9rem] leading-relaxed shadow-sm"
+              dir={locale === "fa" ? "rtl" : "ltr"}
+            >
+              <PreviewText nodes={preview(value, previewSamples(t))} />
+            </div>
+          </div>
         </div>
         <details className="text-[0.85rem]">
           <summary className="cursor-pointer font-semibold text-[var(--hint)]">{t("text_default")}</summary>
@@ -665,53 +907,135 @@ function TextSheet({ item, locales, globals, onClose, onSaved }: { item: TextIte
   );
 }
 
+const PREVIEW_TAGS: Record<string, string> = {
+  b: "font-bold",
+  i: "italic",
+  u: "underline",
+  s: "line-through",
+  code: "rounded bg-[var(--bg)] px-1 font-mono text-[0.85em]",
+  pre: "block rounded bg-[var(--bg)] p-2 font-mono text-[0.85em]",
+  a: "text-firouzeh-700 underline",
+  spoiler: "rounded bg-[var(--line)] px-1",
+  quote: "block border-s-2 border-firouzeh-500 ps-2",
+  var: "rounded bg-[var(--line)] px-1 font-mono text-[0.8em]",
+};
+
+function PreviewText({ nodes }: { nodes: PreviewNode[] }) {
+  return (
+    <>
+      {nodes.map((node, index) =>
+        typeof node === "string" ? (
+          <span key={index}>{node}</span>
+        ) : (
+          <span key={index} className={PREVIEW_TAGS[node.tag]} dir={node.tag === "var" ? "ltr" : undefined}>
+            {node.tag === "var" ? `{${String(node.children[0] ?? "")}}` : <PreviewText nodes={node.children} />}
+          </span>
+        ),
+      )}
+    </>
+  );
+}
+
+/** Example values for the preview; anything else stays shown as {name}. */
+function previewSamples(t: (key: string) => string): Record<string, string> {
+  return { name: t("text_sample_name"), shop: t("text_sample_shop"), first_name: t("text_sample_name") };
+}
+
 export function Texts() {
   const { t, locale } = useSession();
   const { data, error, reload } = useLoad<TextsData>("/api/admin/texts");
   const [query, setQuery] = useState("");
   const [onlyChanged, setOnlyChanged] = useState(false);
+  const [onlyButtons, setOnlyButtons] = useState(false);
+  const [params, setParams] = useSearchParams();
   const [open, setOpen] = useState<TextItem | null>(null);
-  const items = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return (data?.items ?? []).filter((item) => {
-      if (onlyChanged && Object.keys(item.overrides).length === 0) return false;
-      if (!q) return true;
-      return item.key.includes(q) || Object.values(item.defaults).some((text) => text.toLowerCase().includes(q));
-    });
-  }, [data, query, onlyChanged]);
+  const asked = params.get("section");
+  const section: TextSection = SECTIONS.find((name) => name === asked) ?? "start";
+  const searching = Boolean(query.trim());
+  const filtered = useMemo(
+    () =>
+      (data?.items ?? []).filter((item) => {
+        if (onlyChanged && Object.keys(item.overrides).length === 0) return false;
+        if (onlyButtons && !isButton(item.key)) return false;
+        return matchesQuery(query, item.key, ...Object.values(item.defaults), ...Object.values(item.overrides));
+      }),
+    [data, query, onlyChanged, onlyButtons],
+  );
+  const counts = useMemo(() => countBySection(filtered.map((item) => item.key)), [filtered]);
+  const items = searching
+    ? filtered
+    : filtered.filter((item) => sectionOf(item.key) === section).sort((a, b) => bySectionOrder(a.key, b.key));
+  const changedCount = (data?.items ?? []).filter((item) => Object.keys(item.overrides).length > 0).length;
 
   return (
-    <Page title={t("nav_texts")}>
+    <Page title={t("nav_texts")} wide>
       <Async data={data} error={error} reload={reload}>
         {(value) => (
-          <Section flush>
-            <Toolbar>
+          <div className="flex flex-wrap items-start gap-6">
+            <aside aria-label={t("texts_sections")} className="flex w-full flex-col gap-3 md:sticky md:top-6 md:w-64 md:shrink-0">
               <SearchBox value={query} onChange={setQuery} placeholder={t("search_texts")} />
-              <Button small tone={onlyChanged ? "primary" : "quiet"} onClick={() => setOnlyChanged((v) => !v)}>
-                {t("only_changed")}
-              </Button>
-            </Toolbar>
-            {items.length === 0 ? (
-              <Empty title={t("empty_list")} />
-            ) : (
-              <ul className="divide-y divide-[var(--line)]">
-                {items.map((item) => (
-                  <li key={item.key}>
-                    <button type="button" onClick={() => setOpen(item)} className="flex w-full flex-col gap-1 px-4 py-3 text-start hover:bg-[var(--bg)]">
-                      <span className="flex items-center gap-2">
-                        <code className="text-[0.78rem] text-[var(--hint)]" dir="ltr">
-                          {item.key}
-                        </code>
-                        {Object.keys(item.overrides).length > 0 && <Badge tone="brand">{t("customised")}</Badge>}
-                      </span>
-                      <span className="line-clamp-2 text-[0.88rem]" dir="auto">
-                        {item.overrides[locale] ?? item.defaults[locale] ?? item.defaults.fa}
-                      </span>
+              <div className="flex flex-wrap gap-2">
+                <Button small tone={onlyChanged ? "primary" : "quiet"} aria-pressed={onlyChanged} onClick={() => setOnlyChanged((v) => !v)}>
+                  {t("only_changed")} · {changedCount}
+                </Button>
+                <Button small tone={onlyButtons ? "primary" : "quiet"} aria-pressed={onlyButtons} onClick={() => setOnlyButtons((v) => !v)}>
+                  {t("texts_only_buttons")}
+                </Button>
+              </div>
+              <nav className="flex flex-col gap-0.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-2">
+                {SECTIONS.filter((name) => counts[name] > 0 || name === section).map((name) => {
+                  const active = !searching && name === section;
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      aria-current={active ? "true" : undefined}
+                      onClick={() => {
+                        setQuery("");
+                        setParams((prev) => {
+                          const next = new URLSearchParams(prev);
+                          next.set("section", name);
+                          return next;
+                        }, { replace: true });
+                      }}
+                      className={`flex min-h-11 items-center gap-2 rounded-xl px-3 text-start text-[0.9rem] font-semibold ${
+                        active ? "bg-firouzeh-50 text-firouzeh-700" : "hover:bg-[var(--line)]"
+                      }`}
+                    >
+                      {t(`texts_section_${name}`)}
+                      <span className="ms-auto text-[0.75rem] font-normal text-[var(--hint)]">{counts[name]}</span>
                     </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+                  );
+                })}
+              </nav>
+            </aside>
+
+            <div className="min-w-0 flex-1">
+              <Section flush title={searching ? t("texts_search_results", { count: items.length }) : t(`texts_section_${section}`)}>
+                {items.length === 0 ? (
+                  <Empty title={t("empty_list")} />
+                ) : (
+                  <ul className="divide-y divide-[var(--line)]">
+                    {items.map((item) => (
+                      <li key={item.key}>
+                        <button type="button" onClick={() => setOpen(item)} className="flex w-full flex-col gap-1 px-4 py-3 text-start hover:bg-[var(--bg)]">
+                          <span className="line-clamp-2 text-[0.9rem] font-semibold" dir="auto">
+                            {item.overrides[locale] ?? item.defaults[locale] ?? item.defaults.fa}
+                          </span>
+                          <span className="flex flex-wrap items-center gap-2">
+                            <code className="text-[0.75rem] text-[var(--hint)]" dir="ltr">
+                              {item.key}
+                            </code>
+                            {isButton(item.key) && <Badge>{t("texts_button")}</Badge>}
+                            {Object.keys(item.overrides).length > 0 && <Badge tone="brand">{t("customised")}</Badge>}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Section>
+            </div>
             {open && (
               <TextSheet
                 item={open}
@@ -724,7 +1048,7 @@ export function Texts() {
                 }}
               />
             )}
-          </Section>
+          </div>
         )}
       </Async>
     </Page>
