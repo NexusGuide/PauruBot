@@ -5,7 +5,7 @@ A daily backup and safe updates are what keep the server worry-free. Both are av
 
 ## Automatic backups
 
-An encrypted backup is written every day at a set hour, and the last few are kept. The hour and the number kept are shown on [Backups](/backups). Each file holds the whole database and the master encryption key (MASTER_KEY), locked with the backup passphrase, so on a fresh server panel and gateway passwords come back too. The `.env` file is not included.
+An encrypted backup is written automatically, and the last few are kept. Under **Automatic backups** on [Backups](/backups) you choose how often (every few hours, or every day, few days or week at a set hour), how many copies to keep and whether each is sent to Telegram; you can also switch automatic backups off there. Each file holds the whole database and the master encryption key (MASTER_KEY), locked with the backup passphrase, so on a fresh server panel and gateway passwords come back too. The `.env` file is not included.
 
 - With Telegram delivery on, each backup is sent to the owner or to the channel you set for the **Backups** topic in [Channels](/channels).
 - **Back up now** writes one right away. Download files from the list on the same page.

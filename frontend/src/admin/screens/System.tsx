@@ -1,7 +1,7 @@
 import { PasswordRecovery } from "../password-recovery/PasswordRecovery";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { money } from "@shared/format";
+import { digits, money } from "@shared/format";
 import { call, qs, type AuditRow, type Channels as ChannelData, type JobRow, type SalesReport, type SettingItem, type TextItem } from "../api";
 import { Columns } from "../chart";
 import { PAGE_SIZE, useAction, useList, useLoad } from "../hooks";
@@ -36,6 +36,7 @@ import {
 } from "../ui";
 import { compact } from "./Home";
 import { categorize, controllers, matchesQuery, shown } from "../settings-layout";
+import { atAnHour, everyLabel, everyOptions, summary, type BackupSchedule } from "../backup-schedule";
 import { bySectionOrder, countBySection, isButton, preview, sectionOf, SECTIONS, type PreviewNode, type Section as TextSection } from "../texts-layout";
 
 // ---------------------------------------------------------------- settings
@@ -2128,11 +2129,97 @@ export function Health() {
 
 interface BackupData {
   items: { name: string; size: number; created_at: string }[];
-  schedule: { hour: number; keep: number; telegram: boolean; passphrase_set: boolean; timezone: string };
+  schedule: BackupSchedule & { passphrase_set: boolean; timezone: string };
+}
+
+function BackupScheduleSection({ saved, onSaved }: { saved: BackupSchedule; onSaved: () => void }) {
+  const { t, locale, toast, errorText } = useSession();
+  const pick = (value: BackupSchedule): BackupSchedule => ({
+    enabled: value.enabled,
+    every_hours: value.every_hours,
+    hour: value.hour,
+    keep: value.keep,
+    telegram: value.telegram,
+  });
+  const [draft, setDraft] = useState<BackupSchedule>(() => pick(saved));
+  const [busy, run] = useAction();
+  const dirty = (Object.keys(draft) as (keyof BackupSchedule)[]).some((key) => draft[key] !== saved[key]);
+  const set = (change: Partial<BackupSchedule>) => setDraft((prev) => ({ ...prev, ...change }));
+  const number = (value: number) => money(value, locale);
+  const label = (hours: number) => {
+    const [key, vars] = everyLabel(hours);
+    return t(key, Object.fromEntries(Object.entries(vars).map(([name, value]) => [name, number(value)])));
+  };
+  const [summaryKey, summaryVars] = summary(saved);
+  const save = async () => {
+    try {
+      await run(() => call("/api/admin/backups/schedule", { method: "PUT", body: draft }));
+      toast(t("saved"));
+      onSaved();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <Section title={t("backup_auto_title")}>
+      <p className="mb-4 leading-relaxed">
+        {t(summaryKey, Object.fromEntries(Object.entries(summaryVars).map(([name, value]) => [name, number(value)])))}{" "}
+        {saved.enabled && saved.telegram ? t("backup_schedule_telegram") : ""}
+      </p>
+      <div className="flex flex-col gap-5">
+        <Toggle checked={draft.enabled} onChange={(enabled) => set({ enabled })} label={t("setting_backup_auto_enabled")} />
+        {draft.enabled && (
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label={t("setting_backup_every_hours")}>
+              {(id) => (
+                <Select id={id} value={String(draft.every_hours)} onChange={(e) => set({ every_hours: Number(e.target.value) })}>
+                  {everyOptions(draft.every_hours).map((hours) => (
+                    <option key={hours} value={hours}>
+                      {label(hours)}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            {atAnHour(draft.every_hours) && (
+              <Field label={t("setting_backup_hour")} hint={t("setting_backup_hour_hint")}>
+                {(id) => (
+                  <Select id={id} value={String(draft.hour)} onChange={(e) => set({ hour: Number(e.target.value) })}>
+                    {Array.from({ length: 24 }, (_, hour) => (
+                      <option key={hour} value={hour}>
+                        {`${String(hour).padStart(2, "0")}:00`.replace(/\d/g, (d) => digits(d, locale))}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            )}
+            <Field label={t("setting_backup_keep")} hint={t("setting_backup_keep_hint")}>
+              {(id) => (
+                <NumberInput id={id} value={draft.keep} onChange={(value) => set({ keep: Math.min(365, Math.max(1, value ?? 1)) })} />
+              )}
+            </Field>
+          </div>
+        )}
+        <Toggle
+          checked={draft.telegram}
+          onChange={(telegram) => set({ telegram })}
+          label={t("setting_backup_send_telegram")}
+          hint={t("setting_backup_send_telegram_hint")}
+        />
+        <div className="flex flex-wrap gap-2">
+          <Button tone="primary" busy={busy} disabled={!dirty} onClick={() => void save()}>
+            {t("save_changes")}
+          </Button>
+          {dirty && <Button onClick={() => setDraft(pick(saved))}>{t("discard")}</Button>}
+        </div>
+      </div>
+    </Section>
+  );
 }
 
 export function Backups() {
-  const { t, locale, toast, errorText } = useSession();
+  const { t, toast, errorText } = useSession();
   const { data, error, reload } = useLoad<BackupData>("/api/admin/backups");
   const [busy, run] = useAction();
   const start = async () => {
@@ -2159,16 +2246,8 @@ export function Backups() {
             {!value.schedule.passphrase_set && (
               <p className="rounded-2xl bg-anar-100 px-4 py-3 text-[0.88rem] font-semibold text-anar-700">{t("backup_no_passphrase")}</p>
             )}
-            <Section>
-              <p className="leading-relaxed">
-                {t("backup_schedule", {
-                  hour: money(value.schedule.hour, locale),
-                  keep: money(value.schedule.keep, locale),
-                })}{" "}
-                {value.schedule.telegram ? t("backup_schedule_telegram") : ""}
-              </p>
-              <p className="mt-2 text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("backup_contents_hint")}</p>
-            </Section>
+            <BackupScheduleSection key={JSON.stringify(value.schedule)} saved={value.schedule} onSaved={() => void reload()} />
+            <p className="px-1 text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("backup_contents_hint")}</p>
             <Section flush title={t("backup_files")}>
               {value.items.length === 0 ? (
                 <Empty title={t("backup_none")} />
