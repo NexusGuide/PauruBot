@@ -38,7 +38,7 @@
 پیش‌نیاز: یک سرور اوبونتو یا دبیان با دسترسی root و دست‌کم ۱ گیگ رم، یک دامنه که به آن سرور اشاره کند، و توکن ربات از @BotFather.
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/NexusGuide/PauruBot/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/MenderBaga/PauruBot/main/install.sh)
 ```
 
 نصب‌کننده Docker را نصب می‌کند، فایل `.env` را می‌سازد و کلیدها را تولید می‌کند. بعد سرویس‌ها را بالا می‌آورد و یک لینک یک‌بارمصرف برای ساختن حساب مالک در پنل مدیریت می‌دهد. نصب بدون پرسش هم ممکن است:

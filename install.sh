@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PauruBot installer and manager.
 #
-#   bash <(curl -fsSL https://raw.githubusercontent.com/NexusGuide/PauruBot/main/install.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/MenderBaga/PauruBot/main/install.sh)
 #
 # Without arguments it opens a menu. Every action also works non-interactively:
 #   install.sh install --domain bot.example.com --token 123:ABC --owner 123456 [--channel stable|beta] [--version v1.2.3] [--https-port 443]
@@ -16,8 +16,8 @@
 
 set -Eeuo pipefail
 
-REPO="NexusGuide/PauruBot"
-IMAGE_REPO="ghcr.io/nexusguide/paurubot"
+REPO="MenderBaga/PauruBot"
+IMAGE_REPO="ghcr.io/menderbaga/paurubot"
 DIR="${PAURUBOT_DIR:-/opt/paurubot}"
 ENV_FILE="$DIR/.env"
 
@@ -254,7 +254,7 @@ fetch_image() {
 
 # Docker Hub refuses many Iranian addresses; fall back to the copies published next to our image.
 pick_base_images() {
-  local mirror="ghcr.io/nexusguide/paurubot-mirror" pair key image
+  local mirror="ghcr.io/menderbaga/paurubot-mirror" pair key image
   for pair in POSTGRES_IMAGE=postgres:16-alpine REDIS_IMAGE=redis:7-alpine CADDY_IMAGE=caddy:2-alpine; do
     key=${pair%%=*}
     image=${pair#*=}
@@ -411,6 +411,8 @@ cmd_update() {
   env_set PAURUBOT_IMAGE "$PINNED_IMAGE"
   env_set PAURUBOT_VERSION "$TARGET_REF"
   env_set PAURUBOT_CHANNEL "$channel"
+  # The next `pauru` is this release's own installer (its repository, image and checks).
+  link_cli
   # Migrations run with the new image before any new process starts (the migrate service).
   compose up -d --remove-orphans
   if wait_healthy; then
@@ -558,7 +560,10 @@ cmd_edit() {
 }
 
 link_cli() {
-  install -m 755 "$DIR/install.sh" /usr/local/bin/pauru
+  # A new file renamed into place: a running `pauru` keeps reading its own copy (bash reads a
+  # script as it goes, so overwriting it in place would corrupt the run doing the update).
+  install -m 755 "$DIR/install.sh" /usr/local/bin/pauru.new
+  mv -f /usr/local/bin/pauru.new /usr/local/bin/pauru
 }
 
 # --- updates from the admin panel (OPS-07) -------------------------------------------------

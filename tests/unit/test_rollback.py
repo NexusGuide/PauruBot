@@ -135,6 +135,7 @@ def test_update_records_the_backup_a_rollback_would_restore(tmp_path) -> None:  
 resolve_target() { TARGET_REF=v2; TARGET_IMAGE=new; }
 fetch_source() { :; }
 fetch_image() { PINNED_IMAGE=new@sha256:2; }
+link_cli() { echo linked >> "$LOG"; }
 """
     )
     script = (
@@ -147,3 +148,12 @@ fetch_image() { PINNED_IMAGE=new@sha256:2; }
     result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr
     assert f"PAURUBOT_PREVIOUS_BACKUP={BACKUP}" in env_file.read_text()
+    # The next `pauru` is the new release's installer (a moved repository, new checks).
+    assert "linked" in (tmp_path / "c.log").read_text()
+
+
+def test_the_cli_is_replaced_by_a_rename_never_rewritten_in_place() -> None:
+    """bash reads a running script as it goes: overwriting /usr/local/bin/pauru during
+    `pauru update` would corrupt that very run."""
+    body = installer_function("link_cli")
+    assert "/usr/local/bin/pauru.new" in body and "mv -f /usr/local/bin/pauru.new /usr/local/bin/pauru" in body

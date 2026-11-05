@@ -38,7 +38,7 @@ No payment is credited from what a callback says alone. It is either checked wit
 You need an Ubuntu or Debian server with root access and at least 1 GB of RAM, a domain pointing at it, and a bot token from @BotFather.
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/NexusGuide/PauruBot/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/MenderBaga/PauruBot/main/install.sh)
 ```
 
 The installer sets up Docker, writes `.env` and generates the keys. It then starts the services and prints a one-time link for creating the owner account. It can also run without questions:
