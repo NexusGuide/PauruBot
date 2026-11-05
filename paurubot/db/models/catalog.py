@@ -183,6 +183,7 @@ class PanelAccount(Base, UpdatedMixin):
     panel_status: Mapped[str | None] = mapped_column(String(16))
     alerts_sent: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     synced_at: Mapped[datetime | None] = mapped_column()
+    note: Mapped[str | None] = mapped_column(Text)  # staff only
 
     panel: Mapped[Panel | None] = relationship(lazy="selectin")
     plan: Mapped[AccountPlan | None] = relationship(lazy="selectin")

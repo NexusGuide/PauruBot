@@ -1,5 +1,5 @@
 """Panel admin account plans: renewal packages, a custom renewal, per-plan extra ranges, the
-renewal rule, who may buy them and whether they renew."""
+renewal rule, who may buy them and whether they renew; a staff note on sold accounts."""
 
 import sqlalchemy as sa
 from alembic import op
@@ -35,11 +35,13 @@ def upgrade() -> None:
             server_default="all",
         ),
     )
+    op.add_column("panel_accounts", sa.Column("note", sa.Text(), nullable=True))
     for name in ("renew_packages_enabled", "renew_packages", "renew_custom_enabled", "renewable", "audience"):
         op.alter_column("account_plans", name, server_default=None)
 
 
 def downgrade() -> None:
+    op.drop_column("panel_accounts", "note")
     for name in ("audience", "renewable", "renew_mode"):
         op.drop_column("account_plans", name)
     for name in ("renew_custom_enabled", "renew_packages", "renew_packages_enabled", *RANGES):

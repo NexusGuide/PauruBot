@@ -506,6 +506,68 @@ async def change_password(session: AsyncSession, account: PanelAccount) -> str:
     return password
 
 
+# --- staff actions (the web panel) -----------------------------------------------------------
+
+
+async def gift(session: AsyncSession, account: PanelAccount, *, days: int = 0, gb: int = 0) -> None:
+    """Free days and traffic from staff: days on top of the end date (from today when it has
+    passed), GB on top of the quota. An ended account the days reach past today comes back on.
+    An account without an end date or quota keeps none."""
+    if account.status not in LIVE:
+        raise AccountError("account_not_found")
+    driver = await _driver(session, account.panel_id)
+    now = utcnow()
+    if days and account.expire_at is not None:
+        start = account.expire_at if account.expire_at > now else now
+        account.expire_at = start + timedelta(days=days)
+    fields: dict[str, Any] = {}
+    if gb and account.data_limit:
+        account.data_limit = int(account.data_limit) + gb * GB
+        fields["data_limit"] = account.data_limit
+    if account.status == "expired" and (account.expire_at is None or account.expire_at > now):
+        fields["status"] = "active"
+        await driver.modify_admin(account.username, **fields)
+        await driver.set_admin_users(account.username, True)
+        account.status = "active"
+    elif fields:
+        if account.status == "active":
+            fields["status"] = "active"  # a quota that ran out is lifted by the new traffic
+        await driver.modify_admin(account.username, **fields)
+    account.alerts_sent = {}
+    await session.flush()
+
+
+async def reset_usage(session: AsyncSession, account: PanelAccount) -> None:
+    if account.status not in {"active", "paused"}:
+        raise AccountError("account_not_active")
+    driver = await _driver(session, account.panel_id)
+    await driver.reset_admin_usage(account.username)
+    account.used_bytes = 0
+    account.alerts_sent = {}
+    await session.flush()
+
+
+async def set_max_users(session: AsyncSession, account: PanelAccount, max_users: int | None) -> None:
+    """The user cap; None drops the override, so the role's own limit applies."""
+    if account.status not in LIVE:
+        raise AccountError("account_not_found")
+    if max_users is not None and not 1 <= max_users <= MAX_USERS:
+        raise AccountError("account_users_invalid")
+    driver = await _driver(session, account.panel_id)
+    await driver.modify_admin(account.username, max_users=max_users)
+    account.max_users = max_users
+    await session.flush()
+
+
+async def set_plan(session: AsyncSession, account: PanelAccount, plan: AccountPlan) -> None:
+    """Move the account to another plan on the same panel: later renewals and add-ons follow it."""
+    if plan.shop_id != account.shop_id or plan.panel_id != account.panel_id:
+        raise AccountError("account_plan_other_panel")
+    account.plan_id = plan.id
+    account.plan = plan
+    await session.flush()
+
+
 async def set_paused(session: AsyncSession, account: PanelAccount, paused: bool) -> None:
     """Pause: the admin can't sign in and its users stop; resume brings both back."""
     if account.status not in {"active", "paused"}:

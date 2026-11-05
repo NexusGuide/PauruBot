@@ -7,6 +7,7 @@ import {
   Async,
   Bytes,
   Button,
+  Checkbox,
   Empty,
   Field,
   Input,
@@ -302,12 +303,178 @@ function Plans() {
   );
 }
 
+type AccountChange =
+  | { action: "gift"; days: number; gb: number }
+  | { action: "reset_usage" }
+  | { action: "password" }
+  | { action: "users"; max_users: number | null }
+  | { action: "plan"; plan_id: number };
+
+/** Everything staff may do to one sold account, each told to its owner when "notify" is on. */
+function ManageSheet({ row, plans, onClose, onChanged }: { row: PanelAccountRow; plans: AccountPlan[]; onClose: () => void; onChanged: (row: PanelAccountRow) => void }) {
+  const { t, toast, errorText } = useSession();
+  const confirm = useConfirm();
+  const [busy, run] = useAction();
+  const [days, setDays] = useState<number | null>(null);
+  const [gb, setGb] = useState<number | null>(null);
+  const [reason, setReason] = useState("");
+  const [notify, setNotify] = useState(true);
+  const [maxUsers, setMaxUsers] = useState<number | null>(row.max_users);
+  const [planId, setPlanId] = useState<number>(row.plan_id ?? 0);
+  const [note, setNote] = useState(row.note ?? "");
+  const samePanel = plans.filter((plan) => plan.panel_id === row.panel_id);
+  const change = async (body: AccountChange) => {
+    try {
+      const result = await run(() =>
+        call<{ item: PanelAccountRow }>(`/api/admin/panel-accounts/${row.id}/change`, {
+          method: "POST",
+          body: { ...body, reason: reason.trim() || null, notify },
+        }),
+      );
+      if (result) onChanged(result.item);
+      toast(t("saved"));
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  const saveNote = async () => {
+    try {
+      const result = await run(() =>
+        call<{ item: PanelAccountRow }>(`/api/admin/panel-accounts/${row.id}/note`, { method: "PUT", body: { note: note.trim() || null } }),
+      );
+      if (result) onChanged(result.item);
+      toast(t("saved"));
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <Sheet open onClose={onClose} title={row.username}>
+      <div className="flex flex-col gap-5">
+        <Field label={t("account_change_reason")} hint={t("account_change_reason_hint")}>
+          {(id) => <Input id={id} maxLength={255} value={reason} onChange={(e) => setReason(e.target.value)} />}
+        </Field>
+        <Toggle checked={notify} onChange={setNotify} label={t("notify_customer")} />
+
+        <Section title={t("account_gift")}>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("days")}>{(id) => <NumberInput id={id} allowEmpty value={days} onChange={setDays} />}</Field>
+            <Field label={t("account_package_gb")}>{(id) => <NumberInput id={id} allowEmpty value={gb} onChange={setGb} />}</Field>
+          </div>
+          <Button className="mt-3" tone="primary" busy={busy} disabled={!days && !gb} onClick={() => void change({ action: "gift", days: days ?? 0, gb: gb ?? 0 })}>
+            {t("account_gift_button")}
+          </Button>
+        </Section>
+
+        <div className="flex flex-wrap gap-2">
+          <Button busy={busy} onClick={() => void change({ action: "reset_usage" })}>
+            {t("account_reset_usage")}
+          </Button>
+          <Button
+            busy={busy}
+            onClick={async () => {
+              const ok = await confirm({ title: t("account_new_password"), body: t("account_new_password_body"), confirm: t("account_new_password") });
+              if (ok) void change({ action: "password" });
+            }}
+          >
+            {t("account_new_password")}
+          </Button>
+        </div>
+
+        <div className="flex items-end gap-2">
+          <Field className="flex-1" label={t("account_max_users")} hint={t("account_max_users_hint")}>
+            {(id) => <NumberInput id={id} allowEmpty value={maxUsers} onChange={(v) => setMaxUsers(v || null)} />}
+          </Field>
+          <Button busy={busy} disabled={maxUsers === row.max_users} onClick={() => void change({ action: "users", max_users: maxUsers })}>
+            {t("save")}
+          </Button>
+        </div>
+
+        <div className="flex items-end gap-2">
+          <Field className="flex-1" label={t("col_plan")} hint={t("account_change_plan_hint")}>
+            {(id) => (
+              <Select id={id} value={String(planId || "")} onChange={(e) => setPlanId(Number(e.target.value))}>
+                <option value="">—</option>
+                {samePanel.map((plan) => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.title}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Button busy={busy} disabled={!planId || planId === row.plan_id} onClick={() => void change({ action: "plan", plan_id: planId })}>
+            {t("save")}
+          </Button>
+        </div>
+
+        <Field label={t("account_note")} hint={t("account_note_hint")}>
+          {(id) => <Textarea id={id} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} />}
+        </Field>
+        <Button busy={busy} disabled={(note.trim() || null) === (row.note ?? null)} onClick={() => void saveNote()}>
+          {t("account_save_note")}
+        </Button>
+      </div>
+    </Sheet>
+  );
+}
+
+function BulkGiftSheet({ ids, onClose, onDone }: { ids: number[]; onClose: () => void; onDone: () => void }) {
+  const { t, toast, errorText } = useSession();
+  const [busy, run] = useAction();
+  const [days, setDays] = useState<number | null>(null);
+  const [gb, setGb] = useState<number | null>(null);
+  const [reason, setReason] = useState("");
+  const [notify, setNotify] = useState(true);
+  const send = async () => {
+    try {
+      const result = await run(() =>
+        call<{ done: number[]; failed: { id: number; error: string }[] }>("/api/admin/panel-accounts/bulk/gift", {
+          method: "POST",
+          body: { ids, days: days ?? 0, gb: gb ?? 0, reason: reason.trim() || null, notify },
+        }),
+      );
+      if (result) toast(t("account_bulk_done", { done: result.done.length, failed: result.failed.length }), result.failed.length ? "error" : undefined);
+      onDone();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title={t("account_bulk_gift", { count: ids.length })}
+      footer={
+        <Button tone="primary" busy={busy} disabled={!days && !gb} onClick={() => void send()}>
+          {t("account_gift_button")}
+        </Button>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={t("days")}>{(id) => <NumberInput id={id} allowEmpty value={days} onChange={setDays} />}</Field>
+          <Field label={t("account_package_gb")}>{(id) => <NumberInput id={id} allowEmpty value={gb} onChange={setGb} />}</Field>
+        </div>
+        <Field label={t("account_change_reason")}>
+          {(id) => <Input id={id} maxLength={255} value={reason} onChange={(e) => setReason(e.target.value)} />}
+        </Field>
+        <Toggle checked={notify} onChange={setNotify} label={t("notify_customer")} />
+      </div>
+    </Sheet>
+  );
+}
+
 function Accounts() {
   const { t, toast, errorText } = useSession();
   const confirm = useConfirm();
   const [q, setQ] = useState("");
   const { data, error, reload } = useLoad<{ items: PanelAccountRow[] }>(`/api/admin/panel-accounts?q=${encodeURIComponent(q)}`);
+  const plans = useLoad<{ items: AccountPlan[] }>("/api/admin/account-plans");
   const [busy, run] = useAction();
+  const [managing, setManaging] = useState<PanelAccountRow | null>(null);
+  const [picked, setPicked] = useState<number[]>([]);
+  const [bulk, setBulk] = useState(false);
   const act = async (row: PanelAccountRow, action: "pause" | "resume" | "refresh" | "delete") => {
     if (action === "delete") {
       const ok = await confirm({ title: t("account_delete_title"), body: t("account_delete_body", { username: row.username }), confirm: t("delete"), danger: true });
@@ -320,8 +487,19 @@ function Accounts() {
       toast(errorText(err), "error");
     }
   };
+  const toggle = (id: number, on: boolean) => setPicked((prev) => (on ? [...prev, id] : prev.filter((x) => x !== id)));
   return (
-    <Section title={t("account_sold")} flush>
+    <Section
+      title={t("account_sold")}
+      flush
+      actions={
+        picked.length > 0 && (
+          <Button small tone="primary" onClick={() => setBulk(true)}>
+            {t("account_bulk_gift", { count: picked.length })}
+          </Button>
+        )
+      }
+    >
       <div className="px-4 py-3">
         <Input placeholder={t("account_search")} value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
@@ -334,7 +512,12 @@ function Accounts() {
               {value.items.map((row) => (
                 <li key={row.id} className="flex flex-col gap-2 px-4 py-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="num font-bold">{row.username}</span>
+                    <span className="flex items-center gap-2">
+                      {row.status !== "deleted" && (
+                        <Checkbox label={row.username} checked={picked.includes(row.id)} onChange={(on) => toggle(row.id, on)} />
+                      )}
+                      <span className="num font-bold">{row.username}</span>
+                    </span>
                     <Status value={row.status} />
                   </div>
                   <p className="text-[0.85rem]">
@@ -347,8 +530,12 @@ function Accounts() {
                     <Bytes value={row.used_bytes} /> / {row.data_limit ? <Bytes value={row.data_limit} /> : "∞"} · {row.users_count}/{row.max_users ?? "∞"} 👥 ·{" "}
                     {row.expire_at ? <When iso={row.expire_at} /> : "∞"}
                   </p>
+                  {row.note && <p className="rounded-lg bg-[var(--bg)] px-2 py-1 text-[0.8rem]">📝 {row.note}</p>}
                   {row.status !== "deleted" && (
                     <div className="flex flex-wrap gap-2">
+                      <Button small tone="primary" onClick={() => setManaging(row)}>
+                        {t("account_manage")}
+                      </Button>
                       <Button small busy={busy} onClick={() => void act(row, "refresh")}>
                         {t("refresh")}
                       </Button>
@@ -373,6 +560,28 @@ function Accounts() {
           )
         }
       </Async>
+      {managing && (
+        <ManageSheet
+          row={managing}
+          plans={plans.data?.items ?? []}
+          onClose={() => setManaging(null)}
+          onChanged={(row) => {
+            setManaging(row);
+            void reload();
+          }}
+        />
+      )}
+      {bulk && (
+        <BulkGiftSheet
+          ids={picked}
+          onClose={() => setBulk(false)}
+          onDone={() => {
+            setBulk(false);
+            setPicked([]);
+            void reload();
+          }}
+        />
+      )}
     </Section>
   );
 }

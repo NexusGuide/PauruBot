@@ -428,6 +428,39 @@ async def test_who_may_buy_a_plan_and_whether_it_renews(session, env) -> None:  
     assert exc.value.key == "account_not_renewable"
 
 
+async def test_staff_gift_reset_users_and_plan(session, env) -> None:  # type: ignore[no-untyped-def]
+    fake, plan = env["fake"], env["plan"]
+    cust = await _buyer(session, env["shop"])
+    _order, account = await _bought(session, env, cust)
+    end = account.expire_at
+    assert end is not None
+    await panel_accounts.gift(session, account, days=5, gb=20)
+    assert abs((account.expire_at - end).total_seconds() - 5 * 86400) < 5
+    assert account.data_limit == 520 * GB and fake.sold_admins[account.username]["data_limit"] == 520 * GB
+    fake.sold_admins[account.username]["used_traffic"] = 90 * GB
+    await panel_accounts.reset_usage(session, account)
+    assert fake.sold_admins[account.username]["used_traffic"] == 0
+    await panel_accounts.set_max_users(session, account, 80)
+    assert account.max_users == 80
+    assert fake.sold_admins[account.username]["permission_overrides"]["max_users"] == 80
+    with pytest.raises(panel_accounts.AccountError):
+        await panel_accounts.set_max_users(session, account, 0)
+    other = AccountPlan(shop_id=env["shop"].id, panel_id=plan.panel_id, title="Big", role_id=3, price=5)
+    session.add(other)
+    await session.flush()
+    await panel_accounts.set_plan(session, account, other)
+    assert account.plan_id == other.id
+    # An ended account the gifted days reach past today comes back on.
+    account.expire_at = utcnow() - timedelta(minutes=1)
+    await session.commit()
+    await panel_accounts.run(session)
+    await session.refresh(account)
+    assert account.status == "expired"
+    await panel_accounts.gift(session, account, days=3)
+    assert account.status == "active" and fake.sold_admins[account.username]["status"] == "active"
+    assert account.expire_at > utcnow() + timedelta(days=2)
+
+
 async def test_quota_alert_once_and_expiry_switches_off_until_renewed(session, env) -> None:  # type: ignore[no-untyped-def]
     fake = env["fake"]
     cust = await _buyer(session, env["shop"])
