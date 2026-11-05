@@ -168,8 +168,10 @@ def resolve(name: str) -> Path:
 
 
 def prune(keep: int) -> list[str]:
+    """Delete all but the newest `keep`; the pre-update backup a rollback restores always stays."""
+    protected = Path(get_settings().paurubot_previous_backup).name
     removed: list[str] = []
-    for info in listing()[max(1, keep) :]:
+    for info in [b for b in listing() if b.name != protected][max(1, keep) :]:
         info.path.unlink(missing_ok=True)
         removed.append(info.name)
     return removed

@@ -41,3 +41,7 @@ test("every label exists in both admin languages", () => {
     assert.ok(key in en, `en is missing ${key}`);
   }
 });
+
+test("the hour hint names the server's own time zone", () => {
+  for (const name of ["fa", "en"]) assert.match(locale(name).setting_backup_hour_hint, /\{timezone\}/);
+});

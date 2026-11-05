@@ -60,7 +60,7 @@
   "setting_backup_auto_enabled": "پشتیبان‌گیری خودکار",
   "setting_backup_every_hours": "هر چند وقت",
   "setting_backup_hour": "ساعت",
-  "setting_backup_hour_hint": "به وقت سرور (تهران).",
+  "setting_backup_hour_hint": "به وقت سرور ({timezone}).",
   "setting_backup_keep": "تعداد نسخه‌های نگه‌داشته",
   "setting_backup_keep_hint": "نسخه‌های قدیمی‌تر پاک می‌شوند.",
   "setting_backup_send_telegram": "فرستادن به تلگرام",

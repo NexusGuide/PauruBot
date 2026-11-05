@@ -271,6 +271,6 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 |---|---|---|---|
 | `backup_auto_enabled` | bool | true | Automatic backups |
 | `backup_every_hours` | int | 24 | How often |
-| `backup_hour` | int | — | Hour. Server time (Tehran) |
+| `backup_hour` | int | — | Hour. Server time ({timezone}) |
 | `backup_keep` | int | — | Copies to keep. Older copies are deleted |
 | `backup_send_telegram` | bool | — | Send to Telegram. To the Backups channel under Channels, or to the owner when none is set |

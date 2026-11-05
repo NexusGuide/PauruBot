@@ -148,3 +148,20 @@ def test_write_env_master_key(tmp_path: Path) -> None:
     other = tmp_path / "fresh.env"
     backup.write_env_master_key(other, "k")
     assert other.read_text() == "MASTER_KEY=k\n"
+
+
+def test_prune_never_deletes_the_backup_a_rollback_restores(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """`pauru update` records its pre-update backup; however few copies are kept, it stays."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "backup_dir", str(tmp_path))
+    names = [f"paurubot-20261105-0{n}0000.pbak" for n in range(5)]
+    for age, name in enumerate(reversed(names)):
+        path = tmp_path / name
+        path.write_bytes(b"x")
+        os.utime(path, (1_800_000_000 - age * 3600, 1_800_000_000 - age * 3600))
+    monkeypatch.setattr(settings, "paurubot_previous_backup", str(tmp_path / names[0]))
+    removed = backup.prune(2)
+    assert sorted(removed) == sorted(names[1:3])
+    assert sorted(b.name for b in backup.listing()) == sorted([names[0], names[3], names[4]])
+    monkeypatch.setattr(settings, "paurubot_previous_backup", "")
+    assert backup.prune(2) == [names[0]]

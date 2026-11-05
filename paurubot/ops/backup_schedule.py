@@ -26,6 +26,10 @@ MIN_HOURS, MAX_HOURS = 1, 168
 TICK = timedelta(minutes=10)
 # Daily and longer: at the set hour, unless a backup was already made in the last stretch.
 DAILY_SLACK = timedelta(hours=4)
+# After a failed automatic backup, wait this long before the next try, so a lasting failure
+# (a full disk) is not retried and reported every ten minutes.
+RETRY_KEY = "backups:auto:failed"
+RETRY_AFTER = timedelta(minutes=30)
 
 
 @dataclass(frozen=True, slots=True)
