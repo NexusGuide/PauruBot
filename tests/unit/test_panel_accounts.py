@@ -353,6 +353,81 @@ def test_renewal_packages_are_validated() -> None:
             panel_accounts.clean_packages(bad)
 
 
+@pytest.mark.parametrize(
+    ("mode", "days_from_end", "limit_gb", "usage_reset"),
+    [
+        (None, True, 500, True),  # the original rule: time added, a fresh quota
+        ("extend_reset", True, 500, True),
+        ("extend_carry", True, 1000, False),  # the whole old quota stays, usage keeps counting
+        ("restart_reset", False, 500, True),
+        ("restart_carry", False, 800, True),  # 300 GB left + 500 new, usage reset
+    ],
+)
+async def test_the_plans_renewal_rule_decides_time_and_traffic(  # type: ignore[no-untyped-def]
+    session, env, mode, days_from_end, limit_gb, usage_reset
+) -> None:
+    fake, plan = env["fake"], env["plan"]
+    plan.renew_mode = mode
+    await session.commit()
+    cust = await _buyer(session, env["shop"])
+    _order, account = await _bought(session, env, cust)
+    end = account.expire_at
+    assert end is not None
+    fake.sold_admins[account.username]["used_traffic"] = 200 * GB  # 300 of 500 GB left
+    order = await _pay(session, cust, OrderKind.ACCOUNT_RENEW, account=account)
+    await session.refresh(account)
+    assert account.expire_at is not None
+    if days_from_end:
+        assert abs((account.expire_at - end).total_seconds() - 30 * 86400) < 5
+    else:
+        assert abs((account.expire_at - utcnow()).total_seconds() - 30 * 86400) < 60
+    assert account.data_limit == limit_gb * GB
+    assert fake.sold_admins[account.username]["data_limit"] == limit_gb * GB
+    assert (fake.sold_admins[account.username]["used_traffic"] == 0) is usage_reset
+    assert order.params["reset_usage"] is usage_reset
+
+
+async def test_an_ended_account_always_starts_fresh(session, env) -> None:  # type: ignore[no-untyped-def]
+    fake, plan = env["fake"], env["plan"]
+    plan.renew_mode = "extend_carry"
+    await session.commit()
+    cust = await _buyer(session, env["shop"])
+    _order, account = await _bought(session, env, cust)
+    fake.sold_admins[account.username]["used_traffic"] = 100 * GB
+    account.expire_at = utcnow() - timedelta(minutes=1)
+    await session.commit()
+    await panel_accounts.run(session)
+    await session.refresh(account)
+    assert account.status == "expired"
+    await _pay(session, cust, OrderKind.ACCOUNT_RENEW, account=account)
+    await session.refresh(account)
+    assert account.data_limit == 500 * GB  # not 400 left + 500
+    assert fake.sold_admins[account.username]["used_traffic"] == 0
+    assert abs((account.expire_at - utcnow()).total_seconds() - 30 * 86400) < 60
+
+
+async def test_who_may_buy_a_plan_and_whether_it_renews(session, env) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import PlanAudience
+
+    plan = env["plan"]
+    plan.audience = PlanAudience.RESELLERS
+    await session.commit()
+    cust = await _buyer(session, env["shop"])
+    assert await panel_accounts.plans(session, env["shop"].id, cust) == []
+    with pytest.raises(orders.OrderError) as exc:
+        await panel_accounts.draft(session, cust, OrderKind.ACCOUNT_PURCHASE, plan=plan)
+    assert exc.value.key == "plan_unavailable"
+    plan.audience = PlanAudience.CUSTOMERS
+    await session.commit()
+    assert await panel_accounts.plans(session, env["shop"].id, cust) == [plan]
+    _order, account = await _bought(session, env, cust)
+    plan.renewable = False
+    await session.commit()
+    with pytest.raises(orders.OrderError) as exc:
+        await panel_accounts.draft(session, cust, OrderKind.ACCOUNT_RENEW, account=account)
+    assert exc.value.key == "account_not_renewable"
+
+
 async def test_quota_alert_once_and_expiry_switches_off_until_renewed(session, env) -> None:  # type: ignore[no-untyped-def]
     fake = env["fake"]
     cust = await _buyer(session, env["shop"])

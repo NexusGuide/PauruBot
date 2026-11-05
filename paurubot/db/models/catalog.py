@@ -148,6 +148,12 @@ class AccountPlan(Base, UpdatedMixin):
     renew_packages_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     renew_packages: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     renew_custom_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # What a renewal does to the time and traffic left (the four modes of SVC-13); None keeps
+    # the original rule: time added to what is left, a fresh quota, usage reset.
+    renew_mode: Mapped[str | None] = mapped_column(String(16))
+    renewable: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Who may buy it: everyone, ordinary customers only or resellers only.
+    audience: Mapped[PlanAudience] = mapped_column(str_enum(PlanAudience), default=PlanAudience.ALL)
     sort: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 

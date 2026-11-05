@@ -257,7 +257,7 @@ export function AgencyAccount() {
       </section>
 
       <div className="mb-3.5 grid gap-3">
-        <Button
+        {renewal?.allowed !== false && <Button
           onClick={() => {
             if (!choosesRenewal) return go("account_renew");
             haptic("select");
@@ -265,7 +265,7 @@ export function AgencyAccount() {
           }}
         >
           {t("agency_renew")}
-        </Button>
+        </Button>}
         {picker === "renew" && renewal && (() => {
           const days = parseAmount(typed, data.limits.days);
           const gb = renewal.quota ? parseAmount(typedGb, data.limits.gb) : 0;

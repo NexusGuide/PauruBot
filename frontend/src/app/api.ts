@@ -215,6 +215,8 @@ export interface PanelAccount {
 }
 
 export interface AccountRenewal {
+  /** False when the plan is not renewable (or no longer sold). */
+  allowed: boolean;
   plain: boolean;
   packages: { days: number; gb: number; price: number }[];
   custom: boolean;

@@ -660,6 +660,7 @@
   "acc_ask_renew_gb": "📦 How many GB for this period? Send a number from {min_value} to {max_value}.\nPer GB: {price} Toman",
   "acc_renew_line": "⏳ {days} days — 📦 {gb} GB",
   "renew_option_unavailable": "That renewal option is no longer offered; tap Renew on the account card again.",
+  "account_not_renewable": "This plan can't be renewed.",
   "acc_choose_users": "👥 How many user slots do you want to add?",
   "acc_password_changed": "Password changed.",
   "acc_paused": "The account and its users are paused.",

@@ -660,6 +660,7 @@
   "acc_ask_renew_gb": "📦 چند گیگ حجم برای این دوره می‌خوای؟ یک عدد بین {min_value} تا {max_value} بفرست.\nهر گیگ: {price} تومان",
   "acc_renew_line": "⏳ {days} روز — 📦 {gb} گیگ",
   "renew_option_unavailable": "این گزینه‌ی تمدید دیگه در دسترس نیست؛ دوباره از کارت اکانت تمدید رو بزن.",
+  "account_not_renewable": "این پلن قابل تمدید نیست.",
   "acc_choose_users": "👥 چند کاربر اضافه می‌خوای؟",
   "acc_password_changed": "رمز عوض شد.",
   "acc_paused": "اکانت و کاربرهاش متوقف شدن.",

@@ -44,6 +44,9 @@ const EMPTY: PlanDraft = {
   renew_packages_enabled: false,
   renew_packages: [],
   renew_custom_enabled: false,
+  renew_mode: null,
+  renewable: true,
+  audience: "all",
   sort: 0,
   is_active: true,
 };
@@ -196,22 +199,49 @@ function PlanSheet({ draft, panels, onClose, onSaved }: { draft: PlanDraft | nul
           <Field label={t("sort_order")}>{(id) => <NumberInput id={id} value={form.sort} onChange={(v) => set({ sort: v ?? 0 })} />}</Field>
         </div>
 
+        <Field label={t("audience")} hint={t("account_audience_hint")}>
+          {(id) => (
+            <Select id={id} value={form.audience} onChange={(e) => set({ audience: e.target.value as PlanDraft["audience"] })}>
+              <option value="all">{t("audience_all")}</option>
+              <option value="customers">{t("audience_customers")}</option>
+              <option value="resellers">{t("audience_resellers")}</option>
+            </Select>
+          )}
+        </Field>
+
         <h3 className="mt-2 text-[0.95rem] font-bold">{t("account_renewal")}</h3>
-        <Toggle
-          checked={form.renew_packages_enabled}
-          onChange={(renew_packages_enabled) => set({ renew_packages_enabled })}
-          label={t("account_renew_packages")}
-          hint={t("account_renew_packages_hint")}
-        />
-        {form.renew_packages_enabled && <RenewPackages value={form.renew_packages} onChange={(renew_packages) => set({ renew_packages })} />}
-        <Toggle
-          checked={form.renew_custom_enabled}
-          onChange={(renew_custom_enabled) => set({ renew_custom_enabled })}
-          label={t("account_renew_custom")}
-          hint={t("account_renew_custom_hint")}
-        />
-        {!form.renew_packages_enabled && !form.renew_custom_enabled && (
-          <p className="text-[0.82rem] text-[var(--hint)]">{t("account_renew_plain")}</p>
+        <Toggle checked={form.renewable} onChange={(renewable) => set({ renewable })} label={t("renewable")} />
+        {form.renewable && (
+          <>
+            <Field label={t("plan_renew_mode")} hint={t("account_renew_mode_hint")}>
+              {(id) => (
+                <Select id={id} value={form.renew_mode ?? ""} onChange={(e) => set({ renew_mode: (e.target.value || null) as PlanDraft["renew_mode"] })}>
+                  <option value="">{t("account_renew_mode_default")}</option>
+                  {(["extend_reset", "extend_carry", "restart_reset", "restart_carry"] as const).map((mode) => (
+                    <option key={mode} value={mode}>
+                      {t(`renew_mode_${mode}`)}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <Toggle
+              checked={form.renew_packages_enabled}
+              onChange={(renew_packages_enabled) => set({ renew_packages_enabled })}
+              label={t("account_renew_packages")}
+              hint={t("account_renew_packages_hint")}
+            />
+            {form.renew_packages_enabled && <RenewPackages value={form.renew_packages} onChange={(renew_packages) => set({ renew_packages })} />}
+            <Toggle
+              checked={form.renew_custom_enabled}
+              onChange={(renew_custom_enabled) => set({ renew_custom_enabled })}
+              label={t("account_renew_custom")}
+              hint={t("account_renew_custom_hint")}
+            />
+            {!form.renew_packages_enabled && !form.renew_custom_enabled && (
+              <p className="text-[0.82rem] text-[var(--hint)]">{t("account_renew_plain")}</p>
+            )}
+          </>
         )}
 
         <h3 className="mt-2 text-[0.95rem] font-bold">{t("account_ranges")}</h3>

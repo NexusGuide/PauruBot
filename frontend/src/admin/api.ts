@@ -573,6 +573,10 @@ export interface AccountPlan {
   renew_packages_enabled: boolean;
   renew_packages: RenewPackage[];
   renew_custom_enabled: boolean;
+  /** null: time added to what is left, a fresh quota, usage reset. */
+  renew_mode: "extend_reset" | "extend_carry" | "restart_reset" | "restart_carry" | null;
+  renewable: boolean;
+  audience: "all" | "customers" | "resellers";
   sort: number;
   is_active: boolean;
 }

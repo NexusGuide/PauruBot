@@ -12,7 +12,7 @@ from paurubot.api.admin_common import owned, plain
 from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record, snapshot
 from paurubot.core import panel_accounts
-from paurubot.db.models import AccountPlan, Customer, Panel, PanelAccount, PanelKind
+from paurubot.db.models import AccountPlan, Customer, Panel, PanelAccount, PanelKind, PlanAudience
 from paurubot.panels import PanelError, registry
 from paurubot.panels.drivers.pasarguard import PasarGuardDriver
 
@@ -39,6 +39,9 @@ PLAN_FIELDS = [
     "renew_packages_enabled",
     "renew_packages",
     "renew_custom_enabled",
+    "renew_mode",
+    "renewable",
+    "audience",
     "sort",
     "is_active",
 ]
@@ -80,6 +83,10 @@ class AccountPlanBody(BaseModel):
     renew_packages_enabled: bool = False
     renew_packages: list[dict[str, Any]] = Field(default_factory=list)
     renew_custom_enabled: bool = False
+    # None: the original rule (time added, a fresh quota, usage reset).
+    renew_mode: Literal["extend_reset", "extend_carry", "restart_reset", "restart_carry"] | None = None
+    renewable: bool = True
+    audience: PlanAudience = PlanAudience.ALL
     sort: int = 0
     is_active: bool = True
 

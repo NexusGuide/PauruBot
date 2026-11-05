@@ -108,7 +108,8 @@ def account_kb(t: Texts, account: PanelAccount) -> InlineKeyboardMarkup:
     kb.button(text=t("acc_btn_login"), callback_data=Acc(action="login", id=account.id))
     kb.button(text=t("acc_btn_refresh"), callback_data=Acc(action="view", id=account.id, value=1))
     if plan is not None and plan.is_active:
-        kb.button(text=t("acc_btn_renew"), callback_data=Acc(action="renew", id=account.id))
+        if plan.renewable:
+            kb.button(text=t("acc_btn_renew"), callback_data=Acc(action="renew", id=account.id))
         if plan.gb_price > 0 and account.data_limit and account.status != "expired":
             kb.button(text=t("acc_btn_gb"), callback_data=Acc(action="gb", id=account.id))
         if panel_accounts.can_buy_days(account, plan) and account.status != "expired":
@@ -161,7 +162,7 @@ async def plans(call: CallbackQuery, session: AsyncSession, customer: Customer, 
     if not await panel_accounts.available(session, customer):
         await show(call, t("accounts_unavailable"))
         return
-    items = await panel_accounts.plans(session, customer.shop_id)
+    items = await panel_accounts.plans(session, customer.shop_id, customer)
     kb = InlineKeyboardBuilder()
     for plan in items:
         kb.button(text=f"{plan.title} — {money(plan.price)}", callback_data=Acc(action="plan", id=plan.id))
@@ -174,7 +175,7 @@ async def plans(call: CallbackQuery, session: AsyncSession, customer: Customer, 
 async def plan_view(
     call: CallbackQuery, callback_data: Acc, session: AsyncSession, customer: Customer, t: Texts
 ) -> None:
-    plan = await panel_accounts.plan_for(session, customer.shop_id, callback_data.id)
+    plan = await panel_accounts.plan_for(session, customer.shop_id, callback_data.id, customer)
     if plan is None:
         await call.answer(t("plan_unavailable"), show_alert=True)
         return
@@ -265,7 +266,7 @@ async def buy(
     t: Texts,
     state: FSMContext,
 ) -> None:
-    plan = await panel_accounts.plan_for(session, customer.shop_id, callback_data.id)
+    plan = await panel_accounts.plan_for(session, customer.shop_id, callback_data.id, customer)
     if plan is None:
         await call.answer(t("plan_unavailable"), show_alert=True)
         return

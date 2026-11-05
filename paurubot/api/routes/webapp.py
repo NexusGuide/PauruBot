@@ -448,6 +448,7 @@ def account_view(account: PanelAccount) -> dict[str, Any]:
         "login_url": panel_accounts.login_url(account),
         # How a renewal is sold: the plan itself, ready-made packages, and/or a custom size.
         "renew": {
+            "allowed": plan.renewable and plan.is_active,
             "plain": panel_accounts.plain_renewal(plan),
             "packages": panel_accounts.renew_packages(plan),
             "custom": panel_accounts.custom_renewal(plan),
@@ -465,7 +466,9 @@ async def account_plans_view(ctx: WebApp) -> dict[str, Any]:
     """The panel admin plans the customer buys from (TEN-14) and whether they are sold at all."""
     return {
         "available": await panel_accounts.available(ctx.session, ctx.customer),
-        "plans": [account_plan_view(p) for p in await panel_accounts.plans(ctx.session, ctx.shop.id)],
+        "plans": [
+            account_plan_view(p) for p in await panel_accounts.plans(ctx.session, ctx.shop.id, ctx.customer)
+        ],
     }
 
 
@@ -637,7 +640,7 @@ async def _account_order(body: OrderBody, ctx: WebApp, kind: OrderKind) -> Order
     amount = 0
     if kind == OrderKind.ACCOUNT_PURCHASE:
         plan_arg = (
-            await panel_accounts.plan_for(ctx.session, ctx.shop.id, body.account_plan_id)
+            await panel_accounts.plan_for(ctx.session, ctx.shop.id, body.account_plan_id, ctx.customer)
             if body.account_plan_id
             else None
         )

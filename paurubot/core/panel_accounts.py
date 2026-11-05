@@ -27,8 +27,10 @@ from paurubot.db.models import (
     Panel,
     PanelAccount,
     PanelKind,
+    PlanAudience,
 )
 from paurubot.panels import GB, PanelError, driver_for
+from paurubot.provisioning import renewal_policy
 from paurubot.security import secretbox
 
 KINDS = ACCOUNT_KINDS
@@ -87,7 +89,16 @@ async def available(session: AsyncSession, customer: Customer) -> bool:
     return customer.is_reseller or not cfg.get("panel_accounts_resellers_only")
 
 
-async def plans(session: AsyncSession, shop_id: int) -> list[AccountPlan]:
+def offered_to(plan: AccountPlan, customer: Customer | None) -> bool:
+    """A plan's audience: everyone, ordinary customers only, or resellers only."""
+    audience = plan.audience or PlanAudience.ALL
+    if audience == PlanAudience.ALL or customer is None:
+        return True
+    return (audience == PlanAudience.RESELLERS) == bool(customer.is_reseller)
+
+
+async def plans(session: AsyncSession, shop_id: int, customer: Customer | None = None) -> list[AccountPlan]:
+    """The plans on sale; with a customer, only those offered to them."""
     rows = await session.scalars(
         select(AccountPlan)
         .join(Panel, Panel.id == AccountPlan.panel_id)
@@ -99,11 +110,13 @@ async def plans(session: AsyncSession, shop_id: int) -> list[AccountPlan]:
         )
         .order_by(AccountPlan.sort, AccountPlan.price, AccountPlan.id)
     )
-    return list(rows)
+    return [plan for plan in rows if offered_to(plan, customer)]
 
 
-async def plan_for(session: AsyncSession, shop_id: int, plan_id: int) -> AccountPlan | None:
-    return next((p for p in await plans(session, shop_id) if p.id == plan_id), None)
+async def plan_for(
+    session: AsyncSession, shop_id: int, plan_id: int, customer: Customer | None = None
+) -> AccountPlan | None:
+    return next((p for p in await plans(session, shop_id, customer) if p.id == plan_id), None)
 
 
 async def accounts_of(session: AsyncSession, customer: Customer) -> list[PanelAccount]:
@@ -206,7 +219,12 @@ async def draft(
     if not await available(session, customer):
         raise OrderError("accounts_unavailable")
     if kind == OrderKind.ACCOUNT_PURCHASE:
-        if plan is None or plan.shop_id != customer.shop_id or not plan.is_active:
+        if (
+            plan is None
+            or plan.shop_id != customer.shop_id
+            or not plan.is_active
+            or not offered_to(plan, customer)
+        ):
             raise OrderError("plan_unavailable")
         return Draft(kind, None, None, {"account_plan_id": plan.id}, int(plan.price))
     if account is None or account.customer_id != customer.id or account.status not in LIVE:
@@ -216,6 +234,8 @@ async def draft(
         raise OrderError("plan_unavailable")
     params: dict[str, Any] = {"account_id": account.id, "account_plan_id": current.id}
     if kind == OrderKind.ACCOUNT_RENEW:
+        if not current.renewable:
+            raise OrderError("account_not_renewable")
         return await _renewal(session, customer, current, params, package, renew_days, renew_gb)
     if account.status not in {"active", "paused"}:
         raise OrderError("account_not_active")  # an ended account is renewed first
@@ -321,10 +341,9 @@ async def apply(session: AsyncSession, order: Order) -> PanelAccount:
     driver = await _driver(session, account.panel_id)
     if order.kind == OrderKind.ACCOUNT_RENEW:
         if "target_expire" not in params:
-            now = utcnow()
-            start = account.expire_at if account.expire_at and account.expire_at > now else now
-            days = int((params.get("renew") or {}).get("days", plan.days))
-            params["target_expire"] = (start + timedelta(days=days)).isoformat() if days > 0 else None
+            # The end state is worked out once, before the panel is touched, so a retry applies
+            # exactly the same values (as for services, renewal_policy).
+            params.update(await renewal_targets(driver, account, plan, params))
             order.params = dict(params)  # a new object, so the JSON change is saved
             await session.commit()
         await _renew(driver, account, plan, params)
@@ -410,13 +429,62 @@ async def _create(
     return account
 
 
+def renew_rule(plan: AccountPlan, account: PanelAccount) -> renewal_policy.Policy:
+    """The plan's renewal rule; an ended account always starts a fresh period."""
+    mode = plan.renew_mode if plan.renew_mode in renewal_policy.RENEW_MODES else renewal_policy.DEFAULT_MODE
+    return renewal_policy.policy_for(OrderKind.RENEW, mode, lapsed=account.status == "expired")
+
+
+async def renewal_targets(
+    driver: Any, account: PanelAccount, plan: AccountPlan, params: dict[str, Any]
+) -> dict[str, Any]:
+    """What a renewal leaves the account with: its end date, its quota and whether usage resets.
+
+    Time is added to what is left or starts from now; traffic is a fresh quota, or what is left
+    (or the whole quota, when usage is not reset) plus the renewal's GB.
+    """
+    renew = params.get("renew") or {}
+    days = int(renew.get("days", plan.days))
+    gb = int(renew.get("gb", plan.data_gb))
+    rule = renew_rule(plan, account)
+    now = utcnow()
+    if days <= 0:
+        expire = None  # a plan without an end date
+    else:
+        start = (
+            account.expire_at
+            if rule.time == "append" and account.expire_at and account.expire_at > now
+            else now
+        )
+        expire = (start + timedelta(days=days)).isoformat()
+    fresh = gb * GB if gb > 0 else 0
+    if rule.volume == "reset" or not fresh or not account.data_limit:
+        limit = fresh  # a fresh quota; an unlimited one on either side stays unlimited
+    else:
+        info = await driver.get_admin(account.username)
+        used = int(info.get("used_traffic") or 0) if info else int(account.used_bytes or 0)
+        left = max(0, int(account.data_limit) - used)
+        limit = (left if rule.reset_usage else int(account.data_limit)) + fresh
+    return {
+        "target_expire": expire,
+        "target_limit": limit,
+        "reset_usage": rule.reset_usage,
+        "rule": rule.as_dict(),
+    }
+
+
 async def _renew(driver: Any, account: PanelAccount, plan: AccountPlan, params: dict[str, Any]) -> None:
     target = params["target_expire"]
     account.expire_at = datetime.fromisoformat(target) if target else None
-    gb = int((params.get("renew") or {}).get("gb", plan.data_gb))
-    account.data_limit = gb * GB if gb > 0 else 0
+    if "target_limit" in params:
+        account.data_limit = int(params["target_limit"])
+    else:  # an order paid before renewal rules: a fresh quota of the plan or package
+        gb = int((params.get("renew") or {}).get("gb", plan.data_gb))
+        account.data_limit = gb * GB if gb > 0 else 0
     account.max_users = max(int(account.max_users or 0), int(plan.max_users or 0)) or None
-    await driver.reset_admin_usage(account.username)
+    if params.get("reset_usage", True):
+        await driver.reset_admin_usage(account.username)
+        account.used_bytes = 0
     fields: dict[str, Any] = {"data_limit": account.data_limit, "status": "active"}
     if account.max_users:
         fields["max_users"] = account.max_users
@@ -424,7 +492,6 @@ async def _renew(driver: Any, account: PanelAccount, plan: AccountPlan, params: 
     if account.status != "active":
         await driver.set_admin_users(account.username, True)
     account.status = "active"
-    account.used_bytes = 0
 
 
 # --- the owner's own actions --------------------------------------------------------------
