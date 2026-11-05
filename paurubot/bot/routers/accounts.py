@@ -1,5 +1,5 @@
-"""Panel admin accounts in the bot (TEN-14): buying one, its login, traffic, user slots and
-renewal, a new password and pausing it."""
+"""Panel admin accounts in the bot (TEN-14): buying one, its login, traffic, extra days, user
+slots and renewal, a new password and pausing it."""
 
 from __future__ import annotations
 
@@ -13,9 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.bot import keyboards
 from paurubot.bot.callbacks import Acc
+from paurubot.bot.states import AccountStates
 from paurubot.bot.utils import Btn, error_text, show
 from paurubot.core import orders, panel_accounts
-from paurubot.core.formatting import esc, jdate, money
+from paurubot.core.formatting import esc, jdate, money, parse_int
 from paurubot.db.models import AccountPlan, Customer, OrderKind, PanelAccount
 from paurubot.i18n import Texts
 from paurubot.ledger.accounts import wallet_balance
@@ -24,8 +25,17 @@ from paurubot.payments import engine as payments
 
 router = Router(name="accounts")
 GB_STEPS = [10, 50, 100, 200, 500]
+DAY_STEPS = [7, 15, 30, 60, 90]
 USER_STEPS = [5, 10, 20, 50, 100]
+# The two add-ons sold by amount within the shop's least and most (extra traffic and time).
+RANGED = {"gb": OrderKind.ACCOUNT_GB, "days": OrderKind.ACCOUNT_DAYS}
 STATUS_ICON = {"active": "🟢", "paused": "⏸", "expired": "⌛️", "deleted": "🗑"}
+
+
+def steps_within(steps: list[int], low: int, high: int) -> list[int]:
+    """The one-tap amounts inside the shop's range; the range's own ends when none fit."""
+    inside = [step for step in steps if low <= step <= high]
+    return inside or sorted({low, high})
 
 
 def _gb(value: int) -> str:
@@ -97,6 +107,8 @@ def account_kb(t: Texts, account: PanelAccount) -> InlineKeyboardMarkup:
         kb.button(text=t("acc_btn_renew"), callback_data=Acc(action="renew", id=account.id))
         if plan.gb_price > 0 and account.data_limit and account.status != "expired":
             kb.button(text=t("acc_btn_gb"), callback_data=Acc(action="gb", id=account.id))
+        if panel_accounts.can_buy_days(account, plan) and account.status != "expired":
+            kb.button(text=t("acc_btn_days"), callback_data=Acc(action="days", id=account.id))
         if plan.user_price > 0 and account.max_users and account.status != "expired":
             kb.button(text=t("acc_btn_users"), callback_data=Acc(action="users", id=account.id))
     if account.status in {"active", "paused"}:
@@ -174,7 +186,7 @@ async def plan_view(
 
 
 async def _checkout(
-    call: CallbackQuery,
+    event: CallbackQuery | Message,
     session: AsyncSession,
     customer: Customer,
     t: Texts,
@@ -192,9 +204,14 @@ async def _checkout(
         draft = await panel_accounts.draft(session, customer, kind, plan=plan, account=account, amount=amount)
         order = await orders.create(session, customer, draft)
     except orders.OrderError as exc:
-        await call.answer(error_text(t, exc.key, exc.params), show_alert=True)
+        if isinstance(event, CallbackQuery):
+            await event.answer(error_text(t, exc.key, exc.params), show_alert=True)
+        else:
+            await event.answer(error_text(t, exc.key, exc.params))
         return
-    await call.answer()
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+    await state.set_state(None)
     await state.set_data({"order_id": order.id})
     balance = await wallet_balance(session, customer.shop_id, customer.id)
     methods = await payments.available(session, customer.shop_id, customer)
@@ -205,6 +222,7 @@ async def _checkout(
         ),
         OrderKind.ACCOUNT_GB: lambda: t("acc_checkout_gb", value=amount),
         OrderKind.ACCOUNT_USERS: lambda: t("acc_checkout_users", value=amount),
+        OrderKind.ACCOUNT_DAYS: lambda: t("acc_checkout_days", value=amount),
     }[kind]()
     text = t("acc_checkout", what=what, amount=money(order.amount), balance=money(balance))
     markup = keyboards.checkout_kb(
@@ -215,7 +233,7 @@ async def _checkout(
         discount=False,
     )
     await session.commit()
-    await show(call, text, markup)
+    await show(event, text, markup)
 
 
 @router.callback_query(Acc.filter(F.action == "buy"))
@@ -288,7 +306,7 @@ async def renew(
         await _checkout(call, session, customer, t, state, OrderKind.ACCOUNT_RENEW, account=account)
 
 
-@router.callback_query(Acc.filter(F.action.in_({"gb", "users"})))
+@router.callback_query(Acc.filter(F.action.in_({"gb", "days", "users"})))
 async def extras(
     call: CallbackQuery, callback_data: Acc, session: AsyncSession, customer: Customer, t: Texts
 ) -> None:
@@ -296,24 +314,49 @@ async def extras(
     if account is None:
         return
     plan = account.plan
-    is_gb = callback_data.action == "gb"
-    unit = (plan.gb_price if is_gb else plan.user_price) if plan is not None else 0
+    unit_name = callback_data.action
+    if plan is None:
+        unit = 0
+    elif unit_name == "gb":
+        unit = plan.gb_price if account.data_limit else 0
+    elif unit_name == "days":
+        unit = plan.day_price if panel_accounts.can_buy_days(account, plan) else 0
+    else:
+        unit = plan.user_price
     if unit <= 0:
         await call.answer(t("extras_unavailable"), show_alert=True)
         return
     await call.answer()
     kb = InlineKeyboardBuilder()
-    for step in GB_STEPS if is_gb else USER_STEPS:
+    if unit_name in RANGED:
+        low, high = (await panel_accounts.extra_bounds(session, customer.shop_id))[unit_name]
+        steps = steps_within(GB_STEPS if unit_name == "gb" else DAY_STEPS, low, high)
+        text = t(f"acc_choose_{unit_name}_range", min_value=low, max_value=high)
+    else:
+        steps = USER_STEPS
+        text = t("acc_choose_users")
+    for step in steps:
         kb.button(
             text=t("acc_extra_option", value=step, price=money(step * unit)),
-            callback_data=Acc(action="buy_gb" if is_gb else "buy_users", id=account.id, value=step),
+            callback_data=Acc(action=f"buy_{unit_name}", id=account.id, value=step),
+        )
+    if unit_name in RANGED:
+        kb.button(
+            text=t("acc_btn_custom_amount"), callback_data=Acc(action=f"ask_{unit_name}", id=account.id)
         )
     kb.button(text=t("btn_back"), callback_data=Acc(action="view", id=account.id))
     kb.adjust(1)
-    await show(call, t("acc_choose_gb" if is_gb else "acc_choose_users"), kb.as_markup())
+    await show(call, text, kb.as_markup())
 
 
-@router.callback_query(Acc.filter(F.action.in_({"buy_gb", "buy_users"})))
+EXTRA_KINDS = {
+    "buy_gb": OrderKind.ACCOUNT_GB,
+    "buy_days": OrderKind.ACCOUNT_DAYS,
+    "buy_users": OrderKind.ACCOUNT_USERS,
+}
+
+
+@router.callback_query(Acc.filter(F.action.in_(set(EXTRA_KINDS))))
 async def buy_extra(
     call: CallbackQuery,
     callback_data: Acc,
@@ -325,8 +368,61 @@ async def buy_extra(
     account = await _mine(call, session, customer, t, callback_data.id)
     if account is None:
         return
-    kind = OrderKind.ACCOUNT_GB if callback_data.action == "buy_gb" else OrderKind.ACCOUNT_USERS
+    kind = EXTRA_KINDS[callback_data.action]
     await _checkout(call, session, customer, t, state, kind, account=account, amount=callback_data.value)
+
+
+@router.callback_query(Acc.filter(F.action.in_({"ask_gb", "ask_days"})))
+async def ask_amount(
+    call: CallbackQuery,
+    callback_data: Acc,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    state: FSMContext,
+) -> None:
+    """Any amount within the shop's range, typed in."""
+    account = await _mine(call, session, customer, t, callback_data.id)
+    if account is None:
+        return
+    unit_name = callback_data.action.removeprefix("ask_")
+    low, high = (await panel_accounts.extra_bounds(session, customer.shop_id))[unit_name]
+    await call.answer()
+    await state.set_state(AccountStates.amount)
+    await state.update_data(account_id=account.id, unit=unit_name)
+    if isinstance(call.message, Message):
+        await call.message.answer(
+            t(f"acc_ask_{unit_name}", min_value=low, max_value=high), reply_markup=keyboards.cancel(t)
+        )
+
+
+@router.message(AccountStates.amount, F.text)
+async def typed_amount(
+    message: Message,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    staff: Any,
+    state: FSMContext,
+) -> None:
+    from paurubot.bot.routers.start import menu
+
+    data = await state.get_data()
+    unit_name = str(data.get("unit") or "")
+    account = await panel_accounts.owned(session, customer, int(data.get("account_id") or 0))
+    if account is None or unit_name not in RANGED:
+        await state.set_state(None)
+        await message.answer(t("account_not_found"), reply_markup=menu(t, cfg, staff))
+        return
+    low, high = (await panel_accounts.extra_bounds(session, customer.shop_id))[unit_name]
+    value = parse_int(message.text)
+    if value is None or not low <= value <= high:
+        await message.answer(t("acc_amount_range", min_value=low, max_value=high))
+        return  # still waiting for a number
+    await state.set_state(None)
+    await message.answer(t("acc_amount_noted"), reply_markup=menu(t, cfg, staff))  # the menu back
+    await _checkout(message, session, customer, t, state, RANGED[unit_name], account=account, amount=value)
 
 
 @router.callback_query(Acc.filter(F.action == "password"))

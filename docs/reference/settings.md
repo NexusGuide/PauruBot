@@ -257,6 +257,10 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `reseller_bot_open` | bool | false | Sales bot for every reseller. Every prepaid reseller (not sub-resellers) can build its own sales bot from the bot or the web panel, without a separate tick |
 | `panel_accounts_enabled` | bool | false | Sell PasarGuard admin accounts |
 | `panel_accounts_resellers_only` | bool | false | Admin accounts for resellers only |
+| `panel_accounts_gb_min` | int | 1 | Least extra traffic per order (GB). An admin account owner cannot buy less extra traffic than this |
+| `panel_accounts_gb_max` | int | 1000 | Most extra traffic per order (GB) |
+| `panel_accounts_days_min` | int | 1 | Least extra days per order |
+| `panel_accounts_days_max` | int | 365 | Most extra days per order. Set the price per day on each admin account plan; 0 there means extra days are not sold |
 
 ## Reports
 

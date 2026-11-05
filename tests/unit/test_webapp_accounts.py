@@ -183,3 +183,42 @@ async def test_disabled_feature_is_hidden_and_unbuyable(session, acc_env) -> Non
     assert order.status_code == 400 and order.json()["error"] == "accounts_unavailable"
     await shop_settings.set_many(session, shop.id, {"panel_accounts_enabled": True})
     await session.commit()
+
+
+async def test_extra_days_and_the_shops_range_in_the_mini_app(session, acc_env) -> None:  # type: ignore[no-untyped-def]
+    client, plan, shop = acc_env["client"], acc_env["plan"], acc_env["shop"]
+    plan.day_price = 3_000
+    await shop_settings.set_many(
+        session, shop.id, {"panel_accounts_days_min": 3, "panel_accounts_days_max": 40}
+    )
+    await session.commit()
+    uid = 9731
+    await _buyer(session, acc_env, uid)
+    account = await _bought(session, acc_env, uid)
+    detail = (await client.get(f"/api/webapp/accounts/{account['id']}", headers=h(uid))).json()
+    assert detail["account"]["day_price"] == 3_000
+    assert detail["limits"] == {"gb": [1, 1000], "days": [3, 40]}
+    too_many = await client.post(
+        "/api/webapp/orders",
+        headers=h(uid),
+        json={"kind": "account_days", "account_id": account["id"], "account_amount": 41},
+    )
+    assert too_many.status_code == 400 and too_many.json()["error"] == "acc_amount_range"
+    order = await client.post(
+        "/api/webapp/orders",
+        headers=h(uid),
+        json={"kind": "account_days", "account_id": account["id"], "account_amount": 12},
+    )
+    assert order.status_code == 200, order.text
+    assert order.json()["order"]["amount"] == 36_000
+    paid = await client.post(
+        f"/api/webapp/orders/{order.json()['order']['id']}/pay", headers=h(uid), json={"method": "wallet"}
+    )
+    assert paid.json()["order"]["status"] == "paid"
+    await session.commit()
+    await drain(session, "provision")
+    after = (await client.get(f"/api/webapp/accounts/{account['id']}", headers=h(uid))).json()["account"]
+    from datetime import datetime
+
+    gained = datetime.fromisoformat(after["expire_at"]) - datetime.fromisoformat(account["expire_at"])
+    assert abs(gained.total_seconds() - 12 * 86400) < 5

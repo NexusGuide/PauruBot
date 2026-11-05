@@ -424,6 +424,7 @@ def account_plan_view(plan: AccountPlan) -> dict[str, Any]:
         "price": int(plan.price),
         "gb_price": int(plan.gb_price),
         "user_price": int(plan.user_price),
+        "day_price": int(plan.day_price),
     }
 
 
@@ -442,6 +443,8 @@ def account_view(account: PanelAccount) -> dict[str, Any]:
         "price": int(plan.price) if plan else 0,
         "gb_price": int(plan.gb_price) if plan else 0,
         "user_price": int(plan.user_price) if plan else 0,
+        # Extra days: priced by the plan, and only for an account with an end date.
+        "day_price": int(plan.day_price) if plan and panel_accounts.can_buy_days(account, plan) else 0,
         "login_url": panel_accounts.login_url(account),
     }
 
@@ -472,7 +475,12 @@ async def _own_account(ctx: WebApp, account_id: int) -> PanelAccount:
 
 @router.get("/accounts/{account_id}")
 async def account_detail(account_id: int, ctx: WebApp) -> dict[str, Any]:
-    return {"account": account_view(await _own_account(ctx, account_id))}
+    bounds = await panel_accounts.extra_bounds(ctx.session, ctx.shop.id)
+    return {
+        "account": account_view(await _own_account(ctx, account_id)),
+        # How much extra traffic or time one order may buy: {"gb": [least, most], "days": [...]}.
+        "limits": {unit: list(pair) for unit, pair in bounds.items()},
+    }
 
 
 @router.get("/accounts/{account_id}/login")
@@ -510,6 +518,7 @@ class OrderBody(BaseModel):
         "account_renew",
         "account_gb",
         "account_users",
+        "account_days",
     ]
     plan_id: int | None = None
     service_id: int | None = None
@@ -521,7 +530,7 @@ class OrderBody(BaseModel):
     custom_days: int = Field(default=0, ge=0, le=3650)
     account_plan_id: int | None = None
     account_id: int | None = None
-    # GB or user slots for the two account add-ons
+    # GB, days or user slots for the account add-ons
     account_amount: int = Field(default=0, ge=0, le=100_000)
     # The location a "move" order takes the service to (F-03).
     location_id: int | None = None

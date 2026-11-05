@@ -227,6 +227,12 @@ export function Checkout() {
             value={`${money(Number(params.get("amt")) || (order.params.gb ?? 0), locale)} ${t("gb")}`}
           />
         )}
+        {order.kind === "account_days" && (
+          <Line
+            label={t("agency_add_days")}
+            value={t("n_days", { days: money(Number(params.get("amt")) || (order.params.days ?? 0), locale) })}
+          />
+        )}
         {order.kind === "account_users" && (
           <Line
             label={t("agency_add_users")}

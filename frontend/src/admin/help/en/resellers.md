@@ -50,10 +50,10 @@ An active reseller who presses “Reseller” in the bot sees its own panel: bal
 Besides services, you can sell a whole admin account on a PasarGuard panel: the buyer signs in to the panel and creates its own users, within a traffic quota and a user cap.
 
 1. The bot's admin on the PasarGuard panel needs permission to manage admins.
-2. In [Admin accounts](/admin-accounts) add a plan: the panel, the admin role it gets, the traffic quota, the user cap, the period and the price. "Price per extra GB" and "Price per extra user" let buyers add traffic or user slots later; 0 means not sold.
-3. Turn on "Sell PasarGuard admin accounts" under the Resellers section of [Settings](/settings). With "Admin accounts for resellers only" on, only resellers see them.
+2. In [Admin accounts](/admin-accounts) add a plan: the panel, the admin role it gets, the traffic quota, the user cap, the period and the price. "Price per extra GB", "Price per extra day" and "Price per extra user" let buyers add traffic, days or user slots later; 0 means not sold. Extra days are only sold on a plan with a period.
+3. Turn on "Sell PasarGuard admin accounts" under the Resellers section of [Settings](/settings). With "Admin accounts for resellers only" on, only resellers see them. In the same section, the least and most extra GB and days per order set how much a buyer may add at once.
 
-In the bot the buyer opens "Admin accounts" (in the menu, or in the reseller panel), picks a plan and pays like any order: from the wallet or any payment method. Once paid, the bot creates the admin and sends the panel address, username and password. From the account card the buyer can see its usage and users, renew (the period is added to what's left and usage resets), buy traffic or user slots, get a new password, and pause the account with all its users.
+In the bot the buyer opens "Admin accounts" (in the menu, or in the reseller panel), picks a plan and pays like any order: from the wallet or any payment method. Once paid, the bot creates the admin and sends the panel address, username and password. From the account card the buyer can see its usage and users, renew (the period is added to what's left and usage resets), buy traffic, days or user slots (a few one-tap amounts, or any amount in your range), get a new password, and pause the account with all its users.
 
 Three days before the end the buyer is warned; at the end the admin and its users are switched off until a renewal. At 90% of the traffic quota the buyer is warned once. Reseller discounts and fixed prices don't apply to admin accounts, and they can't be sold in a reseller's own bot.
 
