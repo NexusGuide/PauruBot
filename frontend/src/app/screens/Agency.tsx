@@ -5,7 +5,7 @@ import { api, type PanelAccount, type PanelPlan } from "../api";
 import { errorText, useApp } from "../state";
 import { haptic } from "../telegram";
 import { Icon } from "../icons";
-import { Button, Chevron, Empty, ReadFailure, Ring, Screen } from "../ui";
+import { Button, Chevron, Empty, ReadFailure, Ring, Screen, Switch } from "../ui";
 import { useResource } from "../useResource";
 
 import { DAY_STEPS, GB_STEPS, USER_STEPS, parseAmount, stepsWithin } from "../agency-extras";
@@ -190,6 +190,20 @@ export function AgencyAccount() {
       await api.refreshAccount(account.id);
       haptic("success");
       toast(t("agency_refreshed"));
+      retry();
+    } catch (err) {
+      toast(errorText(t, err), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setAuto = async (enabled: boolean, pkg?: number) => {
+    setBusy(true);
+    try {
+      await api.accountAutoRenew(account.id, enabled, pkg);
+      haptic("success");
+      toast(t(enabled ? "agency_auto_renew_on" : "agency_auto_renew_off"));
       retry();
     } catch (err) {
       toast(errorText(t, err), "error");
@@ -412,6 +426,39 @@ export function AgencyAccount() {
             </>
           );
         })()}
+        {account.auto_renew.choices.length > 0 && (
+          <div className="app-card flex flex-col gap-2 p-4">
+            <Switch
+              checked={account.auto_renew.on}
+              disabled={busy}
+              onChange={() =>
+                void setAuto(!account.auto_renew.on, account.auto_renew.choice.package ?? account.auto_renew.choices[0]?.package)
+              }
+              label={t("agency_auto_renew")}
+            />
+            <p className="text-xs text-[var(--hint)]">{t("agency_auto_renew_hint")}</p>
+            {account.auto_renew.on && account.auto_renew.choices.length > 1 && (
+              <select
+                aria-label={t("agency_auto_renew_choice")}
+                value={account.auto_renew.choice.package ?? -1}
+                disabled={busy}
+                onChange={(e) => void setAuto(true, Number(e.target.value) >= 0 ? Number(e.target.value) : undefined)}
+                className="w-full"
+              >
+                {account.auto_renew.choices.map((choice) => {
+                  const item = choice.package !== undefined ? renewal?.packages[choice.package] : undefined;
+                  return (
+                    <option key={choice.package ?? -1} value={choice.package ?? -1}>
+                      {item
+                        ? `${t("n_days", { days: money(item.days, locale) })} · ${item.gb ? `${money(item.gb, locale)} ${t("gb")}` : t("unlimited_data")} · ${money(item.price, locale)} ${t("currency")}`
+                        : `${t("agency_auto_renew_plain")} · ${money(account.price, locale)} ${t("currency")}`}
+                    </option>
+                  );
+                })}
+              </select>
+            )}
+          </div>
+        )}
         <Button tone="quiet" busy={busy} onClick={refresh}>{t("agency_refresh")}</Button>
       </div>
 

@@ -256,3 +256,29 @@ async def test_renewal_options_in_the_mini_app(session, acc_env) -> None:  # typ
     )
     assert custom.status_code == 200, custom.text
     assert custom.json()["order"]["amount"] == 20 * 1_500 + 40 * plan.gb_price
+
+
+async def test_auto_renew_from_the_mini_app(session, acc_env) -> None:  # type: ignore[no-untyped-def]
+    client = acc_env["client"]
+    uid = 9751
+    await _buyer(session, acc_env, uid)
+    account = await _bought(session, acc_env, uid)
+    assert account["auto_renew"] == {"on": False, "choice": {}, "choices": [{}], "stopped": None}
+    on = await client.post(
+        f"/api/webapp/accounts/{account['id']}/auto-renew", headers=h(uid), json={"enabled": True}
+    )
+    assert on.status_code == 200 and on.json()["account"]["auto_renew"]["on"] is True
+    bad = await client.post(
+        f"/api/webapp/accounts/{account['id']}/auto-renew",
+        headers=h(uid),
+        json={"enabled": True, "package": 3},
+    )
+    assert bad.status_code == 400 and bad.json()["error"] == "renew_option_unavailable"
+    off = await client.post(
+        f"/api/webapp/accounts/{account['id']}/auto-renew", headers=h(uid), json={"enabled": False}
+    )
+    assert off.json()["account"]["auto_renew"]["on"] is False
+    stranger = await client.post(
+        f"/api/webapp/accounts/{account['id']}/auto-renew", headers=h(9752), json={"enabled": True}
+    )
+    assert stranger.status_code == 404

@@ -23,6 +23,7 @@ from paurubot.api.routes import (
 )
 from paurubot.api.webapp_auth import WebApp, forced_gate, forget_join_cache
 from paurubot.core import (
+    account_auto_renew,
     alert_policy,
     brand,
     catalog,
@@ -458,6 +459,13 @@ def account_view(account: PanelAccount) -> dict[str, Any]:
         }
         if plan is not None
         else None,
+        # Auto-renewal from the wallet: on/off, its choice, and the choices the plan offers.
+        "auto_renew": {
+            "on": account_auto_renew.is_on(account),
+            "choice": {k: v for k, v in (account.auto_renew or {}).items() if k == "package"},
+            "choices": account_auto_renew.choices(account),
+            "stopped": (account.auto_renew or {}).get("stopped"),
+        },
     }
 
 
@@ -507,6 +515,27 @@ async def account_login(account_id: int, ctx: WebApp) -> dict[str, Any]:
         "username": account.username,
         "password": panel_accounts.password_of(account),
     }
+
+
+class AccountAutoRenewBody(BaseModel):
+    enabled: bool
+    package: int | None = Field(default=None, ge=0, le=50)
+
+
+@router.post("/accounts/{account_id}/auto-renew")
+async def account_auto_renew_set(account_id: int, body: AccountAutoRenewBody, ctx: WebApp) -> dict[str, Any]:
+    account = await _own_account(ctx, account_id)
+    if body.enabled:
+        try:
+            await account_auto_renew.enable(
+                ctx.session, account, {"package": body.package} if body.package is not None else {}
+            )
+        except account_auto_renew.AutoRenewError as exc:
+            raise HTTPException(status_code=400, detail=exc.key) from exc
+    else:
+        await account_auto_renew.disable(ctx.session, account)
+    await ctx.session.commit()
+    return {"account": account_view(account)}
 
 
 @router.post("/accounts/{account_id}/refresh")

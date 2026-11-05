@@ -15,7 +15,7 @@ from paurubot.bot import keyboards
 from paurubot.bot.callbacks import Acc
 from paurubot.bot.states import AccountStates
 from paurubot.bot.utils import Btn, error_text, show
-from paurubot.core import orders, panel_accounts
+from paurubot.core import account_auto_renew, orders, panel_accounts
 from paurubot.core.formatting import esc, jdate, money, parse_int
 from paurubot.db.models import AccountPlan, Customer, OrderKind, PanelAccount
 from paurubot.i18n import Texts
@@ -116,6 +116,12 @@ def account_kb(t: Texts, account: PanelAccount) -> InlineKeyboardMarkup:
             kb.button(text=t("acc_btn_days"), callback_data=Acc(action="days", id=account.id))
         if plan.user_price > 0 and account.max_users and account.status != "expired":
             kb.button(text=t("acc_btn_users"), callback_data=Acc(action="users", id=account.id))
+    if account_auto_renew.choices(account) and account.status != "deleted":
+        on = account_auto_renew.is_on(account)
+        kb.button(
+            text=t("acc_btn_auto_on" if on else "acc_btn_auto_off"),
+            callback_data=Acc(action="auto", id=account.id),
+        )
     if account.status in {"active", "paused"}:
         kb.button(text=t("acc_btn_password"), callback_data=Acc(action="password", id=account.id))
         if account.status == "active":
@@ -610,6 +616,75 @@ async def typed_amount(
     await state.set_state(None)
     await message.answer(t("acc_amount_noted"), reply_markup=menu(t, cfg, staff))  # the menu back
     await _checkout(message, session, customer, t, state, RANGED[unit_name], account=account, amount=value)
+
+
+@router.callback_query(Acc.filter(F.action == "auto"))
+async def auto_renew(
+    call: CallbackQuery, callback_data: Acc, session: AsyncSession, customer: Customer, t: Texts
+) -> None:
+    """Auto-renewal from the wallet: off, or on with the plan's renewal or one of its packages."""
+    account = await _mine(call, session, customer, t, callback_data.id)
+    if account is None:
+        return
+    if account_auto_renew.is_on(account):
+        await account_auto_renew.disable(session, account)
+        await session.commit()
+        await call.answer(t("acc_auto_disabled"))
+        await show(call, account_text(t, account), account_kb(t, account))
+        return
+    options = account_auto_renew.choices(account)
+    if not options:
+        await call.answer(t("renew_option_unavailable"), show_alert=True)
+        return
+    if len(options) == 1:
+        await _set_auto(call, session, t, account, options[0])
+        return
+    await call.answer()
+    plan = account.plan
+    packages = panel_accounts.renew_packages(plan) if plan is not None else []
+    kb = InlineKeyboardBuilder()
+    for option in options:
+        if "package" in option:
+            item = packages[option["package"]]
+            text = t(
+                "acc_renew_package",
+                days=item["days"],
+                gb=item["gb"] or t("unlimited"),
+                price=money(item["price"]),
+            )
+        else:
+            text = t("acc_auto_plain", price=money(plan.price if plan else 0))
+        kb.button(
+            text=text,
+            callback_data=Acc(action="auto_set", id=account.id, value=option.get("package", -1) + 1),
+        )
+    kb.button(text=t("btn_back"), callback_data=Acc(action="view", id=account.id))
+    kb.adjust(1)
+    await show(call, t("acc_auto_choose"), kb.as_markup())
+
+
+async def _set_auto(
+    call: CallbackQuery, session: AsyncSession, t: Texts, account: PanelAccount, choice: dict[str, Any]
+) -> None:
+    try:
+        await account_auto_renew.enable(session, account, choice)
+    except account_auto_renew.AutoRenewError as exc:
+        await call.answer(t(exc.key), show_alert=True)
+        return
+    await session.commit()
+    await call.answer(t("acc_auto_enabled"), show_alert=True)
+    await show(call, account_text(t, account), account_kb(t, account))
+
+
+@router.callback_query(Acc.filter(F.action == "auto_set"))
+async def auto_renew_set(
+    call: CallbackQuery, callback_data: Acc, session: AsyncSession, customer: Customer, t: Texts
+) -> None:
+    account = await _mine(call, session, customer, t, callback_data.id)
+    if account is None:
+        return
+    choice = {"package": callback_data.value - 1} if callback_data.value > 0 else {}
+    await _set_auto(call, session, t, account, choice)
 
 
 @router.callback_query(Acc.filter(F.action == "password"))

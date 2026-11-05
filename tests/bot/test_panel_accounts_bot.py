@@ -207,3 +207,30 @@ async def test_renew_offers_the_plans_packages_and_a_custom_renewal(session, env
     order = (await session.execute(Order.__table__.select().where(Order.customer_id == owner.id))).first()
     assert order is not None and order.kind == "account_renew"
     assert order.amount == 20 * 10_000 + 200 * 1_000 and order.params["renew"] == {"days": 20, "gb": 200}
+
+
+async def test_auto_renew_toggle_on_the_account_card(session, env) -> None:  # type: ignore[no-untyped-def]
+    send, fake, shop, plan = env["send"], env["fake"], env["shop"], env["plan"]
+    await send(message_update(UID + 5, "/start"))
+    owner = await _customer(session, shop.id, UID + 5)
+    account = PanelAccount(
+        shop_id=shop.id,
+        customer_id=owner.id,
+        panel_id=plan.panel_id,
+        plan_id=plan.id,
+        username="r5_auto",
+        password_enc="x",
+    )
+    session.add(account)
+    await session.commit()
+    await send(callback_update(UID + 5, Acc(action="view", id=account.id).pack()))
+    auto = next(
+        data for text, data in fake.buttons(fake.last(EditMessageText)) if text == FA("acc_btn_auto_off")
+    )
+    await send(callback_update(UID + 5, auto))  # one choice: switched on at once
+    await session.refresh(account)
+    assert account.auto_renew == {}
+    assert FA("acc_btn_auto_on") in [text for text, _ in fake.buttons(fake.last(EditMessageText))]
+    await send(callback_update(UID + 5, auto))
+    await session.refresh(account)
+    assert account.auto_renew is None

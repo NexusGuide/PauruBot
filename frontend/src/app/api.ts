@@ -212,6 +212,8 @@ export interface PanelAccount {
   login_url: string;
   /** How a renewal is sold: the plan itself, ready-made packages and/or a custom size. */
   renew: AccountRenewal | null;
+  /** Auto-renewal from the wallet; a choice is {} (the plan itself) or {package: i}. */
+  auto_renew: { on: boolean; choice: { package?: number }; choices: { package?: number }[]; stopped?: string | null };
 }
 
 export interface AccountRenewal {
@@ -433,6 +435,8 @@ export const api = {
   account: (id: number) => get<{ account: PanelAccount; limits: AccountLimits }>(`/accounts/${id}`),
   accountLogin: (id: number) => get<{ url: string; username: string; password: string }>(`/accounts/${id}/login`),
   refreshAccount: (id: number) => post<{ account: PanelAccount }>(`/accounts/${id}/refresh`),
+  accountAutoRenew: (id: number, enabled: boolean, pkg?: number) =>
+    post<{ account: PanelAccount }>(`/accounts/${id}/auto-renew`, { enabled, package: pkg }),
   createOrder: (body: {
     intent_key?: string;
     kind: string;

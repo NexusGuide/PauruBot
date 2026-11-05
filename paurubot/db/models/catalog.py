@@ -184,6 +184,9 @@ class PanelAccount(Base, UpdatedMixin):
     alerts_sent: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     synced_at: Mapped[datetime | None] = mapped_column()
     note: Mapped[str | None] = mapped_column(Text)  # staff only
+    # The owner's auto-renewal from the wallet: {"package": i} or {} for the plan itself, plus
+    # the worker's bookkeeping (last_order_id, last_at, short, stopped). None: off.
+    auto_renew: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     panel: Mapped[Panel | None] = relationship(lazy="selectin")
     plan: Mapped[AccountPlan | None] = relationship(lazy="selectin")

@@ -359,6 +359,32 @@ async def account_changed(session: AsyncSession, job: queue.Claimed) -> None:
         await _to_customer(session, customer, text, reply_markup=kb)
 
 
+async def account_auto_renew(session: AsyncSession, job: queue.Claimed) -> None:
+    """An admin account's auto-renewal is waiting for money, or has stopped."""
+    from paurubot.bot.routers.accounts import account_kb
+    from paurubot.db.models import PanelAccount
+
+    account = await session.get(PanelAccount, int(job.payload["account_id"]))
+    if account is None:
+        return
+    customer = await session.get(Customer, account.customer_id)
+    if customer is None:
+        return
+    t = await _texts(session, customer)
+    reason = str(job.payload.get("reason") or "")
+    if reason == "insufficient_balance":
+        text = t(
+            "acc_auto_short",
+            username=esc(account.username),
+            balance=money(int(job.payload.get("balance") or 0)),
+            required=money(int(job.payload.get("required") or 0)),
+        )
+    else:
+        why = t(reason)
+        text = t("acc_auto_stopped", username=esc(account.username), reason=esc(why if why != reason else ""))
+    await _to_customer(session, customer, text, reply_markup=account_kb(t, account))
+
+
 async def order_failed(session: AsyncSession, job: queue.Claimed) -> None:
     order = await session.get(Order, int(job.payload["order_id"]))
     if order is None:
@@ -1329,6 +1355,7 @@ register_queue(
             "account_ready": account_ready,
             "account_alert": account_alert,
             "account_changed": account_changed,
+            "account_auto_renew": account_auto_renew,
             "order_failed": order_failed,
             "payment_fulfilled": payment_fulfilled,
             "payment_rejected": payment_rejected,
