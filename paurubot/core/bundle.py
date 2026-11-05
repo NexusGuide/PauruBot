@@ -39,6 +39,8 @@ FORMAT = "paurubot-bundle"
 VERSION = 1
 PANEL_SETTINGS = ("trial_panel_id", "custom_panel_id")
 LOCATION_SETTINGS = ("custom_location_id",)
+# Server-wide settings (the backup schedule) belong to the server, not to the shop's setup.
+SERVER_GROUPS = ("backups",)
 PLAN_KEYS = (
     "title",
     "description",
@@ -105,7 +107,7 @@ async def export(session: AsyncSession, shop_id: int) -> dict[str, Any]:
     settings: dict[str, Any] = {}
     refs: dict[str, str] = {}
     for key, spec in shop_settings.SPECS.items():
-        if spec.secret:
+        if spec.secret or spec.group in SERVER_GROUPS:
             continue
         value = cfg.get(key)
         if key in PANEL_SETTINGS:
@@ -374,7 +376,13 @@ async def apply(session: AsyncSession, shop_id: int, raw: Any, *, dry_run: bool 
     settings: dict[str, Any] = {}
     for key, value in (bundle.get("settings") or {}).items():
         spec = shop_settings.SPECS.get(key)
-        if spec is None or spec.secret or key in PANEL_SETTINGS or key in LOCATION_SETTINGS:
+        if (
+            spec is None
+            or spec.secret
+            or spec.group in SERVER_GROUPS
+            or key in PANEL_SETTINGS
+            or key in LOCATION_SETTINGS
+        ):
             report.warnings.append(f"setting {key}: ignored")
             continue
         settings[key] = value
