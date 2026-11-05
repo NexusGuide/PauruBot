@@ -2,7 +2,7 @@
 
 # Shop settings
 
-Each shop's settings, changed in the admin panel under Settings (appearance ones on the Bot menu screen) or through `PUT /api/admin/settings`. Secret values are stored encrypted and never returned.
+Each shop's settings, changed in the admin panel under Settings (appearance ones on the Bot menu screen) or through `PUT /api/admin/settings`. Secret values are stored encrypted and never returned. The Backups group is server-wide: it is set on the Backups page (`PUT /api/admin/backups/schedule`), and an unset value there falls back to the matching `BACKUP_*` environment setting.
 
 ## General
 
@@ -264,3 +264,13 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 |---|---|---|---|
 | `daily_report_hour` | int | 23 | Daily report hour. Tehran time, 0 to 23 |
 | `log_retention_days` | int | 30 | Keep logs (days) |
+
+## Backups
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `backup_auto_enabled` | bool | true | Automatic backups |
+| `backup_every_hours` | int | 24 | How often |
+| `backup_hour` | int | — | Hour. Server time (Tehran) |
+| `backup_keep` | int | — | Copies to keep. Older copies are deleted |
+| `backup_send_telegram` | bool | — | Send to Telegram. To the Backups channel under Channels, or to the owner when none is set |

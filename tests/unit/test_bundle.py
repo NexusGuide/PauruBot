@@ -118,3 +118,16 @@ async def test_dry_run_through_the_api_changes_nothing(session) -> None:  # type
             "/api/admin/bundle", files={"file": ("b.json", "nope", "application/json")}, headers=csrf
         )
         assert bad.status_code == 422
+
+
+async def test_the_backup_schedule_stays_on_its_server(session) -> None:  # type: ignore[no-untyped-def]
+    """A server-wide setting is not shop setup: it is neither exported nor applied."""
+    source = await _source(session)
+    await shop_settings.set_many(session, source.id, {"backup_every_hours": 1, "backup_keep": 2})
+    data = await bundle.export(session, source.id)
+    assert not any(key.startswith("backup_") for key in data["settings"])
+    target = await factories.shop(session, "Target")
+    data["settings"]["backup_auto_enabled"] = False
+    report = await bundle.apply(session, target.id, data)
+    assert "setting backup_auto_enabled: ignored" in report.warnings
+    assert (await shop_settings.load(session, target.id, fresh=True))["backup_auto_enabled"] is True

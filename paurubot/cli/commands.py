@@ -284,7 +284,9 @@ async def backup_cmd(args: argparse.Namespace) -> int:
     except backup.BackupError as exc:
         print(f"backup failed: {exc}")
         return 1
-    backup.prune(get_settings().backup_keep)
+    from paurubot.ops import backup_schedule
+
+    backup.prune((await backup_schedule.current()).keep)
     print(f"{info.path} ({info.size} bytes)")
     if args.send:
         from paurubot.ops.delivery import send_backup

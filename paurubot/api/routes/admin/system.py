@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import Date, cast, delete, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot import i18n, kv
 from paurubot.api.admin_common import Page, owned, page_params, paginate, plain, reseller_scope
@@ -95,6 +96,8 @@ async def read_settings(
     groups: dict[str, list[dict[str, Any]]] = {}
     view = shop_settings.public_view(data)
     for key, spec in shop_settings.SPECS.items():
+        if spec.group == "backups":
+            continue  # server-wide, on the Backups page
         groups.setdefault(spec.group, []).append(
             {"key": key, "type": spec.kind.__name__, "secret": spec.secret, "value": view[key]}
         )
@@ -243,6 +246,9 @@ async def write_settings(
     unknown = [k for k in body.values if k not in shop_settings.SPECS]
     if unknown:
         raise HTTPException(status_code=422, detail=f"unknown_settings:{','.join(sorted(unknown))}")
+    if any(shop_settings.SPECS[k].group == "backups" for k in body.values):
+        # Server-wide, so only through the Backups page and its own permission.
+        raise HTTPException(status_code=422, detail="backup_settings_elsewhere")
     if any(key.startswith("tonpay_custom_") for key in body.values) and not ctx.can("panels.secrets"):
         raise HTTPException(status_code=403, detail="secrets_need_owner")
     secret_keys = [k for k in body.values if shop_settings.SPECS[k].secret]
@@ -1052,24 +1058,70 @@ def _csv_safe(value: str) -> str:
 Backups = Annotated[StaffContext, Depends(require("backups.manage"))]
 
 
-@router.get("/backups")
-async def list_backups(ctx: Backups) -> dict[str, Any]:
+async def _backup_schedule(db: AsyncSession) -> dict[str, Any]:
     from paurubot.config import get_settings
-    from paurubot.ops import backup
+    from paurubot.ops import backup_schedule
 
     settings = get_settings()
+    return {
+        **(await backup_schedule.load(db)).as_dict(),
+        "passphrase_set": bool(settings.backup_passphrase.get_secret_value()),
+        "timezone": settings.timezone,
+    }
+
+
+@router.get("/backups")
+async def list_backups(ctx: Backups, db: DB) -> dict[str, Any]:
+    from paurubot.ops import backup
+
     return {
         "items": [
             {"name": b.name, "size": b.size, "created_at": b.created_at.isoformat()} for b in backup.listing()
         ],
-        "schedule": {
-            "hour": settings.backup_hour,
-            "keep": settings.backup_keep,
-            "telegram": settings.backup_to_telegram,
-            "passphrase_set": bool(settings.backup_passphrase.get_secret_value()),
-            "timezone": settings.timezone,
-        },
+        "schedule": await _backup_schedule(db),
     }
+
+
+class BackupScheduleBody(BaseModel):
+    enabled: bool
+    every_hours: int = Field(ge=1, le=168)
+    hour: int = Field(ge=0, le=23)
+    keep: int = Field(ge=1, le=365)
+    telegram: bool
+
+
+@router.put("/backups/schedule")
+async def save_backup_schedule(body: BackupScheduleBody, ctx: Backups, db: DB) -> dict[str, Any]:
+    from paurubot.core.shops import require_root_shop
+    from paurubot.ops import backup_schedule
+
+    if body.every_hours > 24 and body.every_hours % 24:
+        # Past a day the backup runs at the set hour, so the interval is whole days.
+        raise HTTPException(status_code=422, detail="backup_every_whole_days")
+    shop = await require_root_shop(db)
+    if ctx.shop_id != shop.id:
+        raise HTTPException(status_code=403, detail="backup_root_only")
+    before = (await backup_schedule.load(db)).as_dict()
+    values = {
+        "backup_auto_enabled": body.enabled,
+        "backup_every_hours": body.every_hours,
+        "backup_hour": body.hour,
+        "backup_keep": body.keep,
+        "backup_send_telegram": body.telegram,
+    }
+    await shop_settings.set_many(db, shop.id, values)
+    after = (await backup_schedule.load(db)).as_dict()
+    await record(
+        db,
+        shop_id=shop.id,
+        actor=ctx.actor,
+        action="backup.schedule",
+        entity="backup",
+        before=before,
+        after=after,
+    )
+    await db.commit()
+    return {"schedule": await _backup_schedule(db)}
 
 
 @router.post("/backups")

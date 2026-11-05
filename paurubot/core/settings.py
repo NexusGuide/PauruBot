@@ -247,6 +247,13 @@ SPECS: dict[str, Spec] = {
     # reports
     "daily_report_hour": Spec(int, 23, "reports"),
     "log_retention_days": Spec(int, 30, "reports"),
+    # backups: server-wide, read from the root shop and edited on the Backups page only.
+    # An unset value falls back to the server's BACKUP_* environment setting.
+    "backup_auto_enabled": Spec(bool, True, "backups"),
+    "backup_every_hours": Spec(int, 24, "backups"),
+    "backup_hour": Spec(int, None, "backups"),
+    "backup_keep": Spec(int, None, "backups"),
+    "backup_send_telegram": Spec(bool, None, "backups"),
 }
 
 _TTL = 15.0

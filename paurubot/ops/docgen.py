@@ -55,7 +55,9 @@ def settings_doc() -> str:
     out = [
         "# Shop settings\n\n",
         "Each shop's settings, changed in the admin panel under Settings (appearance ones on the Bot menu ",
-        "screen) or through `PUT /api/admin/settings`. Secret values are stored encrypted and never returned.\n",
+        "screen) or through `PUT /api/admin/settings`. Secret values are stored encrypted and never returned. ",
+        "The Backups group is server-wide: it is set on the Backups page (`PUT /api/admin/backups/schedule`), and ",
+        "an unset value there falls back to the matching `BACKUP_*` environment setting.\n",
     ]
     for group, keys in groups.items():
         title = labels.get(f"settings_group_{group}", group.title())

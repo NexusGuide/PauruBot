@@ -447,14 +447,13 @@ async def cleanup_jobs() -> None:
 
 
 async def run_backup(label: str) -> None:
-    from paurubot.config import get_settings
-    from paurubot.ops import backup, delivery
+    from paurubot.ops import backup, backup_schedule, delivery
 
-    settings = get_settings()
+    schedule = await backup_schedule.current()
     info = await backup.create(label=label)
-    removed = backup.prune(settings.backup_keep)
+    removed = backup.prune(schedule.keep)
     log.info("backup %s written (%s bytes), pruned %s", info.name, info.size, len(removed))
-    if settings.backup_to_telegram:
+    if schedule.telegram:
         await delivery.send_backup(info)
 
 
@@ -585,20 +584,24 @@ register_queue(
 
 @every(600, "backups.daily")
 async def daily_backup() -> None:
-    from datetime import timedelta
-
+    """Automatic backups, as often as the Backups page says (every few hours, or daily at an hour)."""
     from paurubot.config import get_settings
-    from paurubot.ops import backup
+    from paurubot.ops import backup, backup_schedule
 
     settings = get_settings()
     if not settings.backup_passphrase.get_secret_value():
         return
-    if utcnow().astimezone(settings.tz).hour != settings.backup_hour:
-        return
+    schedule = await backup_schedule.current()
+    now = utcnow()
     newest = backup.listing()[:1]
-    if newest and utcnow() - newest[0].created_at < timedelta(hours=20):
+    if not backup_schedule.due(
+        schedule,
+        now=now,
+        local_hour=now.astimezone(settings.tz).hour,
+        newest=newest[0].created_at if newest else None,
+    ):
         return
-    await run_backup("daily")
+    await run_backup("daily" if schedule.every_hours >= 24 else "auto")
 
 
 # --- daily report (FIN-04, JOB-02) ----------------------------------------------

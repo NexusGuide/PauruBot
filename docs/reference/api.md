@@ -17,6 +17,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/announcements` | `broadcast.send` | Staff inbox |
 | POST | `/api/admin/announcements` | `broadcast.send` | Staff publish |
 | GET | `/api/admin/audit` | `audit.read` | Audit log |
+| PUT | `/api/admin/backups/schedule` | `backups.manage` | Save backup schedule |
 | GET | `/api/admin/backups/{name}` | `backups.manage` | Download backup |
 | GET | `/api/admin/backups` | `backups.manage` | List backups |
 | POST | `/api/admin/backups` | `backups.manage` | Start backup |
