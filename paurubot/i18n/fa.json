@@ -640,6 +640,8 @@
   "acc_btn_open": "🛡 مشاهده اکانت",
   "acc_panel_down": "پنل الان جواب نمی‌ده، چند دقیقه دیگه دوباره امتحان کن.",
   "acc_login": "🔑 <b>اطلاعات ورود به پنل</b>\n🌐 آدرس: {url}\n👤 نام کاربری: <code>{username}</code>\n🔐 رمز: <code>{password}</code>\n\nاین اطلاعات رو به کسی نده.",
+  "acc_btn_copy_username": "📋 کپی نام کاربری",
+  "acc_btn_copy_password": "📋 کپی رمز",
   "acc_extra_option": "{value} — {price} تومان",
   "acc_choose_gb": "📦 چند گیگ حجم اضافه می‌خوای؟",
   "acc_choose_users": "👥 چند کاربر اضافه می‌خوای؟",

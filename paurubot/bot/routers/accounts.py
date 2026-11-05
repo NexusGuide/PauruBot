@@ -7,7 +7,7 @@ from typing import Any
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,6 +61,31 @@ def account_text(t: Texts, account: PanelAccount) -> str:
     if account.plan is not None:
         lines.append(t("acc_card_plan", title=esc(account.plan.title)))
     return "\n".join(lines)
+
+
+def login_message(t: Texts, account: PanelAccount, password: str) -> tuple[str, InlineKeyboardMarkup]:
+    """The panel login details, with a button that copies each value.
+
+    Not sent as protected content: Telegram blocks copying a protected message on phones, so
+    the username and password could not be pasted into the panel at all.
+    """
+    text = t(
+        "acc_login",
+        url=esc(panel_accounts.login_url(account)),
+        username=esc(account.username),
+        password=esc(password),
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t("acc_btn_copy_username"), copy_text=CopyTextButton(text=account.username)
+                )
+            ],
+            [InlineKeyboardButton(text=t("acc_btn_copy_password"), copy_text=CopyTextButton(text=password))],
+        ]
+    )
+    return text, kb
 
 
 def account_kb(t: Texts, account: PanelAccount) -> InlineKeyboardMarkup:
@@ -245,15 +270,8 @@ async def login(
         return
     await call.answer()
     if isinstance(call.message, Message):
-        await call.message.answer(
-            t(
-                "acc_login",
-                url=esc(panel_accounts.login_url(account)),
-                username=esc(account.username),
-                password=esc(panel_accounts.password_of(account)),
-            ),
-            protect_content=True,
-        )
+        text, kb = login_message(t, account, panel_accounts.password_of(account))
+        await call.message.answer(text, reply_markup=kb)
 
 
 @router.callback_query(Acc.filter(F.action == "renew"))
@@ -326,15 +344,8 @@ async def password(
     await session.commit()
     await call.answer(t("acc_password_changed"))
     if isinstance(call.message, Message):
-        await call.message.answer(
-            t(
-                "acc_login",
-                url=esc(panel_accounts.login_url(account)),
-                username=esc(account.username),
-                password=esc(new),
-            ),
-            protect_content=True,
-        )
+        text, kb = login_message(t, account, new)
+        await call.message.answer(text, reply_markup=kb)
 
 
 @router.callback_query(Acc.filter(F.action.in_({"pause", "resume"})))
