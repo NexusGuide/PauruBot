@@ -336,6 +336,8 @@ export interface Order {
     users?: number;
     days?: number;
     renew?: { days: number; gb: number; package?: number };
+    /** An admin account order whose plan takes discount codes. */
+    discounts?: boolean;
   };
   expires_at: string | null;
 }

@@ -242,7 +242,22 @@ def order_view(order: Order) -> dict[str, Any]:
             k: v
             for k, v in (order.params or {}).items()
             if k
-            in {"extra_gb", "extra_days", "credit", "label", "custom", "queued", "queued_until", "national"}
+            in {
+                "extra_gb",
+                "extra_days",
+                "credit",
+                "label",
+                "custom",
+                "queued",
+                "queued_until",
+                "national",
+                # admin account orders: what they add, the renewal they give, whether codes apply
+                "gb",
+                "days",
+                "users",
+                "renew",
+                "discounts",
+            }
         },
         "expires_at": _iso(order.expires_at),
     }
@@ -619,7 +634,7 @@ async def create_order(body: OrderBody, ctx: WebApp) -> dict[str, Any]:
 async def _create_order(body: OrderBody, ctx: WebApp) -> Order:
     kind = OrderKind(body.kind)
     if kind in panel_accounts.KINDS:
-        # Panel admin accounts (TEN-14): priced by the account rules, no discount codes.
+        # Panel admin accounts (TEN-14): priced by the account rules; codes where the plan allows.
         return await _account_order(body, ctx, kind)
     plan = None
     if body.plan_id:
@@ -696,7 +711,19 @@ async def _account_order(body: OrderBody, ctx: WebApp, kind: OrderKind) -> Order
             renew_days=body.custom_days if kind == OrderKind.ACCOUNT_RENEW else 0,
             renew_gb=body.custom_gb if kind == OrderKind.ACCOUNT_RENEW else 0,
         )
-        return await orders.create(ctx.session, ctx.customer, draft, source="webapp")
+        code: DiscountCode | None = None
+        if body.code:
+            if not draft.params.get("discounts"):
+                raise HTTPException(status_code=400, detail="discount_not_for_this_plan")
+            try:
+                code = await pricing.lookup_code(ctx.session, ctx.customer, body.code)
+            except pricing.DiscountError as exc:
+                raise HTTPException(status_code=429, detail=exc.key) from exc
+            if code is None:
+                raise HTTPException(status_code=400, detail="discount_invalid")
+        return await orders.create(ctx.session, ctx.customer, draft, code=code, source="webapp")
+    except pricing.DiscountError as exc:
+        raise HTTPException(status_code=400, detail=exc.key) from exc
     except orders.OrderError as exc:
         raise HTTPException(status_code=400, detail=exc.key) from exc
 

@@ -48,6 +48,8 @@ const EMPTY: PlanDraft = {
   renew_mode: null,
   renewable: true,
   audience: "all",
+  discounts_allowed: false,
+  reseller_discount: false,
   sort: 0,
   is_active: true,
 };
@@ -209,6 +211,19 @@ function PlanSheet({ draft, panels, onClose, onSaved }: { draft: PlanDraft | nul
             </Select>
           )}
         </Field>
+
+        <Toggle
+          checked={form.discounts_allowed}
+          onChange={(discounts_allowed) => set({ discounts_allowed })}
+          label={t("account_discounts_allowed")}
+          hint={t("account_discounts_allowed_hint")}
+        />
+        <Toggle
+          checked={form.reseller_discount}
+          onChange={(reseller_discount) => set({ reseller_discount })}
+          label={t("account_reseller_discount")}
+          hint={t("account_reseller_discount_hint")}
+        />
 
         <h3 className="mt-2 text-[0.95rem] font-bold">{t("account_renewal")}</h3>
         <Toggle checked={form.renewable} onChange={(renewable) => set({ renewable })} label={t("renewable")} />

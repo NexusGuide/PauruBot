@@ -46,6 +46,7 @@
   "err_extras_unavailable": "This option isn't available right now.",
   "err_acc_amount_range": "That amount is outside the allowed range.",
   "err_renew_option_unavailable": "That renewal option is no longer offered.",
+  "err_discount_not_for_this_plan": "This plan takes no discount codes.",
   "err_account_not_renewable": "This plan can't be renewed.",
   "err_gateway_error": "The gateway didn't respond; try again shortly.",
   "err_generic": "Something went wrong; please try again.",

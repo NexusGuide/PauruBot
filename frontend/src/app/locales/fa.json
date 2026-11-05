@@ -46,6 +46,7 @@
   "err_extras_unavailable": "این گزینه فعلاً در دسترس نیست.",
   "err_acc_amount_range": "این مقدار خارج از بازه‌ی مجاز است.",
   "err_renew_option_unavailable": "این گزینه‌ی تمدید دیگر در دسترس نیست.",
+  "err_discount_not_for_this_plan": "این پلن کد تخفیف نمی‌پذیرد.",
   "err_account_not_renewable": "این پلن قابل تمدید نیست.",
   "err_gateway_error": "درگاه جواب نداد؛ کمی بعد امتحان کن.",
   "err_generic": "مشکلی پیش اومد؛ دوباره امتحان کن.",

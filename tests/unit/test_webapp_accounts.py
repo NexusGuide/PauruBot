@@ -282,3 +282,23 @@ async def test_auto_renew_from_the_mini_app(session, acc_env) -> None:  # type: 
         f"/api/webapp/accounts/{account['id']}/auto-renew", headers=h(9752), json={"enabled": True}
     )
     assert stranger.status_code == 404
+
+
+async def test_discount_codes_on_admin_accounts_only_where_the_plan_allows(session, acc_env) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import DiscountCode
+
+    client, plan, shop = acc_env["client"], acc_env["plan"], acc_env["shop"]
+    session.add(DiscountCode(shop_id=shop.id, code="ADMIN20", value=20))
+    await session.commit()
+    uid = 9761
+    await _buyer(session, acc_env, uid)
+    body = {"kind": "account_purchase", "account_plan_id": plan.id, "code": "ADMIN20"}
+    refused = await client.post("/api/webapp/orders", headers=h(uid), json=body)
+    assert refused.status_code == 400 and refused.json()["error"] == "discount_not_for_this_plan"
+    plan.discounts_allowed = True
+    await session.commit()
+    order = await client.post("/api/webapp/orders", headers=h(uid), json=body)
+    assert order.status_code == 200, order.text
+    view = order.json()["order"]
+    assert view["code_discount"] == plan.price // 5 and view["amount"] == plan.price - plan.price // 5
+    assert view["params"]["discounts"] is True

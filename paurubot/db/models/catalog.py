@@ -154,6 +154,9 @@ class AccountPlan(Base, UpdatedMixin):
     renewable: Mapped[bool] = mapped_column(Boolean, default=True)
     # Who may buy it: everyone, ordinary customers only or resellers only.
     audience: Mapped[PlanAudience] = mapped_column(str_enum(PlanAudience), default=PlanAudience.ALL)
+    # Off by default (TEN-14): discount codes and the reseller group's discount on this plan.
+    discounts_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
+    reseller_discount: Mapped[bool] = mapped_column(Boolean, default=False)
     sort: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 

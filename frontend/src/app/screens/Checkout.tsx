@@ -268,7 +268,7 @@ export function Checkout() {
         <Line label={t("total")} value={`${money(order.amount, locale)} ${t("currency")}`} strong />
       </div>
 
-      {order.code_discount === 0 && !order.kind.startsWith("account_") && (
+      {order.code_discount === 0 && (!order.kind.startsWith("account_") || order.params.discounts) && (
         <>
           <p className="app-lbl">{t("code_discount")}</p>
           <div className="app-dc">

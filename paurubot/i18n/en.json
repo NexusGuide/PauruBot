@@ -679,6 +679,7 @@
   "acc_checkout_gb": "📦 Extra traffic: {value} GB",
   "acc_checkout_users": "👥 Extra users: {value}",
   "acc_checkout_days": "⏳ Extra days: {value}",
+  "acc_checkout_saving": "🎉 Discount: {amount} Toman",
   "acc_ready": "✅ Your admin account is ready!",
   "acc_updated": "✅ Your admin account was updated.",
   "acc_staff_gift": "🎁 Your admin account <b>{username}</b> got free time or traffic.",

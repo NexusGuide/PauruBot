@@ -42,6 +42,8 @@ PLAN_FIELDS = [
     "renew_mode",
     "renewable",
     "audience",
+    "discounts_allowed",
+    "reseller_discount",
     "sort",
     "is_active",
 ]
@@ -88,6 +90,8 @@ class AccountPlanBody(BaseModel):
     renew_mode: Literal["extend_reset", "extend_carry", "restart_reset", "restart_carry"] | None = None
     renewable: bool = True
     audience: PlanAudience = PlanAudience.ALL
+    discounts_allowed: bool = False
+    reseller_discount: bool = False
     sort: int = 0
     is_active: bool = True
 

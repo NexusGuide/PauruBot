@@ -577,6 +577,8 @@ export interface AccountPlan {
   renew_mode: "extend_reset" | "extend_carry" | "restart_reset" | "restart_carry" | null;
   renewable: boolean;
   audience: "all" | "customers" | "resellers";
+  discounts_allowed: boolean;
+  reseller_discount: boolean;
   sort: number;
   is_active: boolean;
 }

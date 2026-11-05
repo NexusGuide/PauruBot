@@ -15,9 +15,9 @@ from paurubot.bot import keyboards
 from paurubot.bot.callbacks import Acc
 from paurubot.bot.states import AccountStates
 from paurubot.bot.utils import Btn, error_text, show
-from paurubot.core import account_auto_renew, orders, panel_accounts
+from paurubot.core import account_auto_renew, orders, panel_accounts, pricing
 from paurubot.core.formatting import esc, jdate, money, parse_int
-from paurubot.db.models import AccountPlan, Customer, OrderKind, PanelAccount
+from paurubot.db.models import AccountPlan, Customer, DiscountCode, OrderKind, PanelAccount
 from paurubot.i18n import Texts
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.panels import GB, PanelError
@@ -210,10 +210,14 @@ async def _checkout(
     package: int | None = None,
     renew_days: int = 0,
     renew_gb: int = 0,
+    code: DiscountCode | None = None,
 ) -> None:
     data = await state.get_data()
     if data.get("order_id"):
         await orders.cancel(session, int(data["order_id"]), customer.id)
+    priced_by = panel_accounts.plan_of(kind, plan, account)
+    if code is not None and not panel_accounts.discounts_allowed(priced_by):
+        code = None  # the plan takes no discount codes
     try:
         draft = await panel_accounts.draft(
             session,
@@ -226,17 +230,28 @@ async def _checkout(
             renew_days=renew_days,
             renew_gb=renew_gb,
         )
-        order = await orders.create(session, customer, draft)
-    except orders.OrderError as exc:
+        order = await orders.create(session, customer, draft, code=code)
+    except (orders.OrderError, pricing.DiscountError) as exc:
+        params = exc.params if isinstance(exc, orders.OrderError) else {}
         if isinstance(event, CallbackQuery):
-            await event.answer(error_text(t, exc.key, exc.params), show_alert=True)
+            await event.answer(error_text(t, exc.key, params), show_alert=True)
         else:
-            await event.answer(error_text(t, exc.key, exc.params))
+            await event.answer(error_text(t, exc.key, params))
         return
     if isinstance(event, CallbackQuery):
         await event.answer()
     await state.set_state(None)
-    await state.set_data({"order_id": order.id})
+    # What was asked for, so a discount code can price the same order again.
+    asked = {
+        "kind": kind.value,
+        "plan_id": plan.id if plan else 0,
+        "account_id": account.id if account else 0,
+        "amount": amount,
+        "package": package,
+        "renew_days": renew_days,
+        "renew_gb": renew_gb,
+    }
+    await state.set_data({"order_id": order.id, "acc_order": asked})
     balance = await wallet_balance(session, customer.shop_id, customer.id)
     methods = await payments.available(session, customer.shop_id, customer)
     what = {
@@ -251,6 +266,9 @@ async def _checkout(
     renew = (order.params or {}).get("renew")
     if renew:
         what += "\n" + renewal_line(t, int(renew["days"]), int(renew["gb"]))
+    saving = int(order.code_discount or 0) + int(order.reseller_discount or 0)
+    if saving:
+        what += "\n" + t("acc_checkout_saving", amount=money(saving))
     text = t("acc_checkout", what=what, amount=money(order.amount), balance=money(balance))
     markup = keyboards.checkout_kb(
         t,
@@ -259,8 +277,81 @@ async def _checkout(
         methods=methods if balance < order.amount else [],
         discount=False,
     )
+    if code is None and panel_accounts.discounts_allowed(priced_by):
+        markup.inline_keyboard.append(
+            [InlineKeyboardButton(text=t("btn_discount"), callback_data=Acc(action="discount").pack())]
+        )
     await session.commit()
     await show(event, text, markup)
+
+
+@router.callback_query(Acc.filter(F.action == "discount"))
+async def ask_discount(call: CallbackQuery, t: Texts, state: FSMContext) -> None:
+    if not (await state.get_data()).get("acc_order"):
+        await call.answer(t("order_expired"), show_alert=True)
+        return
+    await call.answer()
+    await state.set_state(AccountStates.discount)
+    if isinstance(call.message, Message):
+        await call.message.answer(t("ask_discount"), reply_markup=keyboards.cancel(t))
+
+
+@router.message(AccountStates.discount, F.text)
+async def got_discount(
+    message: Message,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    staff: Any,
+    state: FSMContext,
+) -> None:
+    """A discount code on an admin account order: the same order, priced again with it."""
+    from paurubot.bot.routers.start import menu
+
+    asked = dict((await state.get_data()).get("acc_order") or {})
+    try:
+        code = await pricing.lookup_code(session, customer, message.text or "")
+    except pricing.DiscountError as exc:
+        await message.answer(t(exc.key))
+        return
+    if code is None:
+        await message.answer(t("discount_invalid"))
+        return
+    try:
+        await pricing.validate_code(session, code, customer, plan_id=None, amount=10**12)
+    except pricing.DiscountError as exc:
+        if exc.key != "discount_min_amount":
+            await message.answer(t(exc.key))
+            return
+    await state.set_state(None)
+    kind = OrderKind(str(asked.get("kind") or ""))
+    plan = (
+        await panel_accounts.plan_for(session, customer.shop_id, int(asked["plan_id"]), customer)
+        if asked.get("plan_id")
+        else None
+    )
+    account = (
+        await panel_accounts.owned(session, customer, int(asked["account_id"]))
+        if asked.get("account_id")
+        else None
+    )
+    await message.answer(t("discount_applied"), reply_markup=menu(t, cfg, staff))
+    await _checkout(
+        message,
+        session,
+        customer,
+        t,
+        state,
+        kind,
+        plan=plan,
+        account=account,
+        amount=int(asked.get("amount") or 0),
+        package=asked.get("package"),
+        renew_days=int(asked.get("renew_days") or 0),
+        renew_gb=int(asked.get("renew_gb") or 0),
+        code=code,
+    )
 
 
 @router.callback_query(Acc.filter(F.action == "buy"))

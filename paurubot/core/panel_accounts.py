@@ -191,6 +191,17 @@ def custom_renewal(plan: AccountPlan) -> bool:
     return bool(plan.renew_custom_enabled) and plan.day_price > 0 and (plan.data_gb <= 0 or plan.gb_price > 0)
 
 
+def plan_of(kind: OrderKind, plan: AccountPlan | None, account: PanelAccount | None) -> AccountPlan | None:
+    """The plan an account order is priced by: the one bought, or the account's own."""
+    if kind == OrderKind.ACCOUNT_PURCHASE:
+        return plan
+    return account.plan if account is not None else None
+
+
+def discounts_allowed(plan: AccountPlan | None) -> bool:
+    return plan is not None and bool(plan.discounts_allowed)
+
+
 def plain_renewal(plan: AccountPlan) -> bool:
     """With neither packages nor a custom renewal on offer, a renewal repeats the plan."""
     return not renew_packages(plan) and not custom_renewal(plan)
@@ -214,6 +225,26 @@ async def draft(
     renew_gb: int = 0,
 ) -> Draft:
     """Price and validate an account order; `amount` is GB, days or user slots for the add-ons."""
+    d = await _draft(session, customer, kind, plan, account, amount, package, renew_days, renew_gb)
+    priced_by = plan_of(kind, plan, account)
+    if priced_by is not None and priced_by.reseller_discount:
+        d.params = {**d.params, "reseller_priced": True}  # the reseller group's discount applies
+    if discounts_allowed(priced_by):
+        d.params = {**d.params, "discounts": True}  # a discount code may be used
+    return d
+
+
+async def _draft(
+    session: AsyncSession,
+    customer: Customer,
+    kind: OrderKind,
+    plan: AccountPlan | None,
+    account: PanelAccount | None,
+    amount: int,
+    package: int | None,
+    renew_days: int,
+    renew_gb: int,
+) -> Draft:
     if kind not in KINDS:
         raise OrderError("plan_unavailable")
     if not await available(session, customer):

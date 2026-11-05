@@ -234,3 +234,29 @@ async def test_auto_renew_toggle_on_the_account_card(session, env) -> None:  # t
     await send(callback_update(UID + 5, auto))
     await session.refresh(account)
     assert account.auto_renew is None
+
+
+async def test_a_discount_code_on_an_admin_account_purchase(session, env) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import DiscountCode
+
+    send, fake, shop, plan = env["send"], env["fake"], env["shop"], env["plan"]
+    session.add(DiscountCode(shop_id=shop.id, code="PANEL25", value=25))
+    await send(message_update(UID + 6, "/start"))
+    await session.commit()
+    await send(callback_update(UID + 6, Acc(action="buy", id=plan.id).pack()))
+    assert FA("btn_discount") not in [text for text, _ in fake.buttons(fake.last(EditMessageText))]
+    plan.discounts_allowed = True
+    await session.commit()
+    await send(callback_update(UID + 6, Acc(action="buy", id=plan.id).pack()))
+    discount = next(
+        data for text, data in fake.buttons(fake.last(EditMessageText)) if text == FA("btn_discount")
+    )
+    await send(callback_update(UID + 6, discount))
+    assert fake.last(SendMessage).text == FA("ask_discount")
+    await send(message_update(UID + 6, "PANEL25"))
+    checkout = fake.last(SendMessage)
+    assert FA("acc_checkout_saving", amount="200,000") in checkout.text
+    owner = await _customer(session, shop.id, UID + 6)
+    rows = (await session.execute(Order.__table__.select().where(Order.customer_id == owner.id))).all()
+    live = [r for r in rows if r.status == "pending"]
+    assert len(live) == 1 and live[0].amount == 600_000 and live[0].code_discount == 200_000

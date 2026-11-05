@@ -140,6 +140,52 @@ async def test_reseller_discounts_never_apply_to_admin_accounts(session, env) ->
     assert (order.amount, order.reseller_discount) == (1_000_000, 0)
 
 
+async def test_a_plan_can_take_reseller_discounts_and_codes(session, env) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.core import pricing
+    from paurubot.db.models import DiscountCode
+
+    shop, plan = env["shop"], env["plan"]
+    plan.reseller_discount = True
+    await session.commit()
+    cust = await _buyer(session, shop)
+    group = ResellerGroup(shop_id=shop.id, title="Gold", discount_percent=30)
+    session.add(group)
+    await session.flush()
+    session.add(ResellerProfile(shop_id=shop.id, customer_id=cust.id, group_id=group.id))
+    await session.flush()
+    await session.refresh(cust, ["reseller_profile"])
+    draft = await panel_accounts.draft(session, cust, OrderKind.ACCOUNT_PURCHASE, plan=plan)
+    order = await orders.create(session, cust, draft)
+    assert (order.amount, order.reseller_discount) == (700_000, 300_000)
+    assert "discounts" not in order.params  # codes stay off until the plan allows them
+    # A metered reseller still pays for an admin account: it is never "billed by usage".
+    from paurubot.core import resellers
+
+    cust.reseller_profile.billing_mode = "usage"
+    await session.flush()
+    assert resellers.metered(cust)
+    draft = await panel_accounts.draft(session, cust, OrderKind.ACCOUNT_PURCHASE, plan=plan)
+    metered = await orders.create(session, cust, draft)
+    assert metered.amount == 700_000 and not metered.params.get("metered")
+    cust.reseller_profile.billing_mode = "prepaid"
+    await session.flush()
+
+    plan.reseller_discount = False
+    plan.discounts_allowed = True
+    code = DiscountCode(shop_id=shop.id, code="ADMIN10", value=10)
+    session.add(code)
+    await session.commit()
+    draft = await panel_accounts.draft(session, cust, OrderKind.ACCOUNT_PURCHASE, plan=plan)
+    assert draft.params["discounts"] is True
+    order = await orders.create(session, cust, draft, code=code)
+    assert (order.amount, order.code_discount, order.reseller_discount) == (900_000, 100_000, 0)
+    tied = DiscountCode(shop_id=shop.id, code="ONLY7", value=10, plan_ids=[7])
+    session.add(tied)
+    await session.flush()
+    with pytest.raises(pricing.DiscountError):
+        await orders.create(session, cust, draft, code=tied)
+
+
 async def test_switched_off_resellers_only_and_reseller_bots(session, env) -> None:  # type: ignore[no-untyped-def]
     shop, plan = env["shop"], env["plan"]
     cust = await _buyer(session, shop)

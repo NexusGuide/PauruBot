@@ -1,5 +1,5 @@
 """Panel admin account plans: renewal packages, a custom renewal, per-plan extra ranges, the
-renewal rule, who may buy them and whether they renew; a staff note and the owner's
+renewal rule, who may buy them, whether they renew, and discounts; a staff note and the owner's
 auto-renewal on sold accounts."""
 
 import sqlalchemy as sa
@@ -36,16 +36,26 @@ def upgrade() -> None:
             server_default="all",
         ),
     )
+    for name in ("discounts_allowed", "reseller_discount"):
+        op.add_column("account_plans", sa.Column(name, sa.Boolean(), nullable=False, server_default=sa.false()))
     op.add_column("panel_accounts", sa.Column("note", sa.Text(), nullable=True))
     op.add_column("panel_accounts", sa.Column("auto_renew", sa.JSON(), nullable=True))
-    for name in ("renew_packages_enabled", "renew_packages", "renew_custom_enabled", "renewable", "audience"):
+    for name in (
+        "renew_packages_enabled",
+        "renew_packages",
+        "renew_custom_enabled",
+        "renewable",
+        "audience",
+        "discounts_allowed",
+        "reseller_discount",
+    ):
         op.alter_column("account_plans", name, server_default=None)
 
 
 def downgrade() -> None:
     op.drop_column("panel_accounts", "auto_renew")
     op.drop_column("panel_accounts", "note")
-    for name in ("audience", "renewable", "renew_mode"):
+    for name in ("reseller_discount", "discounts_allowed", "audience", "renewable", "renew_mode"):
         op.drop_column("account_plans", name)
     for name in ("renew_custom_enabled", "renew_packages", "renew_packages_enabled", *RANGES):
         op.drop_column("account_plans", name)

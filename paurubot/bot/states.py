@@ -27,6 +27,7 @@ class AccountStates(StatesGroup):
     amount = State()  # a typed amount of extra GB or days for a panel admin account
     renew_days = State()  # a custom renewal: its days, then its GB
     renew_gb = State()
+    discount = State()  # a discount code on an admin account order
 
 
 class ServiceStates(StatesGroup):

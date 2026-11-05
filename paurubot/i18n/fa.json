@@ -679,6 +679,7 @@
   "acc_checkout_gb": "📦 حجم اضافه: {value} گیگ",
   "acc_checkout_users": "👥 کاربر اضافه: {value}",
   "acc_checkout_days": "⏳ روز اضافه: {value} روز",
+  "acc_checkout_saving": "🎉 تخفیف: {amount} تومان",
   "acc_ready": "✅ اکانت ادمین تو آماده‌ست!",
   "acc_updated": "✅ اکانت ادمین به‌روز شد.",
   "acc_staff_gift": "🎁 به اکانت ادمین <b>{username}</b> زمان یا حجم هدیه داده شد.",
