@@ -381,21 +381,28 @@ async def apply(session: AsyncSession, order: Order) -> PanelAccount:
     elif order.kind == OrderKind.ACCOUNT_DAYS:
         if "target_expire" not in params:
             # From the current end date, or from now if it already passed (a paused account).
+            # An account that has no end date any more (staff made it unlimited) keeps none.
             now = utcnow()
-            start = account.expire_at if account.expire_at and account.expire_at > now else now
-            params["target_expire"] = (start + timedelta(days=int(params["days"]))).isoformat()
+            if account.expire_at is None:
+                params["target_expire"] = None
+            else:
+                start = account.expire_at if account.expire_at > now else now
+                params["target_expire"] = (start + timedelta(days=int(params["days"]))).isoformat()
             order.params = dict(params)  # a new object, so the JSON change is saved
             await session.commit()
         # The panel has no end date for an admin: the bot switches it off when this passes.
-        account.expire_at = datetime.fromisoformat(params["target_expire"])
-        if account.status == "expired" and account.expire_at > utcnow():
+        target = params["target_expire"]
+        account.expire_at = datetime.fromisoformat(target) if target else None
+        if account.status == "expired" and (account.expire_at is None or account.expire_at > utcnow()):
             # It ran out between paying and now: the paid days switch it back on.
             await driver.modify_admin(account.username, status="active")
             await driver.set_admin_users(account.username, True)
             account.status = "active"
     elif order.kind == OrderKind.ACCOUNT_GB:
         if "target_limit" not in params:
-            params["target_limit"] = int(account.data_limit) + int(params["gb"]) * GB
+            # An unlimited quota (0) stays unlimited: adding to it would create a limit.
+            limit = int(account.data_limit or 0)
+            params["target_limit"] = limit + int(params["gb"]) * GB if limit else 0
             order.params = dict(params)  # a new object, so the JSON change is saved
             await session.commit()
         account.data_limit = int(params["target_limit"])

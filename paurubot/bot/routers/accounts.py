@@ -310,6 +310,10 @@ async def got_discount(
     from paurubot.bot.routers.start import menu
 
     asked = dict((await state.get_data()).get("acc_order") or {})
+    if asked.get("kind") not in {kind.value for kind in panel_accounts.KINDS}:
+        await state.set_state(None)
+        await message.answer(t("order_expired"), reply_markup=menu(t, cfg, staff))
+        return
     try:
         code = await pricing.lookup_code(session, customer, message.text or "")
     except pricing.DiscountError as exc:

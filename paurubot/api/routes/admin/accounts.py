@@ -271,6 +271,8 @@ async def _tell_owner(
 @router.post("/panel-accounts/{row_id}/change")
 async def change_panel_account(row_id: int, body: AccountChange, ctx: Manager, db: DB) -> dict[str, Any]:
     account = await owned(db, PanelAccount, row_id, ctx)
+    if account.status == "deleted":
+        raise HTTPException(status_code=409, detail="account_not_found")
     before = plain(account, ACCOUNT_FIELDS)
     try:
         if body.action == "gift":

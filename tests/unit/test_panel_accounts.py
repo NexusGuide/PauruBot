@@ -507,6 +507,29 @@ async def test_staff_gift_reset_users_and_plan(session, env) -> None:  # type: i
     assert account.expire_at > utcnow() + timedelta(days=2)
 
 
+async def test_paid_extras_never_add_a_limit_to_an_unlimited_account(session, env) -> None:  # type: ignore[no-untyped-def]
+    """Extra GB or days paid while the account had a quota / an end date, applied after staff made
+    it unlimited, must not turn the unlimited quota or period into a limited one."""
+    fake, plan = env["fake"], env["plan"]
+    plan.day_price = 1_000
+    await session.commit()
+    cust = await _buyer(session, env["shop"])
+    _order, account = await _bought(session, env, cust)
+    paid = []
+    for kind, amount in ((OrderKind.ACCOUNT_GB, 10), (OrderKind.ACCOUNT_DAYS, 5)):
+        draft = await panel_accounts.draft(session, cust, kind, account=account, amount=amount)
+        order = await orders.create(session, cust, draft)
+        await orders.settle_from_wallet(session, order.id)
+        paid.append(order)
+    account.data_limit = 0  # staff made both unlimited before the worker ran
+    account.expire_at = None
+    await session.commit()
+    await drain(session, "provision")
+    await session.refresh(account)
+    assert account.data_limit == 0 and account.expire_at is None
+    assert fake.sold_admins[account.username]["data_limit"] != 10 * GB
+
+
 async def test_quota_alert_once_and_expiry_switches_off_until_renewed(session, env) -> None:  # type: ignore[no-untyped-def]
     fake = env["fake"]
     cust = await _buyer(session, env["shop"])

@@ -98,3 +98,28 @@ async def test_only_account_managers_may_change_accounts(session, http, env, sol
     assert resp.status_code == 403
     resp = await support.call("POST", "/api/admin/panel-accounts/bulk/gift", {"ids": [1], "days": 1})
     assert resp.status_code == 403
+
+
+async def test_a_deleted_account_takes_no_staff_changes(session, http, env, sold) -> None:  # type: ignore[no-untyped-def]  # noqa: F811
+    owner = await login(http, "u_owner")
+    customer = await session.get(
+        __import__("paurubot.db.models", fromlist=["Customer"]).Customer, env.customer_id
+    )
+    account = PanelAccount(
+        shop_id=env.shop.id,
+        customer_id=customer.id,
+        panel_id=sold["panel"].id,
+        plan_id=sold["plan"].id,
+        username="r_gone",
+        password_enc="x",
+        status="deleted",
+    )
+    session.add(account)
+    await session.commit()
+    for body in (
+        {"action": "password"},
+        {"action": "users", "max_users": 5},
+        {"action": "plan", "plan_id": sold["other"].id},
+    ):
+        resp = await owner.call("POST", f"/api/admin/panel-accounts/{account.id}/change", body)
+        assert resp.status_code == 409 and resp.json()["error"] == "account_not_found", body

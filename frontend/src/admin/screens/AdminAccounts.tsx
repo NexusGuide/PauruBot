@@ -347,6 +347,10 @@ function ManageSheet({ row, plans, onClose, onChanged }: { row: PanelAccountRow;
         }),
       );
       if (result) onChanged(result.item);
+      if (body.action === "gift") {
+        setDays(null); // cleared, so a second tap cannot gift the same again
+        setGb(null);
+      }
       toast(t("saved"));
     } catch (err) {
       toast(errorText(err), "error");
