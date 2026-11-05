@@ -22,6 +22,7 @@ migrationها فقط رو به جلو هستند و هیچ release‌ای schema
 
 1. با worker یک backup رمزگذاری‌شده می‌سازد. اگر backup شکست بخورد، update بدون هیچ تغییری متوقف می‌شود.
 2. مسیر آن را در `.env` با نام `PAURUBOT_PREVIOUS_BACKUP` ثبت می‌کند، به‌همراه image و نسخهٔ قبلی (`PAURUBOT_PREVIOUS_IMAGE` و `PAURUBOT_PREVIOUS_VERSION`).
+   پاک‌کردن نسخه‌های قدیمی پشتیبان (هر چند نسخه‌ای که در صفحهٔ پشتیبان‌گیری نگه داشته شود) این فایل را هرگز پاک نمی‌کند.
 3. سپس release تازه را بالا می‌آورد. سرویس `migrate` پیش از هر سرویس دیگری schema را جلو می‌برد.
 
 ## `pauru rollback`

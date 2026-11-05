@@ -585,11 +585,14 @@ register_queue(
 @every(600, "backups.daily")
 async def daily_backup() -> None:
     """Automatic backups, as often as the Backups page says (every few hours, or daily at an hour)."""
+    from paurubot import kv
     from paurubot.config import get_settings
     from paurubot.ops import backup, backup_schedule
 
     settings = get_settings()
     if not settings.backup_passphrase.get_secret_value():
+        return
+    if await kv.marked([backup_schedule.RETRY_KEY]):
         return
     schedule = await backup_schedule.current()
     now = utcnow()
@@ -601,7 +604,11 @@ async def daily_backup() -> None:
         newest=newest[0].created_at if newest else None,
     ):
         return
-    await run_backup("daily" if schedule.every_hours >= 24 else "auto")
+    try:
+        await run_backup("daily" if schedule.every_hours >= 24 else "auto")
+    except Exception:
+        await kv.mark(backup_schedule.RETRY_KEY, int(backup_schedule.RETRY_AFTER.total_seconds()))
+        raise
 
 
 # --- daily report (FIN-04, JOB-02) ----------------------------------------------

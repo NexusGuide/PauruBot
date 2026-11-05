@@ -137,3 +137,34 @@ async def test_the_worker_follows_the_saved_schedule(env, session, monkeypatch) 
     await session.commit()
     await jobs.daily_backup()
     assert made == ["auto"]
+
+
+async def test_a_failed_automatic_backup_waits_before_trying_again(env, session, monkeypatch) -> None:  # noqa: F811
+    """A lasting failure (a full disk) must not retry and report an error every ten minutes."""
+    from paurubot import kv
+    from paurubot.ops import backup
+    from paurubot.ops.backup import BackupError
+    from paurubot.worker import jobs
+
+    await shop_settings.set_many(session, env.shop.id, {"backup_every_hours": 1})
+    await session.commit()
+    await kv.unmark(backup_schedule.RETRY_KEY)
+    tries: list[str] = []
+
+    async def create(*, label: str = "") -> Any:
+        tries.append(label)
+        raise BackupError("disk full")
+
+    monkeypatch.setattr(backup, "create", create)
+    monkeypatch.setattr(backup, "listing", lambda: [])
+    monkeypatch.setattr(get_settings(), "backup_passphrase", __import__("pydantic").SecretStr("x" * 12))
+
+    with pytest.raises(BackupError):
+        await jobs.daily_backup()
+    await jobs.daily_backup()  # ten minutes later: still waiting
+    assert tries == ["auto"]
+    await kv.unmark(backup_schedule.RETRY_KEY)  # half an hour later
+    with pytest.raises(BackupError):
+        await jobs.daily_backup()
+    assert tries == ["auto", "auto"]
+    await kv.unmark(backup_schedule.RETRY_KEY)

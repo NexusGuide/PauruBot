@@ -2132,7 +2132,7 @@ interface BackupData {
   schedule: BackupSchedule & { passphrase_set: boolean; timezone: string };
 }
 
-function BackupScheduleSection({ saved, onSaved }: { saved: BackupSchedule; onSaved: () => void }) {
+function BackupScheduleSection({ saved, timezone, onSaved }: { saved: BackupSchedule; timezone: string; onSaved: () => void }) {
   const { t, locale, toast, errorText } = useSession();
   const pick = (value: BackupSchedule): BackupSchedule => ({
     enabled: value.enabled,
@@ -2182,7 +2182,7 @@ function BackupScheduleSection({ saved, onSaved }: { saved: BackupSchedule; onSa
               )}
             </Field>
             {atAnHour(draft.every_hours) && (
-              <Field label={t("setting_backup_hour")} hint={t("setting_backup_hour_hint")}>
+              <Field label={t("setting_backup_hour")} hint={t("setting_backup_hour_hint", { timezone })}>
                 {(id) => (
                   <Select id={id} value={String(draft.hour)} onChange={(e) => set({ hour: Number(e.target.value) })}>
                     {Array.from({ length: 24 }, (_, hour) => (
@@ -2246,7 +2246,12 @@ export function Backups() {
             {!value.schedule.passphrase_set && (
               <p className="rounded-2xl bg-anar-100 px-4 py-3 text-[0.88rem] font-semibold text-anar-700">{t("backup_no_passphrase")}</p>
             )}
-            <BackupScheduleSection key={JSON.stringify(value.schedule)} saved={value.schedule} onSaved={() => void reload()} />
+            <BackupScheduleSection
+              key={JSON.stringify(value.schedule)}
+              saved={value.schedule}
+              timezone={value.schedule.timezone}
+              onSaved={() => void reload()}
+            />
             <p className="px-1 text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("backup_contents_hint")}</p>
             <Section flush title={t("backup_files")}>
               {value.items.length === 0 ? (

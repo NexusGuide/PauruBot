@@ -60,7 +60,7 @@
   "setting_backup_auto_enabled": "Automatic backups",
   "setting_backup_every_hours": "How often",
   "setting_backup_hour": "Hour",
-  "setting_backup_hour_hint": "Server time (Tehran).",
+  "setting_backup_hour_hint": "Server time ({timezone}).",
   "setting_backup_keep": "Copies to keep",
   "setting_backup_keep_hint": "Older copies are deleted.",
   "setting_backup_send_telegram": "Send to Telegram",
