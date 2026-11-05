@@ -23,6 +23,7 @@ from paurubot.api.routes import (
 )
 from paurubot.api.webapp_auth import WebApp, forced_gate, forget_join_cache
 from paurubot.core import (
+    account_auto_renew,
     alert_policy,
     brand,
     catalog,
@@ -241,7 +242,22 @@ def order_view(order: Order) -> dict[str, Any]:
             k: v
             for k, v in (order.params or {}).items()
             if k
-            in {"extra_gb", "extra_days", "credit", "label", "custom", "queued", "queued_until", "national"}
+            in {
+                "extra_gb",
+                "extra_days",
+                "credit",
+                "label",
+                "custom",
+                "queued",
+                "queued_until",
+                "national",
+                # admin account orders: what they add, the renewal they give, whether codes apply
+                "gb",
+                "days",
+                "users",
+                "renew",
+                "discounts",
+            }
         },
         "expires_at": _iso(order.expires_at),
     }
@@ -446,6 +462,25 @@ def account_view(account: PanelAccount) -> dict[str, Any]:
         # Extra days: priced by the plan, and only for an account with an end date.
         "day_price": int(plan.day_price) if plan and panel_accounts.can_buy_days(account, plan) else 0,
         "login_url": panel_accounts.login_url(account),
+        # How a renewal is sold: the plan itself, ready-made packages, and/or a custom size.
+        "renew": {
+            "allowed": plan.renewable and plan.is_active,
+            "plain": panel_accounts.plain_renewal(plan),
+            "packages": panel_accounts.renew_packages(plan),
+            "custom": panel_accounts.custom_renewal(plan),
+            "quota": plan.data_gb > 0,
+            "day_price": int(plan.day_price),
+            "gb_price": int(plan.gb_price),
+        }
+        if plan is not None
+        else None,
+        # Auto-renewal from the wallet: on/off, its choice, and the choices the plan offers.
+        "auto_renew": {
+            "on": account_auto_renew.is_on(account),
+            "choice": {k: v for k, v in (account.auto_renew or {}).items() if k == "package"},
+            "choices": account_auto_renew.choices(account),
+            "stopped": (account.auto_renew or {}).get("stopped"),
+        },
     }
 
 
@@ -454,7 +489,9 @@ async def account_plans_view(ctx: WebApp) -> dict[str, Any]:
     """The panel admin plans the customer buys from (TEN-14) and whether they are sold at all."""
     return {
         "available": await panel_accounts.available(ctx.session, ctx.customer),
-        "plans": [account_plan_view(p) for p in await panel_accounts.plans(ctx.session, ctx.shop.id)],
+        "plans": [
+            account_plan_view(p) for p in await panel_accounts.plans(ctx.session, ctx.shop.id, ctx.customer)
+        ],
     }
 
 
@@ -475,9 +512,10 @@ async def _own_account(ctx: WebApp, account_id: int) -> PanelAccount:
 
 @router.get("/accounts/{account_id}")
 async def account_detail(account_id: int, ctx: WebApp) -> dict[str, Any]:
-    bounds = await panel_accounts.extra_bounds(ctx.session, ctx.shop.id)
+    account = await _own_account(ctx, account_id)
+    bounds = await panel_accounts.extra_bounds(ctx.session, ctx.shop.id, account.plan)
     return {
-        "account": account_view(await _own_account(ctx, account_id)),
+        "account": account_view(account),
         # How much extra traffic or time one order may buy: {"gb": [least, most], "days": [...]}.
         "limits": {unit: list(pair) for unit, pair in bounds.items()},
     }
@@ -492,6 +530,27 @@ async def account_login(account_id: int, ctx: WebApp) -> dict[str, Any]:
         "username": account.username,
         "password": panel_accounts.password_of(account),
     }
+
+
+class AccountAutoRenewBody(BaseModel):
+    enabled: bool
+    package: int | None = Field(default=None, ge=0, le=50)
+
+
+@router.post("/accounts/{account_id}/auto-renew")
+async def account_auto_renew_set(account_id: int, body: AccountAutoRenewBody, ctx: WebApp) -> dict[str, Any]:
+    account = await _own_account(ctx, account_id)
+    if body.enabled:
+        try:
+            await account_auto_renew.enable(
+                ctx.session, account, {"package": body.package} if body.package is not None else {}
+            )
+        except account_auto_renew.AutoRenewError as exc:
+            raise HTTPException(status_code=400, detail=exc.key) from exc
+    else:
+        await account_auto_renew.disable(ctx.session, account)
+    await ctx.session.commit()
+    return {"account": account_view(account)}
 
 
 @router.post("/accounts/{account_id}/refresh")
@@ -532,6 +591,8 @@ class OrderBody(BaseModel):
     account_id: int | None = None
     # GB, days or user slots for the account add-ons
     account_amount: int = Field(default=0, ge=0, le=100_000)
+    # An account renewal: one of the plan's packages, or a custom size (custom_days, custom_gb).
+    renew_package: int | None = Field(default=None, ge=0, le=50)
     # The location a "move" order takes the service to (F-03).
     location_id: int | None = None
 
@@ -573,7 +634,7 @@ async def create_order(body: OrderBody, ctx: WebApp) -> dict[str, Any]:
 async def _create_order(body: OrderBody, ctx: WebApp) -> Order:
     kind = OrderKind(body.kind)
     if kind in panel_accounts.KINDS:
-        # Panel admin accounts (TEN-14): priced by the account rules, no discount codes.
+        # Panel admin accounts (TEN-14): priced by the account rules; codes where the plan allows.
         return await _account_order(body, ctx, kind)
     plan = None
     if body.plan_id:
@@ -623,7 +684,7 @@ async def _account_order(body: OrderBody, ctx: WebApp, kind: OrderKind) -> Order
     amount = 0
     if kind == OrderKind.ACCOUNT_PURCHASE:
         plan_arg = (
-            await panel_accounts.plan_for(ctx.session, ctx.shop.id, body.account_plan_id)
+            await panel_accounts.plan_for(ctx.session, ctx.shop.id, body.account_plan_id, ctx.customer)
             if body.account_plan_id
             else None
         )
@@ -640,9 +701,29 @@ async def _account_order(body: OrderBody, ctx: WebApp, kind: OrderKind) -> Order
         amount = body.account_amount
     try:
         draft = await panel_accounts.draft(
-            ctx.session, ctx.customer, kind, plan=plan_arg, account=account_arg, amount=amount
+            ctx.session,
+            ctx.customer,
+            kind,
+            plan=plan_arg,
+            account=account_arg,
+            amount=amount,
+            package=body.renew_package,
+            renew_days=body.custom_days if kind == OrderKind.ACCOUNT_RENEW else 0,
+            renew_gb=body.custom_gb if kind == OrderKind.ACCOUNT_RENEW else 0,
         )
-        return await orders.create(ctx.session, ctx.customer, draft, source="webapp")
+        code: DiscountCode | None = None
+        if body.code:
+            if not draft.params.get("discounts"):
+                raise HTTPException(status_code=400, detail="discount_not_for_this_plan")
+            try:
+                code = await pricing.lookup_code(ctx.session, ctx.customer, body.code)
+            except pricing.DiscountError as exc:
+                raise HTTPException(status_code=429, detail=exc.key) from exc
+            if code is None:
+                raise HTTPException(status_code=400, detail="discount_invalid")
+        return await orders.create(ctx.session, ctx.customer, draft, code=code, source="webapp")
+    except pricing.DiscountError as exc:
+        raise HTTPException(status_code=400, detail=exc.key) from exc
     except orders.OrderError as exc:
         raise HTTPException(status_code=400, detail=exc.key) from exc
 

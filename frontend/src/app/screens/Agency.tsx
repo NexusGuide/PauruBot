@@ -5,13 +5,13 @@ import { api, type PanelAccount, type PanelPlan } from "../api";
 import { errorText, useApp } from "../state";
 import { haptic } from "../telegram";
 import { Icon } from "../icons";
-import { Button, Chevron, Empty, ReadFailure, Ring, Screen } from "../ui";
+import { Button, Chevron, Empty, ReadFailure, Ring, Screen, Switch } from "../ui";
 import { useResource } from "../useResource";
 
 import { DAY_STEPS, GB_STEPS, USER_STEPS, parseAmount, stepsWithin } from "../agency-extras";
 
-type Picker = "gb" | "days" | "users";
-const ORDER_KIND: Record<Picker, string> = { gb: "account_gb", days: "account_days", users: "account_users" };
+type Picker = "gb" | "days" | "users" | "renew";
+const ORDER_KIND: Record<Exclude<Picker, "renew">, string> = { gb: "account_gb", days: "account_days", users: "account_users" };
 
 function badgeTone(status: string) {
   if (status === "active") return "green";
@@ -142,6 +142,7 @@ export function AgencyAccount() {
   const { data, error, retry } = useResource(load);
   const [picker, setPicker] = useState<Picker | null>(null);
   const [typed, setTyped] = useState("");
+  const [typedGb, setTypedGb] = useState("");
   const [login, setLogin] = useState<{ url: string; username: string; password: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -149,7 +150,10 @@ export function AgencyAccount() {
     setPicker(null);
     setLogin(null);
   }, [accountId]);
-  useEffect(() => setTyped(""), [picker]);
+  useEffect(() => {
+    setTyped("");
+    setTypedGb("");
+  }, [picker]);
 
   if (error) {
     return (
@@ -194,6 +198,20 @@ export function AgencyAccount() {
     }
   };
 
+  const setAuto = async (enabled: boolean, pkg?: number) => {
+    setBusy(true);
+    try {
+      await api.accountAutoRenew(account.id, enabled, pkg);
+      haptic("success");
+      toast(t(enabled ? "agency_auto_renew_on" : "agency_auto_renew_off"));
+      retry();
+    } catch (err) {
+      toast(errorText(t, err), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const reveal = async () => {
     setBusy(true);
     try {
@@ -206,10 +224,12 @@ export function AgencyAccount() {
     }
   };
 
-  const go = (kind: string, amount?: number) =>
+  const go = (kind: string, amount?: number, extra = "") =>
     navigate(
-      `/checkout?kind=${kind}&acc=${account.id}&name=${encodeURIComponent(account.username)}${amount ? `&amt=${amount}` : ""}`,
+      `/checkout?kind=${kind}&acc=${account.id}&name=${encodeURIComponent(account.username)}${amount ? `&amt=${amount}` : ""}${extra}`,
     );
+  const renewal = account.renew;
+  const choosesRenewal = renewal !== null && !renewal.plain;
 
   return (
     <Screen title={account.username} subtitle={account.plan_title ?? t("agency_title")}>
@@ -251,7 +271,88 @@ export function AgencyAccount() {
       </section>
 
       <div className="mb-3.5 grid gap-3">
-        <Button onClick={() => go("account_renew")}>{t("agency_renew")}</Button>
+        {renewal?.allowed !== false && <Button
+          onClick={() => {
+            if (!choosesRenewal) return go("account_renew");
+            haptic("select");
+            setPicker(picker === "renew" ? null : "renew");
+          }}
+        >
+          {t("agency_renew")}
+        </Button>}
+        {picker === "renew" && renewal && (() => {
+          const days = parseAmount(typed, data.limits.days);
+          const gb = renewal.quota ? parseAmount(typedGb, data.limits.gb) : 0;
+          const ready = days !== null && gb !== null;
+          const price = ready ? days * renewal.day_price + (gb ?? 0) * renewal.gb_price : 0;
+          const hint = (range: [number, number]) =>
+            t("agency_custom_amount", { low: money(range[0], locale), high: money(range[1], locale) });
+          return (
+            <>
+              {renewal.packages.length > 0 && (
+                <ul className="grid grid-cols-2 gap-3">
+                  {renewal.packages.map((item, index) => (
+                    <li key={index}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          haptic("select");
+                          go("account_renew", undefined, `&rpkg=${index}`);
+                        }}
+                        className="w-full rounded-3xl bg-[var(--surface)] p-4 text-center"
+                      >
+                        <p className="num text-xl font-extrabold">{t("n_days", { days: money(item.days, locale) })}</p>
+                        <p className="num text-xs text-[var(--hint)]">
+                          {item.gb ? `${money(item.gb, locale)} ${t("gb")}` : t("unlimited_data")}
+                        </p>
+                        <p className="num mt-2 text-sm font-semibold">{money(item.price, locale)} {t("currency")}</p>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {renewal.custom && (
+                <div className="app-card flex flex-col gap-2 p-4">
+                  <p className="text-sm font-bold">{t("agency_renew_custom")}</p>
+                  <label className="text-xs text-[var(--hint)]">
+                    {t("days")}
+                    <input
+                      inputMode="numeric"
+                      maxLength={7}
+                      placeholder={hint(data.limits.days)}
+                      value={typed}
+                      onChange={(e) => setTyped(e.target.value)}
+                      className="num mt-1 w-full"
+                    />
+                  </label>
+                  {renewal.quota && (
+                    <label className="text-xs text-[var(--hint)]">
+                      {t("gb")}
+                      <input
+                        inputMode="numeric"
+                        maxLength={7}
+                        placeholder={hint(data.limits.gb)}
+                        value={typedGb}
+                        onChange={(e) => setTypedGb(e.target.value)}
+                        className="num mt-1 w-full"
+                      />
+                    </label>
+                  )}
+                  <Button
+                    disabled={!ready}
+                    onClick={() => {
+                      if (!ready) return;
+                      haptic("select");
+                      go("account_renew", undefined, `&cdays=${days}${gb ? `&cgb=${gb}` : ""}`);
+                    }}
+                  >
+                    {ready ? `${t("agency_buy_amount")} · ${money(price, locale)} ${t("currency")}` : t("agency_buy_amount")}
+                  </Button>
+                </div>
+              )}
+            </>
+          );
+        })()}
         {account.gb_price > 0 && account.data_limit > 0 && (
           <Button tone="quiet" onClick={() => { haptic("select"); setPicker(picker === "gb" ? null : "gb"); }}>
             {t("agency_add_data")}
@@ -267,7 +368,7 @@ export function AgencyAccount() {
             {t("agency_add_users")}
           </Button>
         )}
-        {picker && (() => {
+        {picker && picker !== "renew" && (() => {
           const unit = picker === "gb" ? account.gb_price : picker === "days" ? account.day_price : account.user_price;
           const range = picker === "users" ? null : data.limits[picker];
           const steps = picker === "users" ? USER_STEPS : stepsWithin(picker === "gb" ? GB_STEPS : DAY_STEPS, range!);
@@ -325,6 +426,39 @@ export function AgencyAccount() {
             </>
           );
         })()}
+        {account.auto_renew.choices.length > 0 && (
+          <div className="app-card flex flex-col gap-2 p-4">
+            <Switch
+              checked={account.auto_renew.on}
+              disabled={busy}
+              onChange={() =>
+                void setAuto(!account.auto_renew.on, account.auto_renew.choice.package ?? account.auto_renew.choices[0]?.package)
+              }
+              label={t("agency_auto_renew")}
+            />
+            <p className="text-xs text-[var(--hint)]">{t("agency_auto_renew_hint")}</p>
+            {account.auto_renew.on && account.auto_renew.choices.length > 1 && (
+              <select
+                aria-label={t("agency_auto_renew_choice")}
+                value={account.auto_renew.choice.package ?? -1}
+                disabled={busy}
+                onChange={(e) => void setAuto(true, Number(e.target.value) >= 0 ? Number(e.target.value) : undefined)}
+                className="w-full"
+              >
+                {account.auto_renew.choices.map((choice) => {
+                  const item = choice.package !== undefined ? renewal?.packages[choice.package] : undefined;
+                  return (
+                    <option key={choice.package ?? -1} value={choice.package ?? -1}>
+                      {item
+                        ? `${t("n_days", { days: money(item.days, locale) })} · ${item.gb ? `${money(item.gb, locale)} ${t("gb")}` : t("unlimited_data")} · ${money(item.price, locale)} ${t("currency")}`
+                        : `${t("agency_auto_renew_plain")} · ${money(account.price, locale)} ${t("currency")}`}
+                    </option>
+                  );
+                })}
+              </select>
+            )}
+          </div>
+        )}
         <Button tone="quiet" busy={busy} onClick={refresh}>{t("agency_refresh")}</Button>
       </div>
 

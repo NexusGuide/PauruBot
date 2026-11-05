@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { money } from "@shared/format";
-import { call, type CatalogData, type Customer, type CustomerDetail } from "../api";
+import { call, type AccountPlan, type CatalogData, type Customer, type CustomerDetail } from "../api";
 import { PAGE_SIZE, useAction, useList, useLoad, useSelection } from "../hooks";
 import { useSession } from "../session";
 import {
@@ -337,9 +337,55 @@ function GiveServiceSheet({ customerId, onClose, onDone }: { customerId: number;
   );
 }
 
+function GiveAccountSheet({ customerId, onClose, onDone }: { customerId: number; onClose: () => void; onDone: () => void }) {
+  const { t, toast, errorText } = useSession();
+  const plans = useLoad<{ items: AccountPlan[] }>("/api/admin/account-plans");
+  const [planId, setPlanId] = useState<number | null>(null);
+  const [busy, run] = useAction();
+  const give = async () => {
+    try {
+      await run(() => call("/api/admin/panel-accounts", { method: "POST", body: { customer_id: customerId, plan_id: planId } }));
+      toast(t("account_given"));
+      onDone();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title={t("give_account")}
+      footer={
+        <Button tone="primary" busy={busy} disabled={!planId} onClick={() => void give()}>
+          {t("give_account")}
+        </Button>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <p className="text-[0.85rem] leading-relaxed text-[var(--hint)]">{t("give_account_hint")}</p>
+        <Field label={t("col_plan")}>
+          {(id) => (
+            <Select id={id} value={planId ?? ""} onChange={(e) => setPlanId(e.target.value ? Number(e.target.value) : null)}>
+              <option value="">—</option>
+              {(plans.data?.items ?? [])
+                .filter((plan) => plan.is_active)
+                .map((plan) => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.title}
+                  </option>
+                ))}
+            </Select>
+          )}
+        </Field>
+      </div>
+    </Sheet>
+  );
+}
+
 export function CustomerPage() {
   const { id } = useParams();
-  const { t, can, locale, toast, errorText } = useSession();
+  const { t, can, me, locale, toast, errorText } = useSession();
   const { data, error, reload, setData } = useLoad<CustomerDetail>(`/api/admin/customers/${id}`);
   const [adjusting, setAdjusting] = useState(false);
   const [messaging, setMessaging] = useState(false);
@@ -348,6 +394,7 @@ export function CustomerPage() {
   const [banReason, setBanReason] = useState("");
   const [note, setNote] = useState<string | null>(null);
   const [giving, setGiving] = useState(false);
+  const [givingAccount, setGivingAccount] = useState(false);
   const [busy, run] = useAction();
 
   const ban = async (banned: boolean) => {
@@ -432,6 +479,9 @@ export function CustomerPage() {
                 )}
                 {can("services.create") && can("catalog.read") && (
                   <Button onClick={() => setGiving(true)}>{t("give_service")}</Button>
+                )}
+                {can("resellers.manage") && me?.role !== "reseller" && (
+                  <Button onClick={() => setGivingAccount(true)}>{t("give_account")}</Button>
                 )}
                 {can("customers.write") && <Button onClick={() => setMessaging(true)}>{t("send_message")}</Button>}
                 {can("customers.write") && (
@@ -592,6 +642,13 @@ export function CustomerPage() {
               </Section>
             </div>
 
+            {givingAccount && (
+              <GiveAccountSheet
+                customerId={c.id}
+                onClose={() => setGivingAccount(false)}
+                onDone={() => setGivingAccount(false)}
+              />
+            )}
             {giving && (
               <GiveServiceSheet
                 customerId={c.id}

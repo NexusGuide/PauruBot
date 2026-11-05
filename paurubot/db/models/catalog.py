@@ -138,6 +138,25 @@ class AccountPlan(Base, UpdatedMixin):
     gb_price: Mapped[int] = mapped_column(default=0)  # one extra GB; 0: not sold
     user_price: Mapped[int] = mapped_column(default=0)  # one extra user slot; 0: not sold
     day_price: Mapped[int] = mapped_column(default=0)  # one extra day; 0: not sold
+    # How much extra GB / days one order may buy, and a custom renewal's range; None: the shop's.
+    gb_min: Mapped[int | None] = mapped_column(Integer)
+    gb_max: Mapped[int | None] = mapped_column(Integer)
+    days_min: Mapped[int | None] = mapped_column(Integer)
+    days_max: Mapped[int | None] = mapped_column(Integer)
+    # Renewal: ready-made packages [{"days", "gb", "price"}] and/or a custom one the buyer sizes
+    # (days x day_price + GB x gb_price). With neither, a renewal repeats the plan.
+    renew_packages_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    renew_packages: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    renew_custom_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # What a renewal does to the time and traffic left (the four modes of SVC-13); None keeps
+    # the original rule: time added to what is left, a fresh quota, usage reset.
+    renew_mode: Mapped[str | None] = mapped_column(String(16))
+    renewable: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Who may buy it: everyone, ordinary customers only or resellers only.
+    audience: Mapped[PlanAudience] = mapped_column(str_enum(PlanAudience), default=PlanAudience.ALL)
+    # Off by default (TEN-14): discount codes and the reseller group's discount on this plan.
+    discounts_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
+    reseller_discount: Mapped[bool] = mapped_column(Boolean, default=False)
     sort: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -167,6 +186,10 @@ class PanelAccount(Base, UpdatedMixin):
     panel_status: Mapped[str | None] = mapped_column(String(16))
     alerts_sent: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     synced_at: Mapped[datetime | None] = mapped_column()
+    note: Mapped[str | None] = mapped_column(Text)  # staff only
+    # The owner's auto-renewal from the wallet: {"package": i} or {} for the plan itself, plus
+    # the worker's bookkeeping (last_order_id, last_at, short, stopped). None: off.
+    auto_renew: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     panel: Mapped[Panel | None] = relationship(lazy="selectin")
     plan: Mapped[AccountPlan | None] = relationship(lazy="selectin")

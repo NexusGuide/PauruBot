@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { call, type AccountPlan, type PanelAccountRow } from "../api";
+import { call, type AccountPlan, type PanelAccountRow, type RenewPackage } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
 import {
   Async,
   Bytes,
   Button,
+  Checkbox,
   Empty,
   Field,
   Input,
@@ -37,6 +38,18 @@ const EMPTY: PlanDraft = {
   gb_price: 0,
   user_price: 0,
   day_price: 0,
+  gb_min: null,
+  gb_max: null,
+  days_min: null,
+  days_max: null,
+  renew_packages_enabled: false,
+  renew_packages: [],
+  renew_custom_enabled: false,
+  renew_mode: null,
+  renewable: true,
+  audience: "all",
+  discounts_allowed: false,
+  reseller_discount: false,
   sort: 0,
   is_active: true,
 };
@@ -83,6 +96,40 @@ function Roles({ panelId, value, onChange }: { panelId: number; value: number; o
         )
       }
     </Field>
+  );
+}
+
+const MAX_PACKAGES = 12;
+
+function RenewPackages({ value, onChange }: { value: RenewPackage[]; onChange: (next: RenewPackage[]) => void }) {
+  const { t } = useSession();
+  const update = (index: number, patch: Partial<RenewPackage>) =>
+    onChange(value.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+  return (
+    <div className="flex flex-col gap-2">
+      {value.length > 0 && (
+        <div aria-hidden="true" className="grid grid-cols-[1fr_1fr_1.4fr_auto] gap-2 text-[0.78rem] font-semibold text-[var(--hint)]">
+          <span>{t("account_package_days")}</span>
+          <span>{t("account_package_gb")}</span>
+          <span>{t("price_toman")}</span>
+          <span className="w-8" />
+        </div>
+      )}
+      {value.map((item, index) => (
+        <div key={index} className="grid grid-cols-[1fr_1fr_1.4fr_auto] items-center gap-2">
+          <NumberInput aria-label={t("account_package_days")} placeholder={t("account_package_days")} value={item.days} onChange={(v) => update(index, { days: v ?? 0 })} />
+          <NumberInput aria-label={t("account_package_gb")} placeholder={t("account_package_gb")} value={item.gb} onChange={(v) => update(index, { gb: v ?? 0 })} />
+          <NumberInput aria-label={t("price_toman")} placeholder={t("price_toman")} value={item.price} onChange={(v) => update(index, { price: v ?? 0 })} />
+          <Button small tone="ghost" icon="close" aria-label={t("remove")} onClick={() => onChange(value.filter((_, i) => i !== index))} />
+        </div>
+      ))}
+      {value.length > 0 && <p className="text-[0.78rem] text-[var(--hint)]">{t("account_package_columns")}</p>}
+      {value.length < MAX_PACKAGES && (
+        <Button small icon="plus" onClick={() => onChange([...value, { days: 30, gb: 0, price: 0 }])}>
+          {t("account_package_add")}
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -154,6 +201,74 @@ function PlanSheet({ draft, panels, onClose, onSaved }: { draft: PlanDraft | nul
           </Field>
           <Field label={t("sort_order")}>{(id) => <NumberInput id={id} value={form.sort} onChange={(v) => set({ sort: v ?? 0 })} />}</Field>
         </div>
+
+        <Field label={t("audience")} hint={t("account_audience_hint")}>
+          {(id) => (
+            <Select id={id} value={form.audience} onChange={(e) => set({ audience: e.target.value as PlanDraft["audience"] })}>
+              <option value="all">{t("audience_all")}</option>
+              <option value="customers">{t("audience_customers")}</option>
+              <option value="resellers">{t("audience_resellers")}</option>
+            </Select>
+          )}
+        </Field>
+
+        <Toggle
+          checked={form.discounts_allowed}
+          onChange={(discounts_allowed) => set({ discounts_allowed })}
+          label={t("account_discounts_allowed")}
+          hint={t("account_discounts_allowed_hint")}
+        />
+        <Toggle
+          checked={form.reseller_discount}
+          onChange={(reseller_discount) => set({ reseller_discount })}
+          label={t("account_reseller_discount")}
+          hint={t("account_reseller_discount_hint")}
+        />
+
+        <h3 className="mt-2 text-[0.95rem] font-bold">{t("account_renewal")}</h3>
+        <Toggle checked={form.renewable} onChange={(renewable) => set({ renewable })} label={t("renewable")} />
+        {form.renewable && (
+          <>
+            <Field label={t("plan_renew_mode")} hint={t("account_renew_mode_hint")}>
+              {(id) => (
+                <Select id={id} value={form.renew_mode ?? ""} onChange={(e) => set({ renew_mode: (e.target.value || null) as PlanDraft["renew_mode"] })}>
+                  <option value="">{t("account_renew_mode_default")}</option>
+                  {(["extend_reset", "extend_carry", "restart_reset", "restart_carry"] as const).map((mode) => (
+                    <option key={mode} value={mode}>
+                      {t(`renew_mode_${mode}`)}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <Toggle
+              checked={form.renew_packages_enabled}
+              onChange={(renew_packages_enabled) => set({ renew_packages_enabled })}
+              label={t("account_renew_packages")}
+              hint={t("account_renew_packages_hint")}
+            />
+            {form.renew_packages_enabled && <RenewPackages value={form.renew_packages} onChange={(renew_packages) => set({ renew_packages })} />}
+            <Toggle
+              checked={form.renew_custom_enabled}
+              onChange={(renew_custom_enabled) => set({ renew_custom_enabled })}
+              label={t("account_renew_custom")}
+              hint={t("account_renew_custom_hint")}
+            />
+            {!form.renew_packages_enabled && !form.renew_custom_enabled && (
+              <p className="text-[0.82rem] text-[var(--hint)]">{t("account_renew_plain")}</p>
+            )}
+          </>
+        )}
+
+        <h3 className="mt-2 text-[0.95rem] font-bold">{t("account_ranges")}</h3>
+        <p className="-mt-2 text-[0.82rem] text-[var(--hint)]">{t("account_ranges_hint")}</p>
+        <div className="grid grid-cols-2 gap-3">
+          {(["gb_min", "gb_max", "days_min", "days_max"] as const).map((key) => (
+            <Field key={key} label={t(`account_${key}`)}>
+              {(id) => <NumberInput id={id} allowEmpty value={form[key]} onChange={(v) => set({ [key]: v || null })} />}
+            </Field>
+          ))}
+        </div>
         <Toggle checked={form.is_active} onChange={(is_active) => set({ is_active })} label={t("active")} />
       </div>
     </Sheet>
@@ -203,12 +318,182 @@ function Plans() {
   );
 }
 
+type AccountChange =
+  | { action: "gift"; days: number; gb: number }
+  | { action: "reset_usage" }
+  | { action: "password" }
+  | { action: "users"; max_users: number | null }
+  | { action: "plan"; plan_id: number };
+
+/** Everything staff may do to one sold account, each told to its owner when "notify" is on. */
+function ManageSheet({ row, plans, onClose, onChanged }: { row: PanelAccountRow; plans: AccountPlan[]; onClose: () => void; onChanged: (row: PanelAccountRow) => void }) {
+  const { t, toast, errorText } = useSession();
+  const confirm = useConfirm();
+  const [busy, run] = useAction();
+  const [days, setDays] = useState<number | null>(null);
+  const [gb, setGb] = useState<number | null>(null);
+  const [reason, setReason] = useState("");
+  const [notify, setNotify] = useState(true);
+  const [maxUsers, setMaxUsers] = useState<number | null>(row.max_users);
+  const [planId, setPlanId] = useState<number>(row.plan_id ?? 0);
+  const [note, setNote] = useState(row.note ?? "");
+  const samePanel = plans.filter((plan) => plan.panel_id === row.panel_id);
+  const change = async (body: AccountChange) => {
+    try {
+      const result = await run(() =>
+        call<{ item: PanelAccountRow }>(`/api/admin/panel-accounts/${row.id}/change`, {
+          method: "POST",
+          body: { ...body, reason: reason.trim() || null, notify },
+        }),
+      );
+      if (result) onChanged(result.item);
+      if (body.action === "gift") {
+        setDays(null); // cleared, so a second tap cannot gift the same again
+        setGb(null);
+      }
+      toast(t("saved"));
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  const saveNote = async () => {
+    try {
+      const result = await run(() =>
+        call<{ item: PanelAccountRow }>(`/api/admin/panel-accounts/${row.id}/note`, { method: "PUT", body: { note: note.trim() || null } }),
+      );
+      if (result) onChanged(result.item);
+      toast(t("saved"));
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <Sheet open onClose={onClose} title={row.username}>
+      <div className="flex flex-col gap-5">
+        <Field label={t("account_change_reason")} hint={t("account_change_reason_hint")}>
+          {(id) => <Input id={id} maxLength={255} value={reason} onChange={(e) => setReason(e.target.value)} />}
+        </Field>
+        <Toggle checked={notify} onChange={setNotify} label={t("notify_customer")} />
+
+        <Section title={t("account_gift")}>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("days")}>{(id) => <NumberInput id={id} allowEmpty value={days} onChange={setDays} />}</Field>
+            <Field label={t("account_package_gb")}>{(id) => <NumberInput id={id} allowEmpty value={gb} onChange={setGb} />}</Field>
+          </div>
+          <Button className="mt-3" tone="primary" busy={busy} disabled={!days && !gb} onClick={() => void change({ action: "gift", days: days ?? 0, gb: gb ?? 0 })}>
+            {t("account_gift_button")}
+          </Button>
+        </Section>
+
+        <div className="flex flex-wrap gap-2">
+          <Button busy={busy} onClick={() => void change({ action: "reset_usage" })}>
+            {t("account_reset_usage")}
+          </Button>
+          <Button
+            busy={busy}
+            onClick={async () => {
+              const ok = await confirm({ title: t("account_new_password"), body: t("account_new_password_body"), confirm: t("account_new_password") });
+              if (ok) void change({ action: "password" });
+            }}
+          >
+            {t("account_new_password")}
+          </Button>
+        </div>
+
+        <div className="flex items-end gap-2">
+          <Field className="flex-1" label={t("account_max_users")} hint={t("account_max_users_hint")}>
+            {(id) => <NumberInput id={id} allowEmpty value={maxUsers} onChange={(v) => setMaxUsers(v || null)} />}
+          </Field>
+          <Button busy={busy} disabled={maxUsers === row.max_users} onClick={() => void change({ action: "users", max_users: maxUsers })}>
+            {t("save")}
+          </Button>
+        </div>
+
+        <div className="flex items-end gap-2">
+          <Field className="flex-1" label={t("col_plan")} hint={t("account_change_plan_hint")}>
+            {(id) => (
+              <Select id={id} value={String(planId || "")} onChange={(e) => setPlanId(Number(e.target.value))}>
+                <option value="">—</option>
+                {samePanel.map((plan) => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.title}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Button busy={busy} disabled={!planId || planId === row.plan_id} onClick={() => void change({ action: "plan", plan_id: planId })}>
+            {t("save")}
+          </Button>
+        </div>
+
+        <Field label={t("account_note")} hint={t("account_note_hint")}>
+          {(id) => <Textarea id={id} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} />}
+        </Field>
+        <Button busy={busy} disabled={(note.trim() || null) === (row.note ?? null)} onClick={() => void saveNote()}>
+          {t("account_save_note")}
+        </Button>
+      </div>
+    </Sheet>
+  );
+}
+
+function BulkGiftSheet({ ids, onClose, onDone }: { ids: number[]; onClose: () => void; onDone: () => void }) {
+  const { t, toast, errorText } = useSession();
+  const [busy, run] = useAction();
+  const [days, setDays] = useState<number | null>(null);
+  const [gb, setGb] = useState<number | null>(null);
+  const [reason, setReason] = useState("");
+  const [notify, setNotify] = useState(true);
+  const send = async () => {
+    try {
+      const result = await run(() =>
+        call<{ done: number[]; failed: { id: number; error: string }[] }>("/api/admin/panel-accounts/bulk/gift", {
+          method: "POST",
+          body: { ids, days: days ?? 0, gb: gb ?? 0, reason: reason.trim() || null, notify },
+        }),
+      );
+      if (result) toast(t("account_bulk_done", { done: result.done.length, failed: result.failed.length }), result.failed.length ? "error" : undefined);
+      onDone();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title={t("account_bulk_gift", { count: ids.length })}
+      footer={
+        <Button tone="primary" busy={busy} disabled={!days && !gb} onClick={() => void send()}>
+          {t("account_gift_button")}
+        </Button>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={t("days")}>{(id) => <NumberInput id={id} allowEmpty value={days} onChange={setDays} />}</Field>
+          <Field label={t("account_package_gb")}>{(id) => <NumberInput id={id} allowEmpty value={gb} onChange={setGb} />}</Field>
+        </div>
+        <Field label={t("account_change_reason")}>
+          {(id) => <Input id={id} maxLength={255} value={reason} onChange={(e) => setReason(e.target.value)} />}
+        </Field>
+        <Toggle checked={notify} onChange={setNotify} label={t("notify_customer")} />
+      </div>
+    </Sheet>
+  );
+}
+
 function Accounts() {
   const { t, toast, errorText } = useSession();
   const confirm = useConfirm();
   const [q, setQ] = useState("");
   const { data, error, reload } = useLoad<{ items: PanelAccountRow[] }>(`/api/admin/panel-accounts?q=${encodeURIComponent(q)}`);
+  const plans = useLoad<{ items: AccountPlan[] }>("/api/admin/account-plans");
   const [busy, run] = useAction();
+  const [managing, setManaging] = useState<PanelAccountRow | null>(null);
+  const [picked, setPicked] = useState<number[]>([]);
+  const [bulk, setBulk] = useState(false);
   const act = async (row: PanelAccountRow, action: "pause" | "resume" | "refresh" | "delete") => {
     if (action === "delete") {
       const ok = await confirm({ title: t("account_delete_title"), body: t("account_delete_body", { username: row.username }), confirm: t("delete"), danger: true });
@@ -221,8 +506,19 @@ function Accounts() {
       toast(errorText(err), "error");
     }
   };
+  const toggle = (id: number, on: boolean) => setPicked((prev) => (on ? [...prev, id] : prev.filter((x) => x !== id)));
   return (
-    <Section title={t("account_sold")} flush>
+    <Section
+      title={t("account_sold")}
+      flush
+      actions={
+        picked.length > 0 && (
+          <Button small tone="primary" onClick={() => setBulk(true)}>
+            {t("account_bulk_gift", { count: picked.length })}
+          </Button>
+        )
+      }
+    >
       <div className="px-4 py-3">
         <Input placeholder={t("account_search")} value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
@@ -235,7 +531,12 @@ function Accounts() {
               {value.items.map((row) => (
                 <li key={row.id} className="flex flex-col gap-2 px-4 py-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="num font-bold">{row.username}</span>
+                    <span className="flex items-center gap-2">
+                      {row.status !== "deleted" && (
+                        <Checkbox label={row.username} checked={picked.includes(row.id)} onChange={(on) => toggle(row.id, on)} />
+                      )}
+                      <span className="num font-bold">{row.username}</span>
+                    </span>
                     <Status value={row.status} />
                   </div>
                   <p className="text-[0.85rem]">
@@ -248,8 +549,12 @@ function Accounts() {
                     <Bytes value={row.used_bytes} /> / {row.data_limit ? <Bytes value={row.data_limit} /> : "∞"} · {row.users_count}/{row.max_users ?? "∞"} 👥 ·{" "}
                     {row.expire_at ? <When iso={row.expire_at} /> : "∞"}
                   </p>
+                  {row.note && <p className="rounded-lg bg-[var(--bg)] px-2 py-1 text-[0.8rem]">📝 {row.note}</p>}
                   {row.status !== "deleted" && (
                     <div className="flex flex-wrap gap-2">
+                      <Button small tone="primary" onClick={() => setManaging(row)}>
+                        {t("account_manage")}
+                      </Button>
                       <Button small busy={busy} onClick={() => void act(row, "refresh")}>
                         {t("refresh")}
                       </Button>
@@ -274,6 +579,28 @@ function Accounts() {
           )
         }
       </Async>
+      {managing && (
+        <ManageSheet
+          row={managing}
+          plans={plans.data?.items ?? []}
+          onClose={() => setManaging(null)}
+          onChanged={(row) => {
+            setManaging(row);
+            void reload();
+          }}
+        />
+      )}
+      {bulk && (
+        <BulkGiftSheet
+          ids={picked}
+          onClose={() => setBulk(false)}
+          onDone={() => {
+            setBulk(false);
+            setPicked([]);
+            void reload();
+          }}
+        />
+      )}
     </Section>
   );
 }

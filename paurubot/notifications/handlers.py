@@ -333,6 +333,58 @@ async def account_alert(session: AsyncSession, job: queue.Claimed) -> None:
     await _to_customer(session, customer, t(key, username=esc(account.username)), reply_markup=markup)
 
 
+async def account_changed(session: AsyncSession, job: queue.Claimed) -> None:
+    """Staff changed a panel admin account: tell its owner what, why, and the card; a new
+    password comes with the login."""
+    from paurubot.bot.routers.accounts import account_kb, account_text, login_message
+    from paurubot.core import panel_accounts
+    from paurubot.db.models import PanelAccount
+
+    account = await session.get(PanelAccount, int(job.payload["account_id"]))
+    if account is None:
+        return
+    customer = await session.get(Customer, account.customer_id)
+    if customer is None:
+        return
+    t = await _texts(session, customer)
+    change = str(job.payload.get("change") or "")
+    lines = [t(f"acc_staff_{change}", username=esc(account.username))]
+    reason = str(job.payload.get("reason") or "").strip()
+    if reason:
+        lines.append(t("acc_staff_reason", reason=esc(reason)))
+    lines += ["", account_text(t, account)]
+    await _to_customer(session, customer, "\n".join(lines), reply_markup=account_kb(t, account))
+    if job.payload.get("login"):
+        text, kb = login_message(t, account, panel_accounts.password_of(account))
+        await _to_customer(session, customer, text, reply_markup=kb)
+
+
+async def account_auto_renew(session: AsyncSession, job: queue.Claimed) -> None:
+    """An admin account's auto-renewal is waiting for money, or has stopped."""
+    from paurubot.bot.routers.accounts import account_kb
+    from paurubot.db.models import PanelAccount
+
+    account = await session.get(PanelAccount, int(job.payload["account_id"]))
+    if account is None:
+        return
+    customer = await session.get(Customer, account.customer_id)
+    if customer is None:
+        return
+    t = await _texts(session, customer)
+    reason = str(job.payload.get("reason") or "")
+    if reason == "insufficient_balance":
+        text = t(
+            "acc_auto_short",
+            username=esc(account.username),
+            balance=money(int(job.payload.get("balance") or 0)),
+            required=money(int(job.payload.get("required") or 0)),
+        )
+    else:
+        why = t(reason)
+        text = t("acc_auto_stopped", username=esc(account.username), reason=esc(why if why != reason else ""))
+    await _to_customer(session, customer, text, reply_markup=account_kb(t, account))
+
+
 async def order_failed(session: AsyncSession, job: queue.Claimed) -> None:
     order = await session.get(Order, int(job.payload["order_id"]))
     if order is None:
@@ -1302,6 +1354,8 @@ register_queue(
             "order_completed": order_completed,
             "account_ready": account_ready,
             "account_alert": account_alert,
+            "account_changed": account_changed,
+            "account_auto_renew": account_auto_renew,
             "order_failed": order_failed,
             "payment_fulfilled": payment_fulfilled,
             "payment_rejected": payment_rejected,

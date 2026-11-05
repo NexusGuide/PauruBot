@@ -565,8 +565,29 @@ export interface AccountPlan {
   gb_price: number;
   user_price: number;
   day_price: number;
+  /** null: the shop's range from Settings. */
+  gb_min: number | null;
+  gb_max: number | null;
+  days_min: number | null;
+  days_max: number | null;
+  renew_packages_enabled: boolean;
+  renew_packages: RenewPackage[];
+  renew_custom_enabled: boolean;
+  /** null: time added to what is left, a fresh quota, usage reset. */
+  renew_mode: "extend_reset" | "extend_carry" | "restart_reset" | "restart_carry" | null;
+  renewable: boolean;
+  audience: "all" | "customers" | "resellers";
+  discounts_allowed: boolean;
+  reseller_discount: boolean;
   sort: number;
   is_active: boolean;
+}
+
+/** A ready-made renewal of an admin account plan; gb 0 means no traffic quota. */
+export interface RenewPackage {
+  days: number;
+  gb: number;
+  price: number;
 }
 
 export interface PanelAccountRow {
@@ -587,5 +608,6 @@ export interface PanelAccountRow {
   users_count: number;
   panel_status: string | null;
   synced_at: string | null;
+  note: string | null;
   created_at: string;
 }

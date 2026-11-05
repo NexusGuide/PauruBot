@@ -452,11 +452,13 @@ async def create(
         await pricing.validate_code(
             session, code, customer, plan_id=d.plan.id if d.plan else None, amount=d.base_price
         )
-    account = d.kind in ACCOUNT_KINDS  # panel admin accounts carry no reseller discount (TEN-14)
+    account = d.kind in ACCOUNT_KINDS
+    # Panel admin accounts carry no reseller discount unless their plan opts in (TEN-14).
+    no_reseller_price = account and not d.params.get("reseller_priced")
     if d.plan is not None and d.kind in {OrderKind.PURCHASE, OrderKind.RENEW}:
         q = await pricing.plan_quote(session, customer, d.plan.id, d.base_price, code)  # TEN-12
     else:
-        q = pricing.quote(d.base_price, None if account else customer, code)
+        q = pricing.quote(d.base_price, None if no_reseller_price else customer, code)
     if code is None and resellers.metered(customer) and not account:
         # Metered resellers pay for usage or service-hours instead of per order (TEN-05).
         q = pricing.Quote(d.base_price, d.base_price, 0, 0)

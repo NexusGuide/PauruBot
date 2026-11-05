@@ -210,6 +210,22 @@ export interface PanelAccount {
   /** 0 when extra days are not sold for this account. */
   day_price: number;
   login_url: string;
+  /** How a renewal is sold: the plan itself, ready-made packages and/or a custom size. */
+  renew: AccountRenewal | null;
+  /** Auto-renewal from the wallet; a choice is {} (the plan itself) or {package: i}. */
+  auto_renew: { on: boolean; choice: { package?: number }; choices: { package?: number }[]; stopped?: string | null };
+}
+
+export interface AccountRenewal {
+  /** False when the plan is not renewable (or no longer sold). */
+  allowed: boolean;
+  plain: boolean;
+  packages: { days: number; gb: number; price: number }[];
+  custom: boolean;
+  /** Whether the plan has a traffic quota, so a custom renewal also asks for GB. */
+  quota: boolean;
+  day_price: number;
+  gb_price: number;
 }
 
 /** How much extra traffic or time one order may buy: [least, most]. */
@@ -319,6 +335,9 @@ export interface Order {
     gb?: number;
     users?: number;
     days?: number;
+    renew?: { days: number; gb: number; package?: number };
+    /** An admin account order whose plan takes discount codes. */
+    discounts?: boolean;
   };
   expires_at: string | null;
 }
@@ -418,6 +437,8 @@ export const api = {
   account: (id: number) => get<{ account: PanelAccount; limits: AccountLimits }>(`/accounts/${id}`),
   accountLogin: (id: number) => get<{ url: string; username: string; password: string }>(`/accounts/${id}/login`),
   refreshAccount: (id: number) => post<{ account: PanelAccount }>(`/accounts/${id}/refresh`),
+  accountAutoRenew: (id: number, enabled: boolean, pkg?: number) =>
+    post<{ account: PanelAccount }>(`/accounts/${id}/auto-renew`, { enabled, package: pkg }),
   createOrder: (body: {
     intent_key?: string;
     kind: string;
@@ -432,6 +453,7 @@ export const api = {
     account_plan_id?: number;
     account_id?: number;
     account_amount?: number;
+    renew_package?: number;
     location_id?: number;
   }) => post<{ order: Order; balance: number; due: number }>("/orders", body),
   resellerDesk: (days: number) => get<ResellerDesk>(`/reseller/desk?days=${days}`),

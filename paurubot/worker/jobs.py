@@ -396,6 +396,24 @@ async def auto_renew_services() -> None:
                 log.info("auto-renew for service %s: %s", service_id, outcome)
 
 
+@every(60, "accounts.auto_renew")
+async def auto_renew_accounts() -> None:
+    """Renew the panel admin accounts whose owners turned auto-renewal on (TEN-14)."""
+    from paurubot.core import account_auto_renew
+
+    async with session_scope() as session:
+        account_ids = await account_auto_renew.due(session)
+    for account_id in account_ids:
+        try:
+            async with session_scope() as session:
+                outcome = await account_auto_renew.run_account(session, account_id)
+        except Exception:
+            log.exception("auto-renewing admin account %s failed", account_id)
+            continue
+        if outcome not in {"idle", "cooldown", "busy", "short", "off"}:
+            log.info("auto-renew for admin account %s: %s", account_id, outcome)
+
+
 DEFAULT_RETENTION_DAYS = 14
 
 

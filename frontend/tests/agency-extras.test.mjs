@@ -27,7 +27,7 @@ test("a typed amount: any digits, inside the range only", () => {
 
 test("every new Mini App label exists in both languages", () => {
   const fa = locale("fa"), en = locale("en");
-  for (const key of ["agency_add_days", "checkout_account_days", "agency_custom_amount", "agency_amount_range", "err_acc_amount_range", "n_days"]) {
+  for (const key of ["agency_add_days", "checkout_account_days", "agency_custom_amount", "agency_amount_range", "err_acc_amount_range", "n_days", "agency_renew_custom", "agency_renew_size", "err_renew_option_unavailable", "unlimited_data"]) {
     assert.ok(key in fa, `fa is missing ${key}`);
     assert.ok(key in en, `en is missing ${key}`);
   }

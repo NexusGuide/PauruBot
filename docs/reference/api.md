@@ -100,8 +100,12 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/orders/{order_id}/confirm-refund` | `payments.refund` | Step one of a large refund (F-22): type the amount to confirm. |
 | POST | `/api/admin/orders/{order_id}/refund` | `payments.refund` | Return a completed or failed order's money to the wallet (NEW-04). The service is not touched. |
 | GET | `/api/admin/orders` | `orders.read` | List orders |
+| POST | `/api/admin/panel-accounts/bulk/gift` | `resellers.manage` | Free days and traffic for many accounts at once (an outage, a festival). |
+| POST | `/api/admin/panel-accounts/{row_id}/change` | `resellers.manage` | Change panel account |
+| PUT | `/api/admin/panel-accounts/{row_id}/note` | `resellers.manage` | Note panel account |
 | POST | `/api/admin/panel-accounts/{row_id}/{action}` | `resellers.manage` | Act on panel account |
 | GET | `/api/admin/panel-accounts` | `resellers.manage` | List panel accounts |
+| POST | `/api/admin/panel-accounts` | `resellers.manage` | An admin account for a customer, free, through the normal provisioning queue. |
 | POST | `/api/admin/panels/certificate` | `panels.secrets` | Inspect certificate |
 | GET | `/api/admin/panels/{panel_id}/admins` | `panels.write` | The panel's admins and how many users each one owns. |
 | POST | `/api/admin/panels/{panel_id}/capabilities` | `panels.write` | Panel capabilities |
@@ -243,6 +247,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | Method | Path | Access | What it does |
 |---|---|---|---|
 | GET | `/api/webapp/account-plans` | Mini App initData | The panel admin plans the customer buys from (TEN-14) and whether they are sold at all. |
+| POST | `/api/webapp/accounts/{account_id}/auto-renew` | Mini App initData | Account auto renew set |
 | GET | `/api/webapp/accounts/{account_id}/login` | Mini App initData | The dashboard URL, the username and the password — the same as the bot's login message. |
 | POST | `/api/webapp/accounts/{account_id}/refresh` | Mini App initData | Account refresh |
 | GET | `/api/webapp/accounts/{account_id}` | Mini App initData | Account detail |
