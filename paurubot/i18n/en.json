@@ -640,6 +640,8 @@
   "acc_btn_open": "🛡 Open account",
   "acc_panel_down": "The panel isn't answering. Try again in a few minutes.",
   "acc_login": "🔑 <b>Panel sign-in</b>\n🌐 Address: {url}\n👤 Username: <code>{username}</code>\n🔐 Password: <code>{password}</code>\n\nDon't share these.",
+  "acc_btn_copy_username": "📋 Copy username",
+  "acc_btn_copy_password": "📋 Copy password",
   "acc_extra_option": "{value} — {price} Toman",
   "acc_choose_gb": "📦 How many GB do you want to add?",
   "acc_choose_users": "👥 How many user slots do you want to add?",

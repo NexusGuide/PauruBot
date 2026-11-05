@@ -275,7 +275,7 @@ async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
 
 async def account_ready(session: AsyncSession, job: queue.Claimed) -> None:
     """A panel admin account order finished (TEN-14): the card, and the login on a purchase."""
-    from paurubot.bot.routers.accounts import account_kb, account_text
+    from paurubot.bot.routers.accounts import account_kb, account_text, login_message
     from paurubot.core import panel_accounts
     from paurubot.db.models import PanelAccount
 
@@ -292,17 +292,8 @@ async def account_ready(session: AsyncSession, job: queue.Claimed) -> None:
         session, customer, heading + "\n\n" + account_text(t, account), reply_markup=account_kb(t, account)
     )
     if order.kind == OrderKind.ACCOUNT_PURCHASE:
-        await _to_customer(
-            session,
-            customer,
-            t(
-                "acc_login",
-                url=esc(panel_accounts.login_url(account)),
-                username=esc(account.username),
-                password=esc(panel_accounts.password_of(account)),
-            ),
-            protect_content=True,
-        )
+        text, kb = login_message(t, account, panel_accounts.password_of(account))
+        await _to_customer(session, customer, text, reply_markup=kb)
     await report(
         session,
         order.shop_id,

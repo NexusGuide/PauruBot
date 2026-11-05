@@ -77,7 +77,12 @@ async def test_buy_an_admin_account_and_get_the_login(session, env) -> None:  # 
     assert account is not None
     password = esc(env["panel"].sold_admins[account.username]["password"])  # HTML, as sent
     login = next(c for c in fake.calls if isinstance(c, SendMessage) and password in (c.text or ""))
-    assert account.username in login.text and login.protect_content is True
+    assert account.username in login.text
+    # Copyable on a phone: a protected message cannot be copied at all, and each value has a
+    # button that copies exactly it.
+    assert login.protect_content is not True  # left to the bot's default, which never protects
+    copies = [b.copy_text.text for row in login.reply_markup.inline_keyboard for b in row if b.copy_text]
+    assert copies == [account.username, env["panel"].sold_admins[account.username]["password"]]
     order = (await session.execute(Order.__table__.select().where(Order.customer_id == customer.id))).first()
     assert order is not None and order.status == "completed"
     # The account card, with its actions.
