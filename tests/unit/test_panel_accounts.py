@@ -266,6 +266,93 @@ async def test_days_paid_just_before_the_end_switch_the_account_back_on(session,
     assert (account.username, "activate") in fake.admin_user_actions
 
 
+async def test_renewal_packages_and_a_custom_renewal_per_plan(session, env) -> None:  # type: ignore[no-untyped-def]
+    fake = env["fake"]
+    plan = env["plan"]
+    cust = await _buyer(session, env["shop"])
+    _order, account = await _bought(session, env, cust)
+    plan.renew_packages_enabled = True
+    plan.renew_packages = [
+        {"days": 60, "gb": 1000, "price": 1_700_000},
+        {"days": 15, "gb": 0, "price": 300_000},
+    ]
+    await session.commit()
+    # The plan's own renewal is not offered once packages are.
+    with pytest.raises(orders.OrderError) as exc:
+        await panel_accounts.draft(session, cust, OrderKind.ACCOUNT_RENEW, account=account)
+    assert exc.value.key == "renew_option_unavailable"
+    with pytest.raises(orders.OrderError) as exc:
+        await panel_accounts.draft(session, cust, OrderKind.ACCOUNT_RENEW, account=account, package=2)
+    assert exc.value.key == "renew_option_unavailable"
+    before = account.expire_at
+    assert before is not None
+    fake.sold_admins[account.username]["used_traffic"] = 300 * GB
+    order = await _pay(session, cust, OrderKind.ACCOUNT_RENEW, account=account, package=0)
+    assert order.amount == 1_700_000 and order.params["renew"] == {"days": 60, "gb": 1000, "package": 0}
+    await session.refresh(account)
+    assert account.expire_at is not None
+    assert abs((account.expire_at - before).total_seconds() - 60 * 86400) < 5
+    assert account.data_limit == 1000 * GB and fake.sold_admins[account.username]["data_limit"] == 1000 * GB
+    assert fake.sold_admins[account.username]["used_traffic"] == 0
+    # A paid renewal keeps what it bought even if the plan changes before the worker runs.
+    draft = await panel_accounts.draft(session, cust, OrderKind.ACCOUNT_RENEW, account=account, package=1)
+    pending = await orders.create(session, cust, draft)
+    await orders.settle_from_wallet(session, pending.id)
+    plan.renew_packages = [{"days": 1, "gb": 1, "price": 1}]
+    await session.commit()
+    await drain(session, "provision")
+    await session.refresh(account)
+    assert account.data_limit == 0  # the 15-day package has no quota
+
+    # A custom renewal sized by the buyer, in this plan's own range, priced per day and GB.
+    plan.renew_custom_enabled = True
+    plan.day_price, plan.gb_price = 2_000, 1_000
+    plan.days_min, plan.days_max, plan.gb_min, plan.gb_max = 10, 90, 100, 2000
+    await shop_settings.set_many(
+        session, env["shop"].id, {"panel_accounts_days_min": 1, "panel_accounts_days_max": 5}
+    )
+    await session.commit()
+    for days, gb in ((9, 500), (91, 500), (30, 99), (30, 2001)):
+        with pytest.raises(orders.OrderError) as exc:
+            await panel_accounts.draft(
+                session, cust, OrderKind.ACCOUNT_RENEW, account=account, renew_days=days, renew_gb=gb
+            )
+        assert exc.value.key == "acc_amount_range", (days, gb)
+    before = account.expire_at
+    order = await _pay(session, cust, OrderKind.ACCOUNT_RENEW, account=account, renew_days=30, renew_gb=800)
+    assert order.amount == 30 * 2_000 + 800 * 1_000
+    await session.refresh(account)
+    assert abs((account.expire_at - before).total_seconds() - 30 * 86400) < 5
+    assert account.data_limit == 800 * GB
+    # The plan's range wins over the shop's for its extras too.
+    assert await panel_accounts.extra_bounds(session, env["shop"].id, plan) == {
+        "gb": (100, 2000),
+        "days": (10, 90),
+    }
+    plan.renew_custom_enabled = False
+    await session.commit()
+    with pytest.raises(orders.OrderError) as exc:
+        await panel_accounts.draft(
+            session, cust, OrderKind.ACCOUNT_RENEW, account=account, renew_days=30, renew_gb=800
+        )
+    assert exc.value.key == "renew_option_unavailable"
+
+
+def test_renewal_packages_are_validated() -> None:
+    good = [{"days": 30, "gb": 0, "price": 0}]
+    assert panel_accounts.clean_packages(good) == good
+    for bad in (
+        "x",
+        [{"days": 0, "gb": 1, "price": 1}],
+        [{"days": 30, "gb": -1, "price": 1}],
+        [{"days": 30, "gb": 1, "price": True}],
+        [{"days": 30, "gb": 1}],
+        [{"days": 30, "gb": 1, "price": 1}] * 13,
+    ):
+        with pytest.raises(ValueError):
+            panel_accounts.clean_packages(bad)
+
+
 async def test_quota_alert_once_and_expiry_switches_off_until_renewed(session, env) -> None:  # type: ignore[no-untyped-def]
     fake = env["fake"]
     cust = await _buyer(session, env["shop"])

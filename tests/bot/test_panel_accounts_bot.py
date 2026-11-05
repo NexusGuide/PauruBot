@@ -160,3 +160,50 @@ async def test_buy_extra_days_with_a_tap_or_a_typed_amount(session, env) -> None
     assert FA("acc_checkout_days", value=20) in checkout.text
     order = (await session.execute(Order.__table__.select().where(Order.customer_id == owner.id))).first()
     assert order is not None and order.kind == "account_days" and order.amount == 80_000
+
+
+async def test_renew_offers_the_plans_packages_and_a_custom_renewal(session, env) -> None:  # type: ignore[no-untyped-def]
+    send, fake, shop, plan = env["send"], env["fake"], env["shop"], env["plan"]
+    plan.renew_packages_enabled = True
+    plan.renew_packages = [{"days": 30, "gb": 300, "price": 700_000}]
+    plan.renew_custom_enabled = True
+    plan.day_price, plan.gb_price = 10_000, 1_000
+    plan.days_min, plan.days_max, plan.gb_min, plan.gb_max = 10, 60, 50, 500
+    await send(message_update(UID + 4, "/start"))
+    owner = await _customer(session, shop.id, UID + 4)
+    from datetime import timedelta
+
+    from paurubot.db.base import utcnow
+
+    account = PanelAccount(
+        shop_id=shop.id,
+        customer_id=owner.id,
+        panel_id=plan.panel_id,
+        plan_id=plan.id,
+        username="r4_renew",
+        password_enc="x",
+        data_limit=300 * 1024**3,
+        expire_at=utcnow() + timedelta(days=2),
+    )
+    session.add(account)
+    await wallet.topup(session, shop.id, owner.id, 5_000_000, provider="card", payment_id=owner.id)
+    await session.commit()
+
+    await send(callback_update(UID + 4, Acc(action="renew", id=account.id).pack()))
+    menu = fake.last(EditMessageText)
+    assert menu.text == FA("acc_choose_renew")
+    labels = [text for text, _ in fake.buttons(menu)]
+    assert FA("acc_renew_package", days=30, gb=300, price="700,000") in labels
+    custom = next(data for text, data in fake.buttons(menu) if text == FA("acc_btn_renew_custom"))
+    await send(callback_update(UID + 4, custom))
+    assert fake.last(SendMessage).text == FA("acc_ask_renew_days", min_value=10, max_value=60, price="10,000")
+    await send(message_update(UID + 4, "70"))
+    assert fake.last(SendMessage).text == FA("acc_amount_range", min_value=10, max_value=60)
+    await send(message_update(UID + 4, "20"))
+    assert fake.last(SendMessage).text == FA("acc_ask_renew_gb", min_value=50, max_value=500, price="1,000")
+    await send(message_update(UID + 4, "۲۰۰"))
+    checkout = fake.last(SendMessage)
+    assert FA("acc_renew_line", days=20, gb=200) in checkout.text
+    order = (await session.execute(Order.__table__.select().where(Order.customer_id == owner.id))).first()
+    assert order is not None and order.kind == "account_renew"
+    assert order.amount == 20 * 10_000 + 200 * 1_000 and order.params["renew"] == {"days": 20, "gb": 200}

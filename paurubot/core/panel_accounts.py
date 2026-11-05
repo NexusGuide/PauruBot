@@ -122,19 +122,65 @@ async def owned(session: AsyncSession, customer: Customer, account_id: int) -> P
     return account
 
 
-async def extra_bounds(session: AsyncSession, shop_id: int) -> dict[str, tuple[int, int]]:
-    """How much extra traffic (GB) or time (days) one order may buy, as the shop set it."""
+async def extra_bounds(
+    session: AsyncSession, shop_id: int, plan: AccountPlan | None = None
+) -> dict[str, tuple[int, int]]:
+    """How much extra traffic (GB) or time (days) one order may buy: the plan's own range where
+    it sets one, else the shop's."""
     cfg = await shop_settings.load(session, shop_id)
 
-    def pair(low_key: str, high_key: str, cap: int) -> tuple[int, int]:
-        low = min(max(int(cfg.get(low_key) or 1), 1), cap)
-        high = min(max(int(cfg.get(high_key) or cap), low), cap)
+    def pair(unit: str, cap: int) -> tuple[int, int]:
+        own_low = getattr(plan, f"{unit}_min", None) if plan is not None else None
+        own_high = getattr(plan, f"{unit}_max", None) if plan is not None else None
+        low_value = own_low if own_low is not None else cfg.get(f"panel_accounts_{unit}_min")
+        high_value = own_high if own_high is not None else cfg.get(f"panel_accounts_{unit}_max")
+        low = min(max(int(low_value or 1), 1), cap)
+        high = min(max(int(high_value or cap), low), cap)
         return low, high
 
-    return {
-        "gb": pair("panel_accounts_gb_min", "panel_accounts_gb_max", MAX_GB),
-        "days": pair("panel_accounts_days_min", "panel_accounts_days_max", MAX_DAYS),
-    }
+    return {"gb": pair("gb", MAX_GB), "days": pair("days", MAX_DAYS)}
+
+
+MAX_PACKAGES = 12
+
+
+def clean_packages(raw: Any) -> list[dict[str, int]]:
+    """Validate renewal packages: at most 12, each whole days (1..3650), GB (0: no quota) and a
+    price. Raises ValueError on anything else."""
+    if not isinstance(raw, list) or len(raw) > MAX_PACKAGES:
+        raise ValueError("renew_packages_invalid")
+    out: list[dict[str, int]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ValueError("renew_packages_invalid")
+        values: dict[str, int] = {}
+        for key, low, high in (("days", 1, MAX_DAYS), ("gb", 0, MAX_GB), ("price", 0, 10**12)):
+            value = item.get(key)
+            if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+                raise ValueError("renew_packages_invalid")
+            values[key] = value
+        out.append(values)
+    return out
+
+
+def renew_packages(plan: AccountPlan) -> list[dict[str, int]]:
+    """The plan's ready-made renewals, when they are switched on."""
+    if not plan.renew_packages_enabled:
+        return []
+    try:
+        return clean_packages(plan.renew_packages or [])
+    except ValueError:
+        return []
+
+
+def custom_renewal(plan: AccountPlan) -> bool:
+    """A renewal the buyer sizes: switched on and priced (per day, and per GB with a quota)."""
+    return bool(plan.renew_custom_enabled) and plan.day_price > 0 and (plan.data_gb <= 0 or plan.gb_price > 0)
+
+
+def plain_renewal(plan: AccountPlan) -> bool:
+    """With neither packages nor a custom renewal on offer, a renewal repeats the plan."""
+    return not renew_packages(plan) and not custom_renewal(plan)
 
 
 def can_buy_days(account: PanelAccount, plan: AccountPlan | None) -> bool:
@@ -150,6 +196,9 @@ async def draft(
     plan: AccountPlan | None = None,
     account: PanelAccount | None = None,
     amount: int = 0,
+    package: int | None = None,
+    renew_days: int = 0,
+    renew_gb: int = 0,
 ) -> Draft:
     """Price and validate an account order; `amount` is GB, days or user slots for the add-ons."""
     if kind not in KINDS:
@@ -167,26 +216,65 @@ async def draft(
         raise OrderError("plan_unavailable")
     params: dict[str, Any] = {"account_id": account.id, "account_plan_id": current.id}
     if kind == OrderKind.ACCOUNT_RENEW:
-        return Draft(kind, None, None, params, int(current.price))
+        return await _renewal(session, customer, current, params, package, renew_days, renew_gb)
     if account.status not in {"active", "paused"}:
         raise OrderError("account_not_active")  # an ended account is renewed first
     if kind == OrderKind.ACCOUNT_GB:
         if current.gb_price <= 0 or not account.data_limit:
             raise OrderError("extras_unavailable")
-        low, high = (await extra_bounds(session, customer.shop_id))["gb"]
+        low, high = (await extra_bounds(session, customer.shop_id, current))["gb"]
         if not low <= amount <= high:
             raise OrderError("acc_amount_range", min_value=low, max_value=high)
         return Draft(kind, None, None, {**params, "gb": amount}, amount * int(current.gb_price))
     if kind == OrderKind.ACCOUNT_DAYS:
         if not can_buy_days(account, current):
             raise OrderError("extras_unavailable")
-        low, high = (await extra_bounds(session, customer.shop_id))["days"]
+        low, high = (await extra_bounds(session, customer.shop_id, current))["days"]
         if not low <= amount <= high:
             raise OrderError("acc_amount_range", min_value=low, max_value=high)
         return Draft(kind, None, None, {**params, "days": amount}, amount * int(current.day_price))
     if current.user_price <= 0 or not account.max_users or not 1 <= amount <= MAX_USERS:
         raise OrderError("extras_unavailable")
     return Draft(kind, None, None, {**params, "users": amount}, amount * int(current.user_price))
+
+
+async def _renewal(
+    session: AsyncSession,
+    customer: Customer,
+    plan: AccountPlan,
+    params: dict[str, Any],
+    package: int | None,
+    days: int,
+    gb: int,
+) -> Draft:
+    """A renewal: one of the plan's packages, a custom size, or the plan itself. What it gives is
+    fixed in the order, so a later change to the plan does not change a paid renewal."""
+    kind = OrderKind.ACCOUNT_RENEW
+    if package is not None:
+        packages = renew_packages(plan)
+        if not 0 <= package < len(packages):
+            raise OrderError("renew_option_unavailable")
+        chosen = packages[package]
+        renew = {"days": chosen["days"], "gb": chosen["gb"], "package": package}
+        return Draft(kind, None, None, {**params, "renew": renew}, chosen["price"])
+    if days:
+        if not custom_renewal(plan):
+            raise OrderError("renew_option_unavailable")
+        bounds = await extra_bounds(session, customer.shop_id, plan)
+        low, high = bounds["days"]
+        if not low <= days <= high:
+            raise OrderError("acc_amount_range", min_value=low, max_value=high)
+        if plan.data_gb > 0:
+            low, high = bounds["gb"]
+            if not low <= gb <= high:
+                raise OrderError("acc_amount_range", min_value=low, max_value=high)
+        else:
+            gb = 0  # a plan without a quota stays without one
+        price = days * int(plan.day_price) + gb * int(plan.gb_price)
+        return Draft(kind, None, None, {**params, "renew": {"days": days, "gb": gb}}, price)
+    if not plain_renewal(plan):
+        raise OrderError("renew_option_unavailable")
+    return Draft(kind, None, None, params, int(plan.price))
 
 
 # --- applying paid orders (the provisioning worker) --------------------------------------
@@ -235,9 +323,8 @@ async def apply(session: AsyncSession, order: Order) -> PanelAccount:
         if "target_expire" not in params:
             now = utcnow()
             start = account.expire_at if account.expire_at and account.expire_at > now else now
-            params["target_expire"] = (
-                (start + timedelta(days=plan.days)).isoformat() if plan.days > 0 else None
-            )
+            days = int((params.get("renew") or {}).get("days", plan.days))
+            params["target_expire"] = (start + timedelta(days=days)).isoformat() if days > 0 else None
             order.params = dict(params)  # a new object, so the JSON change is saved
             await session.commit()
         await _renew(driver, account, plan, params)
@@ -326,7 +413,8 @@ async def _create(
 async def _renew(driver: Any, account: PanelAccount, plan: AccountPlan, params: dict[str, Any]) -> None:
     target = params["target_expire"]
     account.expire_at = datetime.fromisoformat(target) if target else None
-    account.data_limit = plan.data_gb * GB if plan.data_gb > 0 else 0
+    gb = int((params.get("renew") or {}).get("gb", plan.data_gb))
+    account.data_limit = gb * GB if gb > 0 else 0
     account.max_users = max(int(account.max_users or 0), int(plan.max_users or 0)) or None
     await driver.reset_admin_usage(account.username)
     fields: dict[str, Any] = {"data_limit": account.data_limit, "status": "active"}

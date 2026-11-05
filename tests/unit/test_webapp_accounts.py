@@ -222,3 +222,37 @@ async def test_extra_days_and_the_shops_range_in_the_mini_app(session, acc_env) 
 
     gained = datetime.fromisoformat(after["expire_at"]) - datetime.fromisoformat(account["expire_at"])
     assert abs(gained.total_seconds() - 12 * 86400) < 5
+
+
+async def test_renewal_options_in_the_mini_app(session, acc_env) -> None:  # type: ignore[no-untyped-def]
+    client, plan = acc_env["client"], acc_env["plan"]
+    uid = 9741
+    await _buyer(session, acc_env, uid)
+    account = await _bought(session, acc_env, uid)
+    plan.renew_packages_enabled = True
+    plan.renew_packages = [{"days": 30, "gb": 100, "price": 90_000}]
+    plan.renew_custom_enabled = True
+    plan.day_price = 1_500
+    await session.commit()
+    detail = (await client.get(f"/api/webapp/accounts/{account['id']}", headers=h(uid))).json()
+    renew = detail["account"]["renew"]
+    assert renew["plain"] is False and renew["custom"] is True
+    assert renew["packages"] == [{"days": 30, "gb": 100, "price": 90_000}]
+    plain = await client.post(
+        "/api/webapp/orders", headers=h(uid), json={"kind": "account_renew", "account_id": account["id"]}
+    )
+    assert plain.status_code == 400 and plain.json()["error"] == "renew_option_unavailable"
+    first = await client.post(
+        "/api/webapp/orders",
+        headers=h(uid),
+        json={"kind": "account_renew", "account_id": account["id"], "renew_package": 0},
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["order"]["amount"] == 90_000
+    custom = await client.post(
+        "/api/webapp/orders",
+        headers=h(uid),
+        json={"kind": "account_renew", "account_id": account["id"], "custom_days": 20, "custom_gb": 40},
+    )
+    assert custom.status_code == 200, custom.text
+    assert custom.json()["order"]["amount"] == 20 * 1_500 + 40 * plan.gb_price

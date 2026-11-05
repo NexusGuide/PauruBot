@@ -61,6 +61,7 @@ export function Checkout() {
         account_plan_id: Number(params.get("aplan")) || undefined,
         account_id: Number(params.get("acc")) || undefined,
         account_amount: Number(params.get("amt")) || undefined,
+        renew_package: params.has("rpkg") ? Number(params.get("rpkg")) : undefined,
         location_id: Number(params.get("loc")) || undefined,
         code: params.get("draft_code") || undefined,
         label: params.get("draft_label") || undefined,
@@ -220,6 +221,14 @@ export function Checkout() {
         )}
         {order.kind === "account_renew" && (
           <Line label={t("agency_renew")} value={params.get("name") ?? "…"} />
+        )}
+        {order.kind === "account_renew" && order.params.renew && (
+          <Line
+            label={t("agency_renew_size")}
+            value={`${t("n_days", { days: money(order.params.renew.days, locale) })} · ${
+              order.params.renew.gb ? `${money(order.params.renew.gb, locale)} ${t("gb")}` : t("unlimited_data")
+            }`}
+          />
         )}
         {order.kind === "account_gb" && (
           <Line

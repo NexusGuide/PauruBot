@@ -138,6 +138,16 @@ class AccountPlan(Base, UpdatedMixin):
     gb_price: Mapped[int] = mapped_column(default=0)  # one extra GB; 0: not sold
     user_price: Mapped[int] = mapped_column(default=0)  # one extra user slot; 0: not sold
     day_price: Mapped[int] = mapped_column(default=0)  # one extra day; 0: not sold
+    # How much extra GB / days one order may buy, and a custom renewal's range; None: the shop's.
+    gb_min: Mapped[int | None] = mapped_column(Integer)
+    gb_max: Mapped[int | None] = mapped_column(Integer)
+    days_min: Mapped[int | None] = mapped_column(Integer)
+    days_max: Mapped[int | None] = mapped_column(Integer)
+    # Renewal: ready-made packages [{"days", "gb", "price"}] and/or a custom one the buyer sizes
+    # (days x day_price + GB x gb_price). With neither, a renewal repeats the plan.
+    renew_packages_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    renew_packages: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    renew_custom_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     sort: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 

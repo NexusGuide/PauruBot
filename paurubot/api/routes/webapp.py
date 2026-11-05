@@ -446,6 +446,17 @@ def account_view(account: PanelAccount) -> dict[str, Any]:
         # Extra days: priced by the plan, and only for an account with an end date.
         "day_price": int(plan.day_price) if plan and panel_accounts.can_buy_days(account, plan) else 0,
         "login_url": panel_accounts.login_url(account),
+        # How a renewal is sold: the plan itself, ready-made packages, and/or a custom size.
+        "renew": {
+            "plain": panel_accounts.plain_renewal(plan),
+            "packages": panel_accounts.renew_packages(plan),
+            "custom": panel_accounts.custom_renewal(plan),
+            "quota": plan.data_gb > 0,
+            "day_price": int(plan.day_price),
+            "gb_price": int(plan.gb_price),
+        }
+        if plan is not None
+        else None,
     }
 
 
@@ -475,9 +486,10 @@ async def _own_account(ctx: WebApp, account_id: int) -> PanelAccount:
 
 @router.get("/accounts/{account_id}")
 async def account_detail(account_id: int, ctx: WebApp) -> dict[str, Any]:
-    bounds = await panel_accounts.extra_bounds(ctx.session, ctx.shop.id)
+    account = await _own_account(ctx, account_id)
+    bounds = await panel_accounts.extra_bounds(ctx.session, ctx.shop.id, account.plan)
     return {
-        "account": account_view(await _own_account(ctx, account_id)),
+        "account": account_view(account),
         # How much extra traffic or time one order may buy: {"gb": [least, most], "days": [...]}.
         "limits": {unit: list(pair) for unit, pair in bounds.items()},
     }
@@ -532,6 +544,8 @@ class OrderBody(BaseModel):
     account_id: int | None = None
     # GB, days or user slots for the account add-ons
     account_amount: int = Field(default=0, ge=0, le=100_000)
+    # An account renewal: one of the plan's packages, or a custom size (custom_days, custom_gb).
+    renew_package: int | None = Field(default=None, ge=0, le=50)
     # The location a "move" order takes the service to (F-03).
     location_id: int | None = None
 
@@ -640,7 +654,15 @@ async def _account_order(body: OrderBody, ctx: WebApp, kind: OrderKind) -> Order
         amount = body.account_amount
     try:
         draft = await panel_accounts.draft(
-            ctx.session, ctx.customer, kind, plan=plan_arg, account=account_arg, amount=amount
+            ctx.session,
+            ctx.customer,
+            kind,
+            plan=plan_arg,
+            account=account_arg,
+            amount=amount,
+            package=body.renew_package,
+            renew_days=body.custom_days if kind == OrderKind.ACCOUNT_RENEW else 0,
+            renew_gb=body.custom_gb if kind == OrderKind.ACCOUNT_RENEW else 0,
         )
         return await orders.create(ctx.session, ctx.customer, draft, source="webapp")
     except orders.OrderError as exc:

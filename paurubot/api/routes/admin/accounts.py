@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import ColumnElement, or_, select
 
 from paurubot.api.admin_common import owned, plain
@@ -32,6 +32,13 @@ PLAN_FIELDS = [
     "gb_price",
     "user_price",
     "day_price",
+    "gb_min",
+    "gb_max",
+    "days_min",
+    "days_max",
+    "renew_packages_enabled",
+    "renew_packages",
+    "renew_custom_enabled",
     "sort",
     "is_active",
 ]
@@ -65,8 +72,29 @@ class AccountPlanBody(BaseModel):
     gb_price: int = Field(default=0, ge=0, le=10**10)
     user_price: int = Field(default=0, ge=0, le=10**10)
     day_price: int = Field(default=0, ge=0, le=10**10)
+    # None: the shop's range from Settings.
+    gb_min: int | None = Field(default=None, ge=1, le=panel_accounts.MAX_GB)
+    gb_max: int | None = Field(default=None, ge=1, le=panel_accounts.MAX_GB)
+    days_min: int | None = Field(default=None, ge=1, le=panel_accounts.MAX_DAYS)
+    days_max: int | None = Field(default=None, ge=1, le=panel_accounts.MAX_DAYS)
+    renew_packages_enabled: bool = False
+    renew_packages: list[dict[str, Any]] = Field(default_factory=list)
+    renew_custom_enabled: bool = False
     sort: int = 0
     is_active: bool = True
+
+    @field_validator("renew_packages")
+    @classmethod
+    def _packages(cls, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return panel_accounts.clean_packages(value)  # type: ignore[return-value]
+
+    @model_validator(mode="after")
+    def _ranges(self) -> AccountPlanBody:
+        for unit in ("gb", "days"):
+            low, high = getattr(self, f"{unit}_min"), getattr(self, f"{unit}_max")
+            if low is not None and high is not None and low > high:
+                raise ValueError("account_extras_invalid")
+        return self
 
 
 async def _pasarguard(db: DB, ctx: StaffContext, panel_id: int) -> Panel:

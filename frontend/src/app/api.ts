@@ -210,6 +210,18 @@ export interface PanelAccount {
   /** 0 when extra days are not sold for this account. */
   day_price: number;
   login_url: string;
+  /** How a renewal is sold: the plan itself, ready-made packages and/or a custom size. */
+  renew: AccountRenewal | null;
+}
+
+export interface AccountRenewal {
+  plain: boolean;
+  packages: { days: number; gb: number; price: number }[];
+  custom: boolean;
+  /** Whether the plan has a traffic quota, so a custom renewal also asks for GB. */
+  quota: boolean;
+  day_price: number;
+  gb_price: number;
 }
 
 /** How much extra traffic or time one order may buy: [least, most]. */
@@ -319,6 +331,7 @@ export interface Order {
     gb?: number;
     users?: number;
     days?: number;
+    renew?: { days: number; gb: number; package?: number };
   };
   expires_at: string | null;
 }
@@ -432,6 +445,7 @@ export const api = {
     account_plan_id?: number;
     account_id?: number;
     account_amount?: number;
+    renew_package?: number;
     location_id?: number;
   }) => post<{ order: Order; balance: number; due: number }>("/orders", body),
   resellerDesk: (days: number) => get<ResellerDesk>(`/reseller/desk?days=${days}`),

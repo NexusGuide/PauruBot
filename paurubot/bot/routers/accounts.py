@@ -38,6 +38,10 @@ def steps_within(steps: list[int], low: int, high: int) -> list[int]:
     return inside or sorted({low, high})
 
 
+def renewal_line(t: Texts, days: int, gb: int) -> str:
+    return t("acc_renew_line", days=days, gb=gb or t("unlimited"))
+
+
 def _gb(value: int) -> str:
     return f"{round(value / GB, 1):g}"
 
@@ -196,12 +200,25 @@ async def _checkout(
     plan: AccountPlan | None = None,
     account: PanelAccount | None = None,
     amount: int = 0,
+    package: int | None = None,
+    renew_days: int = 0,
+    renew_gb: int = 0,
 ) -> None:
     data = await state.get_data()
     if data.get("order_id"):
         await orders.cancel(session, int(data["order_id"]), customer.id)
     try:
-        draft = await panel_accounts.draft(session, customer, kind, plan=plan, account=account, amount=amount)
+        draft = await panel_accounts.draft(
+            session,
+            customer,
+            kind,
+            plan=plan,
+            account=account,
+            amount=amount,
+            package=package,
+            renew_days=renew_days,
+            renew_gb=renew_gb,
+        )
         order = await orders.create(session, customer, draft)
     except orders.OrderError as exc:
         if isinstance(event, CallbackQuery):
@@ -224,6 +241,9 @@ async def _checkout(
         OrderKind.ACCOUNT_USERS: lambda: t("acc_checkout_users", value=amount),
         OrderKind.ACCOUNT_DAYS: lambda: t("acc_checkout_days", value=amount),
     }[kind]()
+    renew = (order.params or {}).get("renew")
+    if renew:
+        what += "\n" + renewal_line(t, int(renew["days"]), int(renew["gb"]))
     text = t("acc_checkout", what=what, amount=money(order.amount), balance=money(balance))
     markup = keyboards.checkout_kb(
         t,
@@ -302,8 +322,174 @@ async def renew(
     state: FSMContext,
 ) -> None:
     account = await _mine(call, session, customer, t, callback_data.id)
-    if account is not None:
+    if account is None:
+        return
+    plan = account.plan
+    if plan is None or panel_accounts.plain_renewal(plan):
         await _checkout(call, session, customer, t, state, OrderKind.ACCOUNT_RENEW, account=account)
+        return
+    await call.answer()
+    kb = InlineKeyboardBuilder()
+    for index, item in enumerate(panel_accounts.renew_packages(plan)):
+        kb.button(
+            text=t(
+                "acc_renew_package",
+                days=item["days"],
+                gb=item["gb"] or t("unlimited"),
+                price=money(item["price"]),
+            ),
+            callback_data=Acc(action="rpkg", id=account.id, value=index),
+        )
+    if panel_accounts.custom_renewal(plan):
+        kb.button(text=t("acc_btn_renew_custom"), callback_data=Acc(action="rcustom", id=account.id))
+    kb.button(text=t("btn_back"), callback_data=Acc(action="view", id=account.id))
+    kb.adjust(1)
+    await show(call, t("acc_choose_renew"), kb.as_markup())
+
+
+@router.callback_query(Acc.filter(F.action == "rpkg"))
+async def renew_package(
+    call: CallbackQuery,
+    callback_data: Acc,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    state: FSMContext,
+) -> None:
+    account = await _mine(call, session, customer, t, callback_data.id)
+    if account is not None:
+        await _checkout(
+            call,
+            session,
+            customer,
+            t,
+            state,
+            OrderKind.ACCOUNT_RENEW,
+            account=account,
+            package=callback_data.value,
+        )
+
+
+@router.callback_query(Acc.filter(F.action == "rcustom"))
+async def renew_custom(
+    call: CallbackQuery,
+    callback_data: Acc,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    state: FSMContext,
+) -> None:
+    """A renewal the buyer sizes: days first, then GB when the plan has a quota."""
+    account = await _mine(call, session, customer, t, callback_data.id)
+    if account is None:
+        return
+    plan = account.plan
+    if plan is None or not panel_accounts.custom_renewal(plan):
+        await call.answer(t("renew_option_unavailable"), show_alert=True)
+        return
+    low, high = (await panel_accounts.extra_bounds(session, customer.shop_id, plan))["days"]
+    await call.answer()
+    await state.set_state(AccountStates.renew_days)
+    await state.update_data(account_id=account.id)
+    if isinstance(call.message, Message):
+        await call.message.answer(
+            t("acc_ask_renew_days", min_value=low, max_value=high, price=money(plan.day_price)),
+            reply_markup=keyboards.cancel(t),
+        )
+
+
+async def _renewing(
+    message: Message,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    state: FSMContext,
+    cfg: Any,
+    staff: Any,
+) -> tuple[PanelAccount, AccountPlan] | None:
+    """The account a custom renewal is for, still the buyer's and still on offer."""
+    from paurubot.bot.routers.start import menu
+
+    data = await state.get_data()
+    account = await panel_accounts.owned(session, customer, int(data.get("account_id") or 0))
+    plan = account.plan if account is not None else None
+    if account is None or plan is None or not panel_accounts.custom_renewal(plan):
+        await state.set_state(None)
+        await message.answer(t("renew_option_unavailable"), reply_markup=menu(t, cfg, staff))
+        return None
+    return account, plan
+
+
+@router.message(AccountStates.renew_days, F.text)
+async def renew_days_typed(
+    message: Message,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    staff: Any,
+    state: FSMContext,
+) -> None:
+    from paurubot.bot.routers.start import menu
+
+    found = await _renewing(message, session, customer, t, state, cfg, staff)
+    if found is None:
+        return
+    account, plan = found
+    bounds = await panel_accounts.extra_bounds(session, customer.shop_id, plan)
+    low, high = bounds["days"]
+    days = parse_int(message.text)
+    if days is None or not low <= days <= high:
+        await message.answer(t("acc_amount_range", min_value=low, max_value=high))
+        return
+    if plan.data_gb > 0:
+        await state.update_data(renew_days=days)
+        await state.set_state(AccountStates.renew_gb)
+        low, high = bounds["gb"]
+        await message.answer(t("acc_ask_renew_gb", min_value=low, max_value=high, price=money(plan.gb_price)))
+        return
+    await state.set_state(None)
+    await message.answer(t("acc_amount_noted"), reply_markup=menu(t, cfg, staff))
+    await _checkout(
+        message, session, customer, t, state, OrderKind.ACCOUNT_RENEW, account=account, renew_days=days
+    )
+
+
+@router.message(AccountStates.renew_gb, F.text)
+async def renew_gb_typed(
+    message: Message,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    staff: Any,
+    state: FSMContext,
+) -> None:
+    from paurubot.bot.routers.start import menu
+
+    found = await _renewing(message, session, customer, t, state, cfg, staff)
+    if found is None:
+        return
+    account, plan = found
+    low, high = (await panel_accounts.extra_bounds(session, customer.shop_id, plan))["gb"]
+    gb = parse_int(message.text)
+    if gb is None or not low <= gb <= high:
+        await message.answer(t("acc_amount_range", min_value=low, max_value=high))
+        return
+    days = int((await state.get_data()).get("renew_days") or 0)
+    await state.set_state(None)
+    await message.answer(t("acc_amount_noted"), reply_markup=menu(t, cfg, staff))
+    await _checkout(
+        message,
+        session,
+        customer,
+        t,
+        state,
+        OrderKind.ACCOUNT_RENEW,
+        account=account,
+        renew_days=days,
+        renew_gb=gb,
+    )
 
 
 @router.callback_query(Acc.filter(F.action.in_({"gb", "days", "users"})))
@@ -329,7 +515,7 @@ async def extras(
     await call.answer()
     kb = InlineKeyboardBuilder()
     if unit_name in RANGED:
-        low, high = (await panel_accounts.extra_bounds(session, customer.shop_id))[unit_name]
+        low, high = (await panel_accounts.extra_bounds(session, customer.shop_id, plan))[unit_name]
         steps = steps_within(GB_STEPS if unit_name == "gb" else DAY_STEPS, low, high)
         text = t(f"acc_choose_{unit_name}_range", min_value=low, max_value=high)
     else:
@@ -386,7 +572,7 @@ async def ask_amount(
     if account is None:
         return
     unit_name = callback_data.action.removeprefix("ask_")
-    low, high = (await panel_accounts.extra_bounds(session, customer.shop_id))[unit_name]
+    low, high = (await panel_accounts.extra_bounds(session, customer.shop_id, account.plan))[unit_name]
     await call.answer()
     await state.set_state(AccountStates.amount)
     await state.update_data(account_id=account.id, unit=unit_name)
@@ -415,7 +601,7 @@ async def typed_amount(
         await state.set_state(None)
         await message.answer(t("account_not_found"), reply_markup=menu(t, cfg, staff))
         return
-    low, high = (await panel_accounts.extra_bounds(session, customer.shop_id))[unit_name]
+    low, high = (await panel_accounts.extra_bounds(session, customer.shop_id, account.plan))[unit_name]
     value = parse_int(message.text)
     if value is None or not low <= value <= high:
         await message.answer(t("acc_amount_range", min_value=low, max_value=high))
