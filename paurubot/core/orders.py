@@ -40,7 +40,13 @@ from paurubot.worker import queue
 
 PROVISION_QUEUE = "provision"
 ACCOUNT_KINDS = frozenset(
-    {OrderKind.ACCOUNT_PURCHASE, OrderKind.ACCOUNT_RENEW, OrderKind.ACCOUNT_GB, OrderKind.ACCOUNT_USERS}
+    {
+        OrderKind.ACCOUNT_PURCHASE,
+        OrderKind.ACCOUNT_RENEW,
+        OrderKind.ACCOUNT_GB,
+        OrderKind.ACCOUNT_USERS,
+        OrderKind.ACCOUNT_DAYS,
+    }
 )
 
 

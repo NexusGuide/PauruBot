@@ -192,6 +192,80 @@ async def test_renew_add_traffic_and_users(session, env) -> None:  # type: ignor
     assert exc.value.key == "account_not_found"
 
 
+async def test_extra_days_lengthen_the_period_within_the_shops_range(session, env) -> None:  # type: ignore[no-untyped-def]
+    plan = env["plan"]
+    plan.day_price = 2_000
+    await shop_settings.set_many(
+        session, env["shop"].id, {"panel_accounts_days_min": 5, "panel_accounts_days_max": 60}
+    )
+    await session.commit()
+    cust = await _buyer(session, env["shop"])
+    _order, account = await _bought(session, env, cust)
+    before = account.expire_at
+    assert before is not None
+    order = await _pay(session, cust, OrderKind.ACCOUNT_DAYS, account=account, amount=10)
+    assert order.amount == 20_000 and order.params["days"] == 10
+    await session.refresh(account)
+    assert account.expire_at is not None
+    assert abs((account.expire_at - before).total_seconds() - 10 * 86400) < 5  # added to the period left
+    for amount in (4, 61):
+        with pytest.raises(orders.OrderError) as exc:
+            await panel_accounts.draft(session, cust, OrderKind.ACCOUNT_DAYS, account=account, amount=amount)
+        assert exc.value.key == "acc_amount_range"
+        assert exc.value.params == {"min_value": 5, "max_value": 60}
+    # Not sold: no price on the plan, or a plan that never ends.
+    plan.day_price = 0
+    await session.commit()
+    with pytest.raises(orders.OrderError) as exc:
+        await panel_accounts.draft(session, cust, OrderKind.ACCOUNT_DAYS, account=account, amount=10)
+    assert exc.value.key == "extras_unavailable"
+    plan.day_price = 2_000
+    account.expire_at = None
+    await session.commit()
+    with pytest.raises(orders.OrderError) as exc:
+        await panel_accounts.draft(session, cust, OrderKind.ACCOUNT_DAYS, account=account, amount=10)
+    assert exc.value.key == "extras_unavailable"
+
+
+async def test_extra_traffic_follows_the_shops_range(session, env) -> None:  # type: ignore[no-untyped-def]
+    await shop_settings.set_many(
+        session, env["shop"].id, {"panel_accounts_gb_min": 20, "panel_accounts_gb_max": 300}
+    )
+    await session.commit()
+    cust = await _buyer(session, env["shop"])
+    _order, account = await _bought(session, env, cust)
+    for amount in (10, 301):
+        with pytest.raises(orders.OrderError) as exc:
+            await panel_accounts.draft(session, cust, OrderKind.ACCOUNT_GB, account=account, amount=amount)
+        assert exc.value.key == "acc_amount_range"
+    order = await _pay(session, cust, OrderKind.ACCOUNT_GB, account=account, amount=300)
+    assert order.amount == 300_000
+    assert await panel_accounts.extra_bounds(session, env["shop"].id) == {"gb": (20, 300), "days": (1, 365)}
+
+
+async def test_days_paid_just_before_the_end_switch_the_account_back_on(session, env) -> None:  # type: ignore[no-untyped-def]
+    """The period ran out between paying and the worker applying it: the days bring it back."""
+    fake = env["fake"]
+    env["plan"].day_price = 1_000
+    await session.commit()
+    cust = await _buyer(session, env["shop"])
+    _order, account = await _bought(session, env, cust)
+    draft = await panel_accounts.draft(session, cust, OrderKind.ACCOUNT_DAYS, account=account, amount=7)
+    order = await orders.create(session, cust, draft)
+    await orders.settle_from_wallet(session, order.id)
+    account.expire_at = utcnow() - timedelta(minutes=1)
+    await session.commit()
+    await panel_accounts.run(session)  # the expiry pass switches it off first
+    await session.refresh(account)
+    assert account.status == "expired"
+    await drain(session, "provision")
+    await session.refresh(account)
+    assert account.status == "active"
+    assert account.expire_at is not None and account.expire_at > utcnow() + timedelta(days=6)
+    assert fake.sold_admins[account.username]["status"] == "active"
+    assert (account.username, "activate") in fake.admin_user_actions
+
+
 async def test_quota_alert_once_and_expiry_switches_off_until_renewed(session, env) -> None:  # type: ignore[no-untyped-def]
     fake = env["fake"]
     cust = await _buyer(session, env["shop"])

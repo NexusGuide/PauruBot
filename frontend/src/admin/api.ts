@@ -564,6 +564,7 @@ export interface AccountPlan {
   price: number;
   gb_price: number;
   user_price: number;
+  day_price: number;
   sort: number;
   is_active: boolean;
 }

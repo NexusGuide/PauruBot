@@ -207,7 +207,15 @@ export interface PanelAccount {
   price: number;
   gb_price: number;
   user_price: number;
+  /** 0 when extra days are not sold for this account. */
+  day_price: number;
   login_url: string;
+}
+
+/** How much extra traffic or time one order may buy: [least, most]. */
+export interface AccountLimits {
+  gb: [number, number];
+  days: [number, number];
 }
 
 export interface AccountList {
@@ -310,6 +318,7 @@ export interface Order {
     account_id?: number;
     gb?: number;
     users?: number;
+    days?: number;
   };
   expires_at: string | null;
 }
@@ -406,7 +415,7 @@ export const api = {
   catalog: () => get<Catalog>("/catalog"),
   accountPlans: (signal?: AbortSignal) => get<AccountPlans>("/account-plans", signal),
   accounts: (signal?: AbortSignal) => get<AccountList>("/accounts", signal),
-  account: (id: number) => get<{ account: PanelAccount }>(`/accounts/${id}`),
+  account: (id: number) => get<{ account: PanelAccount; limits: AccountLimits }>(`/accounts/${id}`),
   accountLogin: (id: number) => get<{ url: string; username: string; password: string }>(`/accounts/${id}/login`),
   refreshAccount: (id: number) => post<{ account: PanelAccount }>(`/accounts/${id}/refresh`),
   createOrder: (body: {

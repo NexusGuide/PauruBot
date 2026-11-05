@@ -137,6 +137,7 @@ class AccountPlan(Base, UpdatedMixin):
     price: Mapped[int] = mapped_column(default=0)
     gb_price: Mapped[int] = mapped_column(default=0)  # one extra GB; 0: not sold
     user_price: Mapped[int] = mapped_column(default=0)  # one extra user slot; 0: not sold
+    day_price: Mapped[int] = mapped_column(default=0)  # one extra day; 0: not sold
     sort: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 

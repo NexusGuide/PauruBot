@@ -110,3 +110,53 @@ async def test_someone_else_cannot_open_the_account(session, env) -> None:  # ty
     fake.reset()
     await send(callback_update(UID + 2, Acc(action="login", id=account.id).pack()))
     assert not [c for c in fake.calls if isinstance(c, SendMessage)]
+
+
+async def test_buy_extra_days_with_a_tap_or_a_typed_amount(session, env) -> None:  # type: ignore[no-untyped-def]
+    send, fake, shop, plan = env["send"], env["fake"], env["shop"], env["plan"]
+    plan.day_price = 4_000
+    await shop_settings.set_many(
+        session, shop.id, {"panel_accounts_days_min": 10, "panel_accounts_days_max": 45}
+    )
+    await send(message_update(UID + 3, "/start"))
+    owner = await _customer(session, shop.id, UID + 3)
+    from datetime import timedelta
+
+    from paurubot.db.base import utcnow
+
+    account = PanelAccount(
+        shop_id=shop.id,
+        customer_id=owner.id,
+        panel_id=plan.panel_id,
+        plan_id=plan.id,
+        username="r3_days",
+        password_enc="x",
+        data_limit=0,
+        expire_at=utcnow() + timedelta(days=5),
+    )
+    session.add(account)
+    await wallet.topup(session, shop.id, owner.id, 1_000_000, provider="card", payment_id=owner.id)
+    await session.commit()
+
+    await send(callback_update(UID + 3, Acc(action="view", id=account.id).pack()))
+    card = fake.last(EditMessageText)
+    days = next(data for text, data in fake.buttons(card) if text == FA("acc_btn_days"))
+    await send(callback_update(UID + 3, days))
+    picker = fake.last(EditMessageText)
+    assert FA("acc_choose_days_range", min_value=10, max_value=45) == picker.text
+    taps = [
+        Acc.unpack(data).value
+        for _text, data in fake.buttons(picker)
+        if Acc.unpack(data).action == "buy_days"
+    ]
+    assert taps == [15, 30]  # the bot's steps inside 10..45
+    ask = next(data for text, data in fake.buttons(picker) if text == FA("acc_btn_custom_amount"))
+    await send(callback_update(UID + 3, ask))
+    assert fake.last(SendMessage).text == FA("acc_ask_days", min_value=10, max_value=45)
+    await send(message_update(UID + 3, "50"))  # outside the range: asked again
+    assert fake.last(SendMessage).text == FA("acc_amount_range", min_value=10, max_value=45)
+    await send(message_update(UID + 3, "۲۰"))
+    checkout = fake.last(SendMessage)
+    assert FA("acc_checkout_days", value=20) in checkout.text
+    order = (await session.execute(Order.__table__.select().where(Order.customer_id == owner.id))).first()
+    assert order is not None and order.kind == "account_days" and order.amount == 80_000

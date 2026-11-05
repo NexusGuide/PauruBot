@@ -8,9 +8,10 @@ import { Icon } from "../icons";
 import { Button, Chevron, Empty, ReadFailure, Ring, Screen } from "../ui";
 import { useResource } from "../useResource";
 
-/** Traffic and user-slot steps of the bot flow, shown as one-tap cards (TEN-14). */
-const GB_STEPS = [10, 50, 100, 200, 500];
-const USER_STEPS = [5, 10, 20, 50, 100];
+import { DAY_STEPS, GB_STEPS, USER_STEPS, parseAmount, stepsWithin } from "../agency-extras";
+
+type Picker = "gb" | "days" | "users";
+const ORDER_KIND: Record<Picker, string> = { gb: "account_gb", days: "account_days", users: "account_users" };
 
 function badgeTone(status: string) {
   if (status === "active") return "green";
@@ -139,7 +140,8 @@ export function AgencyAccount() {
   const accountId = Number(id);
   const load = useCallback(async () => api.account(accountId), [accountId]);
   const { data, error, retry } = useResource(load);
-  const [picker, setPicker] = useState<"gb" | "users" | null>(null);
+  const [picker, setPicker] = useState<Picker | null>(null);
+  const [typed, setTyped] = useState("");
   const [login, setLogin] = useState<{ url: string; username: string; password: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -147,6 +149,7 @@ export function AgencyAccount() {
     setPicker(null);
     setLogin(null);
   }, [accountId]);
+  useEffect(() => setTyped(""), [picker]);
 
   if (error) {
     return (
@@ -254,34 +257,74 @@ export function AgencyAccount() {
             {t("agency_add_data")}
           </Button>
         )}
+        {account.day_price > 0 && (
+          <Button tone="quiet" onClick={() => { haptic("select"); setPicker(picker === "days" ? null : "days"); }}>
+            {t("agency_add_days")}
+          </Button>
+        )}
         {account.user_price > 0 && account.max_users != null && (
           <Button tone="quiet" onClick={() => { haptic("select"); setPicker(picker === "users" ? null : "users"); }}>
             {t("agency_add_users")}
           </Button>
         )}
-        {picker && (
-          <ul className="grid grid-cols-2 gap-3">
-            {(picker === "gb" ? GB_STEPS : USER_STEPS).map(value => {
-              const price = value * (picker === "gb" ? account.gb_price : account.user_price);
-              return (
-                <li key={value}>
-                  <button
-                    type="button"
+        {picker && (() => {
+          const unit = picker === "gb" ? account.gb_price : picker === "days" ? account.day_price : account.user_price;
+          const range = picker === "users" ? null : data.limits[picker];
+          const steps = picker === "users" ? USER_STEPS : stepsWithin(picker === "gb" ? GB_STEPS : DAY_STEPS, range!);
+          const label = picker === "gb" ? t("gb") : picker === "days" ? t("days") : t("agency_users");
+          const typedValue = range ? parseAmount(typed, range) : null;
+          return (
+            <>
+              <ul className="grid grid-cols-2 gap-3">
+                {steps.map(value => (
+                  <li key={value}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        haptic("select");
+                        go(ORDER_KIND[picker], value);
+                      }}
+                      className="w-full rounded-3xl bg-[var(--surface)] p-4 text-center"
+                    >
+                      <p className="num text-2xl font-extrabold">{money(value, locale)}</p>
+                      <p className="text-xs text-[var(--hint)]">{label}</p>
+                      <p className="num mt-2 text-sm font-semibold">{money(value * unit, locale)} {t("currency")}</p>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {range && (
+                <div className="flex gap-2">
+                  <input
+                    aria-label={t("agency_custom_amount", { low: money(range[0], locale), high: money(range[1], locale) })}
+                    placeholder={t("agency_custom_amount", { low: money(range[0], locale), high: money(range[1], locale) })}
+                    inputMode="numeric"
+                    maxLength={7}
+                    value={typed}
+                    onChange={(e) => setTyped(e.target.value)}
+                    className="num min-w-0 flex-1"
+                  />
+                  <Button
+                    tone="quiet"
+                    disabled={typedValue === null}
                     onClick={() => {
+                      if (typedValue === null) return;
                       haptic("select");
-                      go(picker === "gb" ? "account_gb" : "account_users", value);
+                      go(ORDER_KIND[picker], typedValue);
                     }}
-                    className="w-full rounded-3xl bg-[var(--surface)] p-4 text-center"
                   >
-                    <p className="num text-2xl font-extrabold">{money(value, locale)}</p>
-                    <p className="text-xs text-[var(--hint)]">{t(picker === "gb" ? "gb" : "agency_users")}</p>
-                    <p className="num mt-2 text-sm font-semibold">{money(price, locale)} {t("currency")}</p>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+                    {typedValue === null ? t("agency_buy_amount") : `${t("agency_buy_amount")} · ${money(typedValue * unit, locale)} ${t("currency")}`}
+                  </Button>
+                </div>
+              )}
+              {range && typed.trim() !== "" && typedValue === null && (
+                <p className="text-xs text-[var(--hint)]">
+                  {t("agency_amount_range", { low: money(range[0], locale), high: money(range[1], locale) })}
+                </p>
+              )}
+            </>
+          );
+        })()}
         <Button tone="quiet" busy={busy} onClick={refresh}>{t("agency_refresh")}</Button>
       </div>
 

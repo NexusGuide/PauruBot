@@ -23,6 +23,10 @@ class WalletStates(StatesGroup):
     card_photo = State()
 
 
+class AccountStates(StatesGroup):
+    amount = State()  # a typed amount of extra GB or days for a panel admin account
+
+
 class ServiceStates(StatesGroup):
     rename = State()
 

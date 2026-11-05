@@ -69,6 +69,7 @@ class OrderKind(enum.StrEnum):
     ACCOUNT_RENEW = "account_renew"
     ACCOUNT_GB = "account_gb"
     ACCOUNT_USERS = "account_users"
+    ACCOUNT_DAYS = "account_days"
 
 
 class OrderStatus(enum.StrEnum):

@@ -31,6 +31,7 @@ PLAN_FIELDS = [
     "price",
     "gb_price",
     "user_price",
+    "day_price",
     "sort",
     "is_active",
 ]
@@ -63,6 +64,7 @@ class AccountPlanBody(BaseModel):
     price: int = Field(ge=0, le=10**12)
     gb_price: int = Field(default=0, ge=0, le=10**10)
     user_price: int = Field(default=0, ge=0, le=10**10)
+    day_price: int = Field(default=0, ge=0, le=10**10)
     sort: int = 0
     is_active: bool = True
 

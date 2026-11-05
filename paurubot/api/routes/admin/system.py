@@ -156,6 +156,37 @@ def _check_custom(values: dict[str, Any]) -> None:
             raise HTTPException(status_code=422, detail=f"{key}_invalid")
 
 
+ACCOUNT_EXTRA_KEYS = (
+    "panel_accounts_gb_min",
+    "panel_accounts_gb_max",
+    "panel_accounts_days_min",
+    "panel_accounts_days_max",
+)
+
+
+async def _check_account_extras(db: AsyncSession, shop_id: int, values: dict[str, Any]) -> None:
+    """Extra GB and days for admin accounts: 1 <= least <= most <= the hard cap, with the saved
+    value standing in for the half of a pair not being changed."""
+    from paurubot.core import panel_accounts
+
+    if not any(key in values for key in ACCOUNT_EXTRA_KEYS):
+        return
+    current = await shop_settings.load(db, shop_id, fresh=True)
+    merged: dict[str, int] = {}
+    for key in ACCOUNT_EXTRA_KEYS:
+        raw = values.get(key, current.get(key))
+        if isinstance(raw, bool):
+            raise HTTPException(status_code=422, detail="account_extras_invalid")
+        try:
+            merged[key] = int(str(raw).strip())
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="account_extras_invalid") from None
+    for unit, cap in (("gb", panel_accounts.MAX_GB), ("days", panel_accounts.MAX_DAYS)):
+        low, high = merged[f"panel_accounts_{unit}_min"], merged[f"panel_accounts_{unit}_max"]
+        if not 1 <= low <= high <= cap:
+            raise HTTPException(status_code=422, detail="account_extras_invalid")
+
+
 def _check_growth(values: dict[str, Any]) -> None:
     from paurubot.core import growth
 
@@ -300,6 +331,7 @@ async def write_settings(
     _check_custom(body.values)
     _check_appearance(body.values)
     _check_growth(body.values)
+    await _check_account_extras(db, ctx.shop_id, body.values)
     from paurubot.core import referral_rewards
 
     try:

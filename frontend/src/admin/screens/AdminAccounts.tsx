@@ -36,6 +36,7 @@ const EMPTY: PlanDraft = {
   price: 0,
   gb_price: 0,
   user_price: 0,
+  day_price: 0,
   sort: 0,
   is_active: true,
 };
@@ -147,6 +148,9 @@ function PlanSheet({ draft, panels, onClose, onSaved }: { draft: PlanDraft | nul
           </Field>
           <Field label={t("account_user_price")} hint={t("zero_not_sold")}>
             {(id) => <NumberInput id={id} value={form.user_price} onChange={(v) => set({ user_price: v ?? 0 })} />}
+          </Field>
+          <Field label={t("account_day_price")} hint={form.days > 0 ? t("zero_not_sold") : t("account_day_price_no_end")}>
+            {(id) => <NumberInput id={id} value={form.day_price} onChange={(v) => set({ day_price: v ?? 0 })} />}
           </Field>
           <Field label={t("sort_order")}>{(id) => <NumberInput id={id} value={form.sort} onChange={(v) => set({ sort: v ?? 0 })} />}</Field>
         </div>

@@ -56,5 +56,6 @@
   "adm_users_kind_account_purchase": "خرید حساب پنل",
   "adm_users_kind_account_renew": "تمدید حساب پنل",
   "adm_users_kind_account_gb": "حجم حساب پنل",
-  "adm_users_kind_account_users": "ظرفیت حساب پنل"
+  "adm_users_kind_account_users": "ظرفیت حساب پنل",
+  "adm_users_kind_account_days": "روز حساب پنل"
 }

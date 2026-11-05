@@ -244,6 +244,11 @@ SPECS: dict[str, Spec] = {
     "reseller_bot_open": Spec(bool, False, "resellers"),
     "panel_accounts_enabled": Spec(bool, False, "resellers"),
     "panel_accounts_resellers_only": Spec(bool, False, "resellers"),
+    # How much extra traffic or time an admin account owner may buy in one order.
+    "panel_accounts_gb_min": Spec(int, 1, "resellers"),
+    "panel_accounts_gb_max": Spec(int, 1000, "resellers"),
+    "panel_accounts_days_min": Spec(int, 1, "resellers"),
+    "panel_accounts_days_max": Spec(int, 365, "resellers"),
     # reports
     "daily_report_hour": Spec(int, 23, "reports"),
     "log_retention_days": Spec(int, 30, "reports"),

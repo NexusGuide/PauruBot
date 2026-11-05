@@ -56,5 +56,6 @@
   "adm_users_kind_account_purchase": "Panel account purchase",
   "adm_users_kind_account_renew": "Panel account renewal",
   "adm_users_kind_account_gb": "Panel account data",
-  "adm_users_kind_account_users": "Panel account user capacity"
+  "adm_users_kind_account_users": "Panel account user capacity",
+  "adm_users_kind_account_days": "Panel account days"
 }

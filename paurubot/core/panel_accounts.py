@@ -35,6 +35,7 @@ KINDS = ACCOUNT_KINDS
 LIVE = ("active", "paused", "expired")
 MAX_GB = 100_000
 MAX_USERS = 10_000
+MAX_DAYS = 3650
 SPECIAL = "!@#$%^&*-_=+"
 
 
@@ -121,6 +122,26 @@ async def owned(session: AsyncSession, customer: Customer, account_id: int) -> P
     return account
 
 
+async def extra_bounds(session: AsyncSession, shop_id: int) -> dict[str, tuple[int, int]]:
+    """How much extra traffic (GB) or time (days) one order may buy, as the shop set it."""
+    cfg = await shop_settings.load(session, shop_id)
+
+    def pair(low_key: str, high_key: str, cap: int) -> tuple[int, int]:
+        low = min(max(int(cfg.get(low_key) or 1), 1), cap)
+        high = min(max(int(cfg.get(high_key) or cap), low), cap)
+        return low, high
+
+    return {
+        "gb": pair("panel_accounts_gb_min", "panel_accounts_gb_max", MAX_GB),
+        "days": pair("panel_accounts_days_min", "panel_accounts_days_max", MAX_DAYS),
+    }
+
+
+def can_buy_days(account: PanelAccount, plan: AccountPlan | None) -> bool:
+    """Extra days are sold when the plan prices them and the account has an end date."""
+    return plan is not None and plan.day_price > 0 and account.expire_at is not None
+
+
 async def draft(
     session: AsyncSession,
     customer: Customer,
@@ -130,7 +151,7 @@ async def draft(
     account: PanelAccount | None = None,
     amount: int = 0,
 ) -> Draft:
-    """Price and validate an account order; `amount` is GB or user slots for the add-ons."""
+    """Price and validate an account order; `amount` is GB, days or user slots for the add-ons."""
     if kind not in KINDS:
         raise OrderError("plan_unavailable")
     if not await available(session, customer):
@@ -150,9 +171,19 @@ async def draft(
     if account.status not in {"active", "paused"}:
         raise OrderError("account_not_active")  # an ended account is renewed first
     if kind == OrderKind.ACCOUNT_GB:
-        if current.gb_price <= 0 or not account.data_limit or not 1 <= amount <= MAX_GB:
+        if current.gb_price <= 0 or not account.data_limit:
             raise OrderError("extras_unavailable")
+        low, high = (await extra_bounds(session, customer.shop_id))["gb"]
+        if not low <= amount <= high:
+            raise OrderError("acc_amount_range", min_value=low, max_value=high)
         return Draft(kind, None, None, {**params, "gb": amount}, amount * int(current.gb_price))
+    if kind == OrderKind.ACCOUNT_DAYS:
+        if not can_buy_days(account, current):
+            raise OrderError("extras_unavailable")
+        low, high = (await extra_bounds(session, customer.shop_id))["days"]
+        if not low <= amount <= high:
+            raise OrderError("acc_amount_range", min_value=low, max_value=high)
+        return Draft(kind, None, None, {**params, "days": amount}, amount * int(current.day_price))
     if current.user_price <= 0 or not account.max_users or not 1 <= amount <= MAX_USERS:
         raise OrderError("extras_unavailable")
     return Draft(kind, None, None, {**params, "users": amount}, amount * int(current.user_price))
@@ -210,6 +241,21 @@ async def apply(session: AsyncSession, order: Order) -> PanelAccount:
             order.params = dict(params)  # a new object, so the JSON change is saved
             await session.commit()
         await _renew(driver, account, plan, params)
+    elif order.kind == OrderKind.ACCOUNT_DAYS:
+        if "target_expire" not in params:
+            # From the current end date, or from now if it already passed (a paused account).
+            now = utcnow()
+            start = account.expire_at if account.expire_at and account.expire_at > now else now
+            params["target_expire"] = (start + timedelta(days=int(params["days"]))).isoformat()
+            order.params = dict(params)  # a new object, so the JSON change is saved
+            await session.commit()
+        # The panel has no end date for an admin: the bot switches it off when this passes.
+        account.expire_at = datetime.fromisoformat(params["target_expire"])
+        if account.status == "expired" and account.expire_at > utcnow():
+            # It ran out between paying and now: the paid days switch it back on.
+            await driver.modify_admin(account.username, status="active")
+            await driver.set_admin_users(account.username, True)
+            account.status = "active"
     elif order.kind == OrderKind.ACCOUNT_GB:
         if "target_limit" not in params:
             params["target_limit"] = int(account.data_limit) + int(params["gb"]) * GB
