@@ -10,6 +10,7 @@ import { Home } from "./screens/Home";
 import { Gate } from "./screens/Gate";
 import { Join } from "./screens/Join";
 import { Manage } from "./screens/Manage";
+import { OwnFeaturesScreen, OwnHome, OwnPayment, OwnPlanEdit, OwnPlans, OwnStatus } from "./screens/OwnShop";
 import { More } from "./screens/More";
 import { Notifications } from "./screens/Notifications";
 import { Receipts } from "./screens/Receipts";
@@ -165,6 +166,12 @@ function Shell() {
         <Route path="/tickets/:id" element={<TicketThread />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/manage" element={<Manage />} />
+        <Route path="/shop" element={<OwnHome />} />
+        <Route path="/shop/plans" element={<OwnPlans />} />
+        <Route path="/shop/plans/:id" element={<OwnPlanEdit />} />
+        <Route path="/shop/payment" element={<OwnPayment />} />
+        <Route path="/shop/features" element={<OwnFeaturesScreen />} />
+        <Route path="/shop/status" element={<OwnStatus />} />
         <Route path="/desk" element={<Desk />} />
         <Route path="*" element={<Home />} />
       </Routes>

@@ -107,6 +107,9 @@ export function More() {
         <Item icon={<Icon name="recv" />} title={t("receipts_title")} sub={t("receipts_hint")} to="/receipts" />
         <Item icon={<Icon name="headset" />} title={t("tickets_title")} sub={t("tickets_entry_hint")} to="/tickets" />
         <Item icon={<Icon name="help" />} title={t("help_title")} sub={t("help_entry_hint")} to="/help" />
+        {me.staff?.own && (
+          <Item icon={<Icon name="layers" />} tone="green" title={t("own_title")} sub={t("own_entry_hint")} to="/shop" />
+        )}
         {me.staff && (me.staff.dashboard || me.staff.review) && (
           <Item icon={<Icon name="gauge" />} tone="green" title={t("manage")} sub={t("manage_hint")} to="/manage" />
         )}

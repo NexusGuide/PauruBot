@@ -113,7 +113,57 @@ export interface StaffAccess {
   scoped: boolean;
   dashboard: boolean;
   review: boolean;
+  /** Runs this dedicated bot on its own panel (OPB-4); missing from older servers. */
+  own?: boolean;
 }
+
+/** The reseller's own admin account its dedicated bot sells from. */
+export interface OwnAccount {
+  username: string;
+  status: string;
+  data_limit: number;
+  used_bytes: number;
+  users_count: number;
+  max_users: number | null;
+  expire_at: string | null;
+}
+
+export interface OwnExtra { enabled: boolean; price: number; min: number; max: number; bounds?: [number, number] }
+export interface OwnFeatures {
+  trial: { enabled: boolean; gb: number; days: number; daily_quota: number };
+  renew: { enabled: boolean; carry: boolean };
+  extra_gb: OwnExtra;
+  extra_days: OwnExtra;
+}
+export interface OwnCard { number: string; holder: string }
+
+export interface OwnShop {
+  title: string;
+  bot_username: string | null;
+  main_bot: string | null;
+  account: OwnAccount | null;
+  /** "" while selling, else inactive | expired | traffic_full | users_full. */
+  paused: string;
+  hold: boolean;
+  figures: { sales_today: number; customers: number; active_services: number; pending_receipts: number };
+  plans: { active: number; total: number };
+  card: OwnCard | null;
+  features: OwnFeatures;
+}
+
+export interface OwnPlan {
+  id: number;
+  title: string;
+  data_gb: number;
+  days: number;
+  price: number;
+  group_ids: string[];
+  is_active: boolean;
+  renewable: boolean;
+  sold: number;
+}
+export type OwnPlanInput = Omit<OwnPlan, "id" | "sold">;
+export interface OwnPlans { items: OwnPlan[]; groups: { id: string; title: string }[]; groups_ok: boolean }
 
 export interface StaffDashboard {
   customers?: number;
@@ -257,7 +307,13 @@ export interface Service {
   location: string | null;
   plan_id: number | null;
   panel_id: number;
-  extras: { gb_price: number | null; day_price: number | null } | null;
+  extras: {
+    gb_price: number | null;
+    day_price: number | null;
+    /** Amounts this shop offers; missing from older servers. */
+    gb_choices?: number[];
+    day_choices?: number[];
+  } | null;
   delivery?: "subscription" | "wireguard" | "account" | "stock";
   account?: { username: string; password: string | null };
   download_url?: string | null;
@@ -401,7 +457,19 @@ const get = <T>(path: string, signal?: AbortSignal) => request<T>(`/api/webapp${
 const post = <T>(path: string, body: unknown = {}) =>
   request<T>(`/api/webapp${path}`, { method: "POST", body, headers: auth() });
 
+const send = <T>(method: "PUT" | "DELETE", path: string, body?: unknown) =>
+  request<T>(`/api/webapp${path}`, { method, body, headers: auth() });
+
 export const api = {
+  ownShop: () => get<OwnShop>("/own"),
+  ownPlans: () => get<OwnPlans>("/own/plans"),
+  ownCreatePlan: (body: OwnPlanInput) => post<{ plan: OwnPlan }>("/own/plans", body),
+  ownUpdatePlan: (id: number, body: OwnPlanInput) => send<{ plan: OwnPlan }>("PUT", `/own/plans/${id}`, body),
+  ownDeletePlan: (id: number) => send<{ deleted: boolean }>("DELETE", `/own/plans/${id}`),
+  ownPayment: () => get<{ card: OwnCard | null; order_expire_minutes: number }>("/own/payment"),
+  ownSavePayment: (body: { number: string; holder: string; order_expire_minutes: number }) =>
+    send<{ card: OwnCard; order_expire_minutes: number }>("PUT", "/own/payment", body),
+  ownSaveFeatures: (body: OwnFeatures) => send<{ features: OwnFeatures }>("PUT", "/own/features", body),
   announcements: (before?: number, unread = false) => get<AnnouncementPage>(`/announcements?unread=${unread}${before ? `&before=${before}` : ""}`),
   announcementState: (id: number, action: "seen" | "read") => post<{ item: Announcement }>(`/announcements/${id}/state`, { action }),
   cardVerification: () => get<unknown>("/cards/verification"),
