@@ -9,6 +9,7 @@ import { haptic, initData } from "../telegram";
 import { Chevron, CountUp, Item, ReadFailure, Screen, Spinner } from "../ui";
 
 import { useResource } from "../useResource";
+import { dataLeft } from "../data-left";
 
 export function usageRatio(service: Service): number | null {
   if (!service.data_limit) return null;
@@ -68,7 +69,7 @@ function HomeBody() {
   const unread =
     services && history ? buildAlerts(services, history.items, t, locale, policy).filter((alert) => !read.has(alert.id)).length : 0;
   const ratio = featured ? usageRatio(featured) : null;
-  const remaining = featured && ratio !== null ? featured.data_limit - featured.used_bytes : null;
+  const remaining = featured && ratio !== null ? dataLeft(featured.data_limit, featured.used_bytes) : null;
   const remainingPct = ratio === null ? null : Math.max(0, Math.min(100, Math.round(ratio * 100)));
 
   const takeTrial = async () => {

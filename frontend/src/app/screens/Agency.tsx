@@ -96,6 +96,16 @@ export function Agency() {
       {items.length === 0 && (
         <p className="app-hint px-1 text-sm">{t("agency_mine_hint")}</p>
       )}
+      <AccountRows items={items} />
+    </Screen>
+  );
+}
+
+/** The customer's panel admin accounts, one row each, opening the account's page. */
+function AccountRows({ items }: { items: PanelAccount[] }) {
+  const { t, locale } = useApp();
+  const navigate = useNavigate();
+  return (
       <ul className="flex flex-col">
         {items.map(account => (
           <li key={account.id} className="app-card">
@@ -128,7 +138,21 @@ export function Agency() {
           </li>
         ))}
       </ul>
-    </Screen>
+  );
+}
+
+/** "My panels" wherever the customer looks for what they own (the services list too);
+ *  nothing at all when they have none or the list cannot be read. */
+export function MyPanels() {
+  const { t } = useApp();
+  const accounts = useResource(api.accounts);
+  const items = accounts.data?.items ?? [];
+  if (items.length === 0) return null;
+  return (
+    <>
+      <p className="app-lbl">{t("agency_mine")}</p>
+      <AccountRows items={items} />
+    </>
   );
 }
 

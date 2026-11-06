@@ -39,6 +39,7 @@ function setup(rename) {
     "../ui": Object.fromEntries(["Button", "Chevron", "Empty", "Loading", "Panel", "ReadFailure", "Ring", "Row", "Screen"].map(x => [x, x])),
     "./Home": { timeRatio: () => 0.5, usageRatio: () => 0.5 },
     "./StockInventory": { StockInventory: "StockInventory" }, "./ServiceAccess": { ServiceAccess: "ServiceAccess" },
+    "./Agency": { MyPanels: "MyPanels" }, "../data-left": h.compile(url("data-left.ts"), {}),
     "../useResource": { useResource: () => ({ data: { service: original }, error: null, loading: false }) },
     "../autoRenew/AutoRenew": { AutoRenew: "AutoRenew" }, "../usage/UsageChart": { UsageChart: "UsageChart" },
     "../service-pages": h.compile(url("service-pages.ts"), {}), "../service-read": h.compile(url("service-read.ts"), {}), "../service-label": h.compile(url("service-label.ts"), {}),
