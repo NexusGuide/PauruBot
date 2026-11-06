@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
@@ -12,6 +13,7 @@ from sqlalchemy import select
 
 import paurubot.api.routes.webapp_cards as webapp_cards
 import paurubot.api.routes.webapp_payment_inbox as webapp_payment_inbox
+from paurubot import i18n
 from paurubot.api.routes import (
     webapp_auto_renew,
     webapp_discounts,
@@ -263,6 +265,25 @@ def order_view(order: Order) -> dict[str, Any]:
     }
 
 
+_TAG = re.compile(r"<[^>]*>")
+_LEADING = re.compile(r"^[^\w(]+")
+
+
+async def _payment_labels(ctx: WebApp, methods: list[str]) -> dict[str, str]:
+    """The bot's own button text for each payment method the shop edited (`btn_pay_<method>`),
+    without HTML or the leading emoji; methods left as shipped keep the Mini App's own names."""
+    locale = ctx.customer.locale or ctx.shop.default_locale
+    edited = (await i18n.load_overrides(ctx.session, ctx.shop.id)).get(locale, {})
+    labels: dict[str, str] = {}
+    for method in methods:
+        text = edited.get(f"btn_pay_{method}")
+        if text:
+            clean = _LEADING.sub("", _TAG.sub("", text)).strip()[:64]
+            if clean:
+                labels[method] = clean
+    return labels
+
+
 async def _tonpay_available(ctx: WebApp) -> bool:
     from paurubot.payments.tonpay_custom_runtime import available
 
@@ -313,7 +334,9 @@ async def me(ctx: WebApp) -> dict[str, Any]:
             "day_price": cfg["extra_day_price"],
             "upgrade": bool(cfg["upgrade_enabled"]),
         },
-        "payment_methods": await payments.available(ctx.session, ctx.shop.id, customer),
+        "payment_methods": (methods := await payments.available(ctx.session, ctx.shop.id, customer)),
+        # Gateway names the shop renamed in its bot texts, so the Mini App says what the bot says.
+        "payment_labels": await _payment_labels(ctx, [*methods, "tonpay_custom", "wallet"]),
         "topup_bounds": list(await payments.topup_bounds(ctx.session, customer)),
         "tonpay_custom_available": await _tonpay_available(ctx),
         "staff": await webapp_staff.describe(ctx),

@@ -135,6 +135,8 @@ SPECS: dict[str, Spec] = {
     # guest purchase on the web (CAT-08)
     "guest_buy_enabled": Spec(bool, False, "guest"),
     "guest_plan_ids": Spec(list, [], "guest"),
+    # Admin account plans on the web purchase page too (when admin accounts are sold to everyone).
+    "guest_accounts_enabled": Spec(bool, True, "guest"),
     # more Iranian gateways (PAY-08, PAY-09)
     "aqayepardakht_enabled": Spec(bool, False, "gateways"),
     "aqayepardakht_pin": Spec(str, "", "gateways", secret=True),

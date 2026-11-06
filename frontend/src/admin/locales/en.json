@@ -1523,6 +1523,8 @@
   "setting_guest_buy_enabled": "Guests can buy on the web",
   "setting_guest_buy_enabled_hint": "A public page at /buy on your server address sells plans without Telegram, paid through an online gateway. The buyer gets the link on a private page and can move it into the bot later.",
   "setting_guest_plan_ids": "Plans on the web page",
+  "setting_guest_accounts_enabled": "Admin account (reseller panel) plans on the web too",
+  "setting_guest_accounts_enabled_hint": "When admin accounts are sold, and not to resellers only, their plans also show on the web purchase page.",
   "setting_guest_plan_ids_hint": "Leave empty to offer every ordinary plan.",
   "err_guest_plan_ids_invalid": "Pick plans from the list.",
   "panel_kind_wgdashboard": "WGDashboard",

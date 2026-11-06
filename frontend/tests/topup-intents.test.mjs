@@ -40,6 +40,7 @@ try {
  topup:(...args:any[])=>{calls.push(args);return new Promise(r=>{finish=()=>r({payment:{}})})}};
  const haptic=()=>{},openExternal=()=>{},openInvoice=async()=> 'paid';
  const errorText=()=>'',dateTime=()=>'',money=()=>'',rememberCard=()=>{},rememberPayment=()=>{};
+ const methodName=(t:any,m:any,method:string)=>m?.payment_labels?.[method]??t('method_'+method);
  const Icon=()=>null,Button=()=>null,CountUp=()=>null,Screen=()=>null;
  // History read behavior is covered by wallet-history.test.mjs; this seam exercises payment handlers.
  export const WalletHistory=()=>null;

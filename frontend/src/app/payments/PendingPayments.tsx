@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { money } from "@shared/format";
 import { api, type PendingPaymentList, type PendingPayment } from "../api";
-import { errorText, useApp } from "../state";
+import { errorText, methodName, useApp } from "../state";
 import { Icon } from "../icons";
 import { actionGate } from "../topup-intents";
 import { openExternal } from "../telegram";
@@ -69,7 +69,7 @@ export function PendingPayments() {
     {failed && <Panel><p role="alert">{failed}</p><Button disabled={busy || reading} onClick={refreshPage}>{t("ui_retry")}</Button></Panel>}
     {page && <div className="app-card mt-3">
       {page.items.length === 0 ? <div className="app-empty">{t("pending_empty")}</div> : page.items.map((row) =>
-        <Item key={row.id} icon={<Icon name="coin" />} title={`${t(`method_${row.provider}`)} · ${money(row.amount, locale)} ${t("currency")} #${row.id}`}
+        <Item key={row.id} icon={<Icon name="coin" />} title={`${methodName(t, me, row.provider)} · ${money(row.amount, locale)} ${t("currency")} #${row.id}`}
           sub={t(`pending_${row.action}`)} disabled={busy || reading} onClick={() => void choose(row)} />)}
     </div>}
     <div className="mt-3 flex gap-3">

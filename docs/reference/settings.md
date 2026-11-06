@@ -142,6 +142,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 |---|---|---|---|
 | `guest_buy_enabled` | bool | false | Guests can buy on the web. A public page at /buy on your server address sells plans without Telegram, paid through an online gateway. The buyer gets the link on a private page and can move it into the bot later |
 | `guest_plan_ids` | list | [] | Plans on the web page. Leave empty to offer every ordinary plan |
+| `guest_accounts_enabled` | bool | true | Admin account (reseller panel) plans on the web too. When admin accounts are sold, and not to resellers only, their plans also show on the web purchase page |
 
 ## More gateways
 

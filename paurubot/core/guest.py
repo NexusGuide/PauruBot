@@ -22,13 +22,16 @@ from paurubot.core import catalog, orders
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import affected, utcnow
 from paurubot.db.models import (
+    AccountPlan,
     Customer,
     LedgerAccount,
     Order,
     OrderKind,
+    PanelAccount,
     Payment,
     PaymentStatus,
     Plan,
+    PlanAudience,
     Service,
     Shop,
     ShopStatus,
@@ -86,6 +89,25 @@ async def plans(session: AsyncSession, shop_id: int) -> list[Plan]:
     return list(await session.scalars(stmt.order_by(Plan.sort, Plan.price, Plan.id)))
 
 
+async def account_plans(session: AsyncSession, shop_id: int) -> list[AccountPlan]:
+    """Panel admin account plans a guest may buy: only when the shop sells admin accounts to
+    everyone (not resellers only) and lets them on the web; plans for resellers stay off."""
+    from paurubot.core import panel_accounts
+
+    cfg = await shop_settings.load(session, shop_id)
+    if (
+        not cfg.get("guest_accounts_enabled", True)
+        or not cfg.get("panel_accounts_enabled")
+        or cfg.get("panel_accounts_resellers_only")
+    ):
+        return []
+    return [
+        plan
+        for plan in await panel_accounts.plans(session, shop_id)
+        if plan.audience != PlanAudience.RESELLERS and plan.price > 0
+    ]
+
+
 async def new_guest(session: AsyncSession, shop_id: int, locale: str) -> Customer:
     customer = Customer(
         shop_id=shop_id,
@@ -132,7 +154,7 @@ async def by_token(session: AsyncSession, token: str) -> Customer | None:
 
 
 async def status(session: AsyncSession, guest: Customer) -> dict[str, Any]:
-    """The newest purchase of a guest: its order, payment and service, whichever exist."""
+    """The newest purchase of a guest: its order, payment and service or admin account."""
     order = await session.scalar(
         select(Order).where(Order.customer_id == guest.id).order_by(Order.id.desc()).limit(1)
     )
@@ -140,7 +162,12 @@ async def status(session: AsyncSession, guest: Customer) -> dict[str, Any]:
         select(Payment).where(Payment.customer_id == guest.id).order_by(Payment.id.desc()).limit(1)
     )
     service = await session.get(Service, order.service_id) if order and order.service_id else None
-    return {"order": order, "payment": payment, "service": service}
+    account = None
+    if order is not None and order.kind == OrderKind.ACCOUNT_PURCHASE:
+        account_id = int((order.params or {}).get("account_id") or 0)
+        found = await session.get(PanelAccount, account_id) if account_id else None
+        account = found if found is not None and found.customer_id == guest.id else None
+    return {"order": order, "payment": payment, "service": service, "account": account}
 
 
 async def claim(session: AsyncSession, token: str, customer: Customer) -> int:
@@ -158,6 +185,9 @@ async def claim(session: AsyncSession, token: str, customer: Customer) -> int:
         raise GuestError("guest_claim_invalid")
     moved = await session.execute(
         update(Service).where(Service.customer_id == guest.id).values(customer_id=customer.id)
+    )
+    accounts = await session.execute(
+        update(PanelAccount).where(PanelAccount.customer_id == guest.id).values(customer_id=customer.id)
     )
     await session.execute(update(Order).where(Order.customer_id == guest.id).values(customer_id=customer.id))
     await session.execute(
@@ -180,7 +210,7 @@ async def claim(session: AsyncSession, token: str, customer: Customer) -> int:
         )
     customer.total_spent = int(customer.total_spent or 0) + int(guest.total_spent or 0)
     guest.total_spent = 0  # counted once, on the real customer (loyalty tiers, reports)
-    return int(moved.rowcount or 0)  # type: ignore[attr-defined]
+    return int(moved.rowcount or 0) + int(accounts.rowcount or 0)  # type: ignore[attr-defined]
 
 
 def visitor_key(address: str) -> str:
@@ -207,6 +237,7 @@ async def drop_unpaid(session: AsyncSession) -> int:
             Customer.created_at < utcnow() - UNPAID_KEEP,
             ~exists().where(LedgerAccount.customer_id == Customer.id),
             ~exists().where(Service.customer_id == Customer.id),
+            ~exists().where(PanelAccount.customer_id == Customer.id),
             unpaid_only,
         )
         .execution_options(synchronize_session=False)

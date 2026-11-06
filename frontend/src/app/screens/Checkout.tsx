@@ -7,7 +7,7 @@ import { Icon } from "../icons";
 import { prepareDraft, reviseDraft } from "../order-draft";
 import { actionGate } from "../topup-intents";
 import { RenewalPreview } from "../renewal/Preview";
-import { errorText, useApp } from "../state";
+import { errorText, methodName, useApp } from "../state";
 import { haptic, openExternal, openInvoice } from "../telegram";
 import { ActionBar, Button, Loading, Panel, Screen, Steps } from "../ui";
 import { rememberCard, rememberPayment } from "./Payment";
@@ -302,7 +302,7 @@ export function Checkout() {
             <div className="mt-3 flex flex-col gap-3">
               {methods.slice(1).map((option) => (
                 <Button key={option} tone="quiet" busy={busy === option} disabled={busy !== null || !renewalReady} onClick={() => pay(option)}>
-                  {t(`method_${option}`)}
+                  {methodName(t, me, option)}
                 </Button>
               ))}
             </div>
@@ -313,7 +313,7 @@ export function Checkout() {
       <ActionBar
         summary={t(`checkout_${order.kind}`)}
         price={`${money(order.amount, locale)} ${t("currency")}`}
-        action={due === 0 ? t("pay_from_wallet") : t(`method_${method}`)}
+        action={due === 0 ? t("pay_from_wallet") : methodName(t, me, method)}
         busy={busy !== null}
         disabled={!renewalReady || (due > 0 && methods.length === 0)}
         onClick={() => pay(due === 0 ? "wallet" : method)}

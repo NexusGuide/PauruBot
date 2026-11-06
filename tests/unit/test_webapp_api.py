@@ -727,3 +727,20 @@ async def test_ticket_media_byte_quotas_across_tickets(app_env, monkeypatch) -> 
     response = await client.post(paths[1], content=b"xx", headers=headers)
     assert response.status_code == 409 and response.json()["error"] == "ticket_file_quota"
     assert (await client.post(paths[1], content=b"x", headers=headers)).status_code == 200
+
+
+async def test_gateway_names_follow_the_bot_texts(session, app_env) -> None:  # type: ignore[no-untyped-def]
+    """A gateway renamed in the bot's texts is named the same in the Mini App (not its own name)."""
+    from paurubot import i18n
+    from paurubot.db.models import BotText
+
+    client, shop = app_env["client"], app_env["shop"]
+    me = (await client.get("/api/webapp/me", headers=h(7311))).json()
+    assert me["payment_labels"] == {}  # nothing renamed: the app keeps its own names
+    session.add(BotText(shop_id=shop.id, locale=me["locale"], key="btn_pay_card", value="💳 <b>Our card</b>"))
+    session.add(BotText(shop_id=shop.id, locale=me["locale"], key="btn_pay_tonpay", value="🏦 Tonpay fast"))
+    await session.commit()
+    i18n.invalidate(shop.id)
+    me = (await client.get("/api/webapp/me", headers=h(7311))).json()
+    assert me["payment_labels"]["card"] == "Our card"  # no emoji, no markup
+    assert "tonpay" not in me["payment_labels"]  # not one of this shop's methods

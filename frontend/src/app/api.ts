@@ -44,6 +44,8 @@ export interface Me {
   panel_accounts: boolean;
   extras: { enabled: boolean; gb_price: number; day_price: number; upgrade: boolean };
   payment_methods: string[];
+  /** Gateway names the shop renamed in its bot texts; the rest keep the app's own names. */
+  payment_labels?: Record<string, string>;
   topup_bounds: [number, number];
   tonpay_custom_available?: boolean;
   staff: StaffAccess | null;

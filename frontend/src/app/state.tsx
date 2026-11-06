@@ -158,6 +158,11 @@ export function useApp(): AppState {
   return value;
 }
 
+/** A payment method's name: the shop's own (as in the bot) where it renamed it, else the app's. */
+export function methodName(t: Translate, me: { payment_labels?: Record<string, string> } | null | undefined, method: string): string {
+  return me?.payment_labels?.[method] ?? t(`method_${method}`);
+}
+
 export function errorText(t: Translate, err: unknown): string {
   const code = err instanceof Error ? err.message : "error";
   const text = t(`err_${code}`);

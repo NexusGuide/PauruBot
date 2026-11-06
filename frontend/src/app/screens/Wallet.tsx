@@ -5,7 +5,7 @@ import { money } from "@shared/format";
 import { api } from "../api";
 import { Icon } from "../icons";
 import { PendingPayments } from "../payments/PendingPayments";
-import { errorText, useApp } from "../state";
+import { errorText, methodName, useApp } from "../state";
 import { haptic, openExternal, openInvoice } from "../telegram";
 import { actionGate, topupIntents } from "../topup-intents";
 import { Button, CountUp, Item, Screen } from "../ui";
@@ -161,7 +161,7 @@ export function Wallet() {
             key={method}
             icon={<Icon name={method === "card" ? "card" : "coin"} />}
             tone={method === "card" ? undefined : "green"}
-            title={method === "tonpay_custom" ? (locale === "fa" ? "کارت به کارت تون‌پی" : "Tonpay card transfer") : t(`method_${method}`)}
+            title={methodName(t, me, method)}
             sub={method === "card" ? t("method_card_sub") : undefined}
             onClick={() => topup(method)}
             disabled={!valid || busy !== null}
