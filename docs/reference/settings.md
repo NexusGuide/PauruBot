@@ -218,6 +218,10 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `extras_enabled` | bool | true | Sell extra data and days |
 | `extra_gb_price` | int | 3000 | Price per extra GB |
 | `extra_day_price` | int | 2000 | Price per extra day |
+| `extra_gb_min` | int | 0 | Least extra GB in one order (0: no bound) |
+| `extra_gb_max` | int | 0 | Most extra GB in one order (0: no bound) |
+| `extra_day_min` | int | 0 | Least extra days in one order (0: no bound) |
+| `extra_day_max` | int | 0 | Most extra days in one order (0: no bound) |
 | `upgrade_enabled` | bool | true | Plan upgrades |
 | `renew_queue_when_active` | bool | false | Reserve renewals for active services. Renewing a service that still has time and data applies when the current period ends |
 | `ban_disables_services` | bool | true | Banning disables services. Banning a customer turns their services off; unbanning turns them back on |

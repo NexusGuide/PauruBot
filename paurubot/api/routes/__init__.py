@@ -14,6 +14,7 @@ OPTIONAL_ROUTERS: list[str] = [
     "tonpay_custom",
     "announcements",
     "webapp_staff",
+    "webapp_own",
     "sub",
     "guest",
     "admin.dashboard",

@@ -198,6 +198,11 @@ SPECS: dict[str, Spec] = {
     "extras_enabled": Spec(bool, True, "services"),
     "extra_gb_price": Spec(int, 3_000, "services"),
     "extra_day_price": Spec(int, 2_000, "services"),
+    # How much extra data / time one order may buy; 0 is no bound of the shop's own.
+    "extra_gb_min": Spec(int, 0, "services"),
+    "extra_gb_max": Spec(int, 0, "services"),
+    "extra_day_min": Spec(int, 0, "services"),
+    "extra_day_max": Spec(int, 0, "services"),
     "upgrade_enabled": Spec(bool, True, "services"),
     "renew_queue_when_active": Spec(bool, False, "services"),
     "ban_disables_services": Spec(bool, True, "services"),

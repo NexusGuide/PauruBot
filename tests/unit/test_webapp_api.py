@@ -152,7 +152,7 @@ async def test_staff_tools_follow_the_role(session, app_env) -> None:  # type: i
     await session.commit()
 
     finance = (await client.get("/api/webapp/me", headers=h(8502))).json()["staff"]
-    assert finance == {"role": "finance", "scoped": False, "dashboard": True, "review": True}
+    assert finance == {"role": "finance", "scoped": False, "dashboard": True, "review": True, "own": False}
     support = (await client.get("/api/webapp/me", headers=h(8503))).json()["staff"]
     assert support["dashboard"] and not support["review"]
     assert (await client.get("/api/webapp/staff/reviews", headers=h(8503))).status_code == 403
