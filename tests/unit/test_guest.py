@@ -450,3 +450,34 @@ async def test_admin_account_plans_on_the_web(session, store) -> None:  # type: 
     await session.commit()
     shop_settings.invalidate(shop.id)
     assert "Reseller 500" not in (await client.get(f"/buy/{shop.id}?lang=en&new=1")).text
+
+
+async def test_no_admin_account_plans_on_a_reseller_bot_shop(session, store, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A reseller's own bot shop never sells admin accounts, so the web never offers them there."""
+    from paurubot.core import resale
+    from paurubot.db.models import AccountPlan, PanelKind
+
+    shop, _plan, client = store
+    pg = await factories.panel(session, shop, PanelKind.PASARGUARD)
+    session.add(AccountPlan(shop_id=shop.id, panel_id=pg.id, title="Reseller 500", role_id=2, price=600_000))
+    await shop_settings.set_many(session, shop.id, {"panel_accounts_enabled": True})
+    await session.commit()
+    shop_settings.invalidate(shop.id)
+    assert [p.title for p in await guest.account_plans(session, shop.id)] == ["Reseller 500"]
+
+    async def a_reseller_shop(_session, _shop_id):  # type: ignore[no-untyped-def]
+        return object()
+
+    monkeypatch.setattr(resale, "for_shop", a_reseller_shop)
+    assert await guest.account_plans(session, shop.id) == []
+    assert "Reseller 500" not in (await client.get(f"/buy/{shop.id}?lang=en&new=1")).text
+
+
+async def test_guest_page_style_is_fetched_fresh_after_an_update(store) -> None:  # type: ignore[no-untyped-def]
+    """The page style is cached for a day, so its address names the version: an update's new
+    look is never held back by a browser's old copy."""
+    from paurubot import __version__
+
+    shop, _plan, client = store
+    page = await client.get(f"/buy/{shop.id}?lang=en&new=1")
+    assert f'href="/s/_/page.css?v={__version__}"' in page.text

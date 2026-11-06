@@ -92,13 +92,14 @@ async def plans(session: AsyncSession, shop_id: int) -> list[Plan]:
 async def account_plans(session: AsyncSession, shop_id: int) -> list[AccountPlan]:
     """Panel admin account plans a guest may buy: only when the shop sells admin accounts to
     everyone (not resellers only) and lets them on the web; plans for resellers stay off."""
-    from paurubot.core import panel_accounts
+    from paurubot.core import panel_accounts, resale
 
     cfg = await shop_settings.load(session, shop_id)
     if (
         not cfg.get("guest_accounts_enabled", True)
         or not cfg.get("panel_accounts_enabled")
         or cfg.get("panel_accounts_resellers_only")
+        or await resale.for_shop(session, shop_id)  # a reseller's own bot sells no admin accounts
     ):
         return []
     return [
