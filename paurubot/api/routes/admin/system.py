@@ -96,8 +96,8 @@ async def read_settings(
     groups: dict[str, list[dict[str, Any]]] = {}
     view = shop_settings.public_view(data)
     for key, spec in shop_settings.SPECS.items():
-        if spec.group == "backups":
-            continue  # server-wide, on the Backups page
+        if spec.group in {"backups", "own"}:
+            continue  # server-wide, on the Backups page; a dedicated bot's state, on its customer
         groups.setdefault(spec.group, []).append(
             {"key": key, "type": spec.kind.__name__, "secret": spec.secret, "value": view[key]}
         )
@@ -280,6 +280,8 @@ async def write_settings(
     if any(shop_settings.SPECS[k].group == "backups" for k in body.values):
         # Server-wide, so only through the Backups page and its own permission.
         raise HTTPException(status_code=422, detail="backup_settings_elsewhere")
+    if any(shop_settings.SPECS[k].group == "own" for k in body.values):
+        raise HTTPException(status_code=422, detail="own_bot_settings_elsewhere")
     if any(key.startswith("tonpay_custom_") for key in body.values) and not ctx.can("panels.secrets"):
         raise HTTPException(status_code=403, detail="secrets_need_owner")
     secret_keys = [k for k in body.values if shop_settings.SPECS[k].secret]

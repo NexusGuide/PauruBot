@@ -81,7 +81,7 @@ async def bot_for(shop_id: int | None) -> Bot | None:
     bot: Bot | None = None
     async with session_scope() as session:
         shop = await session.get(Shop, shop_id)
-        if shop is None or shop.reseller_profile_id is None:
+        if shop is None or (shop.reseller_profile_id is None and shop.own_account_id is None):
             bot = get_bot()
         elif shop.bot_token_enc:
             bot = make_bot(secretbox.decrypt("bot-token", shop.bot_token_enc), shop_id)

@@ -38,6 +38,12 @@ class Shop(Base, UpdatedMixin):
         ForeignKey("reseller_profiles.id", ondelete="SET NULL", use_alter=True), unique=True
     )
     bot_user_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
+    # A dedicated reseller bot on the reseller's own panel (OPB): the shop sells its own plans,
+    # made on this purchased panel admin account, and is paid straight to the reseller's card.
+    # It has no reseller profile, so the shop-panels mode (TEN-04) never applies to it.
+    own_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("panel_accounts.id", ondelete="SET NULL", use_alter=True), unique=True
+    )
 
 
 class ShopSetting(Base):

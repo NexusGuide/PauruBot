@@ -124,7 +124,11 @@ SPECS: dict[str, Spec] = {
     # a reseller's own bot (TEN-04); set on that bot's shop
     "resale_markup_percent": Spec(int, 20, "resale"),
     "resale_prices": Spec(dict, {}, "resale"),
-    "resale_blocked": Spec(bool, False, "resale"),  # stopped by the shop's staff: only they restart it
+    "resale_blocked": Spec(bool, False, "resale"),
+    # A dedicated own-panel bot (OPB), kept by the bot itself and the main shop's staff, never on
+    # the settings page: why it stopped selling ("" while it sells) and a manual pause by staff.
+    "own_sales_paused": Spec(str, "", "own"),
+    "own_sales_hold": Spec(bool, False, "own"),  # stopped by the shop's staff: only they restart it
     # Set in the main shop: what a reseller pays from its wallet per trial its own bot gives (TEN-18).
     "resale_trial_fee": Spec(int, 2_000, "resale"),
     "miniapp_enabled": Spec(bool, True, "appearance"),

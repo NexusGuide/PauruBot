@@ -110,7 +110,7 @@ async def reseller_webhook(shop_id: int, request: Request) -> dict[str, Any]:
             secretbox.decrypt("bot-token", shop.bot_token_enc)
             if shop is not None
             and shop.bot_token_enc
-            and shop.reseller_profile_id
+            and (shop.reseller_profile_id or shop.own_account_id)
             and shop.status == ShopStatus.ACTIVE
             else None
         )

@@ -116,6 +116,13 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `resale_blocked` | bool | false | — |
 | `resale_trial_fee` | int | 2000 | — |
 
+## Dedicated reseller bot
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `own_sales_paused` | str | "" | Why the dedicated bot stopped selling (automatic) |
+| `own_sales_hold` | bool | false | Dedicated bot sales paused by staff |
+
 ## Appearance
 
 | Key | Type | Default | Meaning |

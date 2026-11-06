@@ -222,8 +222,12 @@ async def draft(
     move_to: Panel | None = None,
     wanted_username: str | None = None,
 ) -> Draft:
-    from paurubot.core import resale, usernames
+    from paurubot.core import own_panel, resale, usernames
 
+    # A dedicated own-panel bot sells only while its admin account can serve (OPB).
+    blocked = await own_panel.sales_gate(session, customer.shop_id, new_user=kind == OrderKind.PURCHASE)
+    if blocked:
+        raise OrderError(blocked)
     shop_resale = await resale.for_shop(session, customer.shop_id)
     if shop_resale is not None:
         # A reseller's own bot sells the parent's plans: purchases and renewals always (TEN-04),

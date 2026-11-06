@@ -686,5 +686,6 @@
   "err_referral_config_not_enough": "You do not have enough invites for a free config yet.",
   "err_referral_config_wait": "Your free config is on its way; give it a moment.",
   "err_referral_config_off": "Invite configs are not on right now.",
-  "err_referral_config_unavailable": "Invite configs are not available at the moment; try again shortly."
+  "err_referral_config_unavailable": "Invite configs are not available at the moment; try again shortly.",
+  "err_own_sales_paused": "Sales are paused for now; please check back a little later."
 }

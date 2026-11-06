@@ -1093,5 +1093,12 @@
   "adm_ticket_service": "🔌 Service #{id}: {status} · used {used} of {limit} · ends {expires}",
   "adm_ticket_service_down": "⚠️ This service's panel cannot be reached right now; the numbers are from the last sync.",
   "adm_ticket_service_stored": "ℹ️ The numbers are from the last sync.",
-  "service_busy": "This service is being changed right now (a renewal, for example). Try again in a few seconds."
+  "service_busy": "This service is being changed right now (a renewal, for example). Try again in a few seconds.",
+  "own_sales_paused": "⏸ Sales are paused for now.\nYour services keep working as before; please check back a little later.",
+  "own_paused_inactive": "⛔️ Panel <code>{username}</code> is not active — sales and free trials in {bot} are paused.\nExisting services keep working. Sales reopen by themselves once the panel is active.",
+  "own_paused_expired": "⛔️ Panel <code>{username}</code> expired — sales and free trials in {bot} are paused.\nExisting services keep working. Renew the panel and sales reopen by themselves.",
+  "own_paused_traffic_full": "⛔️ Panel <code>{username}</code> is out of traffic — sales and free trials in {bot} are paused.\nBuy traffic or renew the panel and sales reopen by themselves.",
+  "own_paused_users_full": "⛔️ Panel <code>{username}</code> reached its user limit — new sales and free trials in {bot} are paused.\nRenewals and extras for existing services go on. Raise the limit and sales reopen by themselves.",
+  "own_resumed": "✅ Sales in {bot} are open again.\nPanel <code>{username}</code> was checked and is ready to sell.",
+  "own_alert_admin": "🤖 Reseller bot {bot} — {owner}\n\n{text}"
 }
