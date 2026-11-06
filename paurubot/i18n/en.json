@@ -1100,5 +1100,6 @@
   "own_paused_traffic_full": "⛔️ Panel <code>{username}</code> is out of traffic — sales and free trials in {bot} are paused.\nBuy traffic or renew the panel and sales reopen by themselves.",
   "own_paused_users_full": "⛔️ Panel <code>{username}</code> reached its user limit — new sales and free trials in {bot} are paused.\nRenewals and extras for existing services go on. Raise the limit and sales reopen by themselves.",
   "own_resumed": "✅ Sales in {bot} are open again.\nPanel <code>{username}</code> was checked and is ready to sell.",
-  "own_alert_admin": "🤖 Reseller bot {bot} — {owner}\n\n{text}"
+  "own_alert_admin": "🤖 Reseller bot {bot} — {owner}\n\n{text}",
+  "own_paused_hold": "⏸ Sales and free trials in {bot} were paused by the shop's staff.\nExisting services keep working."
 }
