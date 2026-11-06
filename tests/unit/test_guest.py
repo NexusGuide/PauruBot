@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import re
 from uuid import uuid4
 
@@ -372,8 +373,8 @@ async def test_a_waiting_buyer_can_change_the_plan(session, store) -> None:  # t
 async def test_admin_account_plans_on_the_web(session, store) -> None:  # type: ignore[no-untyped-def]
     """Panel admin account plans are sold on the web when the shop sells them to everyone; the
     page then shows the panel login, and claiming moves the account to the Telegram customer."""
-    from paurubot.core import panel_accounts
     from paurubot.db.models import AccountPlan, PanelAccount, PanelKind, PlanAudience
+    from paurubot.security import secretbox
 
     shop, _plan, client = store
     pg = await factories.panel(session, shop, PanelKind.PASARGUARD)
@@ -430,9 +431,13 @@ async def test_admin_account_plans_on_the_web(session, store) -> None:  # type: 
     assert purchase["order"].status == OrderStatus.COMPLETED
     account = await session.scalar(select(PanelAccount).where(PanelAccount.customer_id == customer.id))
     assert account is not None
+    # A password with HTML characters is shown escaped, never as raw markup.
+    account.password_enc = secretbox.encrypt("panel", 'p&ss<"word')
+    await session.commit()
     ready = await client.get(f"/buy/t/{token}?lang=en")
     assert "Your reseller panel is ready" in ready.text
-    assert account.username in ready.text and panel_accounts.password_of(account) in ready.text
+    assert account.username in ready.text and html.escape('p&ss<"word') in ready.text
+    assert 'p&ss<"word' not in ready.text
     assert f"start=claim_{token}" in ready.text
 
     real = await factories.customer(session, shop, telegram_id=88002)
