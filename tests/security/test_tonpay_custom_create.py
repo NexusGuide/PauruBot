@@ -141,7 +141,7 @@ async def test_changed_fingerprint_conflicts(creation, change):  # type: ignore[
 
 
 @pytest.mark.parametrize("failure", [CustomAPIError("upstream_error"), asyncio.CancelledError()])
-async def test_ambiguous_failure_blocks_same_and_replacement_keys_even_after_expiry(creation, failure):  # type: ignore[no-untyped-def]
+async def test_ambiguous_failure_blocks_same_and_replacement_keys_while_recent(creation, failure):  # type: ignore[no-untyped-def]
     maker, _, _, client = creation
     client.create.side_effect = failure
     with pytest.raises(type(failure)):
@@ -156,6 +156,47 @@ async def test_ambiguous_failure_blocks_same_and_replacement_keys_even_after_exp
             await start(creation, key)
         assert exc.value.code == "creation_uncertain"
     client.create.assert_awaited_once()
+
+
+async def test_a_stale_ambiguous_attempt_no_longer_blocks_a_new_invoice(creation):  # type: ignore[no-untyped-def]
+    """A buyer who never saw a card cannot have paid; after a while a new invoice is allowed."""
+    maker, _, _, client = creation
+    client.create.side_effect = CustomAPIError("upstream_error")
+    with pytest.raises(CustomAPIError):
+        await start(creation)
+    async with maker() as session:
+        payment = await session.scalar(_payments(session))
+        attempt = dict(payment.meta[create.CREATE_KEY])
+        attempt["started_at"] -= create.STALE_SECONDS + 1
+        payment.meta = {**payment.meta, create.CREATE_KEY: attempt}
+        await session.commit()
+    client.create.side_effect = None
+    client.create.return_value = CustomInvoice("fresh_invoice", None, AMOUNT, 103000, "pending", False)
+    created = await start(creation, KEY + "-fresh")
+    assert created.payable_amount == 103000
+    with pytest.raises(create.CustomStateError) as exc:
+        await start(creation)  # the old key itself stays an uncertain record, never re-posted
+    assert exc.value.code == "creation_uncertain"
+
+
+@pytest.mark.parametrize("code", ["rejected", "rate_limited", "unreachable"])
+async def test_a_definite_refusal_closes_the_attempt_and_the_same_key_can_retry(creation, code):  # type: ignore[no-untyped-def]
+    """TonPays said no (or was never reached): nothing exists there, so nothing may block."""
+    maker, _, _, client = creation
+    client.create.side_effect = CustomAPIError(code, definite=True)
+    with pytest.raises(CustomAPIError):
+        await start(creation)
+    async with maker() as session:
+        payment = await session.scalar(_payments(session))
+        assert payment.meta[create.CREATE_KEY]["state"] == "failed"
+        assert payment.status == PaymentStatus.FAILED
+        first = payment.id
+    client.create.side_effect = lambda order_id, *a: CustomInvoice(
+        "retry_" + order_id, order_id, AMOUNT, 103000, "pending", False
+    )
+    created = await start(creation)  # the very same key: a fresh attempt, same order id
+    assert created.payment_id == first and client.create.await_count == 2
+    await start(creation, KEY + "-other")  # and no other key is blocked either
 
 
 @pytest.mark.parametrize(

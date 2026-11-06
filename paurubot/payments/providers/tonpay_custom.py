@@ -11,6 +11,7 @@ import asyncio
 import io
 import ipaddress
 import json
+import logging
 import re
 import warnings
 from dataclasses import dataclass, field
@@ -28,13 +29,37 @@ RESPONSE_LIMIT = 64 * 1024
 BASE_URL = "https://tonpays.online/api/custom/v1"
 
 
+logger = logging.getLogger(__name__)
+
+
+def _route(path: str) -> str:
+    """The endpoint without invoice references, for logs."""
+    return re.sub(r"(invoices/(?:check/)?)[^/]+", r"\1{id}", path)
+
+
+def _log_refusal(method: str, path: str, status: int, body: bytes) -> None:
+    """TonPays' own reason, short and without card-like numbers, so an owner can see why."""
+    reason = ""
+    try:
+        data = json.loads(body) if body else {}
+        if isinstance(data, dict):
+            reason = str(data.get("message") or data.get("detail") or data.get("error") or "")
+    except ValueError:
+        reason = ""
+    reason = re.sub(r"\d{8,}", "…", reason)[:200]
+    logger.warning("tonpay custom %s %s refused: HTTP %s %s", method, _route(path), status, reason)
+
+
 class CustomAPIError(PaymentError):
     """Sanitized machine reason, never provider text or credential-bearing payload."""
 
-    def __init__(self, code: str, *, retry_after: int | None = None) -> None:
+    def __init__(self, code: str, *, retry_after: int | None = None, definite: bool = False) -> None:
         super().__init__("gateway_error")
         self.code = code
         self.retry_after = retry_after
+        # True when TonPays surely did nothing: it refused, or was never reached. A timeout or a
+        # server error is never definite: the request may have taken effect there.
+        self.definite = definite
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,19 +261,35 @@ class TonpayCustomClient:
                     if response.status_code == 429:
                         hint = response.headers.get("Retry-After", "")
                         delay = min(int(hint), 3600) if re.fullmatch(r"[0-9]{1,8}", hint) else None
-                        raise CustomAPIError("rate_limited", retry_after=delay)
-                    if not 200 <= response.status_code < 300:
-                        raise CustomAPIError("upstream_error")
+                        _log_refusal(method, path, 429, b"")
+                        raise CustomAPIError("rate_limited", retry_after=delay, definite=True)
                     raw = bytearray()
                     async for chunk in response.aiter_bytes():
                         if len(raw) + len(chunk) > RESPONSE_LIMIT:
                             raise CustomAPIError("response_too_large")
                         raw.extend(chunk)
+                    status = response.status_code
+            if not 200 <= status < 300:
+                _log_refusal(method, path, status, bytes(raw))
+                # 4xx: TonPays refused the request itself (a 408 timeout says nothing).
+                raise CustomAPIError(
+                    "rejected" if 400 <= status < 500 and status != 408 else "upstream_error",
+                    definite=400 <= status < 500 and status != 408,
+                )
             data = json.loads(raw, object_pairs_hook=_unique_object)
-            if not isinstance(data, dict) or data.get("success") is False or data.get("error"):
+            if not isinstance(data, dict):
                 raise CustomAPIError("invalid_response")
+            if data.get("success") is False or data.get("error"):
+                _log_refusal(method, path, status, bytes(raw))
+                raise CustomAPIError("rejected", definite=True)
             return data
-        except (httpx.HTTPError, ValueError, RecursionError):
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            logger.warning("tonpay custom %s %s: not reached (%s)", method, _route(path), type(exc).__name__)
+            raise CustomAPIError("unreachable", definite=True) from None
+        except (httpx.HTTPError, ValueError, RecursionError) as exc:
+            logger.warning(
+                "tonpay custom %s %s: no clear answer (%s)", method, _route(path), type(exc).__name__
+            )
             raise CustomAPIError("upstream_error") from None
 
     async def create(
