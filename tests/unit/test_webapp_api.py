@@ -744,3 +744,20 @@ async def test_gateway_names_follow_the_bot_texts(session, app_env) -> None:  # 
     me = (await client.get("/api/webapp/me", headers=h(7311))).json()
     assert me["payment_labels"]["card"] == "Our card"  # no emoji, no markup
     assert "tonpay" not in me["payment_labels"]  # not one of this shop's methods
+
+
+async def test_tonpay_card_transfer_name_is_a_bot_text(session, app_env) -> None:  # type: ignore[no-untyped-def]
+    """Tonpay card transfer has no bot button, so its Mini App name is its own editable bot text."""
+    from paurubot import i18n
+    from paurubot.db.models import BotText
+
+    assert "btn_pay_tonpay_custom" in i18n.keys()  # listed in the admin's texts, so it can be renamed
+    client, shop = app_env["client"], app_env["shop"]
+    me = (await client.get("/api/webapp/me", headers=h(7312))).json()
+    session.add(
+        BotText(shop_id=shop.id, locale=me["locale"], key="btn_pay_tonpay_custom", value="💳 Card via us")
+    )
+    await session.commit()
+    i18n.invalidate(shop.id)
+    me = (await client.get("/api/webapp/me", headers=h(7312))).json()
+    assert me["payment_labels"]["tonpay_custom"] == "Card via us"

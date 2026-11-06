@@ -36,3 +36,28 @@ export function canAct(p: CustomPayment, action: "consent" | "receipt" | "change
 export function validFile(file: { size: number; type: string }): boolean {
   return file.size > 0 && file.size <= 10 * 1024 * 1024 && ["image/jpeg", "image/png", "image/webp"].includes(file.type);
 }
+
+/** "6037 9900 0000 0000": digits in groups of four, whatever separators the provider sent. */
+export function groupCard(number: string): string {
+  return number.replace(/\D/g, "").replace(/\d{4}(?=\d)/g, "$& ");
+}
+
+/** Where the buyer is: 0 confirm the total, 1 transfer, 2 send the receipt, 3 waiting or finished. */
+export function stage(p: CustomPayment, nowSeconds: number): 0 | 1 | 2 | 3 {
+  if (p.status !== "pending" || p.provider_paid) return 3;
+  if (!p.consented) return 0;
+  if (p.can_receipt) return 2;
+  if (p.receipt_ready_at !== null && nowSeconds < p.receipt_ready_at) return 1;
+  return 3;
+}
+
+/** The card is only ever read live, after consent; fetch it as soon as it may be shown. */
+export function needsCard(p: CustomPayment): boolean {
+  return p.consented && !p.card && p.status === "pending" && !p.uncertain && !p.provider_paid && p.can_consent;
+}
+
+/** A word for the payment's state instead of a provider code. */
+export function statusKey(p: CustomPayment): string {
+  if (p.status === "pending" && p.provider_paid) return "verifying";
+  return p.status;
+}

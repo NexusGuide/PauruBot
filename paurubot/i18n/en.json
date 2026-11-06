@@ -516,6 +516,7 @@
   "btn_pay_tronado": "🪙 TRX via Tronado",
   "btn_pay_cubepay": "🏦 CubePay gateway",
   "btn_pay_tonpay": "🏦 Tonpay gateway",
+  "btn_pay_tonpay_custom": "💳 Tonpay card transfer",
   "btn_pay_atlaspay": "🏦 AtlasPay gateway",
   "payment_return_wait": "⏳ The gateway hasn't confirmed yet. We'll send the result here as soon as it does.",
   "ip_replaced": "📵 <b>{name}</b>: a new device connected and an older connection was cut off.\nThis service allows {limit} devices at a time.\nCut off: <code>{dropped}</code>\nNew: <code>{arrived}</code>\nIf that wasn't you, don't share your config; you can get a fresh link from the service page.",

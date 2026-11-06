@@ -336,7 +336,7 @@ async def me(ctx: WebApp) -> dict[str, Any]:
         },
         "payment_methods": (methods := await payments.available(ctx.session, ctx.shop.id, customer)),
         # Gateway names the shop renamed in its bot texts, so the Mini App says what the bot says.
-        "payment_labels": await _payment_labels(ctx, [*methods, "wallet"]),
+        "payment_labels": await _payment_labels(ctx, [*methods, "tonpay_custom", "wallet"]),
         "topup_bounds": list(await payments.topup_bounds(ctx.session, customer)),
         "tonpay_custom_available": await _tonpay_available(ctx),
         "staff": await webapp_staff.describe(ctx),
