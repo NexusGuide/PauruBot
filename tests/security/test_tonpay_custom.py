@@ -115,7 +115,7 @@ async def test_invalid_local_amount_never_calls_provider(amount):  # type: ignor
         "https://localhost/cb",
         "https://service.internal/cb",
         "https://user:pass@shop.example.com/cb",
-        "https://shop.example.com:444/cb",
+        "https://shop.example.com:0/cb",
         "https://shop.example.com/cb#fragment",
         "https://shop.example.com/\nsecret",
         "https://shop.example.com\\@evil.example/cb",
@@ -126,6 +126,36 @@ async def test_invalid_callback_never_calls_provider(callback):  # type: ignore[
     with pytest.raises(CustomAPIError):
         await api.create("42", 100_000, 123, callback)
     assert not calls
+
+
+async def test_callback_on_the_panels_own_https_port():  # type: ignore[no-untyped-def]
+    """Installs with --https-port serve the bot on e.g. :8443; its own callback keeps that port."""
+    api, calls = client()
+    callback = "https://bot.example.com:8443/api/pay/tonpay-custom"
+    await api.create("42", 100_000, 123, callback)
+    assert len(calls) == 1 and json.loads(calls[0].content)["callback_url"] == callback
+
+
+def test_custom_tonpay_configures_on_a_non_443_panel(monkeypatch):  # type: ignore[no-untyped-def]
+    from types import SimpleNamespace
+
+    from paurubot.payments import tonpay_custom_runtime as runtime
+
+    monkeypatch.setattr(
+        runtime, "get_settings", lambda: SimpleNamespace(public_url="https://bot.example.com:8443")
+    )
+    cfg = {
+        "tonpay_custom_enabled": True,
+        "tonpay_custom_policy_approved": True,
+        "tonpay_custom_api_key": KEY,
+        "tonpay_custom_credential_epoch": "a" * 32,
+        "tonpay_custom_receipt_wait": 60,
+        "tonpay_custom_card_cooldown": 300,
+        "tonpay_custom_review_window": 1800,
+        "payment_expire_minutes": 60,
+    }
+    result = runtime.configuration(1, cfg, 10_000, 1_000_000)
+    assert result.callback_url == "https://bot.example.com:8443/api/pay/tonpay-custom"
 
 
 @pytest.mark.parametrize(
