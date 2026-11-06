@@ -171,6 +171,7 @@
   "links_empty": "No separate configs found; use the subscription link:\n<code>{sub}</code>",
   "links_header": "🔗 <b>Configs</b> (tap one to copy):",
   "maintenance": "🛠 The bot is being updated. Please check back in a few minutes.",
+  "staff_bot_off_notice": "⚠️ The bot is off for users: they get the maintenance message. You see it as usual because you are staff.\nTo switch it on: Settings → Bot status, or Settings in the web panel.",
   "method_disabled": "This payment method isn't available.",
   "method_busy": "This payment method is busy right now. Try again in a little while or pick another method.",
   "no": "No",

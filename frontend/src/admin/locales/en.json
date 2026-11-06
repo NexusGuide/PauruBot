@@ -666,7 +666,7 @@
   "services_n": "{n} services",
   "set": "Set",
   "setting_bot_enabled": "Bot is on",
-  "setting_bot_enabled_hint": "When off, only staff can use the bot.",
+  "setting_bot_enabled_hint": "When off, users only get the maintenance message and the Mini App is closed. Staff (you included) still see the bot as usual so they can work; test from an ordinary account. It can take up to 15 seconds.",
   "setting_card_accounts": "Cards",
   "setting_card_accounts_hint": "One of these is shown to each customer.",
   "setting_card_auto_approve": "Auto-approve receipts",

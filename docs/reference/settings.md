@@ -8,7 +8,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `bot_enabled` | bool | true | Bot is on. When off, only staff can use the bot |
+| `bot_enabled` | bool | true | Bot is on. When off, users only get the maintenance message and the Mini App is closed. Staff (you included) still see the bot as usual so they can work; test from an ordinary account. It can take up to 15 seconds |
 | `languages` | list | ["fa", "en"] | Bot languages. Language codes, e.g. fa, en |
 | `require_phone` | bool | false | Ask for phone number. People share their number before using the bot |
 | `phone_country_codes` | list | [] | Allowed country codes. For example 98; empty allows all |

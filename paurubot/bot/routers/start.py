@@ -70,6 +70,10 @@ async def home(
             await gone.delete()
         except Exception:  # cosmetic only
             pass
+    if staff is not None and not cfg.get("bot_enabled", True):
+        # Staff still use a switched-off bot (to work during maintenance); say so, or the switch
+        # looks as if it did nothing while customers only get the maintenance message.
+        await message.answer(t("staff_bot_off_notice"))
     sent = await message.answer(t(key, **params), reply_markup=menu(t, cfg, staff))
     # Only the plain menu is replaced. One that carries an outcome ("payment received", "added to
     # your account") stays in the chat, or the next menu would take the customer's record (AUD-7).

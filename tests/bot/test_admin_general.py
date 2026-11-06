@@ -223,3 +223,23 @@ async def test_support_staff_do_not_see_request_links(session, env) -> None:  # 
     kb = admin_hub.group_kb(FA, "users", {}, staff)
     labels = [b.text for row in kb.inline_keyboard for b in row]
     assert FA("adm_feat_link_requests") not in labels and FA("adm_tickets") not in labels
+
+
+async def test_an_admin_is_told_the_bot_is_off_for_users(session, env) -> None:  # type: ignore[no-untyped-def]
+    """Staff still use a switched-off bot, by design: without a word they would think the switch
+    did nothing, while customers get the maintenance message."""
+    await shop_settings.set_many(session, env["shop"].id, {"bot_enabled": False})
+    await session.commit()
+    env["fake"].reset()
+    await env["send"](message_update(OWNER, "/start"))
+    sent = [c.text for c in env["fake"].calls if isinstance(c, SendMessage)]
+    assert FA("staff_bot_off_notice") in sent
+    env["fake"].reset()
+    await env["send"](message_update(9666, "/start"))
+    sent = [c.text for c in env["fake"].calls if isinstance(c, SendMessage)]
+    assert sent == [FA("maintenance")]
+    await shop_settings.set_many(session, env["shop"].id, {"bot_enabled": True})
+    await session.commit()
+    env["fake"].reset()
+    await env["send"](message_update(OWNER, "/start"))
+    assert FA("staff_bot_off_notice") not in [c.text for c in env["fake"].calls if isinstance(c, SendMessage)]
