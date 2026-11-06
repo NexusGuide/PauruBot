@@ -19,6 +19,9 @@ const fa = {
   transferNote: "دقیقاً مبلغ بالا را به این کارت واریز کن.",
   change: "کارت دیگری می‌خواهم", changeLater: "درخواست کارت دیگر فعلاً ممکن نیست",
   waitReceipt: "ارسال رسید {time} دیگر فعال می‌شود؛ تا آن موقع انتقال را انجام بده.",
+  receiptClosed: "ارسال رسید الان ممکن نیست. «بررسی وضعیت پرداخت» را بزن.",
+  needAction: "تون‌پی برای این پرداخت به اقدام نیاز دارد (مثلاً مبلغ واریزی با فاکتور یکی نیست). با پشتیبانی فروشگاه تماس بگیر.",
+  noCard: "کارت مقصد دریافت نشد. «کارت دیگری می‌خواهم» را بزن تا کارت تازه بیاید.",
   choose: "انتخاب تصویر رسید", chooseHint: "JPEG، PNG یا WebP، حداکثر ۱۰ مگابایت", send: "ارسال رسید",
   sent: "رسید ارسال شد. پس از تأیید تون‌پی، کیف پولت خودکار شارژ می‌شود؛ می‌توانی وضعیت را بررسی کنی.",
   done: "پرداخت تأیید شد و کیف پولت شارژ شد.",
@@ -42,6 +45,9 @@ const en: typeof fa = {
   transferNote: "Transfer exactly the amount above to this card.",
   change: "I need another card", changeLater: "Another card is not available right now",
   waitReceipt: "Receipt upload opens in {time}; make the transfer meanwhile.",
+  receiptClosed: "A receipt cannot be sent right now. Tap \"Check payment status\".",
+  needAction: "Tonpay needs an action on this payment (for example the amount sent does not match). Contact the shop's support.",
+  noCard: "The destination card did not arrive. Tap \"I need another card\" for a fresh one.",
   choose: "Choose the receipt image", chooseHint: "JPEG, PNG or WebP, up to 10 MB", send: "Send receipt",
   sent: "Receipt sent. Once Tonpay confirms it your wallet is credited automatically; you can check the status.",
   done: "Payment confirmed and your wallet was credited.",
@@ -131,7 +137,7 @@ export function CustomTonpayFlow({ paymentId }: { paymentId: number }) {
     void run("read");
   });
   const current = value ? stage(value, now) : 0;
-  const waiting = value !== null && current === 1 && value.receipt_ready_at !== null;
+  const waiting = value !== null && current === 1 && value.receipt_ready_at !== null && now < value.receipt_ready_at;
   useEffect(() => {
     if (!waiting) return;
     const timer = window.setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
@@ -197,6 +203,7 @@ export function CustomTonpayFlow({ paymentId }: { paymentId: number }) {
         )}
       </div>
 
+      {value.provider_status === "need_action" && value.status === "pending" && <div className="app-note mb-3" data-tone="danger" role="alert"><Icon name="help" size={20} /><span>{text.needAction}</span></div>}
       {value.uncertain && <div className="app-note mb-3" data-tone="danger" role="alert"><Icon name="help" size={20} /><span>{text.uncertain}</span></div>}
       {value.provider_paid && value.status === "pending" && <div className="app-note mb-3" data-tone="soft" role="status"><Icon name="check" size={20} /><span>{text.providerOnly}</span></div>}
       {error && <div className="app-note mb-3" data-tone="danger" role="alert"><Icon name="help" size={20} /><span>{text.error}</span></div>}
@@ -222,7 +229,7 @@ export function CustomTonpayFlow({ paymentId }: { paymentId: number }) {
               </div>
             </div>
           ) : (
-            <p role="status" className="app-hint text-sm">{text.cardLoading}</p>
+            <p role="status" className="app-hint text-sm">{busy || !fetchedFor.current ? text.cardLoading : text.noCard}</p>
           )}
           <p className="app-hint mt-3 text-sm">{text.transferNote}</p>
           <button type="button" className="mt-2 text-sm font-semibold text-[var(--accent)] disabled:text-[var(--hint)]"
@@ -232,6 +239,12 @@ export function CustomTonpayFlow({ paymentId }: { paymentId: number }) {
         </div>
       )}
 
+      {current === 1 && pending && !waiting && value.consented && (
+        <div className="app-note mb-3" data-tone="soft" role="status">
+          <Icon name="help" size={20} />
+          <span>{text.receiptClosed}</span>
+        </div>
+      )}
       {waiting && pending && readyAt !== null && (
         <div className="app-note mb-3" data-tone="soft" role="status">
           <Icon name="clock" size={20} />

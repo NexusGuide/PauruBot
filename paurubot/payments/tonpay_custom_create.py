@@ -20,7 +20,14 @@ from paurubot.db.base import utcnow
 from paurubot.db.models import Customer, Payment, PaymentPurpose, PaymentStatus, Shop, ShopStatus
 from paurubot.db.session import get_sessionmaker
 from paurubot.payments.providers.tonpay_custom import CustomInvoice, TonpayCustomClient, _callback
-from paurubot.payments.tonpay_custom_service import STATE_KEY, CustomStateError, Owner, _integer, _state
+from paurubot.payments.tonpay_custom_service import (
+    STATE_KEY,
+    CustomStateError,
+    Owner,
+    _integer,
+    _state,
+    keep_card,
+)
 
 CREATE_KEY = "tonpay_custom_create_v1"
 
@@ -277,6 +284,7 @@ async def _bind(owner: Owner, pid: int, token: str, invoice: CustomInvoice) -> C
             "operations": {},
             "consent_revision": None,
         }
+        keep_card(state, invoice)
         if invoice.receipt_received:
             state.update(
                 receipt_quote_revision=1, review_until=int(utcnow().timestamp()) + policy["review_window"]

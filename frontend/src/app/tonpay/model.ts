@@ -5,6 +5,8 @@ export interface CustomPayment {
   provider_status: string | null; provider_paid: boolean; expires_at: string | null;
   can_consent: boolean; can_receipt: boolean; can_change_card: boolean;
   receipt_ready_at: number | null;
+  /** TonPays has a receipt for this invoice (sent here, or under review there). */
+  receipt_received?: boolean;
   card?: { number: string; holder: string };
 }
 const integer = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
@@ -15,6 +17,7 @@ export function payment(value: unknown): CustomPayment {
       !["created", "pending", "verifying", "paid", "failed", "expired", "disputed", "refunded", "voided"].includes(String(value.status))) throw Error("invalid_tonpay_state");
   for (const key of ["consented", "uncertain", "provider_paid", "can_consent", "can_receipt", "can_change_card"])
     if (typeof value[key] !== "boolean") throw Error("invalid_tonpay_state");
+  if (value.receipt_received !== undefined && typeof value.receipt_received !== "boolean") throw Error("invalid_tonpay_state");
   for (const key of ["payable_amount", "quote_revision", "receipt_ready_at"])
     if (value[key] !== null && !integer(value[key])) throw Error("invalid_tonpay_state");
   for (const key of ["recovery", "provider_status", "expires_at"])
@@ -42,13 +45,13 @@ export function groupCard(number: string): string {
   return number.replace(/\D/g, "").replace(/\d{4}(?=\d)/g, "$& ");
 }
 
-/** Where the buyer is: 0 confirm the total, 1 transfer, 2 send the receipt, 3 waiting or finished. */
-export function stage(p: CustomPayment, nowSeconds: number): 0 | 1 | 2 | 3 {
+/** Where the buyer is: 0 confirm the total, 1 transfer, 2 send the receipt, 3 receipt sent or finished. */
+export function stage(p: CustomPayment, _nowSeconds?: number): 0 | 1 | 2 | 3 {
   if (p.status !== "pending" || p.provider_paid) return 3;
   if (!p.consented) return 0;
   if (p.can_receipt) return 2;
-  if (p.receipt_ready_at !== null && nowSeconds < p.receipt_ready_at) return 1;
-  return 3;
+  if (p.receipt_received) return 3;
+  return 1; // still transferring; the receipt upload opens after the wait
 }
 
 /** The card is only ever read live, after consent; fetch it as soon as it may be shown. */

@@ -70,12 +70,13 @@ async def change(live, fn):  # type: ignore[no-untyped-def]
         await session.commit()
 
 
-async def test_card_is_ephemeral_and_only_after_exact_consent(live):  # type: ignore[no-untyped-def]
+async def test_card_is_kept_encrypted_and_only_shown_after_exact_consent(live):  # type: ignore[no-untyped-def]
     maker, owner, pid, client, _, _, _, paid = live
     assert "card" not in await runtime.refresh(owner, pid)
+    assert "card" not in await runtime.view(owner, pid)
     await mutations.consent(owner, pid, 1, 103000)
     assert (await runtime.refresh(owner, pid))["card"]["number"] == "0000000000000000"
-    assert "card" not in await runtime.view(owner, pid)
+    assert (await runtime.view(owner, pid))["card"]["number"] == "0000000000000000"
     async with maker() as session:
         p = await session.get(Payment, pid)
         assert "0000000000000000" not in str(p.meta) and "Synthetic" not in str(p.meta)
@@ -340,3 +341,33 @@ async def test_original_receipt_projection_disabled_outside_pending(live, remote
 
     await change(live, change_status)
     assert (await runtime.view(owner, pid))["can_receipt"] is False
+
+
+async def test_card_from_creation_survives_a_check_without_card(live):  # type: ignore[no-untyped-def]
+    """TonPays sends the card on creation only; a status check without it must not lose it."""
+    maker, owner, pid, client, invoice, *_ = live
+    client.check.return_value = replace(invoice, card_number="", card_name="")
+    assert "card" not in await runtime.refresh(owner, pid)
+    await mutations.consent(owner, pid, 1, 103000)
+    assert (await runtime.view(owner, pid))["card"] == {"number": "6037990000000001", "holder": "Creator"}
+    assert (await runtime.refresh(owner, pid))["card"]["number"] == "6037990000000001"
+    async with maker() as session:
+        p = await session.get(Payment, pid)
+        assert "6037990000000001" not in str(p.meta) and "Creator" not in str(p.meta)
+
+
+async def test_empty_status_from_a_check_keeps_the_invoice_open(live):  # type: ignore[no-untyped-def]
+    """A check without a status says nothing new: the invoice stays open and the receipt can be sent."""
+    _, owner, pid, client, invoice, *_ = live
+    await mutations.consent(owner, pid, 1, 103000)
+
+    def waited(p):  # type: ignore[no-untyped-def]
+        state = dict(p.meta[mutations.STATE_KEY])
+        state["created_at"] -= 3600
+        p.meta = {**p.meta, mutations.STATE_KEY: state}
+
+    await change(live, waited)
+    client.check.return_value = replace(invoice, status="")
+    result = await runtime.refresh(owner, pid)
+    assert result["provider_status"] == "pending"
+    assert result["can_receipt"] is True and result["receipt_received"] is False
