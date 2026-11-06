@@ -10,6 +10,8 @@ import { Icon } from "../icons";
 import { Button, Chevron, Empty, Loading, Panel, ReadFailure, Ring, Row, Screen } from "../ui";
 import { timeRatio, usageRatio } from "./Home";
 import { useResource } from "../useResource";
+import { dataLeft } from "../data-left";
+import { MyPanels } from "./Agency";
 import { AutoRenew } from "../autoRenew/AutoRenew";
 import { UsageChart } from "../usage/UsageChart";
 import { ServiceAccess } from "./ServiceAccess";
@@ -88,6 +90,7 @@ export function Services() {
       </button>)}
     </div>}
     <StockInventory />
+    {!(query || status || group !== null) && <MyPanels />}
     <ServiceResults key={JSON.stringify([query, status, group])} q={query} status={status} group={group} returnTo={returnTo} />
     <Button onClick={() => navigate("/buy")}>
       <span className="inline-flex items-center gap-2"><Icon name="bag" />{t("buy_new_service")}</span>
@@ -166,7 +169,7 @@ function ServiceResults({ q, status, group, returnTo }: { q: string; status: Ser
                   </p>
                   <p className="num mt-0.5 text-sm text-[var(--hint)]">
                     {service.data_limit
-                      ? t("data_left", { value: size(service.data_limit - service.used_bytes, locale, units) })
+                      ? t("data_left", { value: size(dataLeft(service.data_limit, service.used_bytes) ?? 0, locale, units) })
                       : t("unlimited_data")}
                     {" · "}
                     {left === null ? t("never_expires") : t("days_left", { days: money(left, locale) })}
@@ -233,7 +236,7 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
   if (loading || !service || !me) return <Loading />;
   const units = t("units").split(",");
   const left = daysLeft(service.expire_at);
-  const remaining = service.data_limit ? service.data_limit - service.used_bytes : null;
+  const remaining = dataLeft(service.data_limit, service.used_bytes);
 
   const copy = async (text: string) => {
     const current = gate.current;

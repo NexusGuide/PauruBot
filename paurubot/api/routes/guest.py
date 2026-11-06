@@ -9,7 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from paurubot import kv
+from paurubot import __version__, kv
 from paurubot.api.deps import DB, request_ip
 from paurubot.bot.views import qr_base64
 from paurubot.config import get_settings
@@ -100,9 +100,9 @@ def _page(
 <html lang="{escape(t.locale)}" dir="{"rtl" if t.locale == "fa" else "ltr"}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">{meta}
-<title>{escape(title)}</title><link rel="stylesheet" href="/s/_/page.css"></head>
+<title>{escape(title)}</title><link rel="stylesheet" href="/s/_/page.css?v={escape(__version__)}"></head>
 <body><main><header class="top"><h1>{escape(title)}</h1>{lang}</header>{body}</main>
-<script src="/s/_/page.js"></script></body></html>"""
+<script src="/s/_/page.js?v={escape(__version__)}"></script></body></html>"""
     return HTMLResponse(html, status_code=status, headers={"Cache-Control": "no-store"})
 
 
@@ -314,6 +314,7 @@ async def purchase(token: str, request: Request, db: DB) -> Response:
         return _not_found()
     t = await texts_for(db, shop.id, _locale(request, shop, customer.locale))
     title = shop.title or "PauruBot"
+    here = f"/buy/t/{token}"  # this page, for the language link
     state = await guest.status(db, customer)
     order, payment, service = state["order"], state["payment"], state["service"]
     keep = f'<p class="note">{escape(t("guest_keep_link"))}</p>'
@@ -349,17 +350,17 @@ async def purchase(token: str, request: Request, db: DB) -> Response:
 <button type="button" class="btn primary" data-copy="{escape(link)}" data-done="{escape(t("sub_page_copied"))}">{escape(t("sub_page_copy"))}</button>
 {open_page}</section>
 <section class="card">{claim}{again}</section>{keep}"""
-        return _page(t, title, body)
+        return _page(t, title, body, switch=here)
 
     account = state["account"]
     if account is not None and order is not None and order.status == OrderStatus.COMPLETED:
-        return _page(t, title, _account_ready(t, shop, token, account) + f"{keep}", switch=f"/buy/t/{token}")
+        return _page(t, title, _account_ready(t, shop, token, account) + keep, switch=here)
 
     if payment is not None and payment.status in OPEN:
         if saved_checkout.uncertain(payment):
             # No new-purchase button, stale redirect, or provider I/O on an ambiguous attempt.
             body = f'<section class="card"><p class="name">{escape(t("guest_review"))}</p></section>{keep}'
-            return _page(t, title, body, refresh="10")
+            return _page(t, title, body, refresh="10", switch=here)
         if "order_attempt_v1" in (payment.meta or {}):
             # Never resume an invoice whose recorded order price/identity changed.
             saved = (payment.meta or {}).get("checkout_intent_v1")
@@ -391,18 +392,18 @@ async def purchase(token: str, request: Request, db: DB) -> Response:
         )
         body = f"""<section class="card"><p class="name">{escape(t("guest_waiting"))}</p>
 <p class="status">{escape(t("guest_amount", amount=money(_to_pay(payment))))}</p>{button}{change}</section>{keep}"""
-        return _page(t, title, body, refresh=f"0;url={url}" if go else "10")
+        return _page(t, title, body, refresh=f"0;url={url}" if go else "10", switch=here)
 
     paid = payment is not None and payment.status == PaymentStatus.PAID
     if paid or (order is not None and order.status in (OrderStatus.PAID, OrderStatus.PROVISIONING)):
         body = f'<section class="card"><p class="name">{escape(t("guest_building"))}</p></section>{keep}'
-        return _page(t, title, body, refresh="5")
+        return _page(t, title, body, refresh="5", switch=here)
 
     reason = (
         "guest_review" if payment is not None and payment.status == PaymentStatus.DISPUTED else "guest_failed"
     )
     body = f'<section class="card"><p class="name">{escape(t(reason))}</p>{again}</section>{keep}'
-    return _page(t, title, body)
+    return _page(t, title, body, switch=here)
 
 
 def _account_ready(t: Texts, shop: Shop, token: str, account) -> str:  # type: ignore[no-untyped-def]
