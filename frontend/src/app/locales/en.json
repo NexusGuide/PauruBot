@@ -88,6 +88,7 @@
   "location": "Location",
   "manage_service": "Manage service",
   "method_card": "Card transfer",
+  "method_tonpay_custom": "Tonpay card transfer",
   "method_stars": "Pay with Stars",
   "method_zarinpal": "Zarinpal gateway",
   "more": "More",

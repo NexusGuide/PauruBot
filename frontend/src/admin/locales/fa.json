@@ -1523,6 +1523,8 @@
   "setting_guest_buy_enabled": "مهمان‌ها بتوانند از وب بخرند",
   "setting_guest_buy_enabled_hint": "یک صفحهٔ عمومی در /buy روی آدرس سرور شما، پلن‌ها را بدون تلگرام و با درگاه آنلاین می‌فروشد. خریدار لینک را در یک صفحهٔ خصوصی می‌گیرد و بعداً می‌تواند آن را به ربات منتقل کند.",
   "setting_guest_plan_ids": "پلن‌های صفحهٔ وب",
+  "setting_guest_accounts_enabled": "پلن‌های اکانت ادمین (پنل نمایندگی) هم در خرید وب",
+  "setting_guest_accounts_enabled_hint": "وقتی فروش اکانت ادمین روشن است و فقط برای نماینده‌ها نیست، پلن‌هایش در صفحهٔ خرید وب هم نشان داده می‌شوند.",
   "setting_guest_plan_ids_hint": "خالی بگذارید تا همهٔ پلن‌های عادی نمایش داده شوند.",
   "err_guest_plan_ids_invalid": "پلن‌ها را از فهرست انتخاب کنید.",
   "panel_kind_wgdashboard": "WGDashboard",

@@ -87,6 +87,10 @@ CHIPS: dict[ServiceStatus, str] = {
 # ---------------------------------------------------------------------------
 
 PAGE_CSS = """
+@font-face{font-family:'Vazirmatn';src:url('/s/_/font400.ttf') format('truetype');font-weight:400;
+font-style:normal;font-display:swap}
+@font-face{font-family:'Vazirmatn';src:url('/s/_/font700.ttf') format('truetype');font-weight:500 700;
+font-style:normal;font-display:swap}
 :root{--bg:#f3f5f9;--card:#fff;--ink:#16202e;--muted:#5d6b7e;--line:#dfe4ec;--accent:#2563eb;
 --accent-ink:#fff;--good:#15803d;--warn:#b45309;--bad:#b91c1c;--bar:#e6eaf1}
 @media (prefers-color-scheme:dark){:root{--bg:#0f141b;--card:#18202b;--ink:#e8edf4;--muted:#9aa7b8;
@@ -120,12 +124,30 @@ h2{font-size:15px;margin:0 0 10px}
 details summary{cursor:pointer;color:var(--muted);font-size:14px}
 details .link{margin:8px 0 0}
 .note{font-size:13px;color:var(--muted);text-align:center}
-.opt{display:flex;gap:10px;align-items:flex-start;padding:12px;border:1px solid var(--line);border-radius:10px;
-margin-bottom:8px;cursor:pointer}
-.opt input{margin-top:5px;accent-color:var(--accent)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px}
+.top h1{margin:0;font-size:18px;font-weight:700;color:var(--ink)}
+.lang{font-size:13px;color:var(--accent);text-decoration:none;border:1px solid var(--line);border-radius:999px;
+padding:4px 12px;background:var(--card)}
+h2{display:flex;align-items:center;gap:8px}
+.step{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--accent);
+color:var(--accent-ink);font-size:13px;flex:none}
+.group{font-size:13px;color:var(--muted);margin:14px 0 8px;font-weight:600}
+.group:first-of-type{margin-top:4px}
+.hint{font-size:12px;color:var(--muted);margin:-4px 0 8px}
+.opt{display:flex;gap:10px;align-items:center;padding:14px 12px;border:1.5px solid var(--line);border-radius:12px;
+margin-bottom:8px;cursor:pointer;transition:border-color .15s,background .15s}
+.opt input{margin:0;accent-color:var(--accent);flex:none;width:18px;height:18px}
+.opt .what{flex:1;min-width:0}
+.opt b{display:block;font-size:15px}
 .opt small{display:block;color:var(--muted);font-size:13px}
-.opt:has(input:checked){border-color:var(--accent)}
-.price{display:block;font-weight:700;margin-top:2px}
+.opt:has(input:checked){border-color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--card))}
+.price{font-weight:700;white-space:nowrap;color:var(--accent);font-size:15px}
+.cred{display:grid;grid-template-columns:1fr auto;align-items:center;gap:4px 10px;padding:10px 0;
+border-bottom:1px solid var(--line)}
+.cred small{grid-column:1/-1;color:var(--muted);font-size:12px}
+.cred code{font:14px/1.5 ui-monospace,monospace;word-break:break-all;text-align:left}
+.cred .btn{margin:0;width:auto;padding:6px 12px;font-size:13px}
+.cred+.btn{margin-top:14px}
 .err{background:var(--card);border:1px solid var(--bad);color:var(--bad);border-radius:10px;padding:10px 12px;
 font-weight:600}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}

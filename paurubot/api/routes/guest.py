@@ -84,15 +84,74 @@ def _locale(request: Request, shop: Shop, saved: str | None = None) -> str:
     return shop.default_locale if shop.default_locale in LOCALES else "fa"
 
 
-def _page(t: Texts, title: str, body: str, *, refresh: str = "", status: int = 200) -> HTMLResponse:
+def _page(
+    t: Texts, title: str, body: str, *, refresh: str = "", status: int = 200, switch: str = ""
+) -> HTMLResponse:
+    """A guest page. `switch` is the address of this same page, for the language link."""
     meta = f'<meta http-equiv="refresh" content="{escape(refresh)}">' if refresh else ""
+    other = "en" if t.locale == "fa" else "fa"
+    lang = (
+        f'<a class="lang" href="{escape(switch)}{"&" if "?" in switch else "?"}lang={other}">'
+        f"{escape(t('guest_lang_switch'))}</a>"
+        if switch
+        else ""
+    )
     html = f"""<!doctype html>
 <html lang="{escape(t.locale)}" dir="{"rtl" if t.locale == "fa" else "ltr"}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">{meta}
 <title>{escape(title)}</title><link rel="stylesheet" href="/s/_/page.css"></head>
-<body><main><h1>{escape(title)}</h1>{body}</main><script src="/s/_/page.js"></script></body></html>"""
+<body><main><header class="top"><h1>{escape(title)}</h1>{lang}</header>{body}</main>
+<script src="/s/_/page.js"></script></body></html>"""
     return HTMLResponse(html, status_code=status, headers={"Cache-Control": "no-store"})
+
+
+def _choice(kind: str, plan_id: int) -> str:
+    return f"{'a' if kind == 'account' else 's'}:{plan_id}"
+
+
+def _parse_choice(plan: str, plan_id: int | None) -> tuple[str, int] | None:
+    """The form's plan: "s:12" (a service plan) or "a:3" (an admin account plan); a bare
+    plan_id from an older page is a service plan."""
+    if plan:
+        prefix, _, number = plan.partition(":")
+        if prefix in {"s", "a"} and number.isdigit() and 0 < int(number) < 2**31:
+            return ("account" if prefix == "a" else "service"), int(number)
+        return None
+    return ("service", plan_id) if plan_id else None
+
+
+async def _chosen_title(db: DB, kind: str, plan_id: int) -> str:
+    from paurubot.db.models import AccountPlan, Plan
+
+    row: AccountPlan | Plan | None = (
+        await db.get(AccountPlan, plan_id) if kind == "account" else await db.get(Plan, plan_id)
+    )
+    return str(row.title) if row is not None else "—"
+
+
+def _service_option(t: Texts, plan, checked: bool) -> str:  # type: ignore[no-untyped-def]
+    specs = t("plan_specs", days=plan.days or t("unlimited"), gb=plan.data_gb or t("unlimited"))
+    return _option(t, _choice("service", plan.id), plan.title, specs, plan.price, checked)
+
+
+def _account_option(t: Texts, plan, checked: bool) -> str:  # type: ignore[no-untyped-def]
+    specs = t(
+        "guest_account_specs",
+        gb=plan.data_gb or t("unlimited"),
+        users=plan.max_users or t("unlimited"),
+        days=plan.days or t("unlimited"),
+    )
+    return _option(t, _choice("account", plan.id), plan.title, specs, plan.price, checked)
+
+
+def _option(t: Texts, value: str, title: str, specs: str, price: int, checked: bool) -> str:
+    return (
+        f'<label class="opt"><input type="radio" name="plan" value="{escape(value)}" required'
+        f'{" checked" if checked else ""}><span class="what"><b>{escape(title)}</b>'
+        f"<small>{escape(specs)}</small></span>"
+        f'<span class="price">{escape(t("guest_price", price=money(price)))}</span></label>'
+    )
 
 
 async def _store(db: DB, request: Request, shop: Shop, t: Texts, error: str = "") -> HTMLResponse:
@@ -105,28 +164,46 @@ async def _store(db: DB, request: Request, shop: Shop, t: Texts, error: str = ""
         order = await db.get(Order, intent.order_id) if intent.order_id else None
         new_link = f"/buy/{shop.id}?lang={escape(t.locale)}&amp;new=1"
         if guest_checkout.owns(customer, order, shop.id):
-            assert customer is not None
-            body = f'''{notice}<section class="card"><p>{escape(t("guest_waiting"))}</p>
-<a class="btn ghost" href="/buy/t/{escape(str(customer.guest_token))}">{escape(t("guest_keep_link"))}</a>
+            assert customer is not None and order is not None
+            title_chosen = await _chosen_title(db, intent.kind, intent.plan_id)
+            latest = (await guest.status(db, customer))["payment"]
+            # Never invite a second purchase while the first one's outcome is uncertain.
+            change = (
+                ""
+                if latest is not None and saved_checkout.uncertain(latest)
+                else f'<a class="btn ghost" href="{new_link}">{escape(t("guest_change_plan"))}</a>'
+                f'<p class="note">{escape(t("guest_change_plan_hint"))}</p>'
+            )
+            body = f'''{notice}<section class="card"><p class="name">{escape(t("guest_waiting"))}</p>
+<div class="facts"><div>{escape(t("guest_your_plan"))}<b>{escape(title_chosen)}</b></div>
+<div>{escape(t("guest_your_method"))}<b>{escape(t(f"btn_pay_{intent.method}"))}</b></div>
+<div>{escape(t("guest_to_pay"))}<b>{escape(t("guest_price", price=money(order.amount)))}</b></div></div>
 <form method="post" action="/buy/{shop.id}?lang={escape(t.locale)}">
 <input type="hidden" name="intent" value="{escape(intent_token)}">
-<input type="hidden" name="plan_id" value="{intent.plan_id}">
+<input type="hidden" name="plan" value="{escape(_choice(intent.kind, intent.plan_id))}">
 <input type="hidden" name="method" value="{escape(intent.method)}">
-<button type="submit" class="btn primary">{escape(t("guest_go_pay"))}</button></form></section>'''
+<button type="submit" class="btn primary">{escape(t("guest_go_pay"))}</button></form>
+{change}</section>
+<p class="note"><a href="/buy/t/{escape(str(customer.guest_token))}">{escape(t("guest_keep_link"))}</a></p>'''
         else:
             body = f'<section class="card"><p>{escape(_intent_notice(t, "payment_intent_closed"))}</p><a href="{new_link}">{escape(t("guest_buy_again"))}</a></section>'
-        return _with_intent(_page(t, title, body, status=400 if error else 200), shop.id, intent_token)
+        page = _page(t, title, body, status=400 if error else 200, switch=f"/buy/{shop.id}")
+        return _with_intent(page, shop.id, intent_token)
     plans = await guest.plans(db, shop.id)
+    accounts = await guest.account_plans(db, shop.id)
     methods = await guest.methods(db, shop.id)
-    if not plans or not methods:
+    if not (plans or accounts) or not methods:
         return _page(t, title, f'<section class="card"><p>{escape(t("guest_closed"))}</p></section>')
-    options = "".join(
-        f'<label class="opt"><input type="radio" name="plan_id" value="{p.id}" required{" checked" if i == 0 else ""}>'
-        f"<span><b>{escape(p.title)}</b>"
-        f"<small>{escape(t('plan_specs', days=p.days or t('unlimited'), gb=p.data_gb or t('unlimited')))}</small>"
-        f'<span class="price">{escape(t("guest_price", price=money(p.price)))}</span></span></label>'
-        for i, p in enumerate(plans)
-    )
+    options = "".join(_service_option(t, p, i == 0) for i, p in enumerate(plans))
+    account_options = "".join(_account_option(t, p, not plans and i == 0) for i, p in enumerate(accounts))
+    if accounts:
+        groups = (
+            (f'<h3 class="group">{escape(t("guest_group_services"))}</h3>{options}' if plans else "")
+            + f'<h3 class="group">{escape(t("guest_group_accounts"))}</h3>'
+            + f'<p class="hint">{escape(t("guest_accounts_hint"))}</p>{account_options}'
+        )
+    else:
+        groups = options
     ways = "".join(
         f'<label class="opt"><input type="radio" name="method" value="{escape(m)}" required'
         f"{' checked' if i == 0 else ''}><span>{escape(t(f'btn_pay_{m}'))}</span></label>"
@@ -141,12 +218,13 @@ async def _store(db: DB, request: Request, shop: Shop, t: Texts, error: str = ""
     body = f"""{notice}
 <form method="post" action="/buy/{shop.id}?lang={escape(t.locale)}">
 <input type="hidden" name="intent" value="{escape(intent_token)}">
-<section class="card"><h2>{escape(t("guest_pick_plan"))}</h2>{options}</section>
-<section class="card"><h2>{escape(t("guest_pick_method"))}</h2>{ways}
+<section class="card"><h2><span class="step">1</span>{escape(t("guest_pick_plan"))}</h2>{groups}</section>
+<section class="card"><h2><span class="step">2</span>{escape(t("guest_pick_method"))}</h2>{ways}
 <button type="submit" class="btn primary">{escape(t("guest_pay"))}</button></section>
 </form>
 <p class="note">{escape(t("guest_how"))}</p>{bot}"""
-    return _with_intent(_page(t, title, body, status=400 if error else 200), shop.id, intent_token)
+    page = _page(t, title, body, status=400 if error else 200, switch=f"/buy/{shop.id}")
+    return _with_intent(page, shop.id, intent_token)
 
 
 @router.get("/buy", include_in_schema=False)
@@ -165,9 +243,10 @@ async def buy(
     request: Request,
     db: DB,
     ip: Annotated[str, Depends(request_ip)],
-    plan_id: Annotated[int, Form(gt=0)],
     method: Annotated[str, Form(max_length=32)],
     intent: Annotated[str, Form(max_length=160)] = "",
+    plan: Annotated[str, Form(max_length=24)] = "",
+    plan_id: Annotated[int | None, Form(gt=0)] = None,
 ) -> Response:
     shop = await guest.shop_for(db, shop_id)
     if shop is None:
@@ -187,8 +266,11 @@ async def buy(
         allowed, _ = await kv.hit(f"guest:start:shop:{shop.id}", STARTS_PER_SHOP_HOUR, 3600)
     if not allowed:
         return await _store(db, request, shop, t, t("guest_too_many"))
+    choice = _parse_choice(plan, plan_id)
+    if choice is None:
+        return await _store(db, request, shop, t, t("guest_plan_unavailable"))
     try:
-        token = await guest_checkout.start(shop.id, plan_id, method, t.locale, intent)
+        token = await guest_checkout.start(shop.id, choice[1], method, t.locale, intent, choice[0])
     except guest.GuestError as exc:
         return await _store(db, request, shop, t, _intent_notice(t, exc.key))
     response = RedirectResponse(f"/buy/t/{token}?go=1", status_code=303)
@@ -269,6 +351,10 @@ async def purchase(token: str, request: Request, db: DB) -> Response:
 <section class="card">{claim}{again}</section>{keep}"""
         return _page(t, title, body)
 
+    account = state["account"]
+    if account is not None and order is not None and order.status == OrderStatus.COMPLETED:
+        return _page(t, title, _account_ready(t, shop, token, account) + f"{keep}", switch=f"/buy/t/{token}")
+
     if payment is not None and payment.status in OPEN:
         if saved_checkout.uncertain(payment):
             # No new-purchase button, stale redirect, or provider I/O on an ambiguous attempt.
@@ -298,8 +384,13 @@ async def purchase(token: str, request: Request, db: DB) -> Response:
                 url = ""
         go = request.query_params.get("go") == "1" and bool(url)
         button = f'<a class="btn primary" href="{escape(url)}">{escape(t("guest_go_pay"))}</a>' if url else ""
+        change = (
+            f'<a class="btn ghost" href="/buy/{shop.id}?lang={escape(t.locale)}&amp;new=1">'
+            f"{escape(t('guest_change_plan'))}</a>"
+            f'<p class="note">{escape(t("guest_change_plan_hint"))}</p>'
+        )
         body = f"""<section class="card"><p class="name">{escape(t("guest_waiting"))}</p>
-<p class="status">{escape(t("guest_amount", amount=money(_to_pay(payment))))}</p>{button}</section>{keep}"""
+<p class="status">{escape(t("guest_amount", amount=money(_to_pay(payment))))}</p>{button}{change}</section>{keep}"""
         return _page(t, title, body, refresh=f"0;url={url}" if go else "10")
 
     paid = payment is not None and payment.status == PaymentStatus.PAID
@@ -312,6 +403,47 @@ async def purchase(token: str, request: Request, db: DB) -> Response:
     )
     body = f'<section class="card"><p class="name">{escape(t(reason))}</p>{again}</section>{keep}'
     return _page(t, title, body)
+
+
+def _account_ready(t: Texts, shop: Shop, token: str, account) -> str:  # type: ignore[no-untyped-def]
+    """A bought admin account: its quota, users and end, and the panel login to copy."""
+    from paurubot.core import panel_accounts
+
+    url = panel_accounts.login_url(account)
+    password = panel_accounts.password_of(account)
+    volume = size(account.data_limit) if account.data_limit else t("unlimited")
+    ends = jdate(account.expire_at) if account.expire_at else t("unlimited")
+    copied = escape(t("sub_page_copied"))
+    creds = "".join(
+        f'<div class="cred"><small>{escape(label)}</small><code dir="ltr">{escape(value)}</code>'
+        f'<button type="button" class="btn ghost sm" data-copy="{escape(value)}" data-done="{copied}">'
+        f"{escape(t('sub_page_copy'))}</button></div>"
+        for label, value in (
+            (t("guest_account_url"), url),
+            (t("guest_account_username"), account.username),
+            (t("guest_account_password"), password),
+        )
+        if value
+    )
+    open_panel = (
+        f'<a class="btn primary" href="{escape(url)}">{escape(t("guest_account_open"))}</a>' if url else ""
+    )
+    claim = (
+        f'<a class="btn primary" href="https://t.me/{escape(shop.bot_username)}?start=claim_{escape(token)}">'
+        f'{escape(t("guest_add_to_telegram"))}</a><p class="note">{escape(t("guest_account_claim_hint"))}</p>'
+        if shop.bot_username
+        else ""
+    )
+    again = (
+        f'<a class="btn ghost" href="/buy/{shop.id}?lang={escape(t.locale)}&amp;new=1">'
+        f"{escape(t('guest_buy_again'))}</a>"
+    )
+    return f"""<section class="card"><p class="name">{escape(t("guest_account_ready"))}</p>
+<div class="facts"><div>{escape(t("guest_volume"))}<b dir="ltr">{escape(volume)}</b></div>
+<div>{escape(t("guest_account_users"))}<b>{escape(str(account.max_users or t("unlimited")))}</b></div>
+<div>{escape(t("sub_page_expiry"))}<b>{escape(ends)}</b></div></div></section>
+<section class="card">{creds}{open_panel}<p class="note">{escape(t("guest_account_secret"))}</p></section>
+<section class="card">{claim}{again}</section>"""
 
 
 def _to_pay(payment) -> int:  # type: ignore[no-untyped-def]

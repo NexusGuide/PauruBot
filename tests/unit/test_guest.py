@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import re
 from uuid import uuid4
 
@@ -355,3 +356,97 @@ async def test_guest_attempt_visible_before_provider_and_survives_observer_rollb
     again = await client.post(f"/buy/{sid}", data=payload)
     assert again.status_code == 303 and again.headers["location"] == first.headers["location"]
     remote.assert_awaited_once()
+
+
+async def test_a_waiting_buyer_can_change_the_plan(session, store) -> None:  # type: ignore[no-untyped-def]
+    """Back on /buy after picking a plan, the buyer sees what they chose and can start over."""
+    shop, plan, client = store
+    payload = await form(client, shop.id, plan.id)
+    assert (await client.post(f"/buy/{shop.id}?lang=en", data=payload)).status_code == 303
+    page = await client.get(f"/buy/{shop.id}?lang=en")
+    assert "Monthly web" in page.text and "75,000" in page.text  # what was chosen, and its price
+    assert f"/buy/{shop.id}?lang=en&amp;new=1" in page.text and "Change plan" in page.text
+    fresh = await client.get(f"/buy/{shop.id}?lang=en&new=1")
+    assert form_identity(fresh) != payload["intent"] and 'name="plan"' in fresh.text  # a new form
+
+
+async def test_admin_account_plans_on_the_web(session, store) -> None:  # type: ignore[no-untyped-def]
+    """Panel admin account plans are sold on the web when the shop sells them to everyone; the
+    page then shows the panel login, and claiming moves the account to the Telegram customer."""
+    from paurubot.db.models import AccountPlan, PanelAccount, PanelKind, PlanAudience
+    from paurubot.security import secretbox
+
+    shop, _plan, client = store
+    pg = await factories.panel(session, shop, PanelKind.PASARGUARD)
+    fake_pg = FakeTokenPanel("pasarguard")
+    registry.test_transports[pg.id] = transport(fake_pg)
+    admin_plan = AccountPlan(
+        shop_id=shop.id,
+        panel_id=pg.id,
+        title="Reseller 500",
+        role_id=2,
+        data_gb=500,
+        max_users=40,
+        days=30,
+        price=600_000,
+    )
+    for_resellers = AccountPlan(
+        shop_id=shop.id,
+        panel_id=pg.id,
+        title="Wholesale",
+        role_id=2,
+        price=1,
+        audience=PlanAudience.RESELLERS,
+    )
+    session.add_all([admin_plan, for_resellers])
+    await session.commit()
+    page = await client.get(f"/buy/{shop.id}?lang=en&new=1")
+    assert "Reseller 500" not in page.text  # admin accounts are off
+    await shop_settings.set_many(session, shop.id, {"panel_accounts_enabled": True})
+    await session.commit()
+    shop_settings.invalidate(shop.id)
+    page = await client.get(f"/buy/{shop.id}?lang=en&new=1")
+    assert "Reseller 500" in page.text and f'value="a:{admin_plan.id}"' in page.text
+    assert "Wholesale" not in page.text  # a plan for resellers only stays off the web
+
+    started = await client.post(
+        f"/buy/{shop.id}?lang=en",
+        data={"plan": f"a:{admin_plan.id}", "method": "aqayepardakht", "intent": form_identity(page)},
+    )
+    assert started.status_code == 303
+    token = re.match(r"/buy/t/([\w-]+)\?go=1$", started.headers["location"]).group(1)  # type: ignore[union-attr]
+    customer = await guest.by_token(session, token)
+    purchase = await guest.status(session, customer)
+    assert purchase["order"].kind.value == "account_purchase" and purchase["order"].amount == 600_000
+    back = await client.get(
+        "/api/pay/gw/aqayepardakht",
+        params={"pid": purchase["payment"].id, "transid": "T-1"},
+        headers={"accept": "text/html"},
+    )
+    assert back.status_code == 303
+    await session.refresh(purchase["order"])
+    await session.refresh(purchase["payment"])
+    await drain(session, "provision")
+    await session.refresh(purchase["order"])
+    assert purchase["order"].status == OrderStatus.COMPLETED
+    account = await session.scalar(select(PanelAccount).where(PanelAccount.customer_id == customer.id))
+    assert account is not None
+    # A password with HTML characters is shown escaped, never as raw markup.
+    account.password_enc = secretbox.encrypt("panel", 'p&ss<"word')
+    await session.commit()
+    ready = await client.get(f"/buy/t/{token}?lang=en")
+    assert "Your reseller panel is ready" in ready.text
+    assert account.username in ready.text and html.escape('p&ss<"word') in ready.text
+    assert 'p&ss<"word' not in ready.text
+    assert f"start=claim_{token}" in ready.text
+
+    real = await factories.customer(session, shop, telegram_id=88002)
+    assert await guest.claim(session, token, real) == 1
+    await session.commit()
+    await session.refresh(account)
+    assert account.customer_id == real.id
+    # Switched off on the web: the plan leaves the page.
+    await shop_settings.set_many(session, shop.id, {"guest_accounts_enabled": False})
+    await session.commit()
+    shop_settings.invalidate(shop.id)
+    assert "Reseller 500" not in (await client.get(f"/buy/{shop.id}?lang=en&new=1")).text

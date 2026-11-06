@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { money } from "@shared/format";
 import { api, type Review, type StaffDashboard } from "../api";
-import { errorText, useApp } from "../state";
+import { errorText, methodName, useApp } from "../state";
 import { haptic, tg } from "../telegram";
 import { Button, Empty, Loading, Panel, Screen } from "../ui";
 
@@ -61,7 +61,7 @@ function Figures({ data }: { data: StaffDashboard }) {
 }
 
 function ReviewCard({ item, onDone }: { item: Review; onDone: (id: number) => void }) {
-  const { t, locale, toast } = useApp();
+  const { me, t, locale, toast } = useApp();
   const [image, setImage] = useState<string | null>(null);
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
   const [rejecting, setRejecting] = useState(false);
@@ -104,7 +104,7 @@ function ReviewCard({ item, onDone }: { item: Review; onDone: (id: number) => vo
     <Panel className="mb-3">
       <div className="flex items-baseline justify-between gap-3">
         <p className="num text-lg font-extrabold">{t("toman_amount", { amount: money(credit, locale) })}</p>
-        <p className="text-xs text-[var(--hint)]">#{item.id} · {t(`method_${item.provider}`)}</p>
+        <p className="text-xs text-[var(--hint)]">#{item.id} · {methodName(t, me, item.provider)}</p>
       </div>
       <p className="mt-1 text-sm"><bdi>{item.customer ?? "-"}</bdi></p>
       {item.review_amount !== null && (
