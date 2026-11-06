@@ -14,6 +14,7 @@ OPTIONAL_ROUTERS: list[str] = [
     "tonpay_custom",
     "announcements",
     "webapp_staff",
+    "webapp_own",
     "sub",
     "guest",
     "admin.dashboard",
@@ -29,6 +30,7 @@ OPTIONAL_ROUTERS: list[str] = [
     "admin.system",
     "admin.resale",
     "admin.accounts",
+    "admin.own_bots",
     "admin.desk",
 ]
 

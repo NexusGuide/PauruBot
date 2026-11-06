@@ -38,6 +38,8 @@ class UsernameMethod(enum.StrEnum):
     RANDOM = "random"
     SEQUENTIAL = "sequential"
     CUSTOM_LABEL = "custom_label"
+    # The customer's name (@username, else first name in Latin letters) and a random tail (OPB).
+    CUSTOMER_NAME = "customer_name"
 
 
 class PlanAudience(enum.StrEnum):

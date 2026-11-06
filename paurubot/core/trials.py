@@ -45,6 +45,11 @@ async def eligibility(session: AsyncSession, customer: Customer) -> str | None:
         return "trial_disabled"
     if sale is not None and (not sale.open or not sale.offers("trial")):
         return "trial_disabled"  # a reseller bot offers trials only when staff allow it (TEN-18)
+    from paurubot.core import own_panel
+
+    blocked = await own_panel.sales_gate(session, customer.shop_id, new_user=True)
+    if blocked:
+        return blocked  # a dedicated bot whose own panel cannot serve now (OPB)
     if customer.risk == "high":
         return "trial_unavailable"
     if (policy["trial_requires_phone"] or policy["require_phone"]) and not customer.phone:

@@ -55,6 +55,10 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/customers/{customer_id}/adjust` | `wallet.adjust` | Adjust |
 | POST | `/api/admin/customers/{customer_id}/ban` | `customers.ban` | Ban |
 | POST | `/api/admin/customers/{customer_id}/message` | `customers.write` | Message |
+| POST | `/api/admin/customers/{customer_id}/own-bot/hold` | `resellers.manage` | Hold own bot |
+| DELETE | `/api/admin/customers/{customer_id}/own-bot` | `resellers.manage` | Disconnect own bot |
+| GET | `/api/admin/customers/{customer_id}/own-bot` | `resellers.manage` | Own bot |
+| POST | `/api/admin/customers/{customer_id}/own-bot` | `resellers.manage` | Connect own bot |
 | POST | `/api/admin/customers/{customer_id}/trial-again` | `customers.write` | One more trial for this customer (CAT-11). |
 | GET | `/api/admin/customers/{customer_id}` | `customers.read` | Customer detail |
 | PATCH | `/api/admin/customers/{customer_id}` | `customers.write` | Update customer |
@@ -274,6 +278,14 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/orders/{order_id}/renewal-preview` | Mini App initData | Get renewal preview |
 | GET | `/api/webapp/orders/{order_id}` | Mini App initData | Get order |
 | POST | `/api/webapp/orders` | Mini App initData | Create order |
+| PUT | `/api/webapp/own/features` | Mini App initData | Save features |
+| GET | `/api/webapp/own/payment` | Mini App initData | Payment |
+| PUT | `/api/webapp/own/payment` | Mini App initData | Save payment |
+| DELETE | `/api/webapp/own/plans/{plan_id}` | Mini App initData | A plan nobody bought goes; one with services is only taken off sale, so they keep it. |
+| PUT | `/api/webapp/own/plans/{plan_id}` | Mini App initData | Update plan |
+| GET | `/api/webapp/own/plans` | Mini App initData | Plans |
+| POST | `/api/webapp/own/plans` | Mini App initData | Create plan |
+| GET | `/api/webapp/own` | Mini App initData | Overview |
 | GET | `/api/webapp/payments/{payment_id}/receipt-state` | Mini App initData | State |
 | POST | `/api/webapp/payments/{payment_id}/receipt-upload` | Mini App initData | Upload |
 | POST | `/api/webapp/payments/{payment_id}/receipt` | Mini App initData | Upload receipt |

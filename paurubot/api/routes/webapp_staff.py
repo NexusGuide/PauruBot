@@ -19,7 +19,8 @@ from paurubot.api.deps import StaffContext
 from paurubot.api.webapp_auth import WebApp, WebAppContext
 from paurubot.auth import rbac
 from paurubot.auth import staff as staff_service
-from paurubot.db.models import Payment, Staff
+from paurubot.core import own_panel
+from paurubot.db.models import Payment, Staff, StaffRole
 from paurubot.payments import engine as payments
 
 router = APIRouter(prefix="/api/webapp/staff", tags=["webapp"])
@@ -64,6 +65,8 @@ async def describe(ctx: WebAppContext) -> dict[str, Any] | None:
         "scoped": staff.scoped,
         "dashboard": staff.can("dashboard.view"),
         "review": staff.can("payments.review") and not staff.scoped,
+        # The merchant of a dedicated bot on its own panel runs that bot from here (OPB-4).
+        "own": own_panel.is_own(ctx.shop) and staff.staff.role == StaffRole.MERCHANT,
     }
 
 

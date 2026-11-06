@@ -194,11 +194,18 @@ def _actions(service: Service, cfg: dict[str, Any] | None) -> list[str]:
     return actions
 
 
-def _extras(service: Service, cfg: dict[str, Any] | None) -> dict[str, int | None] | None:
+def _extras(service: Service, cfg: dict[str, Any] | None) -> dict[str, Any] | None:
     if cfg is None:
         return None
     gb, days = orders.service_extras(cfg, service)
-    return None if gb is None and days is None else {"gb_price": gb, "day_price": days}
+    if gb is None and days is None:
+        return None
+    return {
+        "gb_price": gb,
+        "day_price": days,
+        "gb_choices": orders.extra_choices(cfg, "gb"),
+        "day_choices": orders.extra_choices(cfg, "day"),
+    }
 
 
 async def _priced_view(ctx: Any, plan: Plan) -> dict[str, Any]:

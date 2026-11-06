@@ -519,10 +519,12 @@ async def extras_menu(
         await call.answer(t("extras_unavailable"), show_alert=True)
         return
     await call.answer()
+    from paurubot.core.orders import extra_choices
+
     if callback_data.action == "extra_gb":
-        kb = keyboards.extra_kb(t, service.id, "gb", [5, 10, 20, 50, 100], price)
+        kb = keyboards.extra_kb(t, service.id, "gb", extra_choices(cfg, "gb"), price)
     else:
-        kb = keyboards.extra_kb(t, service.id, "days", [7, 15, 30, 60, 90], price)
+        kb = keyboards.extra_kb(t, service.id, "days", extra_choices(cfg, "day"), price)
     await show(call, t(f"choose_{callback_data.action}"), kb)
 
 

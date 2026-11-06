@@ -28,6 +28,7 @@ import {
   When,
   type Column,
 } from "../ui";
+import { OwnBotSection } from "./OwnBot";
 import { HiddenPanels } from "./People";
 import { ServiceTable } from "./Services";
 
@@ -590,6 +591,8 @@ export function CustomerPage() {
                 )}
               </div>
             </Section>
+
+            {can("resellers.manage") && me?.role !== "reseller" && <OwnBotSection customerId={c.id} />}
 
             <Section flush title={t("nav_services")}>
               <ServiceTable rows={detail.services} />

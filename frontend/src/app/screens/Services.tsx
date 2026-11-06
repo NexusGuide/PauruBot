@@ -561,7 +561,8 @@ function ExtraBody({ serviceId, unit }: { serviceId: number; unit?: string }) {
   if (error) return <Screen title={t(unit === "gb" ? "extra_data" : "extra_time")}><ReadFailure error={error} retry={retry} /></Screen>;
   if (loading || !service) return <Loading />;
   const isGb = unit === "gb";
-  const options = isGb ? [5, 10, 20, 50, 100] : [7, 15, 30, 60, 90];
+  const offered = isGb ? service.extras?.gb_choices : service.extras?.day_choices;
+  const options = offered?.length ? offered : isGb ? [5, 10, 20, 50, 100] : [7, 15, 30, 60, 90];
   const price = isGb ? service.extras?.gb_price : service.extras?.day_price;
   if (price == null) return <Empty title={t("extras_unavailable")} />;
   return (

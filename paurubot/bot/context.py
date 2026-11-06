@@ -129,7 +129,7 @@ class ContextMiddleware(BaseMiddleware):
             financial_update = flood_exempt(event if isinstance(event, Update) else data.get("event_update"))
             if (
                 shop is not None
-                and shop.reseller_profile_id is not None
+                and (shop.reseller_profile_id is not None or shop.own_account_id is not None)
                 and shop.status != ShopStatus.ACTIVE
                 and not financial_update
             ):

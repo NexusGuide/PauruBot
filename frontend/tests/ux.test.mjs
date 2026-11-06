@@ -7,7 +7,7 @@ for (const [path,tab,parent] of [
  ['/', 'home',null],['/buy','buy',null],['/custom','buy','/buy'],['/checkout','buy','/buy'],['/done/12','buy','/services'],
  ['/services','services',null],['/services/12','services','/services'],['/extra/12/gb','services','/services/12'],['/extra/invalid/gb','services','/services'],
  ['/wallet','wallet',null],['/payment/12','wallet','/wallet'],['/more','more',null],['/profile','more','/more'],['/help','more','/more'],
- ['/tickets','more','/more'],['/tickets/new','more','/tickets'],['/tickets/12','more','/tickets'],['/manage','more','/more'],['/desk','more','/more'],['/unknown','home',null]
+ ['/tickets','more','/more'],['/tickets/new','more','/tickets'],['/tickets/12','more','/tickets'],['/manage','more','/more'],['/desk','more','/more'],['/shop','more','/more'],['/shop/plans','more','/shop'],['/shop/plans/new','more','/shop/plans'],['/shop/plans/7','more','/shop/plans'],['/shop/payment','more','/shop'],['/shop/features','more','/shop'],['/shop/status','more','/shop'],['/unknown','home',null]
 ]) test(`route ${path} has stable tab and safe parent`,()=>{assert.equal(tabForPath(path),tab);assert.equal(parentForPath(path),parent)});
 import "./alert-policy.test.mjs";
 const css=readFileSync(new URL('../src/app/app.css',import.meta.url),'utf8');

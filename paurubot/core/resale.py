@@ -425,12 +425,15 @@ async def update(session: AsyncSession, shop: Shop, values: dict[str, Any]) -> d
 
 
 async def bots(session: AsyncSession) -> list[tuple[Shop, str]]:
-    """Every reseller bot that should be running, with its token."""
+    """Every reseller bot that should be running, with its token: shop-panels bots (TEN-04) and
+    dedicated own-panel bots (OPB) alike."""
+    from sqlalchemy import or_
+
     from paurubot.security import secretbox
 
     rows = await session.scalars(
         select(Shop).where(
-            Shop.reseller_profile_id.is_not(None),
+            or_(Shop.reseller_profile_id.is_not(None), Shop.own_account_id.is_not(None)),
             Shop.bot_token_enc.is_not(None),
             Shop.status == ShopStatus.ACTIVE,
         )

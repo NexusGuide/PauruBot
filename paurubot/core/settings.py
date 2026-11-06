@@ -124,7 +124,11 @@ SPECS: dict[str, Spec] = {
     # a reseller's own bot (TEN-04); set on that bot's shop
     "resale_markup_percent": Spec(int, 20, "resale"),
     "resale_prices": Spec(dict, {}, "resale"),
-    "resale_blocked": Spec(bool, False, "resale"),  # stopped by the shop's staff: only they restart it
+    "resale_blocked": Spec(bool, False, "resale"),
+    # A dedicated own-panel bot (OPB), kept by the bot itself and the main shop's staff, never on
+    # the settings page: why it stopped selling ("" while it sells) and a manual pause by staff.
+    "own_sales_paused": Spec(str, "", "own"),
+    "own_sales_hold": Spec(bool, False, "own"),  # stopped by the shop's staff: only they restart it
     # Set in the main shop: what a reseller pays from its wallet per trial its own bot gives (TEN-18).
     "resale_trial_fee": Spec(int, 2_000, "resale"),
     "miniapp_enabled": Spec(bool, True, "appearance"),
@@ -194,6 +198,11 @@ SPECS: dict[str, Spec] = {
     "extras_enabled": Spec(bool, True, "services"),
     "extra_gb_price": Spec(int, 3_000, "services"),
     "extra_day_price": Spec(int, 2_000, "services"),
+    # How much extra data / time one order may buy; 0 is no bound of the shop's own.
+    "extra_gb_min": Spec(int, 0, "services"),
+    "extra_gb_max": Spec(int, 0, "services"),
+    "extra_day_min": Spec(int, 0, "services"),
+    "extra_day_max": Spec(int, 0, "services"),
     "upgrade_enabled": Spec(bool, True, "services"),
     "renew_queue_when_active": Spec(bool, False, "services"),
     "ban_disables_services": Spec(bool, True, "services"),

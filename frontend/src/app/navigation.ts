@@ -5,7 +5,7 @@ export function tabForPath(pathname: string): AppTab {
   if (["buy", "custom", "checkout", "done", "panel", "plan", "agency"].includes(part)) return "buy";
   if (["services", "extra"].includes(part)) return "services";
   if (["wallet", "payment", "card-verification"].includes(part)) return "wallet";
-  if (["more", "profile", "tickets", "help", "manage", "desk", "receipts"].includes(part)) return "more";
+  if (["more", "profile", "tickets", "help", "manage", "desk", "receipts", "shop"].includes(part)) return "more";
   return "home";
 }
 export function parentForPath(pathname: string): string | null {
@@ -14,6 +14,7 @@ export function parentForPath(pathname: string): string | null {
   if (part === "panel") return "/buy";
   if (part === "plan") return "/panel";
   if (part === "agency") return parts.length > 1 ? "/agency" : "/buy";
+  if (part === "shop") return parts[1] === "plans" && parts.length > 2 ? "/shop/plans" : parts.length > 1 ? "/shop" : "/more";
   if (["profile", "help", "manage", "desk", "receipts"].includes(part)) return "/more";
   if (part === "tickets") return parts.length > 1 ? "/tickets" : "/more";
   if (part === "services" && parts.length > 1) return "/services";

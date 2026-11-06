@@ -419,6 +419,10 @@ async def apply(session: AsyncSession, order: Order) -> PanelAccount:
         await driver.modify_admin(account.username, max_users=account.max_users)
     account.alerts_sent = {}
     await session.flush()
+    from paurubot.core import own_panel
+
+    # Renewed or topped up: its dedicated bot (if any) sells again right away.
+    await own_panel.announce(session, await own_panel.recheck_account(session, account))
     return account
 
 
@@ -540,6 +544,9 @@ async def change_password(session: AsyncSession, account: PanelAccount) -> str:
     password = new_password()
     await driver.modify_admin(account.username, password=password)
     account.password_enc = secretbox.encrypt("panel", password)
+    from paurubot.core import own_panel
+
+    await own_panel.follow_credentials(session, account)  # its dedicated bot keeps logging in
     await session.flush()
     return password
 
@@ -700,10 +707,12 @@ async def expire_due(session: AsyncSession) -> list[tuple[PanelAccount, str]]:
 
 async def run(session: AsyncSession) -> int:
     """The periodic pass: usage, quota and expiry alerts, and switching off ended accounts."""
+    from paurubot.core import own_panel
     from paurubot.worker import queue
 
     synced, alerts = await sync_all(session)
     alerts += await expire_due(session)
+    await own_panel.announce(session, await own_panel.recheck_all(session))
     for account, key in alerts:
         await queue.enqueue(
             session,

@@ -18,6 +18,70 @@ _RUNS = re.compile(r"_{2,}")
 _WANTED = re.compile(r"^[a-z][a-z0-9_]{2,15}$")
 
 
+# Persian and Arabic letters to Latin, so a Persian first name can still name a config.
+_LATIN = str.maketrans(
+    {
+        "\u0627": "a",
+        "\u0622": "a",
+        "\u0623": "a",
+        "\u0625": "e",
+        "\u0628": "b",
+        "\u067e": "p",
+        "\u062a": "t",
+        "\u062b": "s",
+        "\u062c": "j",
+        "\u0686": "ch",
+        "\u062d": "h",
+        "\u062e": "kh",
+        "\u062f": "d",
+        "\u0630": "z",
+        "\u0631": "r",
+        "\u0632": "z",
+        "\u0698": "zh",
+        "\u0633": "s",
+        "\u0634": "sh",
+        "\u0635": "s",
+        "\u0636": "z",
+        "\u0637": "t",
+        "\u0638": "z",
+        "\u0639": "a",
+        "\u063a": "gh",
+        "\u0641": "f",
+        "\u0642": "gh",
+        "\u06a9": "k",
+        "\u0643": "k",
+        "\u06af": "g",
+        "\u0644": "l",
+        "\u0645": "m",
+        "\u0646": "n",
+        "\u0648": "v",
+        "\u0647": "h",
+        "\u0629": "h",
+        "\u06cc": "i",
+        "\u064a": "i",
+        "\u0626": "i",
+        "\u0624": "o",
+        "\u0621": "",
+        "\u200c": "",
+        "\u06f0": "0",
+        "\u06f1": "1",
+        "\u06f2": "2",
+        "\u06f3": "3",
+        "\u06f4": "4",
+        "\u06f5": "5",
+        "\u06f6": "6",
+        "\u06f7": "7",
+        "\u06f8": "8",
+        "\u06f9": "9",
+    }
+)
+
+
+def latin(text: str | None) -> str:
+    """A name in Latin letters: Persian/Arabic letters spelled out, everything else kept."""
+    return (text or "").translate(_LATIN)
+
+
 def slug(text: str | None, limit: int = 16) -> str:
     """Panels such as PasarGuard refuse two special characters in a row, so runs become one `_`."""
     value = (text or "").lower().replace(" ", "_").replace("-", "_")
@@ -57,6 +121,12 @@ async def generate(
     elif method == UsernameMethod.SEQUENTIAL:
         body = str(await _next_sequence(session, panel))
         tail = ""
+    elif method == UsernameMethod.CUSTOMER_NAME:
+        # Never a bare name: the random tail keeps two «ali»s (or a renamed one) apart.
+        body = (
+            slug(customer.username, 12) or slug(latin(customer.first_name), 12) or str(customer.telegram_id)
+        )
+        tail = secrets.token_hex(3)
     elif method == UsernameMethod.CUSTOM_LABEL:
         body = slug(label) or str(customer.telegram_id)
     else:

@@ -83,8 +83,8 @@ async def staff_chats(session: AsyncSession, shop_id: int, permission: str) -> l
         if staff.telegram_id and rbac.allowed(staff.role, permission):
             chats.add(staff.telegram_id)
     shop = await session.get(Shop, shop_id)
-    if shop is None or shop.reseller_profile_id is None:
-        chats.update(get_settings().owner_telegram_ids)  # not in a reseller's own bot (TEN-04)
+    if shop is None or (shop.reseller_profile_id is None and shop.own_account_id is None):
+        chats.update(get_settings().owner_telegram_ids)  # not in a reseller's own bot (TEN-04, OPB)
     return sorted(chats)
 
 
@@ -331,6 +331,36 @@ async def account_alert(session: AsyncSession, job: queue.Claimed) -> None:
     )
     key = str(job.payload["alert"])
     await _to_customer(session, customer, t(key, username=esc(account.username)), reply_markup=markup)
+    # Its dedicated bot (OPB), if any: the reseller hears it there too, and the main shop's staff.
+    shop = await session.scalar(select(Shop).where(Shop.own_account_id == account.id))
+    if shop is not None:
+        await _own_alert(session, shop, account, customer, key)
+
+
+async def _own_alert(session: AsyncSession, shop: Shop, account: Any, owner: Customer, key: str) -> None:
+    """One alert about a dedicated bot to its reseller (in that bot) and the main shop's staff."""
+    t = await texts_for(session, shop.id, owner.locale or shop.default_locale)
+    bot = f"@{shop.bot_username}" if shop.bot_username else shop.title
+    text = t(key, username=esc(account.username), bot=esc(bot))
+    await _to_staff(session, shop.id, "dashboard.view", text)
+    if shop.parent_id is not None:
+        parent_t = await _texts(session, owner)
+        copy = parent_t("own_alert_admin", bot=esc(bot), owner=esc(owner.display_name), text=text)
+        await _to_staff(session, shop.parent_id, "resellers.manage", copy)
+
+
+async def own_panel_alert(session: AsyncSession, job: queue.Claimed) -> None:
+    """A dedicated bot stopped or started selling (OPB)."""
+    from paurubot.db.models import PanelAccount
+
+    shop = await session.get(Shop, int(job.payload["shop_id"]))
+    if shop is None or shop.own_account_id is None:
+        return
+    account = await session.get(PanelAccount, shop.own_account_id)
+    owner = await session.get(Customer, account.customer_id) if account is not None else None
+    if account is None or owner is None:
+        return
+    await _own_alert(session, shop, account, owner, str(job.payload["alert"]))
 
 
 async def account_changed(session: AsyncSession, job: queue.Claimed) -> None:
@@ -1354,6 +1384,7 @@ register_queue(
             "order_completed": order_completed,
             "account_ready": account_ready,
             "account_alert": account_alert,
+            "own_panel_alert": own_panel_alert,
             "account_changed": account_changed,
             "account_auto_renew": account_auto_renew,
             "order_failed": order_failed,

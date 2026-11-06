@@ -150,6 +150,30 @@ def extra_prices(cfg: dict[str, Any], plan: Plan | None) -> tuple[int, int] | No
     )
 
 
+EXTRA_CHOICES = {"gb": (5, 10, 20, 50, 100), "day": (7, 15, 30, 60, 90)}
+EXTRA_CAP = {"gb": 10_000, "day": 3650}
+
+
+def extra_bounds(cfg: dict[str, Any], unit: str) -> tuple[int, int]:
+    """The least and most extra GB (`unit` "gb") or days ("day") one order may buy."""
+    cap = EXTRA_CAP[unit]
+    low = min(max(1, int(cfg.get(f"extra_{unit}_min") or 0)), cap)
+    high = min(int(cfg.get(f"extra_{unit}_max") or 0) or cap, cap)
+    return low, max(low, high)
+
+
+def extra_choices(cfg: dict[str, Any], unit: str) -> list[int]:
+    """The amounts a customer is offered: the usual steps inside the shop's bounds, plus the
+    bounds the shop set itself, so a range between two steps still has something to pick."""
+    low, high = extra_bounds(cfg, unit)
+    picks = {value for value in EXTRA_CHOICES[unit] if low <= value <= high}
+    if int(cfg.get(f"extra_{unit}_min") or 0) > 0:
+        picks.add(low)
+    if int(cfg.get(f"extra_{unit}_max") or 0) > 0:
+        picks.add(high)
+    return sorted(picks) or [low]
+
+
 def can_change(service: Service, change: str) -> bool:
     """Whether the service's panel can apply `change` (renew, upgrade, extra_volume...) at all."""
     from paurubot.panels.registry import changes_of
@@ -222,8 +246,12 @@ async def draft(
     move_to: Panel | None = None,
     wanted_username: str | None = None,
 ) -> Draft:
-    from paurubot.core import resale, usernames
+    from paurubot.core import own_panel, resale, usernames
 
+    # A dedicated own-panel bot sells only while its admin account can serve (OPB).
+    blocked = await own_panel.sales_gate(session, customer.shop_id, new_user=kind == OrderKind.PURCHASE)
+    if blocked:
+        raise OrderError(blocked)
     shop_resale = await resale.for_shop(session, customer.shop_id)
     if shop_resale is not None:
         # A reseller's own bot sells the parent's plans: purchases and renewals always (TEN-04),
@@ -380,14 +408,16 @@ async def _draft(
     if kind == OrderKind.EXTRA_VOLUME:
         assert service is not None
         gb_price, _ = service_extras(cfg, service)
-        if gb_price is None or extra_gb <= 0 or extra_gb > 10_000:
+        low, high = extra_bounds(cfg, "gb")
+        if gb_price is None or not low <= extra_gb <= high:
             raise OrderError("extras_unavailable")
         params["extra_gb"] = extra_gb
         return Draft(kind, None, service, params, extra_gb * gb_price)
     if kind == OrderKind.EXTRA_DAYS:
         assert service is not None
         _, day_price = service_extras(cfg, service)
-        if day_price is None or extra_days <= 0 or extra_days > 3650:
+        low, high = extra_bounds(cfg, "day")
+        if day_price is None or not low <= extra_days <= high:
             raise OrderError("extras_unavailable")
         params["extra_days"] = extra_days
         return Draft(kind, None, service, params, extra_days * day_price)
