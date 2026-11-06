@@ -28,6 +28,8 @@ from paurubot.payments.tonpay_custom_service import (
     _owned,
     _save,
     _state,
+    card_of,
+    keep_card,
 )
 
 PREFIX = "tonpay_custom_"
@@ -115,7 +117,7 @@ def projection(payment: Payment) -> dict[str, Any]:
     )
     review_open = state is not None and (state.get("review_until") is None or state["review_until"] > now)
     consented = state is not None and state.get("consent_revision") == state["quote"]["revision"]
-    return {
+    result: dict[str, Any] = {
         "payment_id": payment.id,
         "status": payment.status.value,
         "request_amount": payment.amount,
@@ -155,7 +157,13 @@ def projection(payment: Payment) -> dict[str, Any]:
             )
         ),
         "receipt_ready_at": state["created_at"] + state["policy"]["receipt_wait"] if state else None,
+        "receipt_received": bool(state and state["receipt_received"]),
     }
+    # The card only after the buyer accepted this exact total, while the invoice is open.
+    card = card_of(state) if state is not None and active and review_open and consented else None
+    if card is not None:
+        result["card"] = card
+    return result
 
 
 async def view(owner: Owner, payment_id: int) -> dict[str, Any]:
@@ -267,8 +275,12 @@ async def refresh(owner: Owner, payment_id: int) -> dict[str, Any]:
                 state["consent_revision"] = None
             if card_hash is not None:
                 state["card_fingerprint"] = card_hash
-            if not state["paid"]:
+            # A check without a status says nothing new about it (TonPays omits it at times).
+            if not state["paid"] and invoice.status:
                 state["remote_status"] = invoice.status
+            if invoice.status == "processing":
+                state["receipt_received"] = True  # TonPays is reviewing a receipt
+            keep_card(state, invoice)
             state["paid"] = state["paid"] or invoice.paid
             state["receipt_received"] = state["receipt_received"] or invoice.receipt_received
             state["change_card_exhausted"] = state["change_card_exhausted"] or invoice.change_card_exhausted
@@ -304,16 +316,8 @@ async def refresh(owner: Owner, payment_id: int) -> dict[str, Any]:
         # Keep ALL uncertain markers; no false replay success or automatic re-POST.
         await session.commit()
         result = projection(payment)
-        if (
-            not uncertain
-            and current_config
-            and result["consented"]
-            and not result["provider_paid"]
-            and result["status"] == "pending"
-            and invoice.card_number
-            and result["can_consent"]
-        ):
-            result["card"] = {"number": invoice.card_number, "holder": invoice.card_name}
+        if not current_config:
+            result.pop("card", None)
         return result
 
 

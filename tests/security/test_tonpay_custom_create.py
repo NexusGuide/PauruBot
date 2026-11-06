@@ -45,7 +45,17 @@ async def creation(intent_engine, monkeypatch):  # type: ignore[no-untyped-def]
     client = TonpayCustomClient("synthetic-key")
 
     async def response(order_id, amount, buyer_chat_id, callback_url):  # type: ignore[no-untyped-def]
-        return CustomInvoice("invoice_" + order_id, order_id, amount, amount + 3000, "pending", False)
+        # TonPays names the destination card only here (and on a card change), never on a check.
+        return CustomInvoice(
+            "invoice_" + order_id,
+            order_id,
+            amount,
+            amount + 3000,
+            "pending",
+            False,
+            "6037990000000001",
+            "Creator",
+        )
 
     monkeypatch.setattr(client, "create", AsyncMock(side_effect=response))
     # intent_engine is module-scoped in CI: previous cases legitimately committed

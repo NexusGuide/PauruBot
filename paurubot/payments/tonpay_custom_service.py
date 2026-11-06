@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import re
 import uuid
 from copy import deepcopy
@@ -23,6 +24,7 @@ from paurubot.db.models import Customer, Payment, PaymentPurpose, PaymentStatus,
 from paurubot.db.session import get_sessionmaker
 from paurubot.payments.base import PaymentError
 from paurubot.payments.providers.tonpay_custom import CustomInvoice, TonpayCustomClient, receipt_image
+from paurubot.security import secretbox
 
 STATE_KEY = "tonpay_custom_v1"
 MAX_OPERATIONS = 16  # bounded evidence; never evict old dedupe keys to allow another mutation
@@ -291,6 +293,7 @@ async def _finish(
         if state["quote"]["revision"] != record["fingerprint"]["quote_revision"]:
             raise CustomStateError("mutation_uncertain")
         changed = invoice.payable_amount != state["quote"]["payable_amount"]
+        keep_card(state, invoice)
         if changed or operation == "change_card":
             state["quote"] = {
                 **state["quote"],
@@ -372,3 +375,28 @@ async def submit_receipt(
         return replay
     invoice = await client.submit_receipt(reference, str(payment_id), amount, image.content)
     return await _finish(owner, payment_id, storage, token, "receipt", invoice)
+
+
+# --- the destination card -------------------------------------------------------------------
+# TonPays names the card when an invoice is created or its card is changed, never on a check.
+# It is kept encrypted with the payment and shown to the buyer only after consent.
+
+
+def keep_card(state: dict[str, Any], invoice: CustomInvoice) -> None:
+    if invoice.card_number:
+        state["card"] = secretbox.encrypt(
+            "payment", json.dumps({"number": invoice.card_number, "holder": invoice.card_name})
+        )
+
+
+def card_of(state: dict[str, Any]) -> dict[str, str] | None:
+    token = state.get("card")
+    if not isinstance(token, str) or not token:
+        return None
+    try:
+        card = json.loads(secretbox.decrypt("payment", token))
+    except (secretbox.SecretBoxError, ValueError):
+        return None
+    if not isinstance(card, dict) or not isinstance(card.get("number"), str) or not card["number"]:
+        return None
+    return {"number": card["number"][:40], "holder": str(card.get("holder") or "")[:120]}

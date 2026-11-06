@@ -23,7 +23,9 @@ test('steps follow the payment: confirm, transfer, receipt, then waiting', () =>
   assert.equal(stage(payment(state()), now), 0);
   assert.equal(stage(payment({ ...state(), consented: true, receipt_ready_at: 2000 }), now), 1);
   assert.equal(stage(payment({ ...state(), consented: true, can_receipt: true }), now), 2);
-  assert.equal(stage(payment({ ...state(), consented: true, receipt_ready_at: 10 }), now), 3);
+  // The wait is over but the upload is not open: never claim a receipt was sent.
+  assert.equal(stage(payment({ ...state(), consented: true, receipt_ready_at: 10 }), now), 1);
+  assert.equal(stage(payment({ ...state(), consented: true, receipt_ready_at: 10, receipt_received: true }), now), 3);
   assert.equal(stage(payment({ ...state(), status: 'paid', can_consent: false, can_change_card: false }), now), 3);
 });
 test('after consent the card is fetched at once, never shown before', () => {
@@ -41,4 +43,9 @@ test('the page fetches the card after consent and on reopening, and translates t
   const source = readFileSync(new URL('../src/app/tonpay/CustomTonpayFlow.tsx', import.meta.url), 'utf8');
   assert(source.includes('needsCard('), 'fetches the card when it may be shown');
   assert(!source.includes('{value.status}'), 'no raw status code on the page');
+});
+
+test('receipt_received must be a boolean when sent', () => {
+  assert.throws(() => payment({ ...state(), receipt_received: 'yes' }));
+  assert.equal(payment({ ...state(), receipt_received: true }).receipt_received, true);
 });
