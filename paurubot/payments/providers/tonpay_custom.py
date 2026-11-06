@@ -103,7 +103,8 @@ def _callback(value: str) -> str:
             or not host
             or url.username is not None
             or url.password is not None
-            or url.port not in (None, 443)
+            # Our own panel may serve HTTPS on another port (install --https-port 8443).
+            or url.port == 0
             or url.fragment
             or "." not in host
             or host.endswith((".localhost", ".local", ".internal", ".test", ".invalid"))
