@@ -47,7 +47,8 @@ export function groupCard(number: string): string {
 
 /** Where the buyer is: 0 confirm the total, 1 transfer, 2 send the receipt, 3 receipt sent or finished. */
 export function stage(p: CustomPayment, _nowSeconds?: number): 0 | 1 | 2 | 3 {
-  if (p.status !== "pending" || p.provider_paid) return 3;
+  if (p.status === "paid" || (p.status === "pending" && p.provider_paid)) return 3;
+  if (p.status !== "pending") return 0; // never made, refused or closed: no step was done
   if (!p.consented) return 0;
   if (p.can_receipt) return 2;
   if (p.receipt_received) return 3;

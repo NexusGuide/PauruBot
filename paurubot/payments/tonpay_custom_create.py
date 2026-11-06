@@ -19,7 +19,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from paurubot.db.base import utcnow
 from paurubot.db.models import Customer, Payment, PaymentPurpose, PaymentStatus, Shop, ShopStatus
 from paurubot.db.session import get_sessionmaker
-from paurubot.payments.providers.tonpay_custom import CustomInvoice, TonpayCustomClient, _callback
+from paurubot.payments.providers.tonpay_custom import (
+    CustomAPIError,
+    CustomInvoice,
+    TonpayCustomClient,
+    _callback,
+)
 from paurubot.payments.tonpay_custom_service import (
     STATE_KEY,
     CustomStateError,
@@ -129,7 +134,7 @@ def _attempt(payment: Payment) -> dict[str, Any]:
     attempt = (payment.meta or {}).get(CREATE_KEY)
     if (
         not isinstance(attempt, dict)
-        or attempt.get("state") not in {"uncertain", "ready"}
+        or attempt.get("state") not in {"uncertain", "ready", "failed"}
         or not isinstance(attempt.get("request"), dict)
         or not isinstance(attempt.get("token"), str)
         or not re.fullmatch(r"[a-f0-9]{32}", attempt["token"])
@@ -159,6 +164,44 @@ def _replay(payment: Payment) -> CreatedQuote:
     )
 
 
+# A creation whose answer never came (timeout, crash, restart) blocks new invoices for a while,
+# so a slow reply cannot leave the buyer with two. The buyer never saw its card, so could not
+# have paid it; once its answer can no longer be on the way, it stops blocking. The record is
+# kept for review, and its own key never posts again.
+STALE_SECONDS = 600
+
+
+async def _blocking(session: AsyncSession, owner: Owner, exclude: int | None = None) -> bool:
+    state = Payment.meta[CREATE_KEY]["state"].as_string()
+    started = Payment.meta[CREATE_KEY]["started_at"].as_integer()
+    cutoff = int(utcnow().timestamp()) - STALE_SECONDS
+    stmt = select(Payment.id).where(
+        Payment.shop_id == owner.shop_id,
+        Payment.customer_id == owner.customer_id,
+        Payment.provider == "tonpay_custom",
+        or_(state.is_(None), state == "uncertain"),
+        or_(started.is_(None), started > cutoff),
+    )
+    if exclude is not None:
+        stmt = stmt.where(Payment.id != exclude)
+    return await session.scalar(stmt.limit(1)) is not None
+
+
+async def _fail(owner: Owner, pid: int, token: str) -> None:
+    """TonPays surely made nothing: close the attempt so it blocks nobody."""
+    async with get_sessionmaker()() as session:
+        payment = await session.scalar(select(Payment).where(Payment.id == pid).with_for_update())
+        if payment is None or payment.shop_id != owner.shop_id or payment.customer_id != owner.customer_id:
+            return
+        attempt = _attempt(payment)
+        if attempt["token"] != token or attempt["state"] != "uncertain" or payment.provider_ref is not None:
+            return
+        payment.meta = {**(payment.meta or {}), CREATE_KEY: {**attempt, "state": "failed"}}
+        if payment.status == PaymentStatus.CREATED:
+            payment.status = PaymentStatus.FAILED
+        await session.commit()
+
+
 async def _claim(
     owner: Owner, amount: int, storage: str, fingerprint: dict[str, Any]
 ) -> tuple[int, int, str, CreatedQuote | None]:
@@ -180,21 +223,28 @@ async def _claim(
                 raise CustomStateError("intent_conflict")
             if attempt["state"] == "uncertain":
                 raise CustomStateError("creation_uncertain")
+            if attempt["state"] == "failed":
+                # TonPays surely made nothing for it: the same key may simply try again.
+                if await _blocking(session, owner, exclude=payment.id):
+                    raise CustomStateError("creation_uncertain")
+                token = uuid.uuid4().hex
+                now = utcnow()
+                payment.status = PaymentStatus.CREATED
+                payment.expires_at = now + timedelta(seconds=fingerprint["policy"]["invoice_ttl"])
+                payment.meta = {
+                    **(payment.meta or {}),
+                    CREATE_KEY: {
+                        **attempt,
+                        "state": "uncertain",
+                        "token": token,
+                        "started_at": int(now.timestamp()),
+                    },
+                }
+                pid, buyer = payment.id, customer.telegram_id
+                await session.commit()
+                return pid, buyer, token, None
             return payment.id, customer.telegram_id, attempt["token"], _replay(payment)
-        # A different key cannot bypass a crash/timeout, even after local expiry.
-        # Include closed rows: timeout/administrative expiry does not undo remote acceptance.
-        unfinished = Payment.meta[CREATE_KEY]["state"].as_string()
-        previous = await session.scalar(
-            select(Payment.id)
-            .where(
-                Payment.shop_id == owner.shop_id,
-                Payment.customer_id == owner.customer_id,
-                Payment.provider == "tonpay_custom",
-                or_(unfinished.is_(None), unfinished != "ready"),
-            )
-            .limit(1)
-        )
-        if previous is not None:
+        if await _blocking(session, owner):
             raise CustomStateError("creation_uncertain")
         token = uuid.uuid4().hex
         now = utcnow()
@@ -323,6 +373,12 @@ async def create_once(
     pid, buyer, token, replay = await _claim(owner, amount, storage, fingerprint)
     if replay is not None:
         return replay
-    # Single attempt, with no DB row locks held. Any exception leaves the committed marker.
-    invoice = await client.create(str(pid), amount, buyer, config.callback_url)
+    # Single attempt, with no DB row locks held. Any exception leaves the committed marker,
+    # except a definite refusal: then nothing exists at TonPays and the attempt is closed.
+    try:
+        invoice = await client.create(str(pid), amount, buyer, config.callback_url)
+    except CustomAPIError as exc:
+        if exc.definite:
+            await _fail(owner, pid, token)
+        raise
     return await _bind(owner, pid, token, invoice)

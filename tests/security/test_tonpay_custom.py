@@ -431,3 +431,24 @@ async def test_documented_order_id_boundary(operation, length):  # type: ignore[
             await invoke()
         assert exc.value.code == "invalid_identity"
         assert not calls
+
+
+@pytest.mark.parametrize(
+    ("reply", "definite"),
+    [
+        (lambda r: httpx.Response(400, json={"detail": "bad amount"}), True),
+        (lambda r: httpx.Response(422, json={"detail": "x"}), True),
+        (lambda r: httpx.Response(429), True),
+        (lambda r: httpx.Response(200, json={"success": False, "message": "no card"}), True),
+        (lambda r: (_ for _ in ()).throw(httpx.ConnectError("down", request=r)), True),
+        (lambda r: httpx.Response(500), False),
+        (lambda r: httpx.Response(502), False),
+        (lambda r: httpx.Response(408), False),
+        (lambda r: (_ for _ in ()).throw(httpx.ReadTimeout("slow", request=r)), False),
+    ],
+)
+async def test_create_says_whether_tonpays_surely_made_nothing(reply, definite):  # type: ignore[no-untyped-def]
+    api = TonpayCustomClient(KEY, transport=httpx.MockTransport(reply))
+    with pytest.raises(CustomAPIError) as exc:
+        await api.create("42", 100_000, 123, CALLBACK)
+    assert exc.value.definite is definite

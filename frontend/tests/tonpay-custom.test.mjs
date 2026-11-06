@@ -49,3 +49,12 @@ test('receipt_received must be a boolean when sent', () => {
   assert.throws(() => payment({ ...state(), receipt_received: 'yes' }));
   assert.equal(payment({ ...state(), receipt_received: true }).receipt_received, true);
 });
+
+test('an invoice never made or refused shows no done step and leads back to the wallet', () => {
+  const closed = { ...state(), can_consent: false, can_change_card: false };
+  assert.equal(stage(payment({ ...closed, status: 'created', uncertain: true, payable_amount: null, quote_revision: null }), 0), 0);
+  assert.equal(stage(payment({ ...closed, status: 'failed' }), 0), 0);
+  assert.equal(stage(payment({ ...closed, status: 'paid' }), 0), 3);
+  const source = readFileSync(new URL('../src/app/tonpay/CustomTonpayFlow.tsx', import.meta.url), 'utf8');
+  assert(source.includes('navigate("/wallet")'), 'a way back to start again');
+});

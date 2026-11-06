@@ -91,6 +91,8 @@ async def available(session: Any, customer: Customer) -> bool:
 
 def _uncertain(payment: Payment, state: dict[str, Any] | None) -> bool:
     attempt = (payment.meta or {}).get(CREATE_KEY)
+    if isinstance(attempt, dict) and attempt.get("state") == "failed":
+        return False  # TonPays surely made nothing: closed, not unknown
     return (
         not isinstance(attempt, dict)
         or attempt.get("state") != "ready"

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { money } from "@shared/format";
 import { Icon } from "../icons";
 import { useApp } from "../state";
@@ -22,6 +23,10 @@ const fa = {
   receiptClosed: "ارسال رسید الان ممکن نیست. «بررسی وضعیت پرداخت» را بزن.",
   needAction: "تون‌پی برای این پرداخت به اقدام نیاز دارد (مثلاً مبلغ واریزی با فاکتور یکی نیست). با پشتیبانی فروشگاه تماس بگیر.",
   noCard: "کارت مقصد دریافت نشد. «کارت دیگری می‌خواهم» را بزن تا کارت تازه بیاید.",
+  notMade: "ساخت فاکتور در تون‌پی جواب روشنی نگرفت. کارتی به تو نشان داده نشده، پس پولی واریز نکن. چند دقیقهٔ دیگر از کیف پول دوباره شارژ کن.",
+  refused: "تون‌پی این درخواست را نپذیرفت و فاکتوری ساخته نشد. پولی واریز نکن؛ از کیف پول دوباره امتحان کن.",
+  closed: "این پرداخت بسته شده است. اگر پولی واریز کرده‌ای، با پشتیبانی تماس بگیر.",
+  again: "بازگشت به کیف پول",
   choose: "انتخاب تصویر رسید", chooseHint: "JPEG، PNG یا WebP، حداکثر ۱۰ مگابایت", send: "ارسال رسید",
   sent: "رسید ارسال شد. پس از تأیید تون‌پی، کیف پولت خودکار شارژ می‌شود؛ می‌توانی وضعیت را بررسی کنی.",
   done: "پرداخت تأیید شد و کیف پولت شارژ شد.",
@@ -30,7 +35,7 @@ const fa = {
   noSettlement: "ارسال رسید به‌تنهایی کیف پول را شارژ نمی‌کند؛ شارژ پس از تأیید تون‌پی انجام می‌شود.",
   copied: "کپی شد", fileError: "نوع یا اندازهٔ تصویر مجاز نیست.",
   status: {
-    created: "در حال ساخت فاکتور", pending: "در انتظار پرداخت", verifying: "در حال تأیید", paid: "پرداخت شد",
+    created: "بی‌پاسخ از درگاه", pending: "در انتظار پرداخت", verifying: "در حال تأیید", paid: "پرداخت شد",
     failed: "ناموفق", expired: "منقضی شد", disputed: "نیازمند بررسی", refunded: "بازگشت داده شد", voided: "باطل شد",
   } as Record<string, string>,
 };
@@ -48,6 +53,10 @@ const en: typeof fa = {
   receiptClosed: "A receipt cannot be sent right now. Tap \"Check payment status\".",
   needAction: "Tonpay needs an action on this payment (for example the amount sent does not match). Contact the shop's support.",
   noCard: "The destination card did not arrive. Tap \"I need another card\" for a fresh one.",
+  notMade: "Creating the invoice at Tonpay got no clear answer. No card was shown to you, so do not transfer. Top up again from the wallet in a few minutes.",
+  refused: "Tonpay refused this request and no invoice was made. Do not transfer; try again from the wallet.",
+  closed: "This payment is closed. If you transferred money, contact support.",
+  again: "Back to the wallet",
   choose: "Choose the receipt image", chooseHint: "JPEG, PNG or WebP, up to 10 MB", send: "Send receipt",
   sent: "Receipt sent. Once Tonpay confirms it your wallet is credited automatically; you can check the status.",
   done: "Payment confirmed and your wallet was credited.",
@@ -56,7 +65,7 @@ const en: typeof fa = {
   noSettlement: "Sending a receipt alone does not credit your wallet; that happens after Tonpay confirms it.",
   copied: "Copied", fileError: "Unsupported image type or size.",
   status: {
-    created: "Creating invoice", pending: "Awaiting payment", verifying: "Being confirmed", paid: "Paid",
+    created: "No answer from gateway", pending: "Awaiting payment", verifying: "Being confirmed", paid: "Paid",
     failed: "Failed", expired: "Expired", disputed: "Under review", refunded: "Refunded", voided: "Voided",
   },
 };
@@ -70,6 +79,7 @@ const clock = (seconds: number, locale: string) => {
 /** Parent keys this subtree by authenticated owner + payment ID. No card is stored in sessionStorage. */
 export function CustomTonpayFlow({ paymentId }: { paymentId: number }) {
   const { me, locale, toast } = useApp();
+  const navigate = useNavigate();
   const text = locale === "fa" ? fa : en;
   const [value, setValue] = useState<CustomPayment | null>(null);
   const [error, setError] = useState(false);
@@ -163,6 +173,39 @@ export function CustomTonpayFlow({ paymentId }: { paymentId: number }) {
     <Button tone="quiet" busy={busy} onClick={() => void run("read")}>{text.refresh}</Button>
   </>;
   if (!value) return <p role="status" className="app-hint text-sm">{text.loading}</p>;
+
+  if (value.status !== "pending" && value.status !== "paid") {
+    const message = value.status === "created" ? text.notMade : value.status === "failed" ? text.refused : text.closed;
+    const tone = value.status === "created" ? "soft" : "danger";
+    return (
+      <section>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <span className="app-badge" data-tone={value.status === "created" ? "orange" : "red"}>
+            {text.status[statusKey(value)] ?? text.status.failed}
+          </span>
+        </div>
+        <div className="app-card mb-3 p-4">
+          <div className="app-ln">
+            <span className="app-hint">{text.credit}</span>
+            <span className="num font-semibold">{money(value.request_amount, locale)} {text.currency}</span>
+          </div>
+        </div>
+        <div className="app-note mb-3" data-tone={tone} role="status">
+          <Icon name="help" size={20} />
+          <span>{message}</span>
+        </div>
+        <Button onClick={() => {
+          // A fresh top-up of the same amount must be a new request, not this one again.
+          if (me) {
+            const intents = topupIntents();
+            intents.clear(me.id, value.request_amount, "tonpay_custom", intents.get(me.id, value.request_amount, "tonpay_custom"));
+          }
+          navigate("/wallet");
+        }}>{text.again}</Button>
+        <Button className="mt-3" tone="quiet" busy={busy} onClick={() => void run("read")}>{text.refresh}</Button>
+      </section>
+    );
+  }
 
   const pending = value.status === "pending" && !value.uncertain && !value.provider_paid;
   // Receipt sent and still pending: it is being confirmed, not awaiting payment.
