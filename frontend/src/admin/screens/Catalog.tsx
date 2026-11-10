@@ -468,8 +468,25 @@ function SimpleSheet({
   onSaved: () => void;
 }) {
   const { t, toast, errorText } = useSession();
+  const confirm = useConfirm();
   const [form, setForm] = useState<Simple>(draft);
   const [busy, run] = useAction();
+  const remove = async () => {
+    const ok = await confirm({
+      title: t(kind === "locations" ? "delete_location" : "delete_category"),
+      body: t(kind === "locations" ? "delete_location_body" : "delete_category_body", { title: draft.title }),
+      confirm: t("delete"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await run(() => call(`/api/admin/${kind}/${draft.id}`, { method: "DELETE" }));
+      toast(t("deleted_done"));
+      onSaved();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
   const save = async () => {
     const { id, ...body } = form;
     if (kind === "categories") delete body.flag;
@@ -487,9 +504,16 @@ function SimpleSheet({
       onClose={onClose}
       title={kind === "locations" ? t("location") : t("category")}
       footer={
-        <Button tone="primary" busy={busy} disabled={!form.title.trim()} onClick={() => void save()}>
-          {t("save")}
-        </Button>
+        <>
+          {draft.id !== undefined && (
+            <Button tone="danger" disabled={busy} onClick={() => void remove()}>
+              {t("delete")}
+            </Button>
+          )}
+          <Button tone="primary" busy={busy} disabled={!form.title.trim()} onClick={() => void save()}>
+            {t("save")}
+          </Button>
+        </>
       }
     >
       <div className="flex flex-col gap-4">

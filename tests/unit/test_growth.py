@@ -32,6 +32,7 @@ from paurubot.notifications import handlers as _handlers  # noqa: F401  (registe
 from paurubot.notifications import telegram as notify_telegram
 from paurubot.panels import registry
 from paurubot.worker import jobs as worker_jobs  # noqa: F401  (registers queues)
+from paurubot.worker import queue
 from tests import factories
 from tests.fakes.panels import FakeTokenPanel, transport
 from tests.fakes.telegram import make_bot
@@ -240,3 +241,146 @@ async def test_trial_and_free_orders_post_only_when_asked_for(session, env) -> N
     assert str(cust.telegram_id) not in posts[0] and plan.title in posts[0]
     assert FA("trust_trial").split("\n")[0] in posts[0]
     assert env["tg"].texts(-1003102) == []  # a free bonus is not worth a public post
+
+
+async def _buyer(session, shop, plan, times: int, name: str):  # type: ignore[no-untyped-def]
+    buyer = await factories.customer(session, shop, username=name.lower())
+    buyer.first_name = name
+    await wallet.topup(session, shop.id, buyer.id, 2_000_000, provider="card", payment_id=buyer.id + 10_000)
+    await session.commit()
+    for _ in range(times):
+        await _buy(session, buyer, OrderKind.PURCHASE, plan=plan)
+    await drain(session, "provision")
+    return buyer
+
+
+async def test_points_lottery_ranks_buyers_and_hands_each_place_its_prize(session, env) -> None:  # type: ignore[no-untyped-def]
+    """Every 100,000 spent is a point; the two best scores win: a new 10 GB, 30-day service for
+    first place and 10,000 in second place's wallet. Winners hear what they won (and get the new
+    config like any purchase); staff get who won what."""
+    from paurubot.db.models import Staff
+
+    shop, cust, plan, tg = env["shop"], env["cust"], env["plan"], env["tg"]
+    session.add(Staff(shop_id=shop.id, telegram_id=990077, role="owner", display_name="Boss"))
+    start = utcnow() - timedelta(minutes=1)
+    lottery = Lottery(
+        shop_id=shop.id,
+        title="Azar",
+        prize="",
+        mode="points",
+        pick="top",
+        points_per=100_000,
+        board="top",
+        prizes=[
+            {"kind": "service", "value": 10, "days": 30, "panel_id": plan.panel_id, "label": ""},
+            {"kind": "wallet", "value": 10_000, "label": ""},
+        ],
+        winners=2,
+        starts_at=start,
+        ends_at=utcnow() + timedelta(hours=1),
+    )
+    session.add(lottery)
+    await session.commit()
+    await _buy(session, cust, OrderKind.PURCHASE, plan=plan)  # 200,000: 2 points
+    await drain(session, "provision")
+    big = await _buyer(session, shop, plan, 2, "Reza")  # 400,000: 4 points
+    await factories.customer(session, shop)  # no purchase: not on the board
+    await session.commit()
+
+    board = await growth.standings(session, lottery)
+    assert [(row.customer_id, row.points, row.purchases, row.spent) for row in board] == [
+        (big.id, 4, 2, 400_000),
+        (cust.id, 2, 1, 200_000),
+    ]
+    before_wallet = await wallet_balance(session, shop.id, cust.id)
+    assert await growth.draw(session, lottery) == [big.id, cust.id]
+    await queue.enqueue(session, "notify", "lottery_result", {"lottery_id": lottery.id}, shop_id=shop.id)
+    await session.commit()
+    awards = lottery.result["awards"]
+    assert [(a["rank"], a["kind"], a["status"]) for a in awards] == [
+        (1, "service", "queued"),
+        (2, "wallet", "paid"),
+    ]
+    assert awards[0]["points"] == 4
+    assert await wallet_balance(session, shop.id, cust.id) == before_wallet + 10_000
+    prize_order = await session.get(Order, awards[0]["order_id"])
+    assert prize_order is not None and prize_order.amount == 0 and prize_order.customer_id == big.id
+    # the prize is not a purchase: it earns no points in a lottery of its own
+    lottery_id, cust_tg, big_tg, big_id = lottery.id, cust.telegram_id, big.telegram_id, big.id
+
+    await drain(session, "provision")  # a brand-new service for the winner
+    session.expire_all()
+    services = list(await session.scalars(select(Service).where(Service.customer_id == big_id)))
+    assert len(services) == 3
+    newest = max(services, key=lambda row: row.id)
+    assert newest.data_limit == 10 * 1024**3 and newest.expire_at is not None
+    assert timedelta(days=29) < newest.expire_at - utcnow() <= timedelta(days=30)
+
+    await drain(session, "notify")
+    second_texts = "\n".join(tg.texts(cust_tg))
+    assert FA("lottery_won_paid") in second_texts and "Azar" in second_texts
+    first_texts = "\n".join(tg.texts(big_tg))
+    assert FA("lottery_won_service") in first_texts and (newest.panel_username or "") in first_texts
+    staff_texts = "\n".join(tg.texts(990077))
+    assert "Azar" in staff_texts and str(big_tg) in staff_texts and str(cust_tg) in staff_texts
+    assert "@reza" in staff_texts and (newest.panel_username or "") in staff_texts  # made and sent
+    drawn = await session.get(Lottery, lottery_id)
+    assert drawn is not None
+
+
+async def test_a_prize_whose_panel_is_gone_is_left_to_staff(session, env) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import Panel
+
+    shop, plan, tg = env["shop"], env["plan"], env["tg"]
+    lottery = Lottery(
+        shop_id=shop.id,
+        title="Join",
+        prize="",
+        mode="join",
+        pick="random",
+        prizes=[{"kind": "service", "value": 5, "days": 10, "panel_id": plan.panel_id, "label": ""}],
+        winners=1,
+        starts_at=utcnow() - timedelta(minutes=1),
+        ends_at=utcnow() + timedelta(hours=1),
+    )
+    session.add(lottery)
+    lonely = await factories.customer(session, shop)
+    panel = await session.get(Panel, plan.panel_id)
+    assert panel is not None
+    panel.is_active = False
+    await session.commit()
+    assert await growth.join(session, lottery, lonely) is True
+    assert await growth.draw(session, lottery) == [lonely.id]
+    await queue.enqueue(session, "notify", "lottery_result", {"lottery_id": lottery.id}, shop_id=shop.id)
+    await session.commit()
+    assert lottery.result["awards"][0]["status"] == "failed"
+    await drain(session, "notify")
+    assert FA("lottery_won_manual") in "\n".join(tg.texts(lonely.telegram_id))
+    # the same result job again (a retry) tells nobody twice
+    told = len(tg.texts(lonely.telegram_id))
+    await queue.enqueue(
+        session, "notify", "lottery_result", {"lottery_id": lottery.id}, shop_id=shop.id, dedupe_key="again"
+    )
+    await session.commit()
+    await drain(session, "notify")
+    assert len(tg.texts(lonely.telegram_id)) == told
+
+
+async def test_old_lotteries_still_pay_every_winner_the_same(session, env) -> None:  # type: ignore[no-untyped-def]
+    lottery = Lottery(prize="50k", prize_amount=50_000, winners=3, title="x", mode="join")
+    assert growth.prize_list(lottery) == [{"kind": "wallet", "value": 50_000, "label": "50k"}] * 3
+    lottery.prize_amount = 0
+    assert growth.prize_list(lottery)[0]["kind"] == "text"
+    lottery.prize = ""
+    assert growth.prize_list(lottery) == []
+    for bad in (
+        [{"kind": "gold", "value": 1}],
+        [{"kind": "service", "value": 0, "days": 30, "panel_id": 1}],
+        [{"kind": "service", "value": 10, "days": 0, "panel_id": 1}],
+        [{"kind": "service", "value": 10, "days": 30}],
+        [{"kind": "text", "value": 0, "label": ""}],
+        [{"kind": "wallet", "value": True}],
+        [{"kind": "wallet", "value": 1}] * 21,
+    ):
+        with pytest.raises(growth.GrowthError):
+            growth.validate_lottery_prizes(bad)

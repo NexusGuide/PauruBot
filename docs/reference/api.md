@@ -37,6 +37,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/canned-replies` | `tickets.reply` | List canned replies |
 | POST | `/api/admin/canned-replies` | `settings.write` | Create canned reply |
 | GET | `/api/admin/catalog` | `catalog.read` | Catalog |
+| DELETE | `/api/admin/categories/{row_id}` | `catalog.write` | Delete a category; its plans stay on sale under "other plans". |
 | PUT | `/api/admin/categories/{row_id}` | `catalog.write` | Update category |
 | POST | `/api/admin/categories` | `catalog.write` | Create category |
 | POST | `/api/admin/channels/check` | `settings.write` | Resolve a channel with the shop's bot before it is added, so mistakes surface right away. |
@@ -83,8 +84,11 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/jobs/retry-dead` | `settings.write` | Put every dead job of this shop (optionally one queue) back in line (JOB-05). |
 | POST | `/api/admin/jobs/{job_id}/retry` | `settings.write` | Retry job |
 | GET | `/api/admin/jobs` | `settings.write` | List jobs |
+| DELETE | `/api/admin/locations/{row_id}` | `catalog.write` | Delete a location nothing is sold through any more. |
 | PUT | `/api/admin/locations/{row_id}` | `catalog.write` | Update location |
 | POST | `/api/admin/locations` | `catalog.write` | Create location |
+| PUT | `/api/admin/lotteries/{lottery_id}/prizes` | `broadcast.send` | Change an open lottery's prizes, first place first. |
+| GET | `/api/admin/lotteries/{lottery_id}/standings` | `broadcast.send` | Everyone with a score, best first, with who they are (GRW-04). |
 | POST | `/api/admin/lotteries/{lottery_id}/{action}` | `broadcast.send` | `draw` now (instead of waiting for the end time) or `cancel` an open lottery. |
 | GET | `/api/admin/lotteries` | `broadcast.send` | List lotteries |
 | POST | `/api/admin/lotteries` | `broadcast.send` | Create lottery |

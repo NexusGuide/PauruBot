@@ -91,6 +91,7 @@ class AdminStates(StatesGroup):
     growth_value = State()
     prize_new = State()
     lottery_new = State()
+    lottery_prize = State()
     extra_value = State()
     account_move = State()
     reseller_price = State()

@@ -254,6 +254,50 @@ async def update_category(row_id: int, body: CategoryBody, ctx: Writer, db: DB) 
     return plain(row, CATEGORY_FIELDS)
 
 
+@router.delete("/categories/{row_id}")
+async def delete_category(row_id: int, ctx: Writer, db: DB) -> dict[str, Any]:
+    """Delete a category; its plans stay on sale under "other plans"."""
+    from paurubot.core import catalog as catalog_core
+
+    row = await owned(db, Category, row_id, ctx)
+    before = snapshot(row)
+    moved = await catalog_core.delete_category(db, row)
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="category.delete",
+        entity="category",
+        entity_id=row_id,
+        before=before,
+        after={"plans_moved": moved},
+    )
+    return {"deleted": True, "plans_moved": moved}
+
+
+@router.delete("/locations/{row_id}")
+async def delete_location(row_id: int, ctx: Writer, db: DB) -> dict[str, Any]:
+    """Delete a location nothing is sold through any more."""
+    from paurubot.core import catalog as catalog_core
+
+    row = await owned(db, Location, row_id, ctx)
+    before = snapshot(row)
+    try:
+        await catalog_core.delete_location(db, row)
+    except catalog_core.CatalogError as exc:
+        raise HTTPException(status_code=409, detail=exc.key) from None
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="location.delete",
+        entity="location",
+        entity_id=row_id,
+        before=before,
+    )
+    return {"deleted": True}
+
+
 @router.post("/plans")
 async def create_plan(body: PlanBody, ctx: Writer, db: DB) -> dict[str, Any]:
     await _check_refs(db, ctx, body)

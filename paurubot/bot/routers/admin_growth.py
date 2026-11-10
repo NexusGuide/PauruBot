@@ -24,11 +24,12 @@ from paurubot.bot.states import AdminStates
 from paurubot.bot.utils import StaffOnly, show
 from paurubot.core import growth
 from paurubot.core import settings as shop_settings
-from paurubot.core.formatting import esc, jdate, money, parse_int
+from paurubot.core.formatting import esc, jdate, parse_int
 from paurubot.db.base import utcnow
-from paurubot.db.models import Lottery
+from paurubot.db.models import Customer, Lottery
 from paurubot.db.models import Shop as ShopRow
 from paurubot.i18n import Texts
+from paurubot.notifications import log_reports
 
 router = Router(name="admin_growth")
 router.message.filter(StaffOnly())
@@ -41,7 +42,6 @@ ASKS = ("wheel_every_hours", "trust_channel_id")
 MAX_PRIZES = 12
 MIN_PRIZES = 2
 LOT_PAGE = 10
-MODES = ("join", "purchases")
 CHAT_ID_RE = re.compile(r"-?\d{5,20}")
 
 
@@ -92,27 +92,68 @@ def parse_prize(text: str) -> dict[str, Any] | None:
 
 
 def parse_lottery(text: str) -> dict[str, Any] | None:
-    """`title | prize | wallet amount | winners | join|purchases | days`."""
+    """`title | mode | pick | days [| toman per point [| shown]]`; prizes are added afterwards."""
     parts = [part.strip() for part in text.split("|")]
-    if len(parts) != 6:
+    if not 4 <= len(parts) <= 6:
         return None
-    title, prize, raw_amount, raw_winners, mode, raw_days = parts
-    amount, winners, days = parse_int(raw_amount), parse_int(raw_winners), parse_int(raw_days)
-    mode = mode.lower()
-    if not title or len(title) > 96 or not prize or len(prize) > 255 or mode not in MODES:
+    title, mode, pick, raw_days = parts[0], parts[1].lower(), parts[2].lower(), parts[3]
+    raw_per = parts[4] if len(parts) > 4 else "-"
+    board = parts[5].lower() if len(parts) > 5 else "none"
+    days = parse_int(raw_days)
+    per = 0 if raw_per in {"", "-"} else parse_int(raw_per)
+    if not title or len(title) > 96 or mode not in growth.LOTTERY_MODES:
         return None
-    if amount is None or not 0 <= amount <= 10**10:
+    if pick not in growth.LOTTERY_PICKS or board not in growth.LOTTERY_BOARDS:
         return None
-    if winners is None or not 1 <= winners <= 100 or days is None or not 1 <= days <= 365:
+    if days is None or not 1 <= days <= 365 or per is None or not 0 <= per <= 10**9:
+        return None
+    if mode == "points" and per < 1:
         return None
     return {
         "title": title,
-        "prize": prize,
-        "prize_amount": amount,
-        "winners": winners,
         "mode": mode,
+        "pick": pick,
         "days": days,
+        "points_per": per if mode == "points" else 0,
+        "board": board,
     }
+
+
+def parse_lottery_prize(t: Texts, text: str) -> dict[str, Any] | None:
+    """`service 10 30` (a new 10 GB, 30-day config), `wallet 10000` or `text a special account`,
+    in either language; anything after `|` is a label. A service prize's panel is chosen next
+    (`panel_id` 0 until then)."""
+    main, _, label = text.partition("|")
+    words = main.split()
+    if not words:
+        return None
+    first = words[0].lower()
+    kinds = {
+        kind: {word.strip().lower() for word in t(f"adm_grw_lot_kw_{kind}").split(",")} | {kind}
+        for kind in growth.LOTTERY_PRIZE_KINDS
+    }
+    numbers = [parse_int(word) for word in words[1:]]
+    if first in kinds["text"]:
+        item: dict[str, Any] = {"kind": "text", "value": 0, "label": " ".join(words[1:]) or label.strip()}
+    elif first in kinds["service"] and len(numbers) == 2 and None not in numbers:
+        item = {
+            "kind": "service",
+            "value": numbers[0],
+            "days": numbers[1],
+            "panel_id": 1,
+            "label": label.strip(),
+        }
+    elif first in kinds["wallet"] and len(numbers) == 1 and numbers[0] is not None:
+        item = {"kind": "wallet", "value": numbers[0], "label": label.strip()}
+    else:
+        return None
+    try:
+        prize = growth.validate_lottery_prizes([item])[0]
+    except growth.GrowthError:
+        return None
+    if prize["kind"] == "service":
+        prize["panel_id"] = 0
+    return prize
 
 
 # --- views -----------------------------------------------------------------------------------
@@ -169,35 +210,134 @@ def prizes_view(t: Texts, cfg: dict[str, Any]) -> tuple[str, InlineKeyboardMarku
     return "\n".join(lines), kb.as_markup()
 
 
-def lottery_text(t: Texts, lot: Lottery) -> str:
+async def lottery_text(session: AsyncSession, t: Texts, lot: Lottery) -> str:
     lines = [
         t("adm_grw_lot_head", id=lot.id, title=esc(lot.title), status=t(f"adm_grw_status_{lot.status}")),
-        t("adm_grw_lot_prize", prize=esc(lot.prize), amount=money(lot.prize_amount), winners=lot.winners),
+        t(
+            "adm_grw_lot_how",
+            mode=log_reports.mode_text(t, lot),
+            pick=t(f"adm_grw_pick_{lot.pick}"),
+            board=t(f"adm_grw_board_{lot.board}"),
+        ),
         t(
             "adm_grw_lot_when",
-            mode=t(f"adm_grw_mode_{lot.mode}"),
             start=jdate(lot.starts_at, with_time=True),
             end=jdate(lot.ends_at, with_time=True),
         ),
     ]
-    result = lot.result or {}
     if lot.status == "drawn":
+        result = lot.result or {}
         lines.append(
             t(
-                "adm_grw_lot_result",
+                "adm_grw_lot_counts",
                 entrants=int(result.get("entrants") or 0),
-                winners=", ".join(str(x) for x in result.get("winners", [])) or "\u2014",
+                tickets=int(result.get("tickets") or 0),
             )
         )
+        lines.append("")
+        lines.append(t("adm_grw_lot_awards_title"))
+        for award in await log_reports.current_awards(session, lot):
+            customer = await session.get(Customer, int(award["customer_id"]))
+            lines.append(
+                t(
+                    "adm_grw_lot_award_row",
+                    mark=log_reports.rank_mark(int(award["rank"])),
+                    rank=t("lot_rank", rank=award["rank"]),
+                    name=esc(log_reports.person_name(customer)) if customer else f"#{award['customer_id']}",
+                    prize=log_reports.prize_text(t, award),
+                    status=log_reports.award_status(t, award),
+                )
+            )
+        return "\n".join(lines)
+    board = await growth.standings(session, lot)
+    lines.append(t("adm_grw_lot_counts", entrants=len(board), tickets=sum(r.points for r in board)))
+    lines.append("")
+    prizes = growth.prize_list(lot)
+    if not prizes:
+        lines.append(t("adm_grw_lot_no_prizes"))
+    else:
+        lines.append(t("adm_grw_lot_prizes_title"))
+        for rank, prize in enumerate(prizes, start=1):
+            lines.append(
+                t(
+                    "adm_grw_lot_prize_row",
+                    mark=log_reports.rank_mark(rank),
+                    rank=t("lot_rank", rank=rank),
+                    prize=log_reports.prize_text(t, prize),
+                )
+            )
     return "\n".join(lines)
 
 
 def lottery_kb(t: Texts, lot: Lottery) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    kb.row(_btn(t("adm_grw_lot_board_btn"), Admin(section=SECTION, action="lbd", id=lot.id)))
     if lot.status == "open":
+        prizes = growth.prize_list(lot)
+        if len(prizes) < growth.MAX_LOTTERY_PRIZES:
+            kb.row(_btn(t("adm_grw_lot_prize_add"), Admin(section=SECTION, action="lpadd", id=lot.id)))
+        dels = [
+            _btn(
+                t("adm_grw_lot_prize_del", rank=index + 1),
+                Admin(section=SECTION, action="lpdel", id=lot.id, page=index),
+            )
+            for index in range(len(prizes))
+        ]
+        for index in range(0, len(dels), 3):
+            kb.row(*dels[index : index + 3])
         kb.row(_btn(t("adm_grw_lot_end"), Admin(section=SECTION, action="lend", id=lot.id)))
         kb.row(_btn(t("adm_grw_lot_cancel"), Admin(section=SECTION, action="lcancel", id=lot.id)))
     kb.row(_back(t, Admin(section=SECTION, action="lots")))
+    return kb.as_markup()
+
+
+async def board_view(
+    session: AsyncSession, t: Texts, lot: Lottery, page: int
+) -> tuple[str, InlineKeyboardMarkup]:
+    """The standings, best first, ten a page: who they are and their score."""
+    board = await growth.standings(session, lot)
+    pages = max(1, -(-len(board) // LOT_PAGE))
+    page = min(max(0, page), pages - 1)
+    lines = [
+        t(
+            "adm_grw_lot_board_title",
+            title=esc(lot.title),
+            mode=log_reports.mode_text(t, lot),
+            total=len(board),
+        )
+    ]
+    if not board:
+        lines.append(t("adm_grw_lot_board_empty"))
+    for rank, row in enumerate(board[page * LOT_PAGE : (page + 1) * LOT_PAGE], start=page * LOT_PAGE + 1):
+        customer = await session.get(Customer, row.customer_id)
+        if customer is None:
+            continue
+        lines.append(
+            t(
+                "adm_grw_lot_board_row",
+                mark=log_reports.rank_mark(rank) if rank <= 3 else "",
+                rank=rank,
+                name=esc(log_reports.person_name(customer)),
+                username=f"@{esc(customer.username)}" if customer.username and customer.first_name else "",
+                telegram_id=customer.telegram_id,
+                score=log_reports.score_text(t, lot.mode, row.points, row.purchases, row.spent),
+            )
+        )
+    kb = InlineKeyboardBuilder()
+    nav = []
+    if page > 0:
+        nav.append(_btn(t("btn_prev"), Admin(section=SECTION, action="lbd", id=lot.id, page=page - 1)))
+    if page < pages - 1:
+        nav.append(_btn(t("btn_next"), Admin(section=SECTION, action="lbd", id=lot.id, page=page + 1)))
+    if nav:
+        kb.row(*nav)
+    kb.row(_back(t, Admin(section=SECTION, action="lv", id=lot.id)))
+    return "\n\n".join([lines[0], "\n".join(lines[1:])]), kb.as_markup()
+
+
+def prizes_done_kb(t: Texts, lot_id: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(_btn(t("adm_grw_lot_prizes_done"), Admin(section=SECTION, action="lv", id=lot_id)))
     return kb.as_markup()
 
 
@@ -233,7 +373,7 @@ async def _lottery_log(
         entity="lottery",
         entity_id=lot.id,
         before=before,
-        after={"status": lot.status, "ends_at": lot.ends_at.isoformat()},
+        after={"status": lot.status, "ends_at": lot.ends_at.isoformat(), "prizes": lot.prizes},
     )
 
 
@@ -325,14 +465,59 @@ async def growth_admin(
         await state.set_state(AdminStates.lottery_new)
         await _ask(call, t("adm_grw_lot_ask"), t)
         return
-    if action in {"lv", "lend", "lcancel"}:
+    if action in {"lv", "lend", "lcancel", "lbd", "lpadd", "lpdel", "lppanel"}:
         lot = await _own_lottery(session, shop.id, callback_data.id)
         if lot is None:
             await call.answer(t("button_expired"), show_alert=True)
             return
-        if action != "lv":
-            if lot.status != "open":
-                await call.answer(t("adm_grw_lot_not_open"), show_alert=True)
+        if action == "lbd":
+            await call.answer()
+            text, kb = await board_view(session, t, lot, callback_data.page)
+            await show(call, text, kb)
+            return
+        if action != "lv" and lot.status != "open":
+            await call.answer(t("adm_grw_lot_not_open"), show_alert=True)
+            return
+        if action == "lppanel":
+            data = await state.get_data()
+            pending = data.get("lottery_pending")
+            panels = {panel.id: panel for panel in await growth.prize_panels(session, shop.id)}
+            if (
+                not isinstance(pending, dict)
+                or data.get("lottery_id") != lot.id
+                or callback_data.page not in panels
+            ):
+                await call.answer(t("button_expired"), show_alert=True)
+                return
+            await call.answer()
+            pending["panel_id"] = callback_data.page
+            await state.update_data(lottery_pending=None)
+            text, kb = await _add_prize(session, shop, staff, state, t, lot, pending)
+            await show(call, text, kb)
+            return
+        if action == "lpadd":
+            if len(growth.prize_list(lot)) >= growth.MAX_LOTTERY_PRIZES:
+                await call.answer(t("adm_grw_lot_prize_max", n=growth.MAX_LOTTERY_PRIZES), show_alert=True)
+                return
+            await call.answer()
+            await state.set_state(AdminStates.lottery_prize)
+            await state.update_data(lottery_id=lot.id)
+            rank = t("lot_rank", rank=len(growth.prize_list(lot)) + 1)
+            await show(call, t("adm_grw_lot_prize_ask", rank=rank), prizes_done_kb(t, lot.id))
+            return
+        if action == "lpdel":
+            prizes = growth.prize_list(lot)  # a lottery from before ranked prizes keeps its own
+            if not 0 <= callback_data.page < len(prizes):
+                await call.answer(t("button_expired"), show_alert=True)
+                return
+            lot.prizes = [p for i, p in enumerate(prizes) if i != callback_data.page]
+            lot.winners, lot.prize, lot.prize_amount = len(lot.prizes), "", 0
+            await _lottery_log(session, shop, staff, "prizes", lot, {"prizes": prizes})
+            await session.commit()
+            await call.answer(t("adm_saved"))
+        elif action in {"lend", "lcancel"}:
+            if action == "lend" and not growth.prize_list(lot):
+                await call.answer(t("adm_grw_lot_need_prizes"), show_alert=True)
                 return
             before = {"status": lot.status, "ends_at": lot.ends_at.isoformat()}
             if action == "lend":
@@ -346,8 +531,9 @@ async def growth_admin(
             await session.commit()
             await call.answer(t(note), show_alert=True)
         else:
+            await state.clear()
             await call.answer()
-        await show(call, lottery_text(t, lot), lottery_kb(t, lot))
+        await show(call, await lottery_text(session, t, lot), lottery_kb(t, lot))
         return
     await call.answer()
     await state.clear()
@@ -445,10 +631,14 @@ async def lottery_new(
     lot = Lottery(
         shop_id=shop.id,
         title=spec["title"],
-        prize=spec["prize"],
-        prize_amount=spec["prize_amount"],
-        winners=spec["winners"],
+        prize="",
+        prize_amount=0,
+        winners=0,
         mode=spec["mode"],
+        pick=spec["pick"],
+        points_per=spec["points_per"],
+        board=spec["board"],
+        prizes=[],
         starts_at=now,
         ends_at=now + timedelta(days=spec["days"]),
         status="open",
@@ -458,8 +648,83 @@ async def lottery_new(
     await session.flush()
     await _lottery_log(session, shop, staff, "create", lot, None)
     await session.commit()
-    await state.clear()
     await message.answer(t("adm_saved"), reply_markup=menu(t, cfg, staff))
     if not cfg.get("lottery_enabled"):
         await message.answer(t("adm_grw_lot_disabled_hint"))
-    await message.answer(lottery_text(t, lot), reply_markup=lottery_kb(t, lot))
+    # Straight on to the prizes, first place first.
+    await state.set_state(AdminStates.lottery_prize)
+    await state.update_data(lottery_id=lot.id)
+    await message.answer(
+        t("adm_grw_lot_prize_ask", rank=t("lot_rank", rank=1)), reply_markup=prizes_done_kb(t, lot.id)
+    )
+
+
+@router.message(AdminStates.lottery_prize, F.text)
+async def lottery_prize(
+    message: Message,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+    state: FSMContext,
+) -> None:
+    if not staff.can(PERMISSION):
+        await state.clear()
+        return
+    data = await state.get_data()
+    lot = await _own_lottery(session, shop.id, int(data.get("lottery_id") or 0))
+    if lot is None or lot.status != "open":
+        await state.clear()
+        await message.answer(t("adm_grw_lot_not_open"))
+        return
+    prize = parse_lottery_prize(t, message.text or "")
+    if prize is None:
+        await message.answer(t("adm_grw_lot_prize_bad"), reply_markup=prizes_done_kb(t, lot.id))
+        return
+    if prize["kind"] == "service":
+        panels = await growth.prize_panels(session, shop.id)
+        if not panels:
+            await message.answer(t("adm_grw_lot_no_panel"), reply_markup=prizes_done_kb(t, lot.id))
+            return
+        if len(panels) > 1:  # which panel the new config is made on
+            await state.update_data(lottery_pending=prize)
+            choose = InlineKeyboardBuilder()
+            for panel in panels:
+                choose.row(
+                    _btn(panel.name, Admin(section=SECTION, action="lppanel", id=lot.id, page=panel.id))
+                )
+            await message.answer(t("adm_grw_lot_pick_panel"), reply_markup=choose.as_markup())
+            return
+        prize["panel_id"] = panels[0].id
+    text, markup = await _add_prize(session, shop, staff, state, t, lot, prize)
+    await message.answer(text, reply_markup=markup)
+
+
+async def _add_prize(
+    session: AsyncSession,
+    shop: ShopRow,
+    staff: StaffIdentity,
+    state: FSMContext,
+    t: Texts,
+    lot: Lottery,
+    prize: dict[str, Any],
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Save the next place's prize; the reply asks for the one after, or shows the card."""
+    prizes = growth.prize_list(lot)  # a lottery from before ranked prizes keeps its own
+    if len(prizes) >= growth.MAX_LOTTERY_PRIZES:
+        await state.clear()
+        return t("adm_grw_lot_prize_max", n=growth.MAX_LOTTERY_PRIZES), lottery_kb(t, lot)
+    lot.prizes = [*prizes, prize]
+    lot.winners, lot.prize, lot.prize_amount = len(lot.prizes), "", 0
+    await _lottery_log(session, shop, staff, "prizes", lot, {"prizes": prizes})
+    await session.commit()
+    saved = t(
+        "adm_grw_lot_prize_saved",
+        rank=t("lot_rank", rank=len(lot.prizes)),
+        prize=log_reports.prize_text(t, prize),
+    )
+    if len(lot.prizes) >= growth.MAX_LOTTERY_PRIZES:
+        await state.clear()
+        return f"{saved}\n\n{await lottery_text(session, t, lot)}", lottery_kb(t, lot)
+    ask = t("adm_grw_lot_prize_ask", rank=t("lot_rank", rank=len(lot.prizes) + 1))
+    return f"{saved}\n\n{ask}", prizes_done_kb(t, lot.id)

@@ -151,7 +151,7 @@ def inline_menu(t: Texts, cfg: dict[str, Any], *, is_staff: bool = False) -> Inl
     """The main menu as glass buttons under a message; each one acts like its reply-keyboard twin."""
     from paurubot.bot.callbacks import Admin, Menu
 
-    layout = cfg.get("menu_layout") or DEFAULT_LAYOUT
+    layout = layout_of(cfg)
     shown = available(cfg)
     styles = cfg.get("button_styles") or {}
     rows: list[list[InlineKeyboardButton]] = []
@@ -217,8 +217,18 @@ def miniapp_button(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def layout_of(cfg: dict[str, Any]) -> list[list[str]]:
+    """The shop's own arrangement, else the default. A customer's dedicated bot keeps the Mini App
+    button last, right above its manager's admin button (OPB)."""
+    layout: list[list[str]] = cfg.get("menu_layout") or DEFAULT_LAYOUT
+    if cfg.get("own_bot") and not cfg.get("menu_layout"):
+        rest = [[item for item in row if item != "miniapp"] for row in layout]
+        return [row for row in rest if row] + [["miniapp"]]
+    return layout
+
+
 def main_menu(t: Texts, cfg: dict[str, Any], *, is_staff: bool) -> ReplyKeyboardMarkup:
-    layout = cfg.get("menu_layout") or DEFAULT_LAYOUT
+    layout = layout_of(cfg)
     styles: dict[str, dict[str, str]] = cfg.get("button_styles") or {}
     shown = available(cfg)
     rows: list[list[KeyboardButton]] = []

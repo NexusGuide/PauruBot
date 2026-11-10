@@ -27,12 +27,10 @@
   "adm_grw_lots_title": "🎟 <b>قرعه‌کشی‌ها</b>\nده قرعه‌کشی آخر:",
   "adm_grw_lots_empty": "🎟 هنوز قرعه‌کشی‌ای ساخته نشده است.",
   "adm_grw_lot_new": "➕ قرعه‌کشی جدید",
-  "adm_grw_lot_ask": "قرعه‌کشی را در یک خط به این شکل بفرستید:\n<code>عنوان | شرح جایزه | مبلغ شارژ | تعداد برنده | join | روز</code>\nحالت join یعنی کاربر دکمهٔ شرکت را می‌زند؛ purchases یعنی هر خرید در این مدت یک بلیت است. مبلغ شارژ می‌تواند ۰ باشد.",
-  "adm_grw_lot_bad": "قالب درست نیست. نمونه: <code>قرعه‌کشی آبان | سرویس ۵۰ گیگ | 0 | 3 | join | 7</code>",
+  "adm_grw_lot_ask": "قرعه‌کشی را در یک خط به این شکل بفرستید:\n<code>عنوان | روش | انتخاب برنده | روز | تومانِ هر امتیاز | نمایش</code>\n\nروش: <code>points</code> امتیاز خرید، <code>purchases</code> تعداد خرید، <code>join</code> با دکمهٔ شرکت\nانتخاب برنده: <code>top</code> بیشترین امتیاز، <code>random</code> شانسی به نسبت امتیاز\nتومانِ هر امتیاز: برای points (مثلاً 10000 یعنی هر ۱۰ هزار تومان خرید ۱ امتیاز)؛ برای بقیه <code>-</code>\nنمایش برای مشتری: <code>none</code> هیچ، <code>self</code> امتیاز و رتبهٔ خودش، <code>top</code> خودش و ۵ نفر اول\n\nنمونه: <code>جشنواره آذر | points | top | 30 | 10000 | top</code>\nبعد از ساخت، جایزهٔ هر نفر را جدا می‌فرستید.",
+  "adm_grw_lot_bad": "قالب درست نیست. نمونه: <code>جشنواره آذر | points | top | 30 | 10000 | top</code> یا <code>قرعه‌کشی آبان | join | random | 7</code>",
   "adm_grw_lot_head": "🎟 <b>#{id} {title}</b> — {status}",
-  "adm_grw_lot_prize": "جایزه: {prize}\nشارژ هر برنده: {amount}\nتعداد برنده: {winners}",
-  "adm_grw_lot_when": "حالت: {mode}\nشروع: {start}\nپایان: {end}",
-  "adm_grw_lot_result": "شرکت‌کننده‌ها: {entrants}\nبرنده‌ها (شناسهٔ مشتری): {winners}",
+  "adm_grw_lot_when": "🕒 شروع: {start}\n🏁 پایان: {end}",
   "adm_grw_lot_end": "⏹ پایان و قرعه‌کشی همین حالا",
   "adm_grw_lot_cancel": "❌ لغو قرعه‌کشی",
   "adm_grw_lot_ended": "قرعه‌کشی بسته شد؛ برنده‌ها در اجرای بعدی زمان‌بندی انتخاب و خبردار می‌شوند.",
@@ -43,5 +41,5 @@
   "adm_grw_status_drawn": "🏁 انجام شده",
   "adm_grw_status_canceled": "⚪️ لغو شده",
   "adm_grw_mode_join": "با دکمهٔ شرکت",
-  "adm_grw_mode_purchases": "بر اساس خرید"
+  "adm_grw_mode_purchases": "تعداد خرید"
 }
