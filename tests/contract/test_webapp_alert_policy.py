@@ -22,6 +22,8 @@ async def test_me_projects_each_context_policy_without_secrets_or_preference_wri
     monkeypatch.setattr(webapp.panel_accounts, "available", AsyncMock(return_value=False))
     monkeypatch.setattr(webapp.payments, "available", AsyncMock(return_value=["card"]))
     monkeypatch.setattr(webapp.payments, "topup_bounds", AsyncMock(return_value=(1, 1000)))
+    # The shop's edited button names: none here (the session is a stand-in, never queried).
+    monkeypatch.setattr(webapp.i18n, "load_overrides", AsyncMock(return_value={}))
     custom_available = AsyncMock(return_value=tonpay_available)
     monkeypatch.setattr(webapp, "_tonpay_available", custom_available)
     monkeypatch.setattr(webapp.webapp_staff, "describe", AsyncMock(return_value=None))

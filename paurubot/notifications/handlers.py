@@ -445,7 +445,17 @@ async def order_failed(session: AsyncSession, job: queue.Claimed) -> None:
             "adm_order_failed", id=order.id, customer=esc(customer.display_name), reason=esc(reason[:200])
         )
     await _to_staff(session, order.shop_id, "orders.read", text)
-    await report(session, order.shop_id, "errors", text)
+    from paurubot.notifications import log_reports
+
+    if "reseller_balance_low" not in reason:
+        text = await log_reports.order_failed(session, order, customer, reason)
+    await report(
+        session,
+        order.shop_id,
+        "errors",
+        text,
+        markup=await log_reports.manage_markup(session, order.shop_id, customer),
+    )
 
 
 async def payment_fulfilled(session: AsyncSession, job: queue.Claimed) -> None:

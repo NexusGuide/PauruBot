@@ -7,6 +7,7 @@ from datetime import timedelta
 
 import pytest
 
+from paurubot.config import get_settings
 from paurubot.core.reports import daily_summary, day_bounds
 from paurubot.db.base import utcnow
 from paurubot.db.models import Order, OrderKind, OrderStatus, Payment, PaymentPurpose, PaymentStatus
@@ -55,8 +56,17 @@ async def test_daily_summary_counts_only_that_day(session) -> None:  # type: ign
     assert summary.revenue == 300_000
     assert summary.renewals == 1
     assert summary.pending_receipts == 1
-    text = Texts("fa")("daily_report", date="1405/07/14", **asdict(summary))
-    assert "{" not in text and "300000" in text
+    from paurubot.core.reports import daily_details
+    from paurubot.worker import jobs
+
+    details = await daily_details(session, shop.id, start, end)
+    assert (details.purchases, details.renewals, details.total) == (1, 1, 300_000)
+    assert details.yesterday_total == 150_000 and details.change_percent == 100
+    assert details.best_hour == inside.astimezone(get_settings().tz).hour
+    messages = jobs.daily_messages(Texts("fa"), "1405/07/14", asdict(summary), details)
+    assert len(messages) == 3 and all("{" not in m for m in messages)
+    assert "300,000" in messages[0] and "+100٪" in messages[0] and "150,000" in messages[1]
+    assert panel.name in messages[2]
 
 
 def test_day_bounds_are_one_local_day() -> None:
@@ -145,4 +155,4 @@ async def test_a_missed_hour_sends_the_report_late_and_once(session, monkeypatch
     )
     await jobs.daily_report()
     await jobs.daily_report()  # the next 5-minute run: already sent
-    assert sent.count(-100777) == 1
+    assert sent.count(-100777) == 3  # summary, money, panels: once

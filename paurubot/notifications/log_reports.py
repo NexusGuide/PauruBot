@@ -291,3 +291,26 @@ async def service_deleted(session: AsyncSession, service: Service, customer: Cus
 
 def _when(value: datetime | None, t: Texts) -> str:
     return jdate(value, with_time=True) if value else t("report_never")
+
+
+async def order_failed(session: AsyncSession, order: Order, customer: Customer, reason: str) -> str:
+    """A purchase, renewal or trial the panel refused: what the customer wanted, the panel's own
+    error, and where the money went."""
+    t = await shop_texts(session, order.shop_id)
+    panel_id = (order.params or {}).get("panel_id") or (order.plan.panel_id if order.plan else None)
+    panel = await session.get(Panel, int(panel_id)) if panel_id else None
+    refund = (
+        t("report_failed_refund", amount=money(order.amount))
+        if order.amount > 0 and order.kind != OrderKind.TRIAL
+        else ""
+    )
+    return t(
+        "report_failed",
+        kind=t(f"order_kind_{order.kind.value}"),
+        reason=esc(reason[:1500]) or t("report_none"),
+        order=order.id,
+        refund=refund,
+        panel=esc(panel.name) if panel is not None else t("report_none"),
+        user=user_block(t, customer),
+        time=now_text(),
+    )

@@ -131,6 +131,138 @@ def as_params(summary: DailySummary) -> dict[str, int]:
     return asdict(summary)
 
 
+# --- the nightly report's details: sales by kind and hour, users, panels ---------------------
+
+NEW_KINDS = {OrderKind.PURCHASE, OrderKind.ACCOUNT_PURCHASE}
+RENEW_KINDS = {OrderKind.RENEW, OrderKind.ACCOUNT_RENEW}
+GB = 1024**3
+
+
+@dataclass(slots=True)
+class PanelDay:
+    name: str
+    orders: int = 0
+    amount: int = 0
+    gb: int = 0
+
+
+@dataclass(slots=True)
+class DailyDetails:
+    purchases: int
+    purchases_amount: int
+    renewals: int
+    renewals_amount: int
+    others_amount: int  # extras, upgrades, moves and admin-account add-ons
+    total: int
+    yesterday_total: int
+    best_hour: int | None
+    active_users: int
+    inactive_users: int
+    panels: list[PanelDay]
+
+    @property
+    def change_percent(self) -> int | None:
+        """Today's sales against yesterday's, rounded; None when yesterday sold nothing."""
+        if not self.yesterday_total:
+            return None
+        return round((self.total - self.yesterday_total) * 100 / self.yesterday_total)
+
+
+def _sold_gb(order: Order) -> int:
+    params = order.params or {}
+    custom = params.get("custom") if isinstance(params.get("custom"), dict) else None
+    if custom:
+        return int(custom.get("gb") or 0)
+    if order.kind == OrderKind.EXTRA_VOLUME:
+        return int(params.get("extra_gb") or 0)
+    if order.plan is not None and order.kind in {OrderKind.PURCHASE, OrderKind.RENEW, OrderKind.UPGRADE}:
+        return int(order.plan.data_gb or 0)
+    return 0
+
+
+async def daily_details(session: AsyncSession, shop_id: int, start: datetime, end: datetime) -> DailyDetails:
+    """What the nightly report shows beside the summary: the day's sales by kind and by panel,
+    the busiest hour, the change against the day before, and active against inactive customers."""
+    rows = list(
+        await session.scalars(
+            select(Order).where(
+                Order.shop_id == shop_id,
+                Order.status == OrderStatus.COMPLETED,
+                Order.completed_at >= start,
+                Order.completed_at < end,
+                Order.kind != OrderKind.TRIAL,
+            )
+        )
+    )
+    yesterday = int(
+        await session.scalar(
+            select(func.coalesce(func.sum(Order.amount), 0)).where(
+                Order.shop_id == shop_id,
+                Order.status == OrderStatus.COMPLETED,
+                Order.completed_at >= start - timedelta(days=1),
+                Order.completed_at < start,
+                Order.kind != OrderKind.TRIAL,
+            )
+        )
+        or 0
+    )
+    tz = get_settings().tz
+    hours: dict[int, int] = {}
+    for order in rows:
+        if order.completed_at is not None:
+            hour = order.completed_at.astimezone(tz).hour
+            hours[hour] = hours.get(hour, 0) + 1
+    service_panels = dict(
+        (
+            await session.execute(
+                select(Service.id, Service.panel_id).where(
+                    Service.id.in_({o.service_id for o in rows if o.service_id})
+                )
+            )
+        ).all()
+    )
+    panels = {
+        panel.id: PanelDay(panel.name)
+        for panel in await session.scalars(select(Panel).where(Panel.shop_id == shop_id).order_by(Panel.id))
+    }
+    for order in rows:
+        panel_id = service_panels.get(order.service_id) if order.service_id else None
+        if panel_id in panels:
+            day = panels[panel_id]
+            day.orders += 1
+            day.amount += int(order.amount)
+            day.gb += _sold_gb(order)
+    people = int(
+        await session.scalar(
+            select(func.count(Customer.id)).where(Customer.shop_id == shop_id, Customer.telegram_id > 0)
+        )
+        or 0
+    )
+    active = int(
+        await session.scalar(
+            select(func.count(func.distinct(Service.customer_id))).where(
+                Service.shop_id == shop_id, Service.status == ServiceStatus.ACTIVE
+            )
+        )
+        or 0
+    )
+    new = [o for o in rows if o.kind in NEW_KINDS]
+    renew = [o for o in rows if o.kind in RENEW_KINDS]
+    return DailyDetails(
+        purchases=len(new),
+        purchases_amount=sum(int(o.amount) for o in new),
+        renewals=len(renew),
+        renewals_amount=sum(int(o.amount) for o in renew),
+        others_amount=sum(int(o.amount) for o in rows if o.kind not in NEW_KINDS | RENEW_KINDS),
+        total=sum(int(o.amount) for o in rows),
+        yesterday_total=yesterday,
+        best_hour=max(hours, key=lambda h: (hours[h], -h)) if hours else None,
+        active_users=active,
+        inactive_users=max(0, people - active),
+        panels=[day for day in panels.values()],
+    )
+
+
 # --- sales funnel (ADM-06) ----------------------------------------------------------------
 
 FUNNEL_STEPS = ("joined", "phone", "trial", "first_purchase", "repeat")

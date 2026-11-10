@@ -332,7 +332,7 @@
   "yes": "Yes",
   "backup_caption": "🗄 Backup {name}\nSize: {size}\nRestoring it needs the BACKUP_PASSPHRASE.",
   "backup_too_large": "🗄 Backup {name} ({size}) is too large for Telegram and is kept on the server.",
-  "daily_report": "📊 <b>Daily report {date}</b>\n\n🛒 Sales: {orders} orders, {revenue} Toman (renewals: {renewals})\n👤 New users: {new_customers}, trials: {trials}\n🟢 Active services: {active_services}, expiring within 3 days: {expiring_soon}\n💳 Receipts waiting: {pending_receipts}, open tickets: {open_tickets}\n🖥 Panels down: {panels_down}\n👛 Wallets total: {wallet_total} Toman",
+  "daily_report": "📊 <b>Daily report — {date}</b>\n\n💰 Total sales today: {total} Toman\n🛍 New purchases: {purchases}\n🔄 Renewals: {renewals_count}\n👥 Active customers: {active_users}\n👥 Inactive customers: {inactive_users}\n🆕 New users: {new_customers}\n🧪 Trials: {trials}\n\n📈 Sales against yesterday: {change}\n⏰ Best sales hour: {best_hour}\n\n🟢 Active services: {active_services} — ending within 3 days: {expiring_soon}\n💳 Receipts waiting: {pending_receipts} — open tickets: {open_tickets}\n🖥 Panels down: {panels_down}\n👛 All wallets: {wallet_total} Toman",
   "btn_redeem_gift": "🎁 Redeem a gift code",
   "gift_ask_code": "Send the gift code.",
   "gift_redeemed": "🎁 {amount} Toman was added to your wallet.\nBalance: {balance} Toman",
@@ -1126,5 +1126,14 @@
   "own_alert_admin": "🤖 Reseller bot {bot} — {owner}\n\n{text}",
   "own_paused_hold": "⏸ Sales and free trials in {bot} were paused by the shop's staff.\nExisting services keep working.",
   "own_paused_bot_expired": "⛔️ Bot {bot}'s time is up — its sales and free trials have stopped.\nCustomers' current services keep working. Once the shop extends the bot, sales open again.",
-  "own_bot_expiring": "⏳ Bot {bot} has less than 3 days left.\nAsk the shop to extend it so sales don't stop."
+  "own_bot_expiring": "⏳ Bot {bot} has less than 3 days left.\nAsk the shop to extend it so sales don't stop.",
+  "daily_report_money": "💵 <b>Today's money</b>\n\n🛍 Purchases: {purchases} Toman\n🔄 Renewals: {renewals} Toman\n➕ Extras and the rest: {others} Toman\n💰 Total: {total} Toman",
+  "daily_report_panels": "🧩 <b>Panels</b>\n\n{panels}",
+  "daily_report_panel": "🖥 Panel: {name}\n🛍 Orders today: {orders}\n💰 Sold today: {amount} Toman\n💾 Data sold: {gb} GB",
+  "daily_no_panels": "No panels yet.",
+  "daily_change": "{sign}{value}%",
+  "daily_change_none": "—",
+  "daily_hour_none": "—",
+  "report_failed": "⭕️ A customer's «{kind}» failed: the panel refused the config and the customer got none\n\n✍️ Error:\n<code>{reason}</code>\n\n🧾 Order: #{order}{refund}\n🌍 Panel: {panel}\n🕒 Time: {time}\n\n{user}",
+  "report_failed_refund": "\n💸 {amount} Toman went back to the customer's wallet"
 }

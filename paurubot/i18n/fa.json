@@ -332,7 +332,7 @@
   "yes": "بله",
   "backup_caption": "🗄 پشتیبان {name}\nحجم: {size}\nبرای بازگردانی به رمز پشتیبان (BACKUP_PASSPHRASE) نیاز داری.",
   "backup_too_large": "🗄 پشتیبان {name} ({size}) برای ارسال در تلگرام بزرگ است و روی سرور ذخیره شد.",
-  "daily_report": "📊 <b>گزارش روزانه {date}</b>\n\n🛒 فروش: {orders} سفارش، {revenue} تومان (تمدید: {renewals})\n👤 کاربر جدید: {new_customers} — تست: {trials}\n🟢 سرویس فعال: {active_services} — انقضا تا ۳ روز: {expiring_soon}\n💳 رسید در انتظار: {pending_receipts} — تیکت باز: {open_tickets}\n🖥 پنل قطع: {panels_down}\n👛 جمع کیف پول‌ها: {wallet_total} تومان",
+  "daily_report": "📊 <b>گزارش روزانه ربات — {date}</b>\n\n💰 فروش کل امروز: {total} تومان\n🛍 خریدهای جدید: {purchases}\n🔄 تمدیدها: {renewals_count}\n👥 کاربران فعال: {active_users} نفر\n👥 کاربران غیرفعال: {inactive_users} نفر\n🆕 کاربران جدید: {new_customers} نفر\n🧪 تست‌ها: {trials} عدد\n\n📈 تغییر فروش نسبت به دیروز: {change}\n⏰ بهترین ساعت فروش: {best_hour}\n\n🟢 سرویس فعال: {active_services} — انقضا تا ۳ روز: {expiring_soon}\n💳 رسید در انتظار: {pending_receipts} — تیکت باز: {open_tickets}\n🖥 پنل قطع: {panels_down}\n👛 جمع کیف پول‌ها: {wallet_total} تومان",
   "btn_redeem_gift": "🎁 ثبت کد هدیه",
   "gift_ask_code": "کد هدیه را بفرست.",
   "gift_redeemed": "🎁 {amount} تومان به کیف پولت اضافه شد.\nموجودی: {balance} تومان",
@@ -1126,5 +1126,14 @@
   "own_alert_admin": "🤖 ربات نماینده {bot} — {owner}\n\n{text}",
   "own_paused_hold": "⏸ فروش و تست رایگان ربات {bot} توسط مدیر فروشگاه موقتاً متوقف شد.\nسرویس‌های فعلی مشتری‌ها کار می‌کنند.",
   "own_paused_bot_expired": "⛔️ مدت اعتبار ربات {bot} تمام شد — فروش و تست رایگان آن متوقف شد.\nسرویس‌های فعلی مشتری‌ها کار می‌کنند. با تمدید ربات توسط مدیر فروشگاه، فروش دوباره باز می‌شود.",
-  "own_bot_expiring": "⏳ کمتر از ۳ روز تا پایان اعتبار ربات {bot} مانده.\nبرای اینکه فروش متوقف نشود، تمدیدش را با مدیر فروشگاه هماهنگ کنید."
+  "own_bot_expiring": "⏳ کمتر از ۳ روز تا پایان اعتبار ربات {bot} مانده.\nبرای اینکه فروش متوقف نشود، تمدیدش را با مدیر فروشگاه هماهنگ کنید.",
+  "daily_report_money": "💵 <b>جزئیات مالی امروز</b>\n\n🛍 جمع خریدها: {purchases} تومان\n🔄 جمع تمدیدها: {renewals} تومان\n➕ حجم، زمان اضافه و بقیه: {others} تومان\n💰 جمع کل: {total} تومان",
+  "daily_report_panels": "🧩 <b>گزارش پنل‌ها</b>\n\n{panels}",
+  "daily_report_panel": "🖥 نام پنل: {name}\n🛍 تعداد سفارش‌های امروز: {orders} عدد\n💰 جمع مبلغ سفارش‌های امروز: {amount} تومان\n💾 جمع حجم‌های فروخته‌شده: {gb} گیگابایت",
+  "daily_no_panels": "پنلی ثبت نشده.",
+  "daily_change": "{sign}{value}٪",
+  "daily_change_none": "—",
+  "daily_hour_none": "—",
+  "report_failed": "⭕️ یک کاربر قصد «{kind}» داشت که ساخت کانفیگ با خطا مواجه شد و به کاربر کانفیگ داده نشد\n\n✍️ دلیل خطا:\n<code>{reason}</code>\n\n🧾 سفارش: #{order}{refund}\n🌍 نام پنل: {panel}\n🕒 زمان: {time}\n\n{user}",
+  "report_failed_refund": "\n💸 مبلغ {amount} تومان به کیف پول کاربر برگشت"
 }

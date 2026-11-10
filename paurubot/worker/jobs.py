@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -667,13 +668,56 @@ async def reconcile_stars() -> None:
                 log.info("stars reconciliation credited payments %s", result.credited)
 
 
+def daily_messages(texts: Any, date: str, summary: dict[str, int], details: Any) -> list[str]:
+    """The nightly report as three messages: the summary, the day's money, and each panel."""
+    from paurubot.core.formatting import esc, money
+
+    change = details.change_percent
+    params = {k: money(v) if k in {"revenue", "wallet_total"} else v for k, v in summary.items()}
+    head = texts(
+        "daily_report",
+        date=date,
+        total=money(details.total),
+        purchases=details.purchases,
+        renewals_count=details.renewals,
+        active_users=details.active_users,
+        inactive_users=details.inactive_users,
+        change=texts("daily_change_none")
+        if change is None
+        else texts("daily_change", sign="+" if change > 0 else "", value=change),
+        best_hour=texts("daily_hour_none") if details.best_hour is None else f"{details.best_hour:02d}:00",
+        **params,
+    )
+    money_text = texts(
+        "daily_report_money",
+        purchases=money(details.purchases_amount),
+        renewals=money(details.renewals_amount),
+        others=money(details.others_amount),
+        total=money(details.total),
+    )
+    panels = [
+        texts(
+            "daily_report_panel",
+            name=esc(day.name),
+            orders=day.orders,
+            amount=money(day.amount),
+            gb=money(day.gb),
+        )
+        for day in details.panels[:30]
+    ]
+    panel_text = texts(
+        "daily_report_panels", panels="\n➖➖➖➖➖\n".join(panels) or texts("daily_no_panels")
+    )
+    return [head, money_text, panel_text]
+
+
 @every(300, "reports.daily")
 async def daily_report() -> None:
 
     from paurubot import kv
     from paurubot.core import settings as shop_settings
-    from paurubot.core.formatting import jdate, money
-    from paurubot.core.reports import as_params, daily_summary, day_bounds, report_day
+    from paurubot.core.formatting import jdate
+    from paurubot.core.reports import as_params, daily_details, daily_summary, day_bounds, report_day
     from paurubot.i18n import Texts, load_overrides
     from paurubot.notifications import telegram
     from paurubot.notifications.handlers import staff_chats
@@ -691,9 +735,12 @@ async def daily_report() -> None:
             if not await kv.get_redis().set(marker, "1", nx=True, ex=3 * 86400):
                 continue
             summary = as_params(await daily_summary(session, shop_id, start, end))
-            texts = Texts("fa", await load_overrides(session, shop_id))
-            params = {k: money(v) if k in {"revenue", "wallet_total"} else v for k, v in summary.items()}
-            text = texts("daily_report", date=jdate(start), **params)
+            details = await daily_details(session, shop_id, start, end)
+            shop_row = await session.get(Shop, shop_id)
+            texts = Texts(
+                shop_row.default_locale if shop_row else "fa", await load_overrides(session, shop_id)
+            )
+            messages = daily_messages(texts, jdate(start), summary, details)
             from paurubot.db.models import LogChannel
 
             channel = await session.scalar(
@@ -707,10 +754,12 @@ async def daily_report() -> None:
                 else [(chat, None) for chat in await staff_chats(session, shop_id, "reports.read")]
             )
         for chat_id, thread_id in targets:
-            try:
-                await telegram.send_text(chat_id, text, message_thread_id=thread_id, shop_id=shop_id)
-            except telegram.Undeliverable:
-                log.warning("daily report to %s was not delivered", chat_id)
+            for text in messages:
+                try:
+                    await telegram.send_text(chat_id, text, message_thread_id=thread_id, shop_id=shop_id)
+                except telegram.Undeliverable:
+                    log.warning("daily report to %s was not delivered", chat_id)
+                    break
 
 
 # --- exchange rates and on-chain payments (PAY-11, PAY-13) ----------------------

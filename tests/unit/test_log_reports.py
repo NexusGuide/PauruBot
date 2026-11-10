@@ -271,3 +271,25 @@ async def test_manage_user_opens_the_card_for_staff_only(session, env, monkeypat
         assert str(customer.telegram_id) not in (fake.last(SendMessage).text or "")
     finally:
         notify_telegram.set_bot(None)
+
+
+async def test_a_failed_trial_is_reported_with_the_panels_error(session, env) -> None:  # type: ignore[no-untyped-def]
+    shop, customer = env["shop"], env["customer"]
+    session.add(LogChannel(shop_id=shop.id, topic="errors", chat_id=-1004))
+    order = Order(
+        shop_id=shop.id,
+        customer_id=customer.id,
+        kind=OrderKind.TRIAL,
+        status=OrderStatus.FAILED,
+        params={"panel_id": env["panel"].id, "gb": 1, "days": 1},
+    )
+    session.add(order)
+    await session.commit()
+    error = "1 validation error for UserCreate inbounds: Inbound japan doesn't exist"
+    await handlers.order_failed(
+        session, job("order_failed", {"order_id": order.id, "reason": error}, shop.id)
+    )
+    report = next(e for e in env["sent"] if e["chat"] == -1004)
+    for part in (FA("order_kind_trial"), "Inbound japan", env["panel"].name, "8053694064", "@jaber"):
+        assert part in report["text"], part
+    assert "cust_" in manage_url(report)
