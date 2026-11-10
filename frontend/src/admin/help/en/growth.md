@@ -42,11 +42,11 @@ With **Lucky wheel** on, a **Lucky wheel** button appears in the bot. Under **Wh
 
 In [Lotteries](/lotteries) tap **New lottery** and choose how people score:
 
-- **Purchase points**: every so many toman paid between the start and the draw time is one point (for example 10,000 makes a 100,000 purchase worth 10 points).
-- **Number of purchases**: every completed purchase is one point.
+- Purchase points: every so many toman paid between the start and the draw time is one point (for example 10,000 makes a 100,000 purchase worth 10 points).
+- Number of purchases: every completed purchase is one point.
 - **Join with a button**: customers sign up from the **Lottery** button in the bot. Turn on **Lottery button** in the settings to show it.
 
-Then choose how winners are picked (**highest score wins**, or **drawn at random**, weighted by score), what customers see in the bot (nothing, their own score and place, or also the masked top five) and the prizes by place: first place gets the first prize, second place the second, and so on. A prize is GB of data or days (added to the winner's newest active service), wallet credit, or a text prize you hand over yourself. **Standings** lists everyone with a score, best first, with their name, username, ID and phone.
+Then choose how winners are picked (highest score wins, or drawn at random weighted by score), what customers see in the bot (nothing, their own score and place, or also the masked top five) and the prizes by place: first place gets the first prize, second place the second, and so on. A prize is GB of data or days (added to the winner's newest active service), wallet credit, or a text prize you hand over yourself. **Standings** lists everyone with a score, best first, with their name, username, ID and phone.
 
 At the draw time the winners get their prizes and a message saying what they won; you and the report group get every winner's details with a button to their card. A winner with no service that can take data or days is flagged for you to hand the prize over. **Draw now** draws early and **Cancel** closes it with no winners. In the bot, the lottery card has the same standings, and prizes are added one by one after creating it.
 
