@@ -1,5 +1,7 @@
 # Node and Python match what CI tests (SEC-F24): Node 22 builds the frontend, Python 3.14 runs.
-FROM node:22-alpine AS frontend
+# The frontend is static files the same on every CPU: build it once, natively, instead of under
+# emulation for each platform (arm64 npm ci under QEMU is slow and can hang a release).
+FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
