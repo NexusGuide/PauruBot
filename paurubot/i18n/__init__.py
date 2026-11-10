@@ -141,12 +141,21 @@ class Texts:
     t = __call__
 
     def matches(self, text: str | None, key: str) -> bool:
-        """Does a reply-keyboard press equal this button in any locale (or its override)?"""
+        """Does a reply-keyboard press equal this button in any locale (or its override)?
+
+        A renamed button still answers to its old label: customers keep the keyboard they were
+        sent until the bot sends them a new one."""
         if not text:
             return False
-        if text == self(key):
+        if text == self(key) or text in FORMER_LABELS.get(key, ()):
             return True
         return any(text == render(catalog(loc).get(key, key), self.context) for loc in LOCALES)
+
+
+# Labels a button had before it was renamed (fa, en), still matched on old keyboards.
+FORMER_LABELS: dict[str, tuple[str, ...]] = {
+    "btn_miniapp": ("\U0001f4f1 \u0627\u067e \u067e\u0627\u0626\u0648\u0631\u0648", "\U0001f4f1 Pauru app"),
+}
 
 
 async def texts_for(

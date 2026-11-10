@@ -108,7 +108,7 @@
   "no_service_yet": "No services yet",
   "no_transactions": "No transactions yet.",
   "open_from_bot": "Open this page from the bot",
-  "open_from_bot_hint": "Use the «Pauru app» button in the bot menu.",
+  "open_from_bot_hint": "Use the «Mini App» button in the bot menu.",
   "telegram_unreachable": "Could not reach Telegram",
   "telegram_unreachable_hint": "If you only use Telegram's built-in proxy, turn on your phone's VPN and open the Mini App again.",
   "join_title": "Join required 🔒",
