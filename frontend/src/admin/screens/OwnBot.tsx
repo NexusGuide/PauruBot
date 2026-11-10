@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { daysLeft, digits, gb } from "@shared/format";
+import { date, daysLeft, digits, gb } from "@shared/format";
 import { call } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
@@ -29,6 +29,8 @@ export interface OwnBotState {
   paused: string;
   hold: boolean;
   trial_enabled: boolean;
+  /** Until when the shop lets this bot sell (ISO); null: no end. */
+  expires_at?: string | null;
   customers: number;
   active_services: number;
 }
@@ -48,6 +50,7 @@ export function OwnBotSection({ customerId }: { customerId: number | string }) {
   const { data, setData } = useLoad<OwnBotView>(path);
   const [token, setToken] = useState("");
   const [picked, setPicked] = useState<number | null>(null);
+  const [days, setDays] = useState("30");
   const [busy, run] = useAction();
   if (!data) return null;
   const { bot, accounts } = data;
@@ -72,6 +75,8 @@ export function OwnBotSection({ customerId }: { customerId: number | string }) {
   const hold = (value: boolean) =>
     apply(() => call(`${path}/hold`, { method: "POST", body: { hold: value } }), value ? "own_bot_hold_on" : "own_bot_hold_off");
   const stop = () => apply(() => call(path, { method: "DELETE" }), "own_bot_stopped");
+  const extend = (value: number | null) =>
+    apply(() => call(`${path}/expiry`, { method: "POST", body: { days: value } }), "own_bot_expiry_saved");
 
   if (accounts.length === 0 && bot === null) {
     return (
@@ -160,6 +165,44 @@ export function OwnBotSection({ customerId }: { customerId: number | string }) {
             );
           })}
         </fieldset>
+
+        {bot && (
+          <div className="flex flex-col gap-2 rounded-xl bg-[var(--bg)] px-3 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[0.88rem] font-semibold">{t("own_bot_expiry")}</span>
+              <span className="text-[0.85rem]">
+                {!bot.expires_at
+                  ? t("own_bot_expiry_none")
+                  : new Date(bot.expires_at) > new Date()
+                    ? t("own_bot_expiry_until", { date: date(bot.expires_at, locale) })
+                    : t("own_bot_expiry_ended", { date: date(bot.expires_at, locale) })}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <Field label={t("own_bot_expiry_days")} className="w-32">
+                {(id) => (
+                  <input
+                    id={id}
+                    dir="ltr"
+                    inputMode="numeric"
+                    value={days}
+                    onChange={(e) => setDays(e.target.value.replace(/[^0-9]/g, ""))}
+                    className="min-h-10 w-full rounded-xl bg-[var(--surface)] px-3 text-[0.88rem] ring-1 ring-[var(--line)]"
+                  />
+                )}
+              </Field>
+              <Button busy={busy} disabled={!Number(days)} onClick={() => void extend(Number(days))}>
+                {t("own_bot_expiry_add")}
+              </Button>
+              {bot.expires_at && (
+                <Button tone="ghost" disabled={busy} onClick={() => void extend(null)}>
+                  {t("own_bot_expiry_clear")}
+                </Button>
+              )}
+            </div>
+            <p className="text-[0.78rem] leading-relaxed text-[var(--hint)]">{t("own_bot_expiry_hint")}</p>
+          </div>
+        )}
 
         {bot?.connected && (
           <Toggle

@@ -178,6 +178,7 @@ async def overview(ctx: WebApp) -> dict[str, Any]:
         "account": _account(account),
         "paused": str(cfg.get(own_panel.PAUSED) or ""),
         "hold": bool(cfg.get(own_panel.HOLD)),
+        "expires_at": cfg.get(own_panel.EXPIRES) or None,
         "figures": {
             "sales_today": int(sales_today or 0),
             "customers": int(customers or 0),

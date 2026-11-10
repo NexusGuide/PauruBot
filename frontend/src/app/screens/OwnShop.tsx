@@ -455,7 +455,7 @@ export function OwnFeaturesScreen() {
   );
 }
 
-const ALERTS = ["own_alert_90", "own_alert_3days", "own_alert_expired", "own_alert_traffic", "own_alert_users", "own_alert_paused", "own_alert_resumed"];
+const ALERTS = ["own_alert_90", "own_alert_3days", "own_alert_expired", "own_alert_traffic", "own_alert_users", "own_alert_paused", "own_alert_resumed", "own_alert_bot_expiring"];
 
 /** Panel status and alerts: the account's room, when sales stop by themselves, what it is told. */
 export function OwnStatus() {
@@ -500,12 +500,16 @@ export function OwnStatus() {
             </p>
           </>
         )}
+        <p className="mb-4 flex justify-between text-sm">
+          <span>{t("own_bot_valid")}</span>
+          <b className="num">{data.expires_at ? `${date(data.expires_at, locale)} · ${t("own_days_more", { value: n(Math.max(0, daysLeft(data.expires_at) ?? 0)) })}` : t("own_bot_no_end")}</b>
+        </p>
         {data.main_bot && <Button tone="quiet" onClick={openMain}>{t("own_renew_panel")}</Button>}
       </Panel>
       <Panel className="mb-4">
         <p className="mb-3 font-bold">{t("own_auto_stop")}</p>
         <ul className="mb-3 flex flex-col gap-2 text-sm">
-          {["own_stop_expired", "own_stop_traffic", "own_stop_users"].map((key) => (
+          {["own_stop_expired", "own_stop_traffic", "own_stop_users", ...(data.expires_at ? ["own_stop_bot_expired"] : [])].map((key) => (
             <li key={key} className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-anar-500" aria-hidden="true" />{t(key)}</li>
           ))}
         </ul>

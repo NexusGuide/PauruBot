@@ -1102,5 +1102,7 @@
   "own_paused_users_full": "⛔️ Panel <code>{username}</code> reached its user limit — new sales and free trials in {bot} are paused.\nRenewals and extras for existing services go on. Raise the limit and sales reopen by themselves.",
   "own_resumed": "✅ Sales in {bot} are open again.\nPanel <code>{username}</code> was checked and is ready to sell.",
   "own_alert_admin": "🤖 Reseller bot {bot} — {owner}\n\n{text}",
-  "own_paused_hold": "⏸ Sales and free trials in {bot} were paused by the shop's staff.\nExisting services keep working."
+  "own_paused_hold": "⏸ Sales and free trials in {bot} were paused by the shop's staff.\nExisting services keep working.",
+  "own_paused_bot_expired": "⛔️ Bot {bot}'s time is up — its sales and free trials have stopped.\nCustomers' current services keep working. Once the shop extends the bot, sales open again.",
+  "own_bot_expiring": "⏳ Bot {bot} has less than 3 days left.\nAsk the shop to extend it so sales don't stop."
 }

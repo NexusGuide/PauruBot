@@ -122,6 +122,9 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 |---|---|---|---|
 | `own_sales_paused` | str | "" | Why the dedicated bot stopped selling (automatic) |
 | `own_sales_hold` | bool | false | Dedicated bot sales paused by staff |
+| `own_bot` | bool | false | Dedicated bot (automatic) |
+| `own_bot_expires_at` | str | "" | Dedicated bot valid until |
+| `own_bot_expiry_warned` | str | "" | Dedicated bot end already warned about |
 
 ## Appearance
 

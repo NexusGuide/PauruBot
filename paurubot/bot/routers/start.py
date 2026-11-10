@@ -438,7 +438,12 @@ async def app_download(
 
 @router.message(Btn("btn_language"))
 @router.message(Command("language"))
-async def language(message: Message, t: Texts, cfg: dict[str, Any]) -> None:
+async def language(message: Message, t: Texts, cfg: dict[str, Any], staff: StaffIdentity | None) -> None:
+    from paurubot.bot.menu import available
+
+    if "language" not in available(cfg):
+        await home(message, t, cfg, staff, "unknown_command")
+        return
     await message.answer(t("choose_language"), reply_markup=keyboards.languages(t, cfg["languages"]))
 
 
@@ -453,7 +458,7 @@ async def set_language(
     staff: StaffIdentity | None,
     t: Texts,
 ) -> None:
-    if callback_data.code not in (cfg["languages"] or []):
+    if callback_data.code not in (cfg["languages"] or []) or cfg.get("own_bot"):
         await call.answer()
         return
     customer.locale = callback_data.code

@@ -145,6 +145,8 @@ export interface OwnShop {
   /** "" while selling, else inactive | expired | traffic_full | users_full. */
   paused: string;
   hold: boolean;
+  /** Until when the main shop lets this bot sell (ISO); null: no end. Missing on older servers. */
+  expires_at?: string | null;
   figures: { sales_today: number; customers: number; active_services: number; pending_receipts: number };
   plans: { active: number; total: number };
   card: OwnCard | null;

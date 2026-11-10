@@ -798,5 +798,10 @@
   "err_own_extra_price": "برای گزینه‌ای که روشن است قیمت بگذارید.",
   "err_own_panel_unreachable": "پنل شما الان در دسترس نیست؛ کمی بعد دوباره امتحان کنید.",
   "err_card_holder_required": "نام صاحب کارت را بنویسید.",
-  "err_card_number_invalid": "شماره کارت معتبر نیست."
+  "err_card_number_invalid": "شماره کارت معتبر نیست.",
+  "own_state_bot_expired": "متوقف: اعتبار ربات تمام شده",
+  "own_bot_valid": "اعتبار ربات",
+  "own_bot_no_end": "بدون محدودیت",
+  "own_stop_bot_expired": "اعتبار ربات از طرف فروشگاه تمام شود",
+  "own_alert_bot_expiring": "پایان اعتبار ربات"
 }

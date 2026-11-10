@@ -184,6 +184,9 @@ async def reseller(
     from paurubot.bot.routers.reseller import show_hub
 
     await state.clear()
+    if cfg.get("own_bot"):  # a customer's dedicated bot only sells; no resellers there (OPB)
+        await message.answer(t("unknown_command"))
+        return
     if await show_hub(message, session, customer, t):  # an active reseller gets its own panel (TEN-13)
         return
     from paurubot.bot.routers.reseller import membership_offer_message

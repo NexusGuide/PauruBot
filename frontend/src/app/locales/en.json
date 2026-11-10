@@ -798,5 +798,10 @@
   "err_own_extra_price": "Set a price for what you sell.",
   "err_own_panel_unreachable": "Your panel can't be reached right now; try again in a moment.",
   "err_card_holder_required": "Write the cardholder's name.",
-  "err_card_number_invalid": "That card number isn't valid."
+  "err_card_number_invalid": "That card number isn't valid.",
+  "own_state_bot_expired": "Paused: bot's time is up",
+  "own_bot_valid": "Bot valid until",
+  "own_bot_no_end": "No end date",
+  "own_stop_bot_expired": "The bot's time with the shop is up",
+  "own_alert_bot_expiring": "Bot ending soon"
 }
