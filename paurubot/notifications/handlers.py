@@ -1331,8 +1331,8 @@ async def trust_post(session: AsyncSession, job: queue.Claimed) -> None:
 
 
 async def lottery_result(session: AsyncSession, job: queue.Claimed) -> None:
-    """Tell each winner what they won and staff who won what (GRW-04). Winners of data or time
-    hear from `lottery_award` once the prize is on their service."""
+    """Tell each winner what they won and staff who won what (GRW-04). A new service prize is
+    a free order: the config itself reaches the winner like any purchase."""
     from paurubot.db.models import Lottery
     from paurubot.notifications import log_reports
 
@@ -1340,13 +1340,11 @@ async def lottery_result(session: AsyncSession, job: queue.Claimed) -> None:
     if lottery is None:
         return
     for award in log_reports.lottery_awards(lottery):
-        if award.get("status") == "queued":
-            continue
         customer = await session.get(Customer, int(award["customer_id"]))
         if customer is None:
             continue
         t = await _texts(session, customer)
-        tail = {"paid": "lottery_won_paid", "no_service": "lottery_won_no_service"}.get(
+        tail = {"paid": "lottery_won_paid", "queued": "lottery_won_service"}.get(
             str(award.get("status")), "lottery_won_manual"
         )
         await _to_customer(session, customer, f"{_won_head(t, lottery, award)}\n{t(tail)}")
@@ -1364,40 +1362,6 @@ def _won_head(t: Texts, lottery: Any, award: dict[str, Any]) -> str:
         rank=t("lot_rank", rank=award["rank"]),
         prize=log_reports.prize_text(t, award),
     )
-
-
-async def lottery_award(session: AsyncSession, job: queue.Claimed) -> None:
-    """A lottery's data or time prize reached the winner's service (or could not)."""
-    from paurubot.core.formatting import size
-    from paurubot.db.models import Lottery
-    from paurubot.notifications import log_reports
-
-    lottery = await session.get(Lottery, int(job.payload["lottery_id"]))
-    if lottery is None:
-        return
-    rank = int(job.payload["rank"])
-    award = next((a for a in log_reports.lottery_awards(lottery) if a.get("rank") == rank), None)
-    if award is None:
-        return
-    customer = await session.get(Customer, int(award["customer_id"]))
-    if customer is None:
-        return
-    t = await _texts(session, customer)
-    if award.get("status") == "applied":
-        service = await session.get(Service, int(award.get("service_id") or 0))
-        tail = t(
-            "lottery_won_applied",
-            service=esc(str(award.get("service") or "")),
-            volume=size(service.data_limit) if service and service.data_limit else t("report_unlimited"),
-            expiry=jdate(service.expire_at) if service and service.expire_at else t("report_unlimited"),
-        )
-    else:
-        tail = t("lottery_won_failed")
-    await _to_customer(session, customer, f"{_won_head(t, lottery, award)}\n{tail}")
-    text, markup = await log_reports.lottery_award(session, lottery, award, customer)
-    if award.get("status") != "applied":  # staff must hand it over: tell them directly too
-        await _to_staff(session, lottery.shop_id, "broadcast.send", text, markup=markup)
-    await report(session, lottery.shop_id, "reports", text, markup=markup)
 
 
 async def stock_delivered(session: AsyncSession, job: queue.Claimed) -> None:
@@ -1506,7 +1470,6 @@ register_queue(
             "ip_replaced": ip_replaced,
             "trust_post": trust_post,
             "lottery_result": lottery_result,
-            "lottery_award": lottery_award,
             "reseller_notice": reseller_notice,
             "panel_alert": panel_alert,
             "job_dead": job_dead,

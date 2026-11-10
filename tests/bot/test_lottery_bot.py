@@ -32,6 +32,7 @@ async def env(session):  # type: ignore[no-untyped-def]
     await session.execute(update(Job).where(Job.status == JobStatus.QUEUED).values(status=JobStatus.CANCELED))
     shop = await factories.shop(session, "Lottery shop")
     await shop_settings.set_many(session, shop.id, {"lottery_enabled": True})
+    panel = await factories.panel(session, shop)
     await create_staff(
         session, shop.id, role=StaffRole.OWNER, username="lot_owner", password=None, telegram_id=OWNER
     )
@@ -48,7 +49,7 @@ async def env(session):  # type: ignore[no-untyped-def]
     async def send(update):  # type: ignore[no-untyped-def]
         await dp.feed_update(bot, update)
 
-    yield {"shop": shop, "fake": fake, "send": send, "buyer": buyer, "rival": rival}
+    yield {"shop": shop, "fake": fake, "send": send, "buyer": buyer, "rival": rival, "panel": panel}
     notify_telegram.set_bot(None)
     shop_settings.invalidate()
 
@@ -71,7 +72,7 @@ async def test_staff_build_a_points_lottery_with_ranked_prizes(session, env) -> 
     assert FA("adm_grw_lot_prize_ask", rank=FA("lot_rank", rank=1)) in fake.last(SendMessage).text
     await send(message_update(OWNER, "gold 10"))  # not a prize
     assert fake.last(SendMessage).text == FA("adm_grw_lot_prize_bad")
-    await send(message_update(OWNER, FA("adm_grw_lot_kw_gb").split(",")[2] + " 10"))
+    await send(message_update(OWNER, FA("adm_grw_lot_kw_service").split(",")[1] + " 10 30"))
     await send(message_update(OWNER, "wallet 10000"))
     lottery = await session.scalar(select(Lottery).where(Lottery.shop_id == shop.id))
     assert lottery is not None
@@ -79,14 +80,14 @@ async def test_staff_build_a_points_lottery_with_ranked_prizes(session, env) -> 
     assert lottery.mode == "points" and lottery.pick == "top" and lottery.points_per == 10_000
     assert lottery.board == "top" and lottery.winners == 2
     assert lottery.prizes == [
-        {"kind": "gb", "value": 10, "label": ""},
+        {"kind": "service", "value": 10, "days": 30, "panel_id": env["panel"].id, "label": ""},
         {"kind": "wallet", "value": 10_000, "label": ""},
     ]
     lottery_id = lottery.id
     # Done: the card lists both prizes by place
     await send(callback_update(OWNER, Admin(section="grw", action="lv", id=lottery_id).pack()))
     card = fake.last(EditMessageText).text
-    assert FA("lot_prize_gb", value=10) in card and FA("adm_grw_pick_top") in card
+    assert FA("lot_prize_service", gb=10, days=30) in card and FA("adm_grw_pick_top") in card
     # The standings: best score first, with who they are
     session.add_all(
         [
@@ -104,9 +105,7 @@ async def test_staff_build_a_points_lottery_with_ranked_prizes(session, env) -> 
     await send(callback_update(OWNER, Admin(section="grw", action="lpdel", id=lottery_id, page=1).pack()))
     session.expire_all()
     kept = await session.get(Lottery, lottery_id)
-    assert (
-        kept is not None and kept.prizes == [{"kind": "gb", "value": 10, "label": ""}] and kept.winners == 1
-    )
+    assert kept is not None and [p["kind"] for p in kept.prizes] == ["service"] and kept.winners == 1
 
 
 async def test_customers_see_their_place_and_the_masked_top(session, env) -> None:  # type: ignore[no-untyped-def]
@@ -121,7 +120,7 @@ async def test_customers_see_their_place_and_the_masked_top(session, env) -> Non
             points_per=10_000,
             board="top",
             prizes=[
-                {"kind": "gb", "value": 10, "label": ""},
+                {"kind": "service", "value": 10, "days": 30, "panel_id": env["panel"].id, "label": ""},
                 {"kind": "wallet", "value": 10_000, "label": ""},
             ],
             winners=2,
@@ -133,7 +132,39 @@ async def test_customers_see_their_place_and_the_masked_top(session, env) -> Non
     await session.commit()
     await send(message_update(BUYER, FA("btn_lottery")))
     text = fake.last(SendMessage).text
-    assert FA("lot_prize_gb", value=10) in text and FA("lottery_pick_top") in text
+    assert FA("lot_prize_service", gb=10, days=30) in text and FA("lottery_pick_top") in text
     assert FA("lottery_my_rank", rank=2, total=2) in text
     assert "R***a" in text and "Reza" not in text  # others are masked
     assert FA("lottery_by_points", per=money(10_000), points=3) in text
+
+
+async def test_a_service_prize_asks_which_panel_when_there_are_several(session, env) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.db.models import PanelKind
+
+    send, fake, shop = env["send"], env["fake"], env["shop"]
+    second = await factories.panel(session, shop, PanelKind.PASARGUARD)
+    await session.commit()
+    second_id = second.id
+    await send(callback_update(OWNER, Admin(section="grw", action="lnew").pack()))
+    await send(message_update(OWNER, "Dey | join | random | 7"))
+    await send(message_update(OWNER, "service 20 60"))
+    assert fake.last(SendMessage).text == FA("adm_grw_lot_pick_panel")
+    lottery = await session.scalar(select(Lottery).where(Lottery.shop_id == shop.id))
+    assert lottery is not None
+    lottery_id = lottery.id
+    await session.refresh(lottery)
+    assert lottery.prizes == []  # nothing saved before the panel is chosen
+    await send(
+        callback_update(OWNER, Admin(section="grw", action="lppanel", id=lottery_id, page=second_id).pack())
+    )
+    session.expire_all()
+    saved = await session.get(Lottery, lottery_id)
+    assert saved is not None
+    assert saved.prizes == [{"kind": "service", "value": 20, "days": 60, "panel_id": second_id, "label": ""}]
+    # a stale button does not add it twice
+    await send(
+        callback_update(OWNER, Admin(section="grw", action="lppanel", id=lottery_id, page=second_id).pack())
+    )
+    session.expire_all()
+    again = await session.get(Lottery, lottery_id)
+    assert again is not None and len(again.prizes) == 1

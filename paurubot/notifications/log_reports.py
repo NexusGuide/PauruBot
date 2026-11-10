@@ -337,10 +337,8 @@ def prize_text(t: Texts, prize: dict[str, Any]) -> str:
     kind, value, label = prize.get("kind"), int(prize.get("value") or 0), str(prize.get("label") or "")
     if kind == "wallet":
         text = t("lot_prize_wallet", amount=money(value))
-    elif kind == "gb":
-        text = t("lot_prize_gb", value=value)
-    elif kind == "days":
-        text = t("lot_prize_days", value=value)
+    elif kind == "service":
+        text = t("lot_prize_service", gb=value, days=int(prize.get("days") or 0))
     else:
         return esc(label) or t("report_none")
     return f"{text} ({esc(label)})" if label else text
@@ -372,6 +370,24 @@ def lottery_awards(lottery: Lottery) -> list[dict[str, Any]]:
     ]
 
 
+async def current_awards(session: AsyncSession, lottery: Lottery) -> list[dict[str, Any]]:
+    """The awards with each service prize's progress read from its order: being made, made
+    (with the new config's name) or failed, which staff then hand over themselves."""
+    from paurubot.db.models import OrderStatus
+
+    awards = lottery_awards(lottery)
+    for award in awards:
+        if award.get("kind") != "service" or not award.get("order_id"):
+            continue
+        order = await session.get(Order, int(award["order_id"]))
+        if order is None or order.status in {OrderStatus.FAILED, OrderStatus.CANCELED, OrderStatus.REFUNDED}:
+            award["status"] = "failed"
+        elif order.status == OrderStatus.COMPLETED:
+            service = await session.get(Service, order.service_id) if order.service_id else None
+            award["status"], award["service"] = "applied", service.panel_username if service else ""
+    return awards
+
+
 async def lottery_result(
     session: AsyncSession, lottery: Lottery
 ) -> list[tuple[str, InlineKeyboardMarkup | None]]:
@@ -387,7 +403,7 @@ async def lottery_result(
         entrants=int((lottery.result or {}).get("entrants") or 0),
         time=now_text(),
     )
-    awards = lottery_awards(lottery)
+    awards = await current_awards(session, lottery)
     if not awards:
         return [(f"{head}\n\n{t('report_lottery_none')}", None)]
     messages: list[tuple[str, InlineKeyboardMarkup | None]] = []
@@ -423,19 +439,3 @@ async def lottery_result(
         markup = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
         messages.append(("\n\n".join([top, *blocks]), markup))
     return messages
-
-
-async def lottery_award(
-    session: AsyncSession, lottery: Lottery, award: dict[str, Any], customer: Customer
-) -> tuple[str, InlineKeyboardMarkup | None]:
-    """A data or time prize reached the winner's service, or could not."""
-    t = await shop_texts(session, lottery.shop_id)
-    text = t(
-        "report_lottery_award_done",
-        rank=t("lot_rank", rank=award["rank"]),
-        title=esc(lottery.title),
-        prize=prize_text(t, award),
-        status=award_status(t, award),
-        user=user_block(t, customer),
-    )
-    return text, await manage_markup(session, lottery.shop_id, customer)

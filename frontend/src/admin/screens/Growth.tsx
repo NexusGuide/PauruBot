@@ -392,12 +392,19 @@ export { Broadcasts } from "../broadcasts/Broadcasts";
 
 // ---------------------------------------------------------------- lotteries (GRW-04)
 
-type PrizeKind = "wallet" | "gb" | "days" | "text";
+type PrizeKind = "service" | "wallet" | "text";
 
 interface LotteryPrize {
   kind: PrizeKind;
   value: number;
+  days?: number;
+  panel_id?: number;
   label: string;
+}
+
+interface PrizePanel {
+  id: number;
+  name: string;
 }
 
 interface LotteryAward extends LotteryPrize {
@@ -406,7 +413,7 @@ interface LotteryAward extends LotteryPrize {
   points: number;
   purchases: number;
   spent: number;
-  status: "paid" | "queued" | "applied" | "failed" | "no_service" | "manual";
+  status: "paid" | "queued" | "applied" | "failed" | "manual";
   service?: string;
   name: string;
   username: string | null;
@@ -446,7 +453,7 @@ interface Standing {
 }
 
 const LOTTERY_TONE = { open: "brand", drawn: "health", canceled: "neutral" } as const;
-const PRIZE_KINDS: PrizeKind[] = ["gb", "days", "wallet", "text"];
+const PRIZE_KINDS: PrizeKind[] = ["service", "wallet", "text"];
 const MEDALS = ["🥇", "🥈", "🥉"];
 const EMPTY_LOTTERY = {
   title: "",
@@ -467,16 +474,19 @@ function usePrizeText() {
     const base =
       prize.kind === "wallet"
         ? t("lottery_prize_wallet", { amount: money(prize.value, locale) })
-        : prize.kind === "gb"
-          ? t("lottery_prize_gb", { value: money(prize.value, locale) })
-          : prize.kind === "days"
-            ? t("lottery_prize_days", { value: money(prize.value, locale) })
-            : prize.label;
+        : prize.kind === "service"
+          ? t("lottery_prize_service", { gb: money(prize.value, locale), days: money(prize.days ?? 0, locale) })
+          : prize.label;
     return prize.kind !== "text" && prize.label ? `${base} (${prize.label})` : base;
   };
 }
 
-function PrizeEditor({ prizes, onChange }: { prizes: LotteryPrize[]; onChange: (next: LotteryPrize[]) => void }) {
+function newPrize(panels: PrizePanel[]): LotteryPrize {
+  const first = panels[0];
+  return first ? { kind: "service", value: 10, days: 30, panel_id: first.id, label: "" } : { kind: "wallet", value: 10000, label: "" };
+}
+
+function PrizeEditor({ prizes, panels, onChange }: { prizes: LotteryPrize[]; panels: PrizePanel[]; onChange: (next: LotteryPrize[]) => void }) {
   const { t } = useSession();
   const set = (index: number, patch: Partial<LotteryPrize>) => onChange(prizes.map((p, i) => (i === index ? { ...p, ...patch } : p)));
   return (
@@ -490,8 +500,15 @@ function PrizeEditor({ prizes, onChange }: { prizes: LotteryPrize[]; onChange: (
             <Button small tone="ghost" icon="close" aria-label={t("lottery_prize_remove")} onClick={() => onChange(prizes.filter((_, i) => i !== index))} />
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <Select aria-label={t("lottery_prize_kind")} value={prize.kind} onChange={(e) => set(index, { kind: e.target.value as PrizeKind })}>
-              {PRIZE_KINDS.map((kind) => (
+            <Select
+              aria-label={t("lottery_prize_kind")}
+              value={prize.kind}
+              onChange={(e) => {
+                const kind = e.target.value as PrizeKind;
+                set(index, kind === "service" ? { kind, value: 10, days: 30, panel_id: panels[0]?.id } : { kind, value: kind === "wallet" ? 10000 : 0 });
+              }}
+            >
+              {PRIZE_KINDS.filter((kind) => kind !== "service" || panels.length > 0).map((kind) => (
                 <option key={kind} value={kind}>
                   {t(`lottery_kind_${kind}`)}
                 </option>
@@ -499,6 +516,18 @@ function PrizeEditor({ prizes, onChange }: { prizes: LotteryPrize[]; onChange: (
             </Select>
             {prize.kind !== "text" && <NumberInput aria-label={t(`lottery_value_${prize.kind}`)} placeholder={t(`lottery_value_${prize.kind}`)} value={prize.value} onChange={(v) => set(index, { value: v ?? 0 })} />}
           </div>
+          {prize.kind === "service" && (
+            <div className="grid grid-cols-2 gap-2">
+              <NumberInput aria-label={t("lottery_value_days")} placeholder={t("lottery_value_days")} value={prize.days ?? 0} onChange={(v) => set(index, { days: v ?? 0 })} />
+              <Select aria-label={t("lottery_prize_panel")} value={prize.panel_id ?? ""} onChange={(e) => set(index, { panel_id: Number(e.target.value) })}>
+                {panels.map((panel) => (
+                  <option key={panel.id} value={panel.id}>
+                    {panel.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
           <Input
             aria-label={t("lottery_prize_label")}
             placeholder={prize.kind === "text" ? t("lottery_prize_text_ph") : t("lottery_prize_label")}
@@ -509,7 +538,7 @@ function PrizeEditor({ prizes, onChange }: { prizes: LotteryPrize[]; onChange: (
         </div>
       ))}
       {prizes.length < 20 && (
-        <Button small icon="plus" onClick={() => onChange([...prizes, { kind: "gb", value: 10, label: "" }])}>
+        <Button small icon="plus" onClick={() => onChange([...prizes, newPrize(panels)])}>
           {t("lottery_prize_add")}
         </Button>
       )}
@@ -518,7 +547,10 @@ function PrizeEditor({ prizes, onChange }: { prizes: LotteryPrize[]; onChange: (
 }
 
 function prizesReady(prizes: LotteryPrize[]): boolean {
-  return prizes.length > 0 && prizes.every((p) => (p.kind === "text" ? p.label.trim() !== "" : p.value > 0));
+  return (
+    prizes.length > 0 &&
+    prizes.every((p) => (p.kind === "text" ? p.label.trim() !== "" : p.value > 0 && (p.kind !== "service" || ((p.days ?? 0) > 0 && !!p.panel_id))))
+  );
 }
 
 function StandingsSheet({ lottery, onClose }: { lottery: LotteryRow | null; onClose: () => void }) {
@@ -567,10 +599,11 @@ export function Lotteries() {
   const { t, locale, toast, errorText } = useSession();
   const confirm = useConfirm();
   const prizeText = usePrizeText();
-  const { data, error, reload } = useLoad<{ items: LotteryRow[] }>("/api/admin/lotteries");
+  const { data, error, reload } = useLoad<{ items: LotteryRow[]; panels: PrizePanel[] }>("/api/admin/lotteries");
+  const panels = data?.panels ?? [];
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_LOTTERY);
-  const [prizes, setPrizes] = useState<LotteryPrize[]>([{ kind: "gb", value: 10, label: "" }]);
+  const [prizes, setPrizes] = useState<LotteryPrize[]>([]);
   const [board, setBoard] = useState<LotteryRow | null>(null);
   const [editing, setEditing] = useState<LotteryRow | null>(null);
   const [draftPrizes, setDraftPrizes] = useState<LotteryPrize[]>([]);
@@ -582,7 +615,7 @@ export function Lotteries() {
       toast(t("saved"));
       setOpen(false);
       setForm(EMPTY_LOTTERY);
-      setPrizes([{ kind: "gb", value: 10, label: "" }]);
+      setPrizes([]);
       await reload();
     } catch (err) {
       toast(errorText(err), "error");
@@ -621,7 +654,14 @@ export function Lotteries() {
     <Page
       title={t("nav_lotteries")}
       actions={
-        <Button tone="primary" icon="plus" onClick={() => setOpen(true)}>
+        <Button
+          tone="primary"
+          icon="plus"
+          onClick={() => {
+            if (prizes.length === 0) setPrizes([newPrize(panels)]);
+            setOpen(true);
+          }}
+        >
           {t("new_lottery")}
         </Button>
       }
@@ -681,7 +721,7 @@ export function Lotteries() {
                           <Button
                             small
                             onClick={() => {
-                              setDraftPrizes(row.prizes.length ? row.prizes : [{ kind: "gb", value: 10, label: "" }]);
+                              setDraftPrizes(row.prizes.length ? row.prizes : [newPrize(panels)]);
                               setEditing(row);
                             }}
                           >
@@ -714,7 +754,7 @@ export function Lotteries() {
           </Button>
         }
       >
-        <PrizeEditor prizes={draftPrizes} onChange={setDraftPrizes} />
+        <PrizeEditor prizes={draftPrizes} panels={panels} onChange={setDraftPrizes} />
       </Sheet>
       <Sheet
         open={open}
@@ -772,7 +812,7 @@ export function Lotteries() {
           <div className="flex flex-col gap-2">
             <span className="text-[0.85rem] font-semibold">{t("lottery_prizes")}</span>
             <p className="text-[0.8rem] text-[var(--hint)]">{t("lottery_prizes_hint")}</p>
-            <PrizeEditor prizes={prizes} onChange={setPrizes} />
+            <PrizeEditor prizes={prizes} panels={panels} onChange={setPrizes} />
           </div>
         </div>
       </Sheet>

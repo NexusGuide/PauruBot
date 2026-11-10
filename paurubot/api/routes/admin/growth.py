@@ -527,8 +527,10 @@ LOTTERY_FIELDS = [
 
 
 class LotteryPrize(BaseModel):
-    kind: Literal["wallet", "gb", "days", "text"]
-    value: int = Field(default=0, ge=0, le=10**10)
+    kind: Literal["service", "wallet", "text"]
+    value: int = Field(default=0, ge=0, le=10**10)  # GB for a new service, toman for credit
+    days: int = Field(default=0, ge=0, le=3650)
+    panel_id: int = Field(default=0, ge=0)
     label: str = Field(default="", max_length=64)
 
 
@@ -550,13 +552,16 @@ class LotteryPrizes(BaseModel):
     prizes: list[LotteryPrize] = Field(max_length=20)
 
 
-def _clean_prizes(items: list[LotteryPrize]) -> list[dict[str, Any]]:
+async def _clean_prizes(db: Any, shop_id: int, items: list[LotteryPrize]) -> list[dict[str, Any]]:
+    """Valid prizes whose new services go on this shop's own active panels."""
     from paurubot.core import growth
 
     try:
-        return growth.validate_lottery_prizes([item.model_dump() for item in items])
+        prizes = growth.validate_lottery_prizes([item.model_dump() for item in items])
+        await growth.check_prize_panels(db, shop_id, prizes)
     except growth.GrowthError as exc:
         raise HTTPException(status_code=422, detail=exc.key) from exc
+    return prizes
 
 
 @router.get("/lotteries")
@@ -584,7 +589,7 @@ async def list_lotteries(ctx: Sender, db: DB) -> dict[str, Any]:
             pool = await growth.tickets(db, row)
             data["entrants"], data["tickets"] = len(pool), sum(pool.values())
         names, awards = [], []
-        for award in log_reports.lottery_awards(row):
+        for award in await log_reports.current_awards(db, row):
             customer = await db.get(Customer, int(award["customer_id"]))
             name = log_reports.person_name(customer) if customer else f"#{award['customer_id']}"
             names.append({"id": int(award["customer_id"]), "name": name})
@@ -599,7 +604,8 @@ async def list_lotteries(ctx: Sender, db: DB) -> dict[str, Any]:
             )
         data["winner_names"], data["awards"] = names, awards
         items.append(data)
-    return {"items": items}
+    panels = [{"id": p.id, "name": p.name} for p in await growth.prize_panels(db, ctx.shop_id)]
+    return {"items": items, "panels": panels}
 
 
 @router.get("/lotteries/{lottery_id}/standings")
@@ -646,7 +652,7 @@ async def create_lottery(body: LotteryBody, ctx: Sender, db: DB) -> dict[str, An
     starts = body.starts_at or utcnow()
     if body.ends_at <= starts or body.ends_at <= utcnow():
         raise HTTPException(status_code=422, detail="lottery_dates_invalid")
-    prizes = _clean_prizes(body.prizes)
+    prizes = await _clean_prizes(db, ctx.shop_id, body.prizes)
     if not prizes and not body.prize.strip():
         raise HTTPException(status_code=422, detail="lottery_prizes_invalid")
     if body.mode == "points" and body.points_per < 1:
@@ -681,7 +687,7 @@ async def set_lottery_prizes(lottery_id: int, body: LotteryPrizes, ctx: Sender, 
     row = await owned(db, Lottery, lottery_id, ctx)
     if row.status != "open":
         raise HTTPException(status_code=409, detail="lottery_closed")
-    prizes = _clean_prizes(body.prizes)
+    prizes = await _clean_prizes(db, ctx.shop_id, body.prizes)
     if not prizes:
         raise HTTPException(status_code=422, detail="lottery_prizes_invalid")
     before = {"prizes": row.prizes}

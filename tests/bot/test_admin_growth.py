@@ -51,24 +51,20 @@ def test_parse_lottery_prize_in_both_languages() -> None:
     from paurubot.i18n import Texts
 
     fa, en = Texts("fa"), Texts("en")
-    assert g.parse_lottery_prize(en, "gb 10") == {"kind": "gb", "value": 10, "label": ""}
-    assert g.parse_lottery_prize(fa, fa("adm_grw_lot_kw_gb").split(",")[2] + " 10") == {
-        "kind": "gb",
-        "value": 10,
-        "label": "",
-    }
+    service = {"kind": "service", "value": 10, "days": 30, "panel_id": 0, "label": ""}
+    assert g.parse_lottery_prize(en, "service 10 30") == service
+    assert g.parse_lottery_prize(fa, fa("adm_grw_lot_kw_service").split(",")[1] + " 10 30") == service
     assert g.parse_lottery_prize(fa, "wallet 10000 | first") == {
         "kind": "wallet",
         "value": 10000,
         "label": "first",
     }
-    assert g.parse_lottery_prize(en, "days 5")["kind"] == "days"  # type: ignore[index]
     assert g.parse_lottery_prize(en, "text A special account") == {
         "kind": "text",
         "value": 0,
         "label": "A special account",
     }
-    for bad in ("gb", "gb ten", "gold 10", "gb 0", "text", "days 99999", ""):
+    for bad in ("service 10", "service ten 30", "gold 10", "service 0 30", "text", "wallet 1 2", ""):
         assert g.parse_lottery_prize(en, bad) is None, bad
 
 
@@ -89,7 +85,7 @@ def test_dynamic_labels_exist_in_both_locales() -> None:
     keys += [f"adm_grw_pick_{pick}" for pick in g.growth.LOTTERY_PICKS]
     keys += [f"adm_grw_board_{board}" for board in g.growth.LOTTERY_BOARDS]
     keys += [f"adm_grw_lot_kw_{kind}" for kind in g.growth.LOTTERY_PRIZE_KINDS]
-    statuses = ("paid", "queued", "applied", "failed", "no_service", "manual")
+    statuses = ("paid", "queued", "applied", "failed", "manual")
     keys += [f"report_lottery_st_{status}" for status in statuses]
     keys += [f"lottery_pick_{pick}" for pick in g.growth.LOTTERY_PICKS]
     for locale in ("fa", "en"):

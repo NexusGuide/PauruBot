@@ -44,50 +44,22 @@ async def preview(session: AsyncSession, shop_id: int, mode: str, value: int) ->
     # Filter panel capabilities before counting; never invent a partial gift for fixed-plan panels.
     targets = []
     for service in rows:
-        target = fixed_target(service, mode, value)
-        if target is not None:
-            targets.append(target)
+        if not can_change(service, "gift"):
+            continue
+        if mode == "days" and service.expire_at is None:
+            continue
+        expected: Any = (
+            service.expire_at.isoformat() if mode == "days" and service.expire_at else service.data_limit
+        )
+        target: Any = (
+            (max(service.expire_at, utcnow()) + timedelta(days=value)).isoformat()
+            if mode == "days" and service.expire_at
+            else service.data_limit + value * GB
+        )
+        targets.append({"service_id": service.id, "mode": mode, "expected": expected, "target": target})
     if len(rows) > LIMIT:
         raise ValueError("too many services")
     return targets
-
-
-def fixed_target(service: Service, mode: str, value: int) -> dict[str, Any] | None:
-    """The absolute limit one gift sets on this service, or None when it cannot take one."""
-    if not can_change(service, "gift"):
-        return None
-    if mode == "days" and service.expire_at is None:
-        return None
-    if mode == "gb" and not service.data_limit:
-        return None  # unlimited data: nothing to add to
-    expected: Any = (
-        service.expire_at.isoformat() if mode == "days" and service.expire_at else service.data_limit
-    )
-    target: Any = (
-        (max(service.expire_at, utcnow()) + timedelta(days=value)).isoformat()
-        if mode == "days" and service.expire_at
-        else service.data_limit + value * GB
-    )
-    return {"service_id": service.id, "mode": mode, "expected": expected, "target": target}
-
-
-async def customer_target(
-    session: AsyncSession, shop_id: int, customer_id: int, mode: str, value: int
-) -> tuple[Service, dict[str, Any]] | None:
-    """One customer's prize goes to their newest active service that can take it (GRW-04)."""
-    stmt = (
-        select(Service)
-        .join(Customer, Service.customer_id == Customer.id)
-        .join(Panel, Service.panel_id == Panel.id)
-        .where(*eligible_conditions(shop_id), Service.customer_id == customer_id)
-        .order_by(Service.id.desc())
-        .limit(20)
-    )
-    for service in await session.scalars(stmt):
-        target = fixed_target(service, mode, value)
-        if target is not None:
-            return service, target
-    return None
 
 
 async def apply_fixed(session: AsyncSession, service: Service, gift: dict[str, Any]) -> str:

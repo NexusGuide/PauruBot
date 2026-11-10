@@ -23,13 +23,22 @@ async def test_points_lottery_with_ranked_prizes_and_standings(session, http, en
         "pick": "top",
         "points_per": 10_000,
         "board": "top",
-        "prizes": [{"kind": "gb", "value": 10}, {"kind": "wallet", "value": 10_000, "label": "second"}],
+        "prizes": [
+            {"kind": "service", "value": 10, "days": 30, "panel_id": env.panel.id},
+            {"kind": "wallet", "value": 10_000, "label": "second"},
+        ],
         "ends_at": ends,
     }
     # points need a toman-per-point value; a prize needs a sane value
     assert (await owner.call("POST", "/api/admin/lotteries", {**body, "points_per": 0})).status_code == 422
-    bad = {**body, "prizes": [{"kind": "gb", "value": 0}]}
+    bad = {**body, "prizes": [{"kind": "service", "value": 0, "days": 30, "panel_id": env.panel.id}]}
     assert (await owner.call("POST", "/api/admin/lotteries", bad)).status_code == 422
+    elsewhere = {
+        **body,
+        "prizes": [{"kind": "service", "value": 10, "days": 30, "panel_id": env.other_panel.id}],
+    }
+    refused = await owner.call("POST", "/api/admin/lotteries", elsewhere)
+    assert refused.status_code == 422 and refused.json()["error"] == "lottery_prize_panel"
     created = await owner.call("POST", "/api/admin/lotteries", body)
     assert created.status_code == 200, created.text
     lottery = created.json()
@@ -64,7 +73,7 @@ async def test_points_lottery_with_ranked_prizes_and_standings(session, http, en
     assert listed["entrants"] == 1 and listed["tickets"] == 4
 
     changed = await owner.call(
-        "PUT", f"/api/admin/lotteries/{lottery['id']}/prizes", {"prizes": [{"kind": "days", "value": 5}]}
+        "PUT", f"/api/admin/lotteries/{lottery['id']}/prizes", {"prizes": [{"kind": "wallet", "value": 5}]}
     )
     assert changed.status_code == 200 and changed.json()["winners"] == 1
     empty = await owner.call("PUT", f"/api/admin/lotteries/{lottery['id']}/prizes", {"prizes": []})
@@ -79,8 +88,8 @@ async def test_points_lottery_with_ranked_prizes_and_standings(session, http, en
     drawn = await owner.call("POST", f"/api/admin/lotteries/{lottery['id']}/draw")
     assert drawn.status_code == 200 and drawn.json()["status"] == "drawn"
     result = drawn.json()["result"]
-    assert result["winners"] == [env.customer_id] and result["awards"][0]["status"] == "no_service"
+    assert result["winners"] == [env.customer_id] and result["awards"][0]["status"] == "paid"
     late = await owner.call(
-        "PUT", f"/api/admin/lotteries/{lottery['id']}/prizes", {"prizes": [{"kind": "days", "value": 5}]}
+        "PUT", f"/api/admin/lotteries/{lottery['id']}/prizes", {"prizes": [{"kind": "wallet", "value": 5}]}
     )
     assert late.status_code == 409

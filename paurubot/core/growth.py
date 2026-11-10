@@ -20,6 +20,7 @@ from paurubot.db.models import (
     Order,
     OrderKind,
     OrderStatus,
+    Panel,
     WheelSpin,
 )
 from paurubot.ledger import wallet
@@ -240,8 +241,9 @@ async def join(session: AsyncSession, lottery: Lottery, customer: Customer) -> b
 LOTTERY_MODES = ("join", "purchases", "points")
 LOTTERY_PICKS = ("random", "top")
 LOTTERY_BOARDS = ("none", "self", "top")
-LOTTERY_PRIZE_KINDS = ("wallet", "gb", "days", "text")
-PRIZE_RANGES = {"wallet": (1, 10**10), "gb": (1, 100_000), "days": (1, 3650), "text": (0, 0)}
+LOTTERY_PRIZE_KINDS = ("service", "wallet", "text")
+PRIZE_RANGES = {"wallet": (1, 10**10), "service": (1, 10_000), "text": (0, 0)}
+DAYS_RANGE = (1, 3650)
 MAX_LOTTERY_PRIZES = 20
 BOARD_TOP = 5
 
@@ -255,7 +257,8 @@ class Standing:
 
 
 def validate_lottery_prizes(value: Any) -> list[dict[str, Any]]:
-    """[{kind: wallet|gb|days|text, value, label}], first item for first place."""
+    """[{kind, value, label}], first item for first place. A `service` prize is a new config of
+    `value` GB for `days` days on `panel_id`; a `wallet` prize is credit; `text` is handed over."""
     if not isinstance(value, list) or len(value) > MAX_LOTTERY_PRIZES:
         raise GrowthError("lottery_prizes_invalid")
     clean = []
@@ -264,15 +267,38 @@ def validate_lottery_prizes(value: Any) -> list[dict[str, Any]]:
             raise GrowthError("lottery_prizes_invalid")
         kind = str(item["kind"])
         label = str(item.get("label") or "").strip()[:64]
-        raw = item.get("value") or 0
-        if isinstance(raw, bool) or not isinstance(raw, int):
+        numbers = [item.get("value") or 0, item.get("days") or 0, item.get("panel_id") or 0]
+        if any(isinstance(n, bool) or not isinstance(n, int) for n in numbers):
             raise GrowthError("lottery_prizes_invalid")
+        raw, days, panel_id = numbers
         low, high = PRIZE_RANGES[kind]
         amount = 0 if kind == "text" else raw
         if not low <= amount <= high or (kind == "text" and not label):
             raise GrowthError("lottery_prizes_invalid")
-        clean.append({"kind": kind, "value": amount, "label": label})
+        prize: dict[str, Any] = {"kind": kind, "value": amount, "label": label}
+        if kind == "service":
+            if not DAYS_RANGE[0] <= days <= DAYS_RANGE[1] or panel_id < 1:
+                raise GrowthError("lottery_prizes_invalid")
+            prize.update(days=days, panel_id=panel_id)
+        clean.append(prize)
     return clean
+
+
+async def prize_panels(session: AsyncSession, shop_id: int) -> list[Panel]:
+    """Panels a service prize can be made on: the shop's own, switched on, sized by the bot."""
+    return list(
+        await session.scalars(
+            select(Panel)
+            .where(Panel.shop_id == shop_id, Panel.is_active.is_(True), Panel.national_mode.is_(False))
+            .order_by(Panel.id)
+        )
+    )
+
+
+async def check_prize_panels(session: AsyncSession, shop_id: int, prizes: list[dict[str, Any]]) -> None:
+    allowed = {panel.id for panel in await prize_panels(session, shop_id)}
+    if any(p["kind"] == "service" and p["panel_id"] not in allowed for p in prizes):
+        raise GrowthError("lottery_prize_panel")
 
 
 def prize_list(lottery: Lottery) -> list[dict[str, Any]]:
@@ -350,11 +376,9 @@ def pick_winners(pool: dict[int, int], count: int) -> list[int]:
 async def draw(session: AsyncSession, lottery: Lottery) -> list[int]:
     """Pick the winners and hand out the prizes once; a second call returns the same result.
 
-    Wallet prizes are paid here. Data and time go to the winner's newest active service through
-    the bulk service queue (the panel is called there, under the service lease), which then tells
-    the winner; a winner without such a service is left to the staff (`no_service`).
+    Wallet prizes are paid here. A service prize is a free order through the usual provisioning
+    queue, so the winner gets the new config like any purchase; its award records the order.
     """
-    from paurubot.core import service_gifts
     from paurubot.worker import queue
 
     if lottery.status == "drawn":
@@ -386,29 +410,39 @@ async def draw(session: AsyncSession, lottery: Lottery) -> list[int]:
                 memo=f"lottery {lottery.title}"[:120],
             )
             award["status"] = "paid"
-        elif prize["kind"] in {"gb", "days"}:
-            found = await service_gifts.customer_target(
-                session, lottery.shop_id, customer_id, prize["kind"], prize["value"]
-            )
-            if found is None:
-                award["status"] = "no_service"
+        elif prize["kind"] == "service":
+            panel = await session.get(Panel, int(prize["panel_id"]))
+            if panel is None or panel.shop_id != lottery.shop_id or not panel.is_active:
+                award["status"] = "failed"
             else:
-                service, target = found
-                award.update(status="queued", service_id=service.id, service=service.panel_username or "")
+                order = Order(
+                    shop_id=lottery.shop_id,
+                    customer_id=customer_id,
+                    kind=OrderKind.PURCHASE,
+                    status=OrderStatus.PAID,
+                    plan_id=None,
+                    params={
+                        "lottery": {"id": lottery.id, "rank": rank},
+                        "label": "lottery",
+                        "custom": {"gb": prize["value"], "days": prize["days"]},
+                        "panel_id": panel.id,
+                    },
+                    base_price=0,
+                    amount=0,
+                    paid_at=utcnow(),
+                    source="lottery",
+                )
+                session.add(order)
+                await session.flush()
                 await queue.enqueue(
                     session,
-                    "bulk",
-                    "service",
-                    {
-                        "service_id": service.id,
-                        "action": "extend",
-                        "gift_target": target,
-                        "lottery": {"id": lottery.id, "rank": rank},
-                    },
+                    "provision",
+                    "order",
+                    {"order_id": order.id},
                     shop_id=lottery.shop_id,
-                    dedupe_key=f"lottery:{lottery.id}:award:{rank}",
-                    max_attempts=8,
+                    dedupe_key=f"order:{order.id}:provision",
                 )
+                award.update(status="queued", order_id=order.id)
         else:
             award["status"] = "manual"
         awards.append(award)
@@ -422,26 +456,6 @@ async def draw(session: AsyncSession, lottery: Lottery) -> list[int]:
     }
     await session.flush()
     return winners
-
-
-async def award_done(session: AsyncSession, lottery_id: int, rank: int, outcome: str) -> bool:
-    """Record what became of a data/time prize; True the first time, when the winner is told."""
-    lottery = await session.get(Lottery, lottery_id, with_for_update=True)
-    if lottery is None:
-        return False
-    result = dict(lottery.result or {})
-    awards = [dict(item) for item in result.get("awards", [])]
-    status = "applied" if outcome in {"applied", "already_applied"} else "failed"
-    changed = False
-    for item in awards:
-        if item.get("rank") == rank and item.get("status") == "queued":
-            item["status"], item["outcome"] = status, outcome
-            changed = True
-    if not changed:
-        return False
-    lottery.result = {**result, "awards": awards}
-    await session.flush()
-    return True
 
 
 async def due_lotteries(session: AsyncSession) -> list[int]:

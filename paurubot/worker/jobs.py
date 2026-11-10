@@ -161,7 +161,6 @@ async def bulk_service(session: AsyncSession, job: queue.Claimed) -> None:
     if service is None or service.status == ServiceStatus.DELETED:
         if data.get("gift_target"):
             await queue.update_payload(session, job, {**data, "outcome": "skipped_ineligible"})
-            await _lottery_award(session, data, "skipped_ineligible", job.shop_id)
         return
     if job.shop_id is not None and service.shop_id != job.shop_id:
         raise Permanent("service does not belong to this shop")
@@ -175,7 +174,6 @@ async def bulk_service(session: AsyncSession, job: queue.Claimed) -> None:
             if service.status == ServiceStatus.DELETED:  # deleted while this job waited
                 if data.get("gift_target"):
                     await queue.update_payload(session, job, {**data, "outcome": "skipped_ineligible"})
-                    await _lottery_award(session, data, "skipped_ineligible", service.shop_id)
                 return
             if action in {"enable", "disable"}:
                 if action == "enable" and data.get("reason") and service.disabled_reason != data["reason"]:
@@ -199,8 +197,6 @@ async def bulk_service(session: AsyncSession, job: queue.Claimed) -> None:
         raise Defer(str(exc)) from exc
     except PanelUnavailable as exc:
         raise Retry(str(exc)) from exc
-    if outcome is not None:
-        await _lottery_award(session, data, outcome, service.shop_id)
     await record(
         session,
         shop_id=service.shop_id,
@@ -231,33 +227,6 @@ async def bulk_service(session: AsyncSession, job: queue.Claimed) -> None:
         )
 
 
-async def _lottery_award(
-    session: AsyncSession, data: dict[str, Any], outcome: str, shop_id: int | None
-) -> None:
-    """A lottery's data or time prize was applied (or could not be): tell the winner and staff."""
-    from paurubot.core import growth
-
-    ref = data.get("lottery")
-    if not isinstance(ref, dict):
-        return
-    lottery_id, rank = int(ref["id"]), int(ref["rank"])
-    if await growth.award_done(session, lottery_id, rank, outcome):
-        await queue.enqueue(
-            session,
-            "notify",
-            "lottery_award",
-            {"lottery_id": lottery_id, "rank": rank},
-            shop_id=shop_id,
-            dedupe_key=f"lottery:{lottery_id}:award:{rank}:done",
-        )
-
-
-async def bulk_dead(session: AsyncSession, job: queue.Claimed, error: str) -> None:
-    """A lottery prize the panel never took is handed to the staff instead of staying pending."""
-    if job.kind == "service":
-        await _lottery_award(session, dict(job.payload), "failed", job.shop_id)
-
-
 async def set_panel_owner(session: AsyncSession, job: queue.Claimed) -> None:
     """Give one panel user to another panel admin (TEN-11)."""
     from paurubot.panels import PanelRef, driver_for
@@ -275,13 +244,7 @@ async def set_panel_owner(session: AsyncSession, job: queue.Claimed) -> None:
 
 
 register_queue(
-    "bulk",
-    QueueSpec(
-        {"service": bulk_service, "set_owner": set_panel_owner},
-        on_dead=bulk_dead,
-        batch=10,
-        lease_seconds=120,
-    ),
+    "bulk", QueueSpec({"service": bulk_service, "set_owner": set_panel_owner}, batch=10, lease_seconds=120)
 )
 
 

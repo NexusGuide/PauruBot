@@ -120,8 +120,9 @@ def parse_lottery(text: str) -> dict[str, Any] | None:
 
 
 def parse_lottery_prize(t: Texts, text: str) -> dict[str, Any] | None:
-    """`gb 10`, `days 5`, `wallet 10000` or `text a special account`, in either language;
-    anything after `|` is a label for the prize."""
+    """`service 10 30` (a new 10 GB, 30-day config), `wallet 10000` or `text a special account`,
+    in either language; anything after `|` is a label. A service prize's panel is chosen next
+    (`panel_id` 0 until then)."""
     main, _, label = text.partition("|")
     words = main.split()
     if not words:
@@ -131,18 +132,28 @@ def parse_lottery_prize(t: Texts, text: str) -> dict[str, Any] | None:
         kind: {word.strip().lower() for word in t(f"adm_grw_lot_kw_{kind}").split(",")} | {kind}
         for kind in growth.LOTTERY_PRIZE_KINDS
     }
+    numbers = [parse_int(word) for word in words[1:]]
     if first in kinds["text"]:
         item: dict[str, Any] = {"kind": "text", "value": 0, "label": " ".join(words[1:]) or label.strip()}
+    elif first in kinds["service"] and len(numbers) == 2 and None not in numbers:
+        item = {
+            "kind": "service",
+            "value": numbers[0],
+            "days": numbers[1],
+            "panel_id": 1,
+            "label": label.strip(),
+        }
+    elif first in kinds["wallet"] and len(numbers) == 1 and numbers[0] is not None:
+        item = {"kind": "wallet", "value": numbers[0], "label": label.strip()}
     else:
-        kind = next((k for k, names in kinds.items() if k != "text" and first in names), None)
-        value = parse_int(words[1]) if len(words) == 2 else None
-        if kind is None or value is None:
-            return None
-        item = {"kind": kind, "value": value, "label": label.strip()}
+        return None
     try:
-        return growth.validate_lottery_prizes([item])[0]
+        prize = growth.validate_lottery_prizes([item])[0]
     except growth.GrowthError:
         return None
+    if prize["kind"] == "service":
+        prize["panel_id"] = 0
+    return prize
 
 
 # --- views -----------------------------------------------------------------------------------
@@ -225,7 +236,7 @@ async def lottery_text(session: AsyncSession, t: Texts, lot: Lottery) -> str:
         )
         lines.append("")
         lines.append(t("adm_grw_lot_awards_title"))
-        for award in log_reports.lottery_awards(lot):
+        for award in await log_reports.current_awards(session, lot):
             customer = await session.get(Customer, int(award["customer_id"]))
             lines.append(
                 t(
@@ -454,7 +465,7 @@ async def growth_admin(
         await state.set_state(AdminStates.lottery_new)
         await _ask(call, t("adm_grw_lot_ask"), t)
         return
-    if action in {"lv", "lend", "lcancel", "lbd", "lpadd", "lpdel"}:
+    if action in {"lv", "lend", "lcancel", "lbd", "lpadd", "lpdel", "lppanel"}:
         lot = await _own_lottery(session, shop.id, callback_data.id)
         if lot is None:
             await call.answer(t("button_expired"), show_alert=True)
@@ -466,6 +477,23 @@ async def growth_admin(
             return
         if action != "lv" and lot.status != "open":
             await call.answer(t("adm_grw_lot_not_open"), show_alert=True)
+            return
+        if action == "lppanel":
+            data = await state.get_data()
+            pending = data.get("lottery_pending")
+            panels = {panel.id: panel for panel in await growth.prize_panels(session, shop.id)}
+            if (
+                not isinstance(pending, dict)
+                or data.get("lottery_id") != lot.id
+                or callback_data.page not in panels
+            ):
+                await call.answer(t("button_expired"), show_alert=True)
+                return
+            await call.answer()
+            pending["panel_id"] = callback_data.page
+            await state.update_data(lottery_pending=None)
+            text, kb = await _add_prize(session, shop, staff, state, t, lot, pending)
+            await show(call, text, kb)
             return
         if action == "lpadd":
             if len(growth.prize_list(lot)) >= growth.MAX_LOTTERY_PRIZES:
@@ -653,14 +681,42 @@ async def lottery_prize(
     if prize is None:
         await message.answer(t("adm_grw_lot_prize_bad"), reply_markup=prizes_done_kb(t, lot.id))
         return
+    if prize["kind"] == "service":
+        panels = await growth.prize_panels(session, shop.id)
+        if not panels:
+            await message.answer(t("adm_grw_lot_no_panel"), reply_markup=prizes_done_kb(t, lot.id))
+            return
+        if len(panels) > 1:  # which panel the new config is made on
+            await state.update_data(lottery_pending=prize)
+            choose = InlineKeyboardBuilder()
+            for panel in panels:
+                choose.row(
+                    _btn(panel.name, Admin(section=SECTION, action="lppanel", id=lot.id, page=panel.id))
+                )
+            await message.answer(t("adm_grw_lot_pick_panel"), reply_markup=choose.as_markup())
+            return
+        prize["panel_id"] = panels[0].id
+    text, markup = await _add_prize(session, shop, staff, state, t, lot, prize)
+    await message.answer(text, reply_markup=markup)
+
+
+async def _add_prize(
+    session: AsyncSession,
+    shop: ShopRow,
+    staff: StaffIdentity,
+    state: FSMContext,
+    t: Texts,
+    lot: Lottery,
+    prize: dict[str, Any],
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Save the next place's prize; the reply asks for the one after, or shows the card."""
     prizes = growth.prize_list(lot)  # a lottery from before ranked prizes keeps its own
     if len(prizes) >= growth.MAX_LOTTERY_PRIZES:
-        await message.answer(t("adm_grw_lot_prize_max", n=growth.MAX_LOTTERY_PRIZES))
-        return
-    before = {"prizes": prizes}
+        await state.clear()
+        return t("adm_grw_lot_prize_max", n=growth.MAX_LOTTERY_PRIZES), lottery_kb(t, lot)
     lot.prizes = [*prizes, prize]
     lot.winners, lot.prize, lot.prize_amount = len(lot.prizes), "", 0
-    await _lottery_log(session, shop, staff, "prizes", lot, before)
+    await _lottery_log(session, shop, staff, "prizes", lot, {"prizes": prizes})
     await session.commit()
     saved = t(
         "adm_grw_lot_prize_saved",
@@ -669,8 +725,6 @@ async def lottery_prize(
     )
     if len(lot.prizes) >= growth.MAX_LOTTERY_PRIZES:
         await state.clear()
-        await message.answer(saved)
-        await message.answer(await lottery_text(session, t, lot), reply_markup=lottery_kb(t, lot))
-        return
+        return f"{saved}\n\n{await lottery_text(session, t, lot)}", lottery_kb(t, lot)
     ask = t("adm_grw_lot_prize_ask", rank=t("lot_rank", rank=len(lot.prizes) + 1))
-    await message.answer(f"{saved}\n\n{ask}", reply_markup=prizes_done_kb(t, lot.id))
+    return f"{saved}\n\n{ask}", prizes_done_kb(t, lot.id)
