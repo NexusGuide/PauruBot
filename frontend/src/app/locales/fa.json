@@ -276,6 +276,7 @@
   "role_finance": "مالی",
   "role_support": "پشتیبانی",
   "role_reseller": "نماینده",
+  "role_merchant": "مدیر فروشگاه",
   "err_forbidden": "نقش شما اجازهٔ این کار را ندارد.",
   "err_payment_already_reviewed": "کس دیگری دربارهٔ این پرداخت تصمیم گرفته است.",
   "err_not_manual": "این پرداخت را نمی‌شود دستی تأیید کرد.",

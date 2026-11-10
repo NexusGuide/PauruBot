@@ -276,6 +276,7 @@
   "role_finance": "Finance",
   "role_support": "Support",
   "role_reseller": "Reseller",
+  "role_merchant": "Shop manager",
   "err_forbidden": "Your role can't do that.",
   "err_payment_already_reviewed": "Someone already decided on this payment.",
   "err_not_manual": "This payment can't be decided by hand.",
