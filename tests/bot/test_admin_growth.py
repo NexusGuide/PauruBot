@@ -27,12 +27,49 @@ def test_parse_prize_rejects_bad_input() -> None:
 
 
 def test_parse_lottery() -> None:
-    spec = g.parse_lottery("Draw | 50GB | 0 | 3 | join | 7")
-    assert spec is not None and spec["winners"] == 3 and spec["days"] == 7 and spec["mode"] == "join"
-    assert g.parse_lottery("Draw | 50GB | 0 | 3 | lucky | 7") is None
-    assert g.parse_lottery("Draw | 50GB | 0 | 0 | join | 7") is None
-    assert g.parse_lottery("Draw | 50GB | 0 | 3 | join | 400") is None
-    assert g.parse_lottery("Draw | 50GB | 0 | 3 | join") is None
+    spec = g.parse_lottery("Draw | points | top | 30 | 10000 | top")
+    assert spec == {
+        "title": "Draw",
+        "mode": "points",
+        "pick": "top",
+        "days": 30,
+        "points_per": 10000,
+        "board": "top",
+    }
+    plain = g.parse_lottery("Draw | join | random | 7")
+    assert plain is not None and plain["points_per"] == 0 and plain["board"] == "none"
+    assert g.parse_lottery("Draw | lucky | top | 7") is None
+    assert g.parse_lottery("Draw | points | top | 7") is None  # points need toman per point
+    assert g.parse_lottery("Draw | points | top | 7 | 0") is None
+    assert g.parse_lottery("Draw | join | best | 7") is None
+    assert g.parse_lottery("Draw | join | top | 400") is None
+    assert g.parse_lottery("Draw | join | top | 7 | - | everyone") is None
+    assert g.parse_lottery("Draw | join | top") is None
+
+
+def test_parse_lottery_prize_in_both_languages() -> None:
+    from paurubot.i18n import Texts
+
+    fa, en = Texts("fa"), Texts("en")
+    assert g.parse_lottery_prize(en, "gb 10") == {"kind": "gb", "value": 10, "label": ""}
+    assert g.parse_lottery_prize(fa, fa("adm_grw_lot_kw_gb").split(",")[2] + " 10") == {
+        "kind": "gb",
+        "value": 10,
+        "label": "",
+    }
+    assert g.parse_lottery_prize(fa, "wallet 10000 | first") == {
+        "kind": "wallet",
+        "value": 10000,
+        "label": "first",
+    }
+    assert g.parse_lottery_prize(en, "days 5")["kind"] == "days"  # type: ignore[index]
+    assert g.parse_lottery_prize(en, "text A special account") == {
+        "kind": "text",
+        "value": 0,
+        "label": "A special account",
+    }
+    for bad in ("gb", "gb ten", "gold 10", "gb 0", "text", "days 99999", ""):
+        assert g.parse_lottery_prize(en, bad) is None, bad
 
 
 def test_parse_ask() -> None:
@@ -48,8 +85,16 @@ def test_dynamic_labels_exist_in_both_locales() -> None:
     keys = [f"adm_grw_{key}" for key in (*g.TOGGLES, *g.ASKS)]
     keys += [f"adm_grw_kind_{kind}" for kind in ("wallet", "discount", "nothing")]
     keys += [f"adm_grw_status_{status}" for status in ("open", "drawn", "canceled")]
-    keys += [f"adm_grw_mode_{mode}" for mode in g.MODES]
+    keys += [f"adm_grw_mode_{mode}" for mode in g.growth.LOTTERY_MODES]
+    keys += [f"adm_grw_pick_{pick}" for pick in g.growth.LOTTERY_PICKS]
+    keys += [f"adm_grw_board_{board}" for board in g.growth.LOTTERY_BOARDS]
+    keys += [f"adm_grw_lot_kw_{kind}" for kind in g.growth.LOTTERY_PRIZE_KINDS]
+    statuses = ("paid", "queued", "applied", "failed", "no_service", "manual")
+    keys += [f"report_lottery_st_{status}" for status in statuses]
+    keys += [f"lottery_pick_{pick}" for pick in g.growth.LOTTERY_PICKS]
     for locale in ("fa", "en"):
-        texts = json.loads((I18N / f"{locale}.grw.json").read_text(encoding="utf-8"))
+        texts = {}
+        for part in ("grw", "lottery"):
+            texts |= json.loads((I18N / f"{locale}.{part}.json").read_text(encoding="utf-8"))
         missing = [key for key in keys if key not in texts]
         assert not missing, (locale, missing)

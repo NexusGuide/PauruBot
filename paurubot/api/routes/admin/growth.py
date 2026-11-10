@@ -515,6 +515,10 @@ LOTTERY_FIELDS = [
     "prize_amount",
     "winners",
     "mode",
+    "pick",
+    "points_per",
+    "board",
+    "prizes",
     "starts_at",
     "ends_at",
     "status",
@@ -522,20 +526,44 @@ LOTTERY_FIELDS = [
 ]
 
 
+class LotteryPrize(BaseModel):
+    kind: Literal["wallet", "gb", "days", "text"]
+    value: int = Field(default=0, ge=0, le=10**10)
+    label: str = Field(default="", max_length=64)
+
+
 class LotteryBody(BaseModel):
     title: str = Field(min_length=1, max_length=96)
-    prize: str = Field(min_length=1, max_length=255)
+    prize: str = Field(default="", max_length=255)
     prize_amount: int = Field(default=0, ge=0, le=10**10)
     winners: int = Field(default=1, ge=1, le=100)
-    mode: str = Field(default="join", pattern=r"^(join|purchases)$")
+    mode: str = Field(default="join", pattern=r"^(join|purchases|points)$")
+    pick: str = Field(default="random", pattern=r"^(random|top)$")
+    points_per: int = Field(default=0, ge=0, le=10**9)
+    board: str = Field(default="none", pattern=r"^(none|self|top)$")
+    prizes: list[LotteryPrize] = Field(default_factory=list, max_length=20)
     starts_at: datetime | None = None
     ends_at: datetime
+
+
+class LotteryPrizes(BaseModel):
+    prizes: list[LotteryPrize] = Field(max_length=20)
+
+
+def _clean_prizes(items: list[LotteryPrize]) -> list[dict[str, Any]]:
+    from paurubot.core import growth
+
+    try:
+        return growth.validate_lottery_prizes([item.model_dump() for item in items])
+    except growth.GrowthError as exc:
+        raise HTTPException(status_code=422, detail=exc.key) from exc
 
 
 @router.get("/lotteries")
 async def list_lotteries(ctx: Sender, db: DB) -> dict[str, Any]:
     from paurubot.core import growth
     from paurubot.db.models import Customer, Lottery
+    from paurubot.notifications import log_reports
 
     rows = list(
         await db.scalars(
@@ -545,17 +573,69 @@ async def list_lotteries(ctx: Sender, db: DB) -> dict[str, Any]:
     items = []
     for row in rows:
         data = plain(row, LOTTERY_FIELDS)
-        pool = await growth.tickets(db, row)
-        data["entrants"], data["tickets"] = len(pool), sum(pool.values())
-        names = []
-        for customer_id in (row.result or {}).get("winners", []):
-            customer = await db.get(Customer, int(customer_id))
-            names.append(
-                {"id": int(customer_id), "name": customer.display_name if customer else f"#{customer_id}"}
+        data["prizes"] = growth.prize_list(row)
+        if row.status == "drawn":
+            result = row.result or {}
+            data["entrants"], data["tickets"] = (
+                int(result.get("entrants") or 0),
+                int(result.get("tickets") or 0),
             )
-        data["winner_names"] = names
+        else:
+            pool = await growth.tickets(db, row)
+            data["entrants"], data["tickets"] = len(pool), sum(pool.values())
+        names, awards = [], []
+        for award in log_reports.lottery_awards(row):
+            customer = await db.get(Customer, int(award["customer_id"]))
+            name = log_reports.person_name(customer) if customer else f"#{award['customer_id']}"
+            names.append({"id": int(award["customer_id"]), "name": name})
+            awards.append(
+                {
+                    **award,
+                    "name": name,
+                    "username": customer.username if customer else None,
+                    "telegram_id": customer.telegram_id if customer else None,
+                    "phone": customer.phone if customer else None,
+                }
+            )
+        data["winner_names"], data["awards"] = names, awards
         items.append(data)
     return {"items": items}
+
+
+@router.get("/lotteries/{lottery_id}/standings")
+async def lottery_standings(
+    lottery_id: int,
+    ctx: Sender,
+    db: DB,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict[str, Any]:
+    """Everyone with a score, best first, with who they are (GRW-04)."""
+    from paurubot.core import growth
+    from paurubot.db.models import Customer, Lottery
+    from paurubot.notifications import log_reports
+
+    row = await owned(db, Lottery, lottery_id, ctx)
+    board = await growth.standings(db, row)
+    items = []
+    for rank, entry in enumerate(board[offset : offset + limit], start=offset + 1):
+        customer = await db.get(Customer, entry.customer_id)
+        if customer is None:
+            continue
+        items.append(
+            {
+                "rank": rank,
+                "customer_id": customer.id,
+                "name": log_reports.person_name(customer),
+                "username": customer.username,
+                "telegram_id": customer.telegram_id,
+                "phone": customer.phone,
+                "points": entry.points,
+                "purchases": entry.purchases,
+                "spent": entry.spent,
+            }
+        )
+    return {"total": len(board), "items": items}
 
 
 @router.post("/lotteries")
@@ -566,7 +646,19 @@ async def create_lottery(body: LotteryBody, ctx: Sender, db: DB) -> dict[str, An
     starts = body.starts_at or utcnow()
     if body.ends_at <= starts or body.ends_at <= utcnow():
         raise HTTPException(status_code=422, detail="lottery_dates_invalid")
-    row = Lottery(shop_id=ctx.shop_id, **{**body.model_dump(), "starts_at": starts})
+    prizes = _clean_prizes(body.prizes)
+    if not prizes and not body.prize.strip():
+        raise HTTPException(status_code=422, detail="lottery_prizes_invalid")
+    if body.mode == "points" and body.points_per < 1:
+        raise HTTPException(status_code=422, detail="lottery_points_per_invalid")
+    values = body.model_dump()
+    values.update(
+        starts_at=starts,
+        prizes=prizes,
+        winners=len(prizes) or body.winners,
+        points_per=body.points_per if body.mode == "points" else 0,
+    )
+    row = Lottery(shop_id=ctx.shop_id, **values)
     db.add(row)
     await db.flush()
     await record(
@@ -577,6 +669,32 @@ async def create_lottery(body: LotteryBody, ctx: Sender, db: DB) -> dict[str, An
         entity="lottery",
         entity_id=row.id,
         after=snapshot(row),
+    )
+    return plain(row, LOTTERY_FIELDS)
+
+
+@router.put("/lotteries/{lottery_id}/prizes")
+async def set_lottery_prizes(lottery_id: int, body: LotteryPrizes, ctx: Sender, db: DB) -> dict[str, Any]:
+    """Change an open lottery's prizes, first place first."""
+    from paurubot.db.models import Lottery
+
+    row = await owned(db, Lottery, lottery_id, ctx)
+    if row.status != "open":
+        raise HTTPException(status_code=409, detail="lottery_closed")
+    prizes = _clean_prizes(body.prizes)
+    if not prizes:
+        raise HTTPException(status_code=422, detail="lottery_prizes_invalid")
+    before = {"prizes": row.prizes}
+    row.prizes, row.winners, row.prize, row.prize_amount = prizes, len(prizes), "", 0
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="lottery.prizes",
+        entity="lottery",
+        entity_id=row.id,
+        before=before,
+        after={"prizes": prizes},
     )
     return plain(row, LOTTERY_FIELDS)
 
@@ -593,6 +711,8 @@ async def lottery_action(lottery_id: int, action: str, ctx: Sender, db: DB) -> d
     if action == "cancel":
         row.status = "canceled"
     elif action == "draw":
+        if not growth.prize_list(row):
+            raise HTTPException(status_code=422, detail="lottery_prizes_invalid")
         await growth.draw(db, row)
         await queue.enqueue(
             db,

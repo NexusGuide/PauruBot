@@ -27,12 +27,10 @@
   "adm_grw_lots_title": "🎟 <b>Lotteries</b>\nThe last ten:",
   "adm_grw_lots_empty": "🎟 No lottery has been created yet.",
   "adm_grw_lot_new": "➕ New lottery",
-  "adm_grw_lot_ask": "Send the lottery on one line like this:\n<code>Title | prize description | credit amount | winners | join | days</code>\njoin means customers press a join button; purchases means every order in the period is a ticket. The credit can be 0.",
-  "adm_grw_lot_bad": "The format is wrong. Example: <code>November draw | 50 GB service | 0 | 3 | join | 7</code>",
+  "adm_grw_lot_ask": "Send the lottery on one line like this:\n<code>Title | mode | winners | days | toman per point | shown</code>\n\nmode: <code>points</code> purchase points, <code>purchases</code> number of purchases, <code>join</code> join button\nwinners: <code>top</code> highest score, <code>random</code> drawn, weighted by score\ntoman per point: for points (10000 means every 10,000 spent is 1 point); <code>-</code> otherwise\nshown to customers: <code>none</code>, <code>self</code> their own score and place, <code>top</code> also the top 5\n\nExample: <code>December draw | points | top | 30 | 10000 | top</code>\nAfter it is created you send each place's prize.",
+  "adm_grw_lot_bad": "The format is wrong. Example: <code>December draw | points | top | 30 | 10000 | top</code> or <code>November draw | join | random | 7</code>",
   "adm_grw_lot_head": "🎟 <b>#{id} {title}</b> — {status}",
-  "adm_grw_lot_prize": "Prize: {prize}\nCredit per winner: {amount}\nWinners: {winners}",
-  "adm_grw_lot_when": "Mode: {mode}\nStarts: {start}\nEnds: {end}",
-  "adm_grw_lot_result": "Entrants: {entrants}\nWinners (customer IDs): {winners}",
+  "adm_grw_lot_when": "🕒 Starts: {start}\n🏁 Ends: {end}",
   "adm_grw_lot_end": "⏹ End and draw now",
   "adm_grw_lot_cancel": "❌ Cancel lottery",
   "adm_grw_lot_ended": "The lottery is closed; winners are drawn and notified on the next scheduled run.",
@@ -43,5 +41,5 @@
   "adm_grw_status_drawn": "🏁 drawn",
   "adm_grw_status_canceled": "⚪️ canceled",
   "adm_grw_mode_join": "join button",
-  "adm_grw_mode_purchases": "by purchases"
+  "adm_grw_mode_purchases": "number of purchases"
 }

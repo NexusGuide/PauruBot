@@ -87,6 +87,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | DELETE | `/api/admin/locations/{row_id}` | `catalog.write` | Delete a location nothing is sold through any more. |
 | PUT | `/api/admin/locations/{row_id}` | `catalog.write` | Update location |
 | POST | `/api/admin/locations` | `catalog.write` | Create location |
+| PUT | `/api/admin/lotteries/{lottery_id}/prizes` | `broadcast.send` | Change an open lottery's prizes, first place first. |
+| GET | `/api/admin/lotteries/{lottery_id}/standings` | `broadcast.send` | Everyone with a score, best first, with who they are (GRW-04). |
 | POST | `/api/admin/lotteries/{lottery_id}/{action}` | `broadcast.send` | `draw` now (instead of waiting for the end time) or `cancel` an open lottery. |
 | GET | `/api/admin/lotteries` | `broadcast.send` | List lotteries |
 | POST | `/api/admin/lotteries` | `broadcast.send` | Create lottery |

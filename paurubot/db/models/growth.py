@@ -33,8 +33,17 @@ class Lottery(Base, TimestampMixin):
     prize: Mapped[str] = mapped_column(String(255))
     prize_amount: Mapped[int] = mapped_column(default=0)
     winners: Mapped[int] = mapped_column(Integer, default=1)
-    # "join": customers press a button; "purchases": every completed order in the period is a ticket.
+    # "join": customers press a button; "purchases": every completed order in the period is a ticket;
+    # "points": every `points_per` toman paid in the period is a point.
     mode: Mapped[str] = mapped_column(String(16), default="join")
+    # Ranked prizes: [{kind: wallet|gb|days|text, value, label}], first item for first place.
+    # Empty on lotteries made before ranked prizes: every winner gets `prize` / `prize_amount`.
+    prizes: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, server_default="[]")
+    # "random": weighted by tickets/points; "top": the highest scores win, in order.
+    pick: Mapped[str] = mapped_column(String(16), default="random", server_default="random")
+    points_per: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # What customers see in the bot: "none", "self" (their score and rank) or "top" (also the top 5).
+    board: Mapped[str] = mapped_column(String(16), default="none", server_default="none")
     starts_at: Mapped[datetime] = mapped_column()
     ends_at: Mapped[datetime] = mapped_column()
     status: Mapped[str] = mapped_column(String(16), default="open")

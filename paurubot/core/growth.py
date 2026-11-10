@@ -237,26 +237,99 @@ async def join(session: AsyncSession, lottery: Lottery, customer: Customer) -> b
     return True
 
 
-async def tickets(session: AsyncSession, lottery: Lottery) -> dict[int, int]:
-    if lottery.mode == "purchases":
-        rows = await session.execute(
-            select(Order.customer_id, func.count(Order.id))
+LOTTERY_MODES = ("join", "purchases", "points")
+LOTTERY_PICKS = ("random", "top")
+LOTTERY_BOARDS = ("none", "self", "top")
+LOTTERY_PRIZE_KINDS = ("wallet", "gb", "days", "text")
+PRIZE_RANGES = {"wallet": (1, 10**10), "gb": (1, 100_000), "days": (1, 3650), "text": (0, 0)}
+MAX_LOTTERY_PRIZES = 20
+BOARD_TOP = 5
+
+
+@dataclass(frozen=True)
+class Standing:
+    customer_id: int
+    points: int
+    purchases: int = 0
+    spent: int = 0
+
+
+def validate_lottery_prizes(value: Any) -> list[dict[str, Any]]:
+    """[{kind: wallet|gb|days|text, value, label}], first item for first place."""
+    if not isinstance(value, list) or len(value) > MAX_LOTTERY_PRIZES:
+        raise GrowthError("lottery_prizes_invalid")
+    clean = []
+    for item in value:
+        if not isinstance(item, dict) or item.get("kind") not in LOTTERY_PRIZE_KINDS:
+            raise GrowthError("lottery_prizes_invalid")
+        kind = str(item["kind"])
+        label = str(item.get("label") or "").strip()[:64]
+        raw = item.get("value") or 0
+        if isinstance(raw, bool) or not isinstance(raw, int):
+            raise GrowthError("lottery_prizes_invalid")
+        low, high = PRIZE_RANGES[kind]
+        amount = 0 if kind == "text" else raw
+        if not low <= amount <= high or (kind == "text" and not label):
+            raise GrowthError("lottery_prizes_invalid")
+        clean.append({"kind": kind, "value": amount, "label": label})
+    return clean
+
+
+def prize_list(lottery: Lottery) -> list[dict[str, Any]]:
+    """The prizes by place. Lotteries made before ranked prizes give every winner the same one."""
+    if lottery.prizes:
+        try:
+            return validate_lottery_prizes(lottery.prizes)
+        except GrowthError:
+            return []
+    if not (lottery.prize or lottery.prize_amount):
+        return []
+    one = (
+        {"kind": "wallet", "value": int(lottery.prize_amount), "label": lottery.prize[:64]}
+        if lottery.prize_amount > 0
+        else {"kind": "text", "value": 0, "label": lottery.prize[:64]}
+    )
+    return [dict(one) for _ in range(max(1, lottery.winners))]
+
+
+async def standings(session: AsyncSession, lottery: Lottery) -> list[Standing]:
+    """Everyone with a score, best first; equal scores go to whoever got there first."""
+    if lottery.mode in {"purchases", "points"}:
+        last = func.max(Order.completed_at)
+        found: list[tuple[Standing, Any]] = []
+        sales = await session.execute(
+            select(Order.customer_id, func.count(Order.id), func.coalesce(func.sum(Order.amount), 0), last)
+            .join(Customer, Customer.id == Order.customer_id)
             .where(
                 Order.shop_id == lottery.shop_id,
                 Order.status == OrderStatus.COMPLETED,
                 Order.amount > 0,
                 Order.completed_at >= lottery.starts_at,
                 Order.completed_at < lottery.ends_at,
+                Customer.is_banned.is_(False),
             )
             .group_by(Order.customer_id)
         )
+        for customer_id, count, spent, at in sales.all():
+            if lottery.mode == "points":
+                points = int(spent) // lottery.points_per if lottery.points_per > 0 else 0
+            else:
+                points = int(count)
+            found.append((Standing(int(customer_id), points, int(count), int(spent)), at))
     else:
-        rows = await session.execute(
-            select(LotteryEntry.customer_id, LotteryEntry.tickets).where(
-                LotteryEntry.lottery_id == lottery.id
-            )
+        entries = await session.execute(
+            select(LotteryEntry.customer_id, LotteryEntry.tickets, LotteryEntry.created_at)
+            .join(Customer, Customer.id == LotteryEntry.customer_id)
+            .where(LotteryEntry.lottery_id == lottery.id, Customer.is_banned.is_(False))
         )
-    return {int(c): int(n) for c, n in rows.all()}
+        found = [(Standing(int(c), int(n)), at) for c, n, at in entries.all()]
+    found = [(row, at) for row, at in found if row.points > 0]
+    found.sort(key=lambda item: (-item[0].points, item[1], item[0].customer_id))
+    return [row for row, _ in found]
+
+
+async def tickets(session: AsyncSession, lottery: Lottery) -> dict[int, int]:
+    return {row.customer_id: row.points for row in await standings(session, lottery)}
 
 
 def pick_winners(pool: dict[int, int], count: int) -> list[int]:
@@ -275,30 +348,100 @@ def pick_winners(pool: dict[int, int], count: int) -> list[int]:
 
 
 async def draw(session: AsyncSession, lottery: Lottery) -> list[int]:
-    """Pick and pay the winners once; a second call returns the same result."""
+    """Pick the winners and hand out the prizes once; a second call returns the same result.
+
+    Wallet prizes are paid here. Data and time go to the winner's newest active service through
+    the bulk service queue (the panel is called there, under the service lease), which then tells
+    the winner; a winner without such a service is left to the staff (`no_service`).
+    """
+    from paurubot.core import service_gifts
+    from paurubot.worker import queue
+
     if lottery.status == "drawn":
         return [int(x) for x in (lottery.result or {}).get("winners", [])]
-    pool = await tickets(session, lottery)
-    winners = pick_winners(pool, max(1, lottery.winners))
-    for customer_id in winners:
-        if lottery.prize_amount > 0:
+    board = await standings(session, lottery)
+    prizes = prize_list(lottery)
+    if lottery.pick == "top":
+        winners = [row.customer_id for row in board[: len(prizes)]]
+    else:
+        winners = pick_winners({row.customer_id: row.points for row in board}, len(prizes))
+    by_id = {row.customer_id: row for row in board}
+    awards: list[dict[str, Any]] = []
+    for rank, (customer_id, prize) in enumerate(zip(winners, prizes, strict=False), start=1):
+        award: dict[str, Any] = {
+            "rank": rank,
+            "customer_id": customer_id,
+            "points": by_id[customer_id].points,
+            "purchases": by_id[customer_id].purchases,
+            "spent": by_id[customer_id].spent,
+            **prize,
+        }
+        if prize["kind"] == "wallet":
             await wallet.reward(
                 session,
                 lottery.shop_id,
                 customer_id,
-                lottery.prize_amount,
+                prize["value"],
                 key=f"lottery:{lottery.id}:{customer_id}",
                 memo=f"lottery {lottery.title}"[:120],
             )
+            award["status"] = "paid"
+        elif prize["kind"] in {"gb", "days"}:
+            found = await service_gifts.customer_target(
+                session, lottery.shop_id, customer_id, prize["kind"], prize["value"]
+            )
+            if found is None:
+                award["status"] = "no_service"
+            else:
+                service, target = found
+                award.update(status="queued", service_id=service.id, service=service.panel_username or "")
+                await queue.enqueue(
+                    session,
+                    "bulk",
+                    "service",
+                    {
+                        "service_id": service.id,
+                        "action": "extend",
+                        "gift_target": target,
+                        "lottery": {"id": lottery.id, "rank": rank},
+                    },
+                    shop_id=lottery.shop_id,
+                    dedupe_key=f"lottery:{lottery.id}:award:{rank}",
+                    max_attempts=8,
+                )
+        else:
+            award["status"] = "manual"
+        awards.append(award)
     lottery.status = "drawn"
     lottery.result = {
         "winners": winners,
-        "entrants": len(pool),
-        "tickets": sum(pool.values()),
+        "awards": awards,
+        "entrants": len(board),
+        "tickets": sum(row.points for row in board),
         "at": utcnow().isoformat(),
     }
     await session.flush()
     return winners
+
+
+async def award_done(session: AsyncSession, lottery_id: int, rank: int, outcome: str) -> bool:
+    """Record what became of a data/time prize; True the first time, when the winner is told."""
+    lottery = await session.get(Lottery, lottery_id, with_for_update=True)
+    if lottery is None:
+        return False
+    result = dict(lottery.result or {})
+    awards = [dict(item) for item in result.get("awards", [])]
+    status = "applied" if outcome in {"applied", "already_applied"} else "failed"
+    changed = False
+    for item in awards:
+        if item.get("rank") == rank and item.get("status") == "queued":
+            item["status"], item["outcome"] = status, outcome
+            changed = True
+    if not changed:
+        return False
+    lottery.result = {**result, "awards": awards}
+    await session.flush()
+    return True
 
 
 async def due_lotteries(session: AsyncSession) -> list[int]:

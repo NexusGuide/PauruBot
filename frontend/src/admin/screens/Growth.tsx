@@ -392,37 +392,209 @@ export { Broadcasts } from "../broadcasts/Broadcasts";
 
 // ---------------------------------------------------------------- lotteries (GRW-04)
 
+type PrizeKind = "wallet" | "gb" | "days" | "text";
+
+interface LotteryPrize {
+  kind: PrizeKind;
+  value: number;
+  label: string;
+}
+
+interface LotteryAward extends LotteryPrize {
+  rank: number;
+  customer_id: number;
+  points: number;
+  purchases: number;
+  spent: number;
+  status: "paid" | "queued" | "applied" | "failed" | "no_service" | "manual";
+  service?: string;
+  name: string;
+  username: string | null;
+  telegram_id: number | null;
+  phone: string | null;
+}
+
 interface LotteryRow {
   id: number;
   title: string;
   prize: string;
   prize_amount: number;
   winners: number;
-  mode: "join" | "purchases";
+  mode: "join" | "purchases" | "points";
+  pick: "random" | "top";
+  points_per: number;
+  board: "none" | "self" | "top";
+  prizes: LotteryPrize[];
   starts_at: string;
   ends_at: string;
   status: "open" | "drawn" | "canceled";
   entrants: number;
   tickets: number;
-  winner_names: { id: number; name: string }[];
+  awards: LotteryAward[];
+}
+
+interface Standing {
+  rank: number;
+  customer_id: number;
+  name: string;
+  username: string | null;
+  telegram_id: number;
+  phone: string | null;
+  points: number;
+  purchases: number;
+  spent: number;
 }
 
 const LOTTERY_TONE = { open: "brand", drawn: "health", canceled: "neutral" } as const;
+const PRIZE_KINDS: PrizeKind[] = ["gb", "days", "wallet", "text"];
+const MEDALS = ["🥇", "🥈", "🥉"];
+const EMPTY_LOTTERY = {
+  title: "",
+  mode: "points" as LotteryRow["mode"],
+  pick: "top" as LotteryRow["pick"],
+  points_per: 10000,
+  board: "self" as LotteryRow["board"],
+  ends_at: null as string | null,
+};
+
+function medal(rank: number): string {
+  return MEDALS[rank - 1] ?? "🏅";
+}
+
+function usePrizeText() {
+  const { t, locale } = useSession();
+  return (prize: LotteryPrize) => {
+    const base =
+      prize.kind === "wallet"
+        ? t("lottery_prize_wallet", { amount: money(prize.value, locale) })
+        : prize.kind === "gb"
+          ? t("lottery_prize_gb", { value: money(prize.value, locale) })
+          : prize.kind === "days"
+            ? t("lottery_prize_days", { value: money(prize.value, locale) })
+            : prize.label;
+    return prize.kind !== "text" && prize.label ? `${base} (${prize.label})` : base;
+  };
+}
+
+function PrizeEditor({ prizes, onChange }: { prizes: LotteryPrize[]; onChange: (next: LotteryPrize[]) => void }) {
+  const { t } = useSession();
+  const set = (index: number, patch: Partial<LotteryPrize>) => onChange(prizes.map((p, i) => (i === index ? { ...p, ...patch } : p)));
+  return (
+    <div className="flex flex-col gap-3">
+      {prizes.map((prize, index) => (
+        <div key={index} className="flex flex-col gap-2 rounded-xl border border-[var(--line)] p-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-bold">
+              {medal(index + 1)} {t("lottery_place", { rank: index + 1 })}
+            </span>
+            <Button small tone="ghost" icon="close" aria-label={t("lottery_prize_remove")} onClick={() => onChange(prizes.filter((_, i) => i !== index))} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Select aria-label={t("lottery_prize_kind")} value={prize.kind} onChange={(e) => set(index, { kind: e.target.value as PrizeKind })}>
+              {PRIZE_KINDS.map((kind) => (
+                <option key={kind} value={kind}>
+                  {t(`lottery_kind_${kind}`)}
+                </option>
+              ))}
+            </Select>
+            {prize.kind !== "text" && <NumberInput aria-label={t(`lottery_value_${prize.kind}`)} placeholder={t(`lottery_value_${prize.kind}`)} value={prize.value} onChange={(v) => set(index, { value: v ?? 0 })} />}
+          </div>
+          <Input
+            aria-label={t("lottery_prize_label")}
+            placeholder={prize.kind === "text" ? t("lottery_prize_text_ph") : t("lottery_prize_label")}
+            maxLength={64}
+            value={prize.label}
+            onChange={(e) => set(index, { label: e.target.value })}
+          />
+        </div>
+      ))}
+      {prizes.length < 20 && (
+        <Button small icon="plus" onClick={() => onChange([...prizes, { kind: "gb", value: 10, label: "" }])}>
+          {t("lottery_prize_add")}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function prizesReady(prizes: LotteryPrize[]): boolean {
+  return prizes.length > 0 && prizes.every((p) => (p.kind === "text" ? p.label.trim() !== "" : p.value > 0));
+}
+
+function StandingsSheet({ lottery, onClose }: { lottery: LotteryRow | null; onClose: () => void }) {
+  const { t, locale } = useSession();
+  const { data, error, reload } = useLoad<{ total: number; items: Standing[] }>(lottery ? `/api/admin/lotteries/${lottery.id}/standings?limit=200` : null);
+  return (
+    <Sheet open={lottery !== null} onClose={onClose} title={lottery ? t("lottery_standings_title", { title: lottery.title }) : ""} wide>
+      <Async data={data} error={error} reload={reload}>
+        {(value) =>
+          value.items.length === 0 ? (
+            <p className="text-[var(--hint)]">{t("lottery_standings_empty")}</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <p className="text-[0.8rem] text-[var(--hint)]">{t("lottery_standings_total", { total: money(value.total, locale) })}</p>
+              <ol className="divide-y divide-[var(--line)]">
+                {value.items.map((row) => (
+                  <li key={row.customer_id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                    <span className="min-w-0">
+                      <span className="font-bold">
+                        {row.rank <= 3 ? medal(row.rank) : `${row.rank}.`} {row.name}
+                      </span>{" "}
+                      <span className="text-[0.8rem] text-[var(--hint)]" dir="ltr">
+                        {row.username ? `@${row.username} · ` : ""}
+                        {row.telegram_id}
+                        {row.phone ? ` · ${row.phone}` : ""}
+                      </span>
+                    </span>
+                    <span className="text-[0.85rem]">
+                      {lottery?.mode === "join"
+                        ? t("lottery_score_join", { points: money(row.points, locale) })
+                        : t("lottery_score", { points: money(row.points, locale), purchases: money(row.purchases, locale) })}{" "}
+                      {lottery?.mode !== "join" && <Money amount={row.spent} />}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )
+        }
+      </Async>
+    </Sheet>
+  );
+}
 
 export function Lotteries() {
   const { t, locale, toast, errorText } = useSession();
   const confirm = useConfirm();
+  const prizeText = usePrizeText();
   const { data, error, reload } = useLoad<{ items: LotteryRow[] }>("/api/admin/lotteries");
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ title: "", prize: "", prize_amount: 0, winners: 1, mode: "join", ends_at: null as string | null });
+  const [form, setForm] = useState(EMPTY_LOTTERY);
+  const [prizes, setPrizes] = useState<LotteryPrize[]>([{ kind: "gb", value: 10, label: "" }]);
+  const [board, setBoard] = useState<LotteryRow | null>(null);
+  const [editing, setEditing] = useState<LotteryRow | null>(null);
+  const [draftPrizes, setDraftPrizes] = useState<LotteryPrize[]>([]);
   const [busy, run] = useAction();
 
   const create = async () => {
     try {
-      await run(() => call("/api/admin/lotteries", { method: "POST", body: form }));
+      await run(() => call("/api/admin/lotteries", { method: "POST", body: { ...form, points_per: form.mode === "points" ? form.points_per : 0, prizes } }));
       toast(t("saved"));
       setOpen(false);
-      setForm({ title: "", prize: "", prize_amount: 0, winners: 1, mode: "join", ends_at: null });
+      setForm(EMPTY_LOTTERY);
+      setPrizes([{ kind: "gb", value: 10, label: "" }]);
+      await reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  const savePrizes = async () => {
+    if (!editing) return;
+    try {
+      await run(() => call(`/api/admin/lotteries/${editing.id}/prizes`, { method: "PUT", body: { prizes: draftPrizes } }));
+      toast(t("saved"));
+      setEditing(null);
       await reload();
     } catch (err) {
       toast(errorText(err), "error");
@@ -470,26 +642,60 @@ export function Lotteries() {
                       <span className="font-bold">{row.title}</span>
                       <Badge tone={LOTTERY_TONE[row.status]}>{t(`lottery_status_${row.status}`)}</Badge>
                     </div>
-                    <p className="text-[0.85rem]">{row.prize}</p>
                     <p className="text-[0.8rem] text-[var(--hint)]">
-                      {t(`lottery_mode_${row.mode}`)} — {t("lottery_counts", { entrants: money(row.entrants, locale), tickets: money(row.tickets, locale) })} —{" "}
-                      <When iso={row.ends_at} time />
+                      {t(`lottery_mode_${row.mode}`, { per: money(row.points_per, locale) })} — {t(`lottery_pick_${row.pick}`)} —{" "}
+                      {t("lottery_counts", { entrants: money(row.entrants, locale), tickets: money(row.tickets, locale) })} — <When iso={row.ends_at} time />
                     </p>
-                    {row.winner_names.length > 0 && (
-                      <p className="text-[0.85rem]">
-                        {t("lottery_winners")}: {row.winner_names.map((w) => w.name).join(", ")}
-                      </p>
+                    {row.status !== "drawn" && row.prizes.length > 0 && (
+                      <ul className="flex flex-col gap-0.5 text-[0.85rem]">
+                        {row.prizes.map((prize, index) => (
+                          <li key={index}>
+                            {medal(index + 1)} {t("lottery_place", { rank: index + 1 })}: {prizeText(prize)}
+                          </li>
+                        ))}
+                      </ul>
                     )}
-                    {row.status === "open" && (
-                      <div className="flex flex-wrap gap-2">
-                        <Button small busy={busy} onClick={() => void act(row, "draw")}>
-                          {t("lottery_draw")}
-                        </Button>
-                        <Button small tone="ghost" busy={busy} onClick={() => void act(row, "cancel")}>
-                          {t("lottery_cancel")}
-                        </Button>
-                      </div>
+                    {row.awards.length > 0 && (
+                      <ul className="flex flex-col gap-1.5 text-[0.85rem]">
+                        {row.awards.map((award) => (
+                          <li key={award.rank} className="rounded-lg bg-[var(--bg)] px-3 py-2">
+                            <div className="font-bold">
+                              {medal(award.rank)} {t("lottery_place", { rank: award.rank })}: {award.name} — {prizeText(award)}
+                            </div>
+                            <div className="text-[0.8rem] text-[var(--hint)]" dir="ltr">
+                              {award.username ? `@${award.username} · ` : ""}
+                              {award.telegram_id ?? ""}
+                              {award.phone ? ` · ${award.phone}` : ""}
+                            </div>
+                            <div className="text-[0.8rem]">{t(`lottery_award_${award.status}`, { service: award.service ?? "" })}</div>
+                          </li>
+                        ))}
+                      </ul>
                     )}
+                    <div className="flex flex-wrap gap-2">
+                      <Button small onClick={() => setBoard(row)}>
+                        {t("lottery_standings")}
+                      </Button>
+                      {row.status === "open" && (
+                        <>
+                          <Button
+                            small
+                            onClick={() => {
+                              setDraftPrizes(row.prizes.length ? row.prizes : [{ kind: "gb", value: 10, label: "" }]);
+                              setEditing(row);
+                            }}
+                          >
+                            {t("lottery_edit_prizes")}
+                          </Button>
+                          <Button small busy={busy} disabled={row.prizes.length === 0} onClick={() => void act(row, "draw")}>
+                            {t("lottery_draw")}
+                          </Button>
+                          <Button small tone="ghost" busy={busy} onClick={() => void act(row, "cancel")}>
+                            {t("lottery_cancel")}
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -497,40 +703,77 @@ export function Lotteries() {
           )
         }
       </Async>
+      <StandingsSheet lottery={board} onClose={() => setBoard(null)} />
+      <Sheet
+        open={editing !== null}
+        onClose={() => setEditing(null)}
+        title={t("lottery_edit_prizes")}
+        footer={
+          <Button tone="primary" busy={busy} disabled={!prizesReady(draftPrizes)} onClick={() => void savePrizes()}>
+            {t("save")}
+          </Button>
+        }
+      >
+        <PrizeEditor prizes={draftPrizes} onChange={setDraftPrizes} />
+      </Sheet>
       <Sheet
         open={open}
         onClose={() => setOpen(false)}
         title={t("new_lottery")}
         footer={
-          <Button tone="primary" busy={busy} disabled={!form.title.trim() || !form.prize.trim() || !form.ends_at} onClick={() => void create()}>
+          <Button
+            tone="primary"
+            busy={busy}
+            disabled={!form.title.trim() || !form.ends_at || !prizesReady(prizes) || (form.mode === "points" && form.points_per < 1)}
+            onClick={() => void create()}
+          >
             {t("save")}
           </Button>
         }
       >
         <div className="flex flex-col gap-4">
           <Field label={t("title")}>{(id) => <Input id={id} maxLength={96} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />}</Field>
-          <Field label={t("lottery_prize_text")} hint={t("lottery_prize_text_hint")}>
-            {(id) => <Input id={id} maxLength={255} value={form.prize} onChange={(e) => setForm({ ...form, prize: e.target.value })} />}
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={t("lottery_prize_amount")} hint={t("lottery_prize_amount_hint")}>
-              {(id) => <NumberInput id={id} value={form.prize_amount} onChange={(v) => setForm({ ...form, prize_amount: v ?? 0 })} />}
-            </Field>
-            <Field label={t("lottery_winner_count")}>
-              {(id) => <NumberInput id={id} value={form.winners} onChange={(v) => setForm({ ...form, winners: Math.max(1, v ?? 1) })} />}
-            </Field>
-          </div>
           <Field label={t("lottery_mode")}>
             {(id) => (
-              <Select id={id} value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })}>
-                <option value="join">{t("lottery_mode_join")}</option>
+              <Select id={id} value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value as LotteryRow["mode"] })}>
+                <option value="points">{t("lottery_mode_points", { per: "…" })}</option>
                 <option value="purchases">{t("lottery_mode_purchases")}</option>
+                <option value="join">{t("lottery_mode_join")}</option>
               </Select>
             )}
           </Field>
+          {form.mode === "points" && (
+            <Field label={t("lottery_points_per")} hint={t("lottery_points_per_hint")}>
+              {(id) => <NumberInput id={id} value={form.points_per} onChange={(v) => setForm({ ...form, points_per: v ?? 0 })} />}
+            </Field>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("lottery_pick")}>
+              {(id) => (
+                <Select id={id} value={form.pick} onChange={(e) => setForm({ ...form, pick: e.target.value as LotteryRow["pick"] })}>
+                  <option value="top">{t("lottery_pick_top")}</option>
+                  <option value="random">{t("lottery_pick_random")}</option>
+                </Select>
+              )}
+            </Field>
+            <Field label={t("lottery_board")}>
+              {(id) => (
+                <Select id={id} value={form.board} onChange={(e) => setForm({ ...form, board: e.target.value as LotteryRow["board"] })}>
+                  <option value="none">{t("lottery_board_none")}</option>
+                  <option value="self">{t("lottery_board_self")}</option>
+                  <option value="top">{t("lottery_board_top")}</option>
+                </Select>
+              )}
+            </Field>
+          </div>
           <Field label={t("lottery_ends_at")}>
             {(id) => <Input id={id} type="datetime-local" value={toLocalInput(form.ends_at)} onChange={(e) => setForm({ ...form, ends_at: fromLocalInput(e.target.value) })} />}
           </Field>
+          <div className="flex flex-col gap-2">
+            <span className="text-[0.85rem] font-semibold">{t("lottery_prizes")}</span>
+            <p className="text-[0.8rem] text-[var(--hint)]">{t("lottery_prizes_hint")}</p>
+            <PrizeEditor prizes={prizes} onChange={setPrizes} />
+          </div>
         </div>
       </Sheet>
     </Page>

@@ -17,6 +17,7 @@ from paurubot.core import growth
 from paurubot.core.formatting import esc, jdate, money
 from paurubot.db.models import Customer, LotteryEntry
 from paurubot.i18n import Texts
+from paurubot.notifications import log_reports
 
 router = Router(name="growth")
 
@@ -104,15 +105,42 @@ async def lottery(
     if item is None:
         await message.answer(t("lottery_none"))
         return
+    prizes = growth.prize_list(item)
     lines = [
         t("lottery_header", title=esc(item.title)),
-        t("lottery_prize", prize=esc(item.prize)),
-        t("lottery_ends", date=jdate(item.ends_at, with_time=True), winners=item.winners),
+        t("lottery_ends", date=jdate(item.ends_at, with_time=True), winners=len(prizes)),
     ]
-    pool = await growth.tickets(session, item)
-    mine = pool.get(customer.id, 0)
-    if item.mode == "purchases":
-        lines.append(t("lottery_by_purchase", tickets=mine))
+    if prizes:
+        lines.append(t("lottery_prizes_title"))
+        for rank, prize in enumerate(prizes, start=1):
+            lines.append(
+                t(
+                    "lottery_prize_row",
+                    mark=log_reports.rank_mark(rank),
+                    rank=t("lot_rank", rank=rank),
+                    prize=log_reports.prize_text(t, prize),
+                )
+            )
+    board = await growth.standings(session, item)
+    mine = next((row for row in board if row.customer_id == customer.id), None)
+    if item.mode != "join":
+        lines.append(t(f"lottery_pick_{item.pick}"))
+    if item.mode == "points":
+        lines.append(t("lottery_by_points", per=money(item.points_per), points=mine.points if mine else 0))
+    elif item.mode == "purchases":
+        lines.append(t("lottery_by_purchase", tickets=mine.points if mine else 0))
+    if item.board in {"self", "top"} and item.mode != "join":
+        if mine is None:
+            lines.append(t("lottery_no_rank"))
+        else:
+            lines.append(t("lottery_my_rank", rank=board.index(mine) + 1, total=len(board)))
+    if item.board == "top" and item.mode != "join" and board:
+        lines.append(t("lottery_top_title"))
+        for rank, row in enumerate(board[: growth.BOARD_TOP], start=1):
+            other = await session.get(Customer, row.customer_id)
+            name = esc(growth.masked(log_reports.person_name(other).lstrip("@") if other else None))
+            lines.append(t("lottery_top_row", mark=log_reports.rank_mark(rank), name=name, points=row.points))
+    if item.mode != "join":
         await message.answer("\n".join(lines))
         return
     joined = await session.scalar(

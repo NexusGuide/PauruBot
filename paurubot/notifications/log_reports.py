@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,7 @@ from paurubot.db.base import utcnow
 from paurubot.db.models import (
     Customer,
     DiscountCode,
+    Lottery,
     Order,
     OrderKind,
     Panel,
@@ -314,3 +316,126 @@ async def order_failed(session: AsyncSession, order: Order, customer: Customer, 
         user=user_block(t, customer),
         time=now_text(),
     )
+
+
+# --- lotteries (GRW-04) -----------------------------------------------------------------------
+
+MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
+AWARDS_PER_MESSAGE = 8
+
+
+def person_name(customer: Customer) -> str:
+    """The customer's own name where they gave one; their @username or ID otherwise."""
+    return (customer.first_name or "").strip() or customer.display_name
+
+
+def rank_mark(rank: int) -> str:
+    return MEDALS.get(rank, "🏅")
+
+
+def prize_text(t: Texts, prize: dict[str, Any]) -> str:
+    kind, value, label = prize.get("kind"), int(prize.get("value") or 0), str(prize.get("label") or "")
+    if kind == "wallet":
+        text = t("lot_prize_wallet", amount=money(value))
+    elif kind == "gb":
+        text = t("lot_prize_gb", value=value)
+    elif kind == "days":
+        text = t("lot_prize_days", value=value)
+    else:
+        return esc(label) or t("report_none")
+    return f"{text} ({esc(label)})" if label else text
+
+
+def score_text(t: Texts, mode: str, points: int, purchases: int, spent: int) -> str:
+    key = {"points": "lot_score_points", "purchases": "lot_score_purchases"}.get(mode, "lot_score_join")
+    return t(key, points=points, purchases=purchases, spent=money(spent))
+
+
+def award_status(t: Texts, award: dict[str, Any]) -> str:
+    status = str(award.get("status") or "manual")
+    return t(f"report_lottery_st_{status}", service=esc(str(award.get("service") or "")))
+
+
+def mode_text(t: Texts, lottery: Lottery) -> str:
+    return t(f"adm_grw_mode_{lottery.mode}", per=money(lottery.points_per))
+
+
+def lottery_awards(lottery: Lottery) -> list[dict[str, Any]]:
+    """The draw's awards; a lottery drawn before ranked prizes only lists its winners."""
+    result = lottery.result or {}
+    if "awards" in result:
+        return [dict(item) for item in result["awards"]]
+    prize = {"kind": "text", "label": lottery.prize, "value": 0, "status": "manual"}
+    return [
+        {"rank": rank, "customer_id": int(cid), "points": 0, "purchases": 0, "spent": 0, **prize}
+        for rank, cid in enumerate(result.get("winners", []), start=1)
+    ]
+
+
+async def lottery_result(
+    session: AsyncSession, lottery: Lottery
+) -> list[tuple[str, InlineKeyboardMarkup | None]]:
+    """The draw's full report for staff: every winner with their prize, what became of it, who
+    they are and their score, and a button to each winner's card. Long lists span messages."""
+    t = await shop_texts(session, lottery.shop_id)
+    shop = await session.get(Shop, lottery.shop_id)
+    head = t(
+        "report_lottery_head",
+        title=esc(lottery.title),
+        mode=mode_text(t, lottery),
+        pick=t(f"adm_grw_pick_{lottery.pick}"),
+        entrants=int((lottery.result or {}).get("entrants") or 0),
+        time=now_text(),
+    )
+    awards = lottery_awards(lottery)
+    if not awards:
+        return [(f"{head}\n\n{t('report_lottery_none')}", None)]
+    messages: list[tuple[str, InlineKeyboardMarkup | None]] = []
+    for start in range(0, len(awards), AWARDS_PER_MESSAGE):
+        blocks, buttons = [], []
+        for award in awards[start : start + AWARDS_PER_MESSAGE]:
+            customer = await session.get(Customer, int(award["customer_id"]))
+            if customer is None:
+                continue
+            rank = t("lot_rank", rank=award["rank"])
+            blocks.append(
+                t(
+                    "report_lottery_award",
+                    mark=rank_mark(int(award["rank"])),
+                    rank=rank,
+                    prize=prize_text(t, award),
+                    status=award_status(t, award),
+                    user=user_block(t, customer),
+                    score=score_text(
+                        t,
+                        lottery.mode,
+                        int(award.get("points") or 0),
+                        int(award.get("purchases") or 0),
+                        int(award.get("spent") or 0),
+                    ),
+                )
+            )
+            if shop is not None and shop.bot_username and customer.telegram_id > 0:
+                url = f"https://t.me/{shop.bot_username}?start=cust_{customer.id}"
+                label = t("report_lottery_btn", rank=rank, name=person_name(customer)[:32])
+                buttons.append([InlineKeyboardButton(text=label, url=url)])
+        top = head if start == 0 else t("report_lottery_more", title=esc(lottery.title))
+        markup = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
+        messages.append(("\n\n".join([top, *blocks]), markup))
+    return messages
+
+
+async def lottery_award(
+    session: AsyncSession, lottery: Lottery, award: dict[str, Any], customer: Customer
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    """A data or time prize reached the winner's service, or could not."""
+    t = await shop_texts(session, lottery.shop_id)
+    text = t(
+        "report_lottery_award_done",
+        rank=t("lot_rank", rank=award["rank"]),
+        title=esc(lottery.title),
+        prize=prize_text(t, award),
+        status=award_status(t, award),
+        user=user_block(t, customer),
+    )
+    return text, await manage_markup(session, lottery.shop_id, customer)
