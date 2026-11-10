@@ -342,3 +342,28 @@ async def test_the_failure_report_hides_secrets_in_the_panels_error(session, env
     report = next(e for e in env["sent"] if e["chat"] == -1004)
     assert "hunter2secret" not in report["text"] and "abcdefgh12345" not in report["text"]
     assert "panel.example.com" in report["text"]
+
+
+async def test_the_shop_mutes_group_topics_and_staff_messages_per_event(session, env) -> None:  # type: ignore[no-untyped-def]
+    """Settings › admin alerts: each event's copy to the group and to staff chats can be turned off."""
+    from paurubot.core import settings as shop_settings
+
+    shop, sent = env["shop"], env["sent"]
+    session.add(Staff(shop_id=shop.id, role=StaffRole.ADMIN, username="mute_admin", telegram_id=77001))
+    await session.commit()
+    await handlers.report(session, shop.id, "payments", "paid")
+    await handlers._to_staff(session, shop.id, "orders.read", "failed", event="order_failed")
+    assert [e["chat"] for e in sent if e["text"] == "paid"] == [-1002]
+    assert 77001 in [e["chat"] for e in sent if e["text"] == "failed"]
+
+    await shop_settings.set_many(session, shop.id, {"alerts_muted": ["group:payments", "dm:order_failed"]})
+    sent.clear()
+    await handlers.report(session, shop.id, "payments", "paid")
+    await handlers.report(session, shop.id, "orders", "ordered")
+    await handlers._to_staff(session, shop.id, "orders.read", "failed", event="order_failed")
+    await handlers._to_staff(session, shop.id, "panels.read", "panel down", event="panel")
+    assert [e["text"] for e in sent if e["chat"] == -1002] == []  # muted, and not sent to «all» either
+    assert [e["text"] for e in sent if e["chat"] == -1001] == ["ordered"]
+    assert "failed" not in [e["text"] for e in sent] and "panel down" in [e["text"] for e in sent]
+    with pytest.raises(shop_settings.SettingError):
+        await shop_settings.set_many(session, shop.id, {"alerts_muted": ["group:gossip"]})

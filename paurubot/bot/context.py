@@ -255,7 +255,11 @@ class GateMiddleware(BaseMiddleware):
             elif isinstance(event, CallbackQuery):
                 await event.answer(texts("phone_required_alert"), show_alert=True)
             return None
-        if cfg["terms_required"] and customer.terms_accepted_version != int(cfg["terms_version"]):
+        if (
+            cfg["terms_required"]
+            and cfg.get("terms_when") != "purchase"  # «before purchase»: asked when an order is made
+            and customer.terms_accepted_version != int(cfg["terms_version"])
+        ):
             if isinstance(event, Message):
                 await event.answer(texts("terms_text"), reply_markup=keyboards.terms(texts))
             elif isinstance(event, CallbackQuery):

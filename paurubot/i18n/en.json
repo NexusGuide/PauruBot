@@ -1132,5 +1132,8 @@
   "daily_change_none": "—",
   "daily_hour_none": "—",
   "report_failed": "⭕️ A customer's «{kind}» failed: the panel refused the config and the customer got none\n\n✍️ Error:\n<code>{reason}</code>\n\n🧾 Order: #{order}{refund}\n🌍 Panel: {panel}\n🕒 Time: {time}\n\n{user}",
-  "report_failed_refund": "\n💸 {amount} Toman went back to the customer's wallet"
+  "report_failed_refund": "\n💸 {amount} Toman went back to the customer's wallet",
+  "limit_active_services": "You have reached the cap of {limit} active services. Renew one of yours or talk to support for more.",
+  "limit_daily_purchases": "You have reached today's cap of {limit} purchases in 24 hours; try again later.",
+  "terms_required": "Please accept the shop's terms first, then buy."
 }

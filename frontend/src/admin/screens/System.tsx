@@ -34,6 +34,7 @@ import {
   CopyText,
   useConfirm,
 } from "../ui";
+import { AlertMatrix, AutoReplies, ReportSections, type AutoReply } from "../settings-editors";
 import { compact } from "./Home";
 import { categorize, controllers, matchesQuery, shown } from "../settings-layout";
 import { atAnHour, everyLabel, everyOptions, summary, type BackupSchedule } from "../backup-schedule";
@@ -237,6 +238,7 @@ const CHOICES: Record<string, string[]> = {
   referral_reward_mode: ["cash", "config", "both"],
   referral_config_counts: ["purchase", "join"],
   referral_config_source: ["plan", "custom"],
+  terms_when: ["entry", "purchase"],
 };
 
 function RefSelect({
@@ -430,6 +432,27 @@ function SettingControl({
       </Field>
     );
   }
+  if (item.key === "alerts_muted") {
+    return (
+      <Field label={label} hint={hint}>
+        {() => <AlertMatrix value={Array.isArray(value) ? (value as string[]) : []} onChange={onChange} />}
+      </Field>
+    );
+  }
+  if (item.key === "auto_replies") {
+    return (
+      <Field label={label} hint={hint}>
+        {() => <AutoReplies value={Array.isArray(value) ? (value as AutoReply[]) : []} onChange={onChange} />}
+      </Field>
+    );
+  }
+  if (item.key === "daily_report_sections") {
+    return (
+      <Field label={label} hint={hint}>
+        {() => <ReportSections value={Array.isArray(value) ? (value as string[]) : []} onChange={onChange} />}
+      </Field>
+    );
+  }
   if (item.key === "app_links") {
     return (
       <Field label={label} hint={hint}>
@@ -523,7 +546,7 @@ function SettingControl({
   );
 }
 
-const WIDE_SETTINGS = ["card_accounts", "topup_bonus_rules", "app_links", "loyalty_tiers", "wheel_prizes", "business_rules", "business_reply", "guest_plan_ids"];
+const WIDE_SETTINGS = ["alerts_muted", "auto_replies", "card_accounts", "topup_bonus_rules", "app_links", "loyalty_tiers", "wheel_prizes", "business_rules", "business_reply", "guest_plan_ids"];
 // Edited elsewhere: the trust channel on the channels screen; appearance and resale on their own screens.
 const HIDDEN_GROUPS = ["appearance", "resale"];
 const HIDDEN_SETTINGS = ["trust_channel_id"];

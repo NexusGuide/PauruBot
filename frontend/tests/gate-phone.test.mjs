@@ -25,6 +25,7 @@ function setup({ contact, share, gates = [] }) {
     },
     "../telegram": { haptic: kind => calls.haptics.push(kind), tg },
     "../ui": { Button: "Button", Screen: "Screen" },
+    "react-router-dom": { useNavigate: () => () => {} },
   });
   const press = async () => {
     const [button] = nodes(h.render(Gate, {}), n => n.type === "Button" && n.props.children === "gate_phone_share");
@@ -81,4 +82,24 @@ test("a cancelled share says so and reads nothing", async () => {
 for (const locale of ["fa", "en"]) test(`phone errors are localized in ${locale}`, () => {
   const copy = JSON.parse(readFileSync(url(`locales/${locale}.json`), "utf8"));
   for (const key of ["err_phone_country_not_allowed", "err_phone_not_yours", "gate_phone_cancelled", "gate_phone_not_yet"]) assert(copy[key]?.length > 0, key);
+});
+
+test("terms asked only at checkout can be put off: back home, the gate closes", async () => {
+  const h = screenHarness(), went = [], checked = [];
+  const { Gate } = h.compile(url("screens/Gate.tsx"), {
+    "../api": { api: {} },
+    "../state": {
+      useApp: () => ({ t: key => key, me: { id: 1 },
+        gate: { requirement: "terms_required", bot_username: "shop_bot", terms: { version: 2, text: "rules" } },
+        checkGate: async next => { checked.push(next); return true; }, toast() {} }),
+      errorText: () => "",
+    },
+    "../telegram": { haptic() {}, tg: {} },
+    "../ui": { Button: "Button", Screen: "Screen" },
+    "react-router-dom": { useNavigate: () => (to, options) => went.push([to, options]) },
+  });
+  const [later] = nodes(h.render(Gate, {}), n => n.type === "Button" && n.props.children === "gate_terms_later");
+  later.props.onClick();
+  assert.deepEqual(went, [["/", { replace: true }]]);
+  assert.deepEqual(checked, [{ requirement: null, bot_username: "shop_bot" }]);
 });

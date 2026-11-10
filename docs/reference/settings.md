@@ -15,8 +15,10 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `support_username` | str | "" | Support username. Without @ |
 | `terms_required` | bool | false | Require terms |
 | `terms_version` | int | 1 | Terms version. Raising it asks everyone to accept again |
+| `terms_when` | str | "entry" | When to ask for the terms. Entry: before anything in the bot and Mini App. Purchase: only before buying (and after each new version) |
 | `typed_confirm_enabled` | bool | false | Type to confirm deletions. Deleting a service, a bulk delete or disable, and a large refund need a typed confirmation. Turn it on after the panel shows the confirm dialog |
 | `typed_confirm_refund_min` | int | 1000000 | Typed confirmation for refunds from (Toman). Refunds of this amount or more need the amount typed. Empty: never |
+| `auto_replies` | list | [] | Auto replies. When a free message contains one of these words, the bot answers with this instead of the menu |
 
 ## Free trial
 
@@ -215,6 +217,8 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `renew_resets_usage` | bool | true | Renewal resets usage. When off, leftover data carries over |
 | `renew_mode` | str | "" | When renewing. extend_reset, extend_carry, restart_reset or restart_carry; empty follows "Renewal resets usage". A plan can choose its own |
 | `warn_remaining_percent` | int | 10 | Low data warning (% left) |
+| `alerts_quiet_start` | int | — | Reminders quiet from. Hour 0–23, server time. Data and expiry alerts due in this window go out in the morning. Empty is off |
+| `alerts_quiet_end` | int | — | Reminders quiet until. E.g. 0 to 8: alerts due at midnight go out at 8:00 |
 | `warn_days` | int | 2 | Expiry warning (days left) |
 | `delete_expired_after_days` | int | 7 | Delete expired after (days). 0 means never |
 | `usage_sync_minutes` | int | 10 | Usage sync interval (minutes) |
@@ -235,6 +239,8 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `self_delete_enabled` | bool | false | Customers can delete their own services |
 | `self_delete_refund_percent` | int | 80 | Refund of the unused value (%). What share of the unused part (time or data, whichever is less) of the last payment goes back to the wallet. 0 means no refund |
 | `ip_notice_enabled` | bool | true | Tell customers when a device is cut off. For plans with a device limit on 3x-ui and Rebecca panels: when a new device pushes an older one off, the customer gets a short notice (at most once an hour) |
+| `max_active_services` | int | 0 | Most active services per customer. Active services plus orders on their way. 0 is no cap; resellers have their own |
+| `max_daily_purchases` | int | 0 | Most purchases per customer in 24 hours. 0 is no cap. Renewals don't count |
 | `info_card_enabled` | bool | true | Service info card. A Card button on each service sends a picture with usage, days left, end date and the QR. After a purchase the card is sent instead of the bare QR |
 | `info_card_theme` | str | "midnight" | Card colours. The colour set used for every service card |
 | `info_card_qr` | bool | true | QR on the card. Turn off if customers share cards publicly and the link should stay private |
@@ -281,7 +287,10 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
+| `alerts_muted` | list | [] | Admin alerts. For each event, choose whether staff chats and the report group get it. The panel's inbox always has everything |
 | `daily_report_hour` | int | 23 | Daily report hour. Tehran time, 0 to 23 |
+| `daily_report_enabled` | bool | true | Daily report. A summary of each day to the report group (reports topic) or staff chats |
+| `daily_report_sections` | list | ["summary", "money", "panels"] | Daily report parts. Each part is its own message |
 | `log_retention_days` | int | 30 | Keep logs (days) |
 
 ## Backups

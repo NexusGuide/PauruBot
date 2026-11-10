@@ -489,7 +489,7 @@ export const api = {
   me: () => get<Me>("/me"),
   join: () => get<{ channels: JoinChannel[] }>("/join"),
   checkJoin: () => post<{ ok: boolean; channels: JoinChannel[] }>("/join/check"),
-  gate: () => get<GateInfo>("/gate"),
+  gate: (purpose?: "purchase") => get<GateInfo>(purpose ? `/gate?purpose=${purpose}` : "/gate"),
   acceptTerms: (version: number) => post<GateInfo>("/gate/terms", { version }),
   /** The signed contact from requestContact, checked and saved by the server (F-12). */
   sharePhone: (response: string) => post<GateInfo>("/gate/phone", { response }),

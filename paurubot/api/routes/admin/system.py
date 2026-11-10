@@ -42,21 +42,7 @@ from paurubot.worker import queue
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-LOG_TOPICS = (
-    "all",
-    "orders",
-    "payments",
-    "users",
-    "errors",
-    "services",
-    "reports",
-    "backups",
-    "resellers",
-    "panels",
-    "tickets",
-    "trials",
-    "referrals",
-)
+LOG_TOPICS = ("all", *shop_settings.REPORT_TOPICS)
 CHANNEL_FIELDS = ["id", "chat_id", "title", "url", "is_active", "sort"]
 TRUST_FIELDS = ["id", "chat_id", "title", "url", "kinds", "is_active", "sort"]
 LOG_FIELDS = ["id", "topic", "chat_id", "thread_id"]

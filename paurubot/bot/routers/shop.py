@@ -361,6 +361,9 @@ async def checkout(
             order = await orders.create(session, customer, draft)  # sticky code no longer applies
             code = None
     except orders.OrderError as exc:
+        if exc.key == "terms_required":  # the shop asks for its terms before a purchase
+            await show(event, t("terms_text"), keyboards.terms(t))
+            return
         await show(event, error_text(t, exc.key, exc.params))
         return
     except pricing.DiscountError as exc:
@@ -709,6 +712,9 @@ async def bulk_pay(
     except orders.OrderError as exc:
         await session.rollback()
         await call.answer()
+        if exc.key == "terms_required":
+            await show(call, t("terms_text"), keyboards.terms(t))
+            return
         await show(call, error_text(t, exc.key, exc.params))
         return
     await session.commit()

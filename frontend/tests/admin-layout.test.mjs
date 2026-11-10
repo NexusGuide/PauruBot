@@ -63,9 +63,11 @@ test("tabs follow permissions: a hub shows only what this person may open", () =
 
 test("settings: groups gather into categories, an unknown group is not lost", () => {
   const cats = settings.categorize(["general", "payments", "crypto", "services", "trial", "growth", "brand_new"]);
-  assert.deepEqual(cats.map((c) => c.key), ["general", "sales", "service", "growth", "other"]);
+  assert.deepEqual(cats.map((c) => c.key), ["general", "sales", "pay", "growth", "other"]);
   assert.deepEqual(cats.find((c) => c.key === "other").groups, ["brand_new"]);
-  assert.deepEqual(cats.find((c) => c.key === "sales").groups, ["payments", "crypto"]);
+  assert.deepEqual(cats.find((c) => c.key === "pay").groups, ["payments", "crypto"]);
+  assert.deepEqual(cats.find((c) => c.key === "sales").groups, ["services", "trial"]);
+  assert.deepEqual(settings.categorize(["reports"]).map((c) => c.key), ["alerts"]);
 });
 
 test("settings: an option shows only while the switches above it are on", () => {
@@ -199,4 +201,25 @@ test("quick links and variables", () => {
   assert.equal(screen.variableSection([]), "other");
   const app = readFileSync(src("App.tsx"), "utf8");
   for (const path of ["/customer-bots", "/quick-links", "/variables"]) assert.ok(app.includes(`path="${path}"`), path);
+});
+
+test("settings editors match the server's lists and store what is off", () => {
+  const editors = h.compile(src("settings-editors.tsx"), { "./session": {}, "./ui": {} });
+  const specs = readFileSync(new URL("../../paurubot/core/settings.py", import.meta.url), "utf8");
+  const tuple = (name) => [...specs.match(new RegExp(`${name} = \\(([^)]*)\\)`))[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+  assert.deepEqual([...editors.REPORT_TOPICS], tuple("REPORT_TOPICS"));
+  assert.deepEqual([...editors.STAFF_EVENTS], tuple("STAFF_EVENTS"));
+  assert.deepEqual([...editors.DAILY_SECTIONS], tuple("DAILY_SECTIONS"));
+  assert.deepEqual(editors.setMuted([], "dm:panel", false), ["dm:panel"]);
+  assert.deepEqual(editors.setMuted(["dm:panel", "group:orders"], "dm:panel", true), ["group:orders"]);
+  assert.deepEqual(editors.parseWords(" کند، قطع ,slow,, "), ["کند", "قطع", "slow"]);
+  const fa = locale("fa"), en = locale("en");
+  for (const key of [...editors.STAFF_EVENTS.map((e) => `alert_event_${e}`), ...editors.REPORT_TOPICS.map((t) => `log_topic_${t}`),
+    ...editors.DAILY_SECTIONS.map((s) => `daily_section_${s}`)]) {
+    assert.ok(key in fa && key in en, key);
+  }
+  for (const key of ["max_active_services", "max_daily_purchases", "alerts_quiet_start", "alerts_quiet_end", "daily_report_enabled",
+    "daily_report_sections", "alerts_muted", "auto_replies", "terms_when"]) {
+    assert.ok(`setting_${key}` in fa && `setting_${key}` in en, key);
+  }
 });

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.auth import rbac
 from paurubot.config import get_settings
+from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import esc, jdate, local, money, processing_key
 from paurubot.db.base import utcnow
 from paurubot.db.models import (
@@ -88,6 +89,10 @@ async def staff_chats(session: AsyncSession, shop_id: int, permission: str) -> l
     return sorted(chats)
 
 
+async def _muted(session: AsyncSession, shop_id: int, key: str) -> bool:
+    return key in ((await shop_settings.load(session, shop_id)).get("alerts_muted") or [])
+
+
 async def _to_staff(
     session: AsyncSession,
     shop_id: int,
@@ -96,8 +101,12 @@ async def _to_staff(
     *,
     photo: str | None = None,
     markup: InlineKeyboardMarkup | None = None,
+    event: str,
 ) -> list[Any]:
-    """Send to every staff chat with the permission; returns the messages that went out."""
+    """Send to every staff chat with the permission; returns the messages that went out.
+    Nothing goes when the shop muted this `event` for staff chats (settings › alerts)."""
+    if await _muted(session, shop_id, f"dm:{event}"):
+        return []
     sent: list[Any] = []
     for chat_id in await staff_chats(session, shop_id, permission):
         try:
@@ -126,7 +135,9 @@ async def report(
     *,
     markup: InlineKeyboardMarkup | None = None,
 ) -> None:
-    """Copy an event to the shop's log channel for that topic (SUP-03)."""
+    """Copy an event to the shop's log channel for that topic (SUP-03), unless the shop muted it."""
+    if await _muted(session, shop_id, f"group:{topic}"):
+        return
     order = [topic, *([TOPIC_FALLBACK[topic]] if topic in TOPIC_FALLBACK else []), "all"]
     rows = list(
         await session.scalars(
@@ -367,11 +378,11 @@ async def _own_alert(session: AsyncSession, shop: Shop, account: Any, owner: Cus
     t = await texts_for(session, shop.id, owner.locale or shop.default_locale)
     bot = f"@{shop.bot_username}" if shop.bot_username else shop.title
     text = t(key, username=esc(account.username), bot=esc(bot))
-    await _to_staff(session, shop.id, "dashboard.view", text)
+    await _to_staff(session, shop.id, "dashboard.view", text, event="own_bot")
     if shop.parent_id is not None:
         parent_t = await _texts(session, owner)
         copy = parent_t("own_alert_admin", bot=esc(bot), owner=esc(owner.display_name), text=text)
-        await _to_staff(session, shop.parent_id, "resellers.manage", copy)
+        await _to_staff(session, shop.parent_id, "resellers.manage", copy, event="own_bot")
 
 
 async def own_panel_alert(session: AsyncSession, job: queue.Claimed) -> None:
@@ -462,7 +473,7 @@ async def order_failed(session: AsyncSession, job: queue.Claimed) -> None:
         text = t(
             "adm_order_failed", id=order.id, customer=esc(customer.display_name), reason=esc(reason[:200])
         )
-    await _to_staff(session, order.shop_id, "orders.read", text)
+    await _to_staff(session, order.shop_id, "orders.read", text, event="order_failed")
     from paurubot.notifications import log_reports
 
     async def failure_report() -> None:
@@ -599,6 +610,7 @@ async def receipt_review(session: AsyncSession, job: queue.Claimed) -> None:
         caption,
         photo=payment.receipt_file_id,
         markup=review_kb(t, payment.id, fixable=payment.provider == "card"),
+        event="receipt",
     )
     for message in sent:
         await review_sync.remember(payment.id, message)
@@ -702,7 +714,15 @@ async def card_verify(session: AsyncSession, job: queue.Claimed) -> None:
             ]
         ]
     )
-    await _to_staff(session, shop.id, "payments.review", caption, photo=card.photo_file_id, markup=markup)
+    await _to_staff(
+        session,
+        shop.id,
+        "payments.review",
+        caption,
+        photo=card.photo_file_id,
+        markup=markup,
+        event="card_verify",
+    )
 
 
 def _renew_markup(t: Texts, service_id: int) -> InlineKeyboardMarkup:
@@ -969,6 +989,7 @@ async def reseller_application(session: AsyncSession, job: queue.Claimed) -> Non
             text=esc(application.text or "-"),
         ),
         markup=markup,
+        event="reseller_application",
     )
 
 
@@ -1207,7 +1228,7 @@ async def panel_alert(session: AsyncSession, job: queue.Claimed) -> None:
         minutes=job.payload.get("minutes") or 0,
         percent=job.payload.get("percent") or 0,
     )
-    await _to_staff(session, shop.id, "panels.read", text)
+    await _to_staff(session, shop.id, "panels.read", text, event="panel")
     await report(session, shop.id, "panels", text)
 
 
@@ -1356,7 +1377,7 @@ async def lottery_result(session: AsyncSession, job: queue.Claimed) -> None:
     if await kv.marked([staff_sent]):
         return
     for text, markup in await log_reports.lottery_result(session, lottery):
-        await _to_staff(session, lottery.shop_id, "broadcast.send", text, markup=markup)
+        await _to_staff(session, lottery.shop_id, "broadcast.send", text, markup=markup, event="lottery")
         await report(session, lottery.shop_id, "reports", text, markup=markup)
     await kv.mark(staff_sent, LOTTERY_SENT_TTL)
 

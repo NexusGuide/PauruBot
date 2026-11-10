@@ -182,3 +182,23 @@ async def test_quick_link_opens_its_section(session, env) -> None:  # type: igno
     before = len(fake.calls)
     await send(message_update(UID, "/start go_trial"))
     assert len(fake.calls) > before + 1  # the menu, then the trial screen
+
+
+async def test_keyword_auto_replies(session, env) -> None:  # type: ignore[no-untyped-def]
+    """A free message with one of the shop's keywords gets that answer instead of the menu."""
+    send, fake, shop = env["send"], env["fake"], env["shop"]
+    replies = [
+        {"words": ["کند", "قطع"], "text": "لینک اشتراک را یک بار به‌روز کن."},
+        {"words": ["iPhone", "آیفون"], "text": "آموزش آیفون"},
+    ]
+    await shop_settings.set_many(session, shop.id, {"auto_replies": replies})
+    await session.commit()
+    await send(message_update(UID, "/start"))
+    await send(message_update(UID, "سلام سرعتم خیلی کند شده"))
+    assert fake.last(SendMessage).text == "لینک اشتراک را یک بار به‌روز کن."
+    await send(message_update(UID, "IPHONE setup?"))
+    assert fake.last(SendMessage).text == "آموزش آیفون"
+    await send(message_update(UID, "چیز دیگری"))
+    assert fake.last(SendMessage).text != "آموزش آیفون"  # no keyword: the menu as before
+    with pytest.raises(shop_settings.SettingError):
+        await shop_settings.set_many(session, shop.id, {"auto_replies": [{"words": [], "text": "x"}]})

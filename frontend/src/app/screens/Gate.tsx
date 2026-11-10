@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { errorText, useApp } from "../state";
 import { haptic, tg } from "../telegram";
@@ -8,7 +9,8 @@ const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve,
 
 /** The phone and terms gate (SEC-F11): what the shop requires before anything else, and the way through. */
 export function Gate() {
-  const { t, gate, checkGate, toast } = useApp();
+  const { t, me, gate, checkGate, toast } = useApp();
+  const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const requirement = gate?.requirement ?? null;
 
@@ -117,6 +119,19 @@ export function Gate() {
             <Button busy={busy} disabled={!gate?.terms?.version} onClick={() => void accept()}>
               {t("gate_terms_accept")}
             </Button>
+            {me && (
+              // Asked at checkout only (terms «before purchase»): the customer may still look around.
+              <Button
+                tone="quiet"
+                className="mt-2"
+                onClick={() => {
+                  navigate("/", { replace: true });
+                  void checkGate({ requirement: null, bot_username: gate?.bot_username ?? null });
+                }}
+              >
+                {t("gate_terms_later")}
+              </Button>
+            )}
           </div>
         </div>
       </Screen>

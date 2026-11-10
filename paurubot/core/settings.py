@@ -32,6 +32,8 @@ SPECS: dict[str, Spec] = {
     "support_username": Spec(str, "", "general"),
     "terms_required": Spec(bool, False, "general"),
     "terms_version": Spec(int, 1, "general"),
+    # entry: before using the bot at all; purchase: only before a new purchase.
+    "terms_when": Spec(str, "entry", "general"),
     # typed second step for destructive staff actions on the web (F-22)
     "typed_confirm_enabled": Spec(bool, False, "general"),
     "typed_confirm_refund_min": Spec(int, 1_000_000, "general"),
@@ -197,6 +199,9 @@ SPECS: dict[str, Spec] = {
     "renew_resets_usage": Spec(bool, True, "services"),
     "renew_mode": Spec(str, "", "services"),  # "" follows renew_resets_usage (SVC-13)
     "warn_remaining_percent": Spec(int, 10, "services"),
+    # Local hours (0-23) when customer alerts wait for the morning; off unless both are set.
+    "alerts_quiet_start": Spec(int, None, "services"),
+    "alerts_quiet_end": Spec(int, None, "services"),
     "warn_days": Spec(int, 2, "services"),
     "delete_expired_after_days": Spec(int, 7, "services"),
     "usage_sync_minutes": Spec(int, 10, "services"),
@@ -218,6 +223,9 @@ SPECS: dict[str, Spec] = {
     "self_delete_enabled": Spec(bool, False, "services"),
     "self_delete_refund_percent": Spec(int, 80, "services"),
     "ip_notice_enabled": Spec(bool, True, "services"),
+    # Shop-wide caps for customers (resellers follow their own profile's caps); 0 is no cap.
+    "max_active_services": Spec(int, 0, "services"),
+    "max_daily_purchases": Spec(int, 0, "services"),
     "info_card_enabled": Spec(bool, True, "services"),
     "info_card_theme": Spec(str, "midnight", "services"),
     "info_card_qr": Spec(bool, True, "services"),
@@ -266,7 +274,14 @@ SPECS: dict[str, Spec] = {
     "panel_accounts_days_min": Spec(int, 1, "resellers"),
     "panel_accounts_days_max": Spec(int, 365, "resellers"),
     # reports
+    # Admin alerts turned off: "group:<report topic>" or "dm:<staff event>" (settings › alerts).
+    "alerts_muted": Spec(list, [], "reports"),
+    # Answers to free messages that contain a keyword: [{"words": [...], "text": "..."}].
+    "auto_replies": Spec(list, [], "general"),
     "daily_report_hour": Spec(int, 23, "reports"),
+    "daily_report_enabled": Spec(bool, True, "reports"),
+    # Which parts of the nightly report are sent, in the report's own order.
+    "daily_report_sections": Spec(list, ["summary", "money", "panels"], "reports"),
     "log_retention_days": Spec(int, 30, "reports"),
     # backups: server-wide, read from the root shop and edited on the Backups page only.
     # An unset value falls back to the server's BACKUP_* environment setting.
@@ -283,6 +298,69 @@ _cache: dict[int, tuple[float, dict[str, Any]]] = {}
 
 class SettingError(ValueError):
     pass
+
+
+DAILY_SECTIONS = ("summary", "money", "panels")
+# Topics of the report group (SUP-03) and the events sent to staff chats; each can be muted.
+REPORT_TOPICS = (
+    "orders",
+    "payments",
+    "users",
+    "errors",
+    "services",
+    "reports",
+    "backups",
+    "resellers",
+    "panels",
+    "tickets",
+    "trials",
+    "referrals",
+)
+STAFF_EVENTS = (
+    "receipt",
+    "card_verify",
+    "order_failed",
+    "reseller_application",
+    "panel",
+    "lottery",
+    "own_bot",
+)
+ALERT_KEYS = {f"group:{t}" for t in REPORT_TOPICS} | {f"dm:{e}" for e in STAFF_EVENTS}
+MAX_AUTO_REPLIES, MAX_AUTO_WORDS, MAX_WORD, MAX_REPLY = 30, 12, 40, 2000
+
+
+def _check_auto_replies(value: list[Any]) -> None:
+    if len(value) > MAX_AUTO_REPLIES:
+        raise SettingError("auto_replies_invalid")
+    for rule in value:
+        words = rule.get("words") if isinstance(rule, dict) else None
+        text = rule.get("text") if isinstance(rule, dict) else None
+        if (
+            not isinstance(words, list)
+            or not 0 < len(words) <= MAX_AUTO_WORDS
+            or not all(isinstance(w, str) and 0 < len(w.strip()) <= MAX_WORD for w in words)
+            or not isinstance(text, str)
+            or not 0 < len(text.strip()) <= MAX_REPLY
+        ):
+            raise SettingError("auto_replies_invalid")
+
+
+def _check(key: str, value: Any) -> None:
+    """Values a type alone cannot rule out."""
+    if value is None:
+        return
+    if key == "auto_replies":
+        _check_auto_replies(value)
+    if key == "terms_when" and value not in {"entry", "purchase"}:
+        raise SettingError("terms_when_invalid")
+    if key == "alerts_muted" and not set(value) <= ALERT_KEYS:
+        raise SettingError("alerts_muted_invalid")
+    if key == "daily_report_sections" and not set(value) <= set(DAILY_SECTIONS):
+        raise SettingError("daily_report_sections_invalid")
+    if key in {"alerts_quiet_start", "alerts_quiet_end"} and not 0 <= value <= 23:
+        raise SettingError(f"{key} must be an hour from 0 to 23")
+    if key in {"max_active_services", "max_daily_purchases"} and value < 0:
+        raise SettingError(f"{key} must not be negative")
 
 
 def defaults() -> dict[str, Any]:
@@ -379,6 +457,8 @@ def coerce(key: str, value: Any) -> Any:
 
 async def set_many(session: AsyncSession, shop_id: int, values: dict[str, Any]) -> dict[str, Any]:
     clean = {key: coerce(key, value) for key, value in values.items()}
+    for key, value in clean.items():
+        _check(key, value)
     if any(key.startswith("tonpay_custom_") for key in clean):
         from paurubot.payments.base import PaymentError
         from paurubot.payments.tonpay_custom_runtime import configuration

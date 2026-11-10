@@ -1132,5 +1132,8 @@
   "daily_change_none": "—",
   "daily_hour_none": "—",
   "report_failed": "⭕️ یک کاربر قصد «{kind}» داشت که ساخت کانفیگ با خطا مواجه شد و به کاربر کانفیگ داده نشد\n\n✍️ دلیل خطا:\n<code>{reason}</code>\n\n🧾 سفارش: #{order}{refund}\n🌍 نام پنل: {panel}\n🕒 زمان: {time}\n\n{user}",
-  "report_failed_refund": "\n💸 مبلغ {amount} تومان به کیف پول کاربر برگشت"
+  "report_failed_refund": "\n💸 مبلغ {amount} تومان به کیف پول کاربر برگشت",
+  "limit_active_services": "به سقف سرویس‌های فعال ({limit} سرویس) رسیدی. برای سرویس بیشتر، یکی از سرویس‌هایت را تمدید کن یا با پشتیبانی صحبت کن.",
+  "limit_daily_purchases": "امروز به سقف خرید ({limit} خرید در ۲۴ ساعت) رسیدی؛ کمی بعد دوباره امتحان کن.",
+  "terms_required": "اول قوانین فروشگاه را بپذیر، بعد خرید کن."
 }

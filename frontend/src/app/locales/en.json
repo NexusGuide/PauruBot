@@ -804,5 +804,8 @@
   "own_bot_valid": "Bot valid until",
   "own_bot_no_end": "No end date",
   "own_stop_bot_expired": "The bot's time with the shop is up",
-  "own_alert_bot_expiring": "Bot ending soon"
+  "own_alert_bot_expiring": "Bot ending soon",
+  "err_limit_active_services": "You have reached your cap of active services.",
+  "err_limit_daily_purchases": "You have reached today's purchase cap; try again later.",
+  "gate_terms_later": "Not now"
 }

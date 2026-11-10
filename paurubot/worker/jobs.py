@@ -668,8 +668,11 @@ async def reconcile_stars() -> None:
                 log.info("stars reconciliation credited payments %s", result.credited)
 
 
-def daily_messages(texts: Any, date: str, summary: dict[str, int], details: Any) -> list[str]:
-    """The nightly report as three messages: the summary, the day's money, and each panel."""
+def daily_messages(
+    texts: Any, date: str, summary: dict[str, int], details: Any, sections: list[str] | None = None
+) -> list[str]:
+    """The nightly report as up to three messages: the summary, the day's money, and each panel;
+    `sections` picks which of them are sent (all by default)."""
     from paurubot.core.formatting import esc, money
 
     change = details.change_percent
@@ -708,7 +711,9 @@ def daily_messages(texts: Any, date: str, summary: dict[str, int], details: Any)
     panel_text = texts(
         "daily_report_panels", panels="\n➖➖➖➖➖\n".join(panels) or texts("daily_no_panels")
     )
-    return [head, money_text, panel_text]
+    parts = {"summary": head, "money": money_text, "panels": panel_text}
+    wanted = set(parts) if sections is None else set(sections)
+    return [text for key, text in parts.items() if key in wanted]
 
 
 @every(300, "reports.daily")
@@ -728,6 +733,9 @@ async def daily_report() -> None:
     for shop_id in shop_ids:
         async with session_scope() as session:
             cfg = await shop_settings.load(session, shop_id)
+            sections = list(cfg.get("daily_report_sections") or [])
+            if not cfg.get("daily_report_enabled", True) or not sections:
+                continue
             hour = cfg.get("daily_report_hour")
             # Due from its hour on, so a missed hour sends it late instead of never (REF-06).
             start, end = day_bounds(report_day(now, 23 if hour is None else int(hour)))
@@ -740,7 +748,7 @@ async def daily_report() -> None:
             texts = Texts(
                 shop_row.default_locale if shop_row else "fa", await load_overrides(session, shop_id)
             )
-            messages = daily_messages(texts, jdate(start), summary, details)
+            messages = daily_messages(texts, jdate(start), summary, details, sections)
             from paurubot.db.models import LogChannel
 
             channel = await session.scalar(

@@ -18,6 +18,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot import kv
+from paurubot.config import get_settings
 from paurubot.core import alert_policy, orders
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import utcnow
@@ -86,6 +87,8 @@ async def evaluate_alerts(
     if service.status == ServiceStatus.LIMITED and previous != ServiceStatus.LIMITED:
         once("limited", f"{service.data_limit}", {})
     service.alerts_sent = sent
+    # Inside the shop's quiet hours the alerts wait for the morning (settings › reminders).
+    later = alert_policy.quiet_until(datetime.now(UTC), cfg, get_settings().tz) if jobs else None
     for payload in jobs:
         await queue.enqueue(
             session,
@@ -94,6 +97,7 @@ async def evaluate_alerts(
             payload,
             shop_id=service.shop_id,
             dedupe_key=f"alert:{service.id}:{payload['alert']}:{sent[str(payload['alert'])]}",
+            run_at=later,
         )
     return queued
 
