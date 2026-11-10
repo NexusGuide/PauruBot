@@ -154,3 +154,22 @@ async def test_a_stopped_bot_gets_no_reminder_about_its_end(session, own) -> Non
     await session.commit()
     changes = await own_panel.recheck_all(session)
     assert all(alert != "own_bot_expiring" for _, alert in changes)
+
+
+async def test_the_bots_manager_has_no_reseller_panel_and_the_mini_app_sits_above_admin(
+    session, own, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    send, fake = own["send"], own["fake"]
+    monkeypatch.setattr(get_settings(), "public_url", "https://bot.example.com")
+    await send(own["child"].id, message_update(MERCHANT, "/start"))
+    labels = _menu(fake)
+    assert labels[-2:] == [FA("btn_miniapp"), FA("btn_admin")]  # the Mini App right above admin
+    await send(own["child"].id, message_update(MERCHANT, FA("btn_admin")))
+    assert FA("adm_nav_resellers") not in _menu(fake) and FA("adm_nav_stats") in _menu(fake)
+    await send(own["child"].id, message_update(MERCHANT, FA("adm_nav_resellers")))
+    assert fake.last(SendMessage).text == FA("adm_forbidden")
+    # the main shop keeps both its reseller panel and its own menu order
+    await send(own["main"].id, message_update(PLATFORM_OWNER, "/start"))
+    assert _menu(fake)[0] == FA("btn_miniapp")
+    await send(own["main"].id, message_update(PLATFORM_OWNER, FA("btn_admin")))
+    assert FA("adm_nav_resellers") in _menu(fake)

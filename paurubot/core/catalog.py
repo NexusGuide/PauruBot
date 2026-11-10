@@ -214,3 +214,57 @@ async def pick_panel_for(
         if best is None or ratio < best[0]:
             best = (ratio, panel)
     return best[1] if best else None
+
+
+# --- deleting a category or a location (CAT-01) ------------------------------------------------
+
+
+class CatalogError(Exception):
+    def __init__(self, key: str) -> None:
+        super().__init__(key)
+        self.key = key
+
+
+async def delete_category(session: AsyncSession, category: Category) -> int:
+    """Remove a category for good. Its plans stay on sale, without a category ("other plans").
+
+    Returns how many plans (config and admin-account ones) were in it."""
+    from sqlalchemy import update
+
+    from paurubot.db.models import AccountPlan
+
+    moved = 0
+    for model in (Plan, AccountPlan):
+        result = await session.execute(
+            update(model).where(model.category_id == category.id).values(category_id=None)
+        )
+        moved += int(result.rowcount or 0)  # type: ignore[attr-defined]
+    await session.delete(category)
+    await session.flush()
+    return moved
+
+
+async def delete_location(session: AsyncSession, location: Location) -> None:
+    """Remove a location for good, unless something can only be sold through it.
+
+    A plan sold "by location" (no panel of its own) or from the ready-made stock needs its
+    location, and so does the custom plan's location: those must be moved first. Panels and
+    panel-bound plans only lose the label."""
+    from sqlalchemy import update
+
+    from paurubot.core import settings as shop_settings
+
+    needing = await session.scalar(
+        select(func.count(Plan.id)).where(
+            Plan.location_id == location.id, or_(Plan.panel_id.is_(None), Plan.delivery == "stock")
+        )
+    )
+    if int(needing or 0) > 0:
+        raise CatalogError("location_in_use")
+    cfg = await shop_settings.load(session, location.shop_id, fresh=True)
+    if cfg.get("custom_location_id") == location.id:
+        raise CatalogError("location_in_use_custom")
+    await session.execute(update(Plan).where(Plan.location_id == location.id).values(location_id=None))
+    await session.execute(update(Panel).where(Panel.location_id == location.id).values(location_id=None))
+    await session.delete(location)
+    await session.flush()

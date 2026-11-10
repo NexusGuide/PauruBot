@@ -26,6 +26,7 @@ from paurubot.db.models import (
     OrderKind,
     OrderStatus,
     PanelKind,
+    Plan,
     PlanAudience,
     Service,
     Staff,
@@ -518,3 +519,28 @@ async def test_bulk_invalid_expired_replayed_and_revoked_confirmations(session, 
     await apply(env, callback)
     cfg = await shop_settings.load(session, env["shop"].id, fresh=True)
     assert not cfg["bulk_buy_enabled"]
+
+
+async def test_a_category_can_be_deleted_and_its_plans_stay_on_sale(session, env):  # type: ignore[no-untyped-def]
+    category = Category(shop_id=env["shop"].id, title="Tunnel")
+    session.add(category)
+    await session.flush()
+    env["plan"].category_id = category.id
+    await session.commit()
+    category_id, plan_id = category.id, env["plan"].id
+
+    async def exists():  # type: ignore[no-untyped-def]
+        return await session.scalar(select(Category.id).where(Category.id == category_id))
+
+    await click(env, section="scats", action="view", id=category_id)
+    card = env["fake"].last(EditMessageText)
+    assert Texts("fa")("adm_s_category_delete") in [text for text, _ in env["fake"].buttons(card)]
+    await click(env, section="scats", action="del", id=category_id)  # asks first: nothing deleted yet
+    assert await exists() is not None
+    await click(env, section="scats", action="delgo", id=category_id, user=SUPPORT)  # no catalog.write
+    assert await exists() is not None
+    await click(env, section="scats", action="delgo", id=category_id)
+    assert await exists() is None
+    assert await session.scalar(select(Plan.category_id).where(Plan.id == plan_id)) is None
+    assert await session.scalar(select(Plan.is_active).where(Plan.id == plan_id)) is True
+    assert len(await core_catalog.plans(session, env["shop"].id, env["customer"])) == 1

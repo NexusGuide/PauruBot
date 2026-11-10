@@ -1976,5 +1976,12 @@
   "setting_own_bot_expires_at": "Dedicated bot valid until",
   "setting_own_bot_expiry_warned": "Dedicated bot end already warned about",
   "log_topic_trials": "Free trials",
-  "log_topic_referrals": "Referral commissions"
+  "log_topic_referrals": "Referral commissions",
+  "delete_category": "Delete category",
+  "delete_category_body": "“{title}” is deleted for good. Its plans are not deleted: they stay on sale without a category (“other plans”).",
+  "delete_location": "Delete location",
+  "delete_location_body": "“{title}” is deleted for good. Panels and their plans only lose this label.",
+  "deleted_done": "Deleted",
+  "err_location_in_use": "Some plans are sold only through this location (by-location or ready-made stock plans). Give them a panel or another location first.",
+  "err_location_in_use_custom": "The custom plan uses this location. Change it in the settings first."
 }

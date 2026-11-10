@@ -148,7 +148,9 @@ def entries(group: str, staff: StaffIdentity) -> list[Entry]:
     return items
 
 
-def allowed(group: str, staff: StaffIdentity) -> bool:
+def allowed(group: str, staff: StaffIdentity, cfg: dict[str, Any] | None = None) -> bool:
+    if group == "resellers" and cfg and cfg.get("own_bot"):
+        return False  # a customer's dedicated bot only sells: no resellers to run there (OPB)
     if group == "guide":
         return True
     if group == "addpanel":
@@ -164,7 +166,7 @@ def menu(t: Texts, cfg: dict[str, Any], staff: StaffIdentity) -> ReplyKeyboardMa
     """Same calling convention as start.menu, for admin-only completion messages."""
     rows: list[list[KeyboardButton]] = []
     for group_row in HOME_ROWS:
-        row = [KeyboardButton(text=t(f"adm_nav_{g}")) for g in group_row if allowed(g, staff)]
+        row = [KeyboardButton(text=t(f"adm_nav_{g}")) for g in group_row if allowed(g, staff, cfg)]
         if row:
             rows.append(row)
     rows.append([KeyboardButton(text=t("adm_nav_back"))])
@@ -178,7 +180,7 @@ def home_kb(t: Texts, staff: StaffIdentity, cfg: dict[str, Any]) -> InlineKeyboa
         [
             InlineKeyboardButton(text=t(f"adm_nav_{g}"), callback_data=Admin(section="nav", action=g).pack())
             for g in row
-            if allowed(g, staff)
+            if allowed(g, staff, cfg)
         ]
         for row in HOME_ROWS
     ]
@@ -259,7 +261,7 @@ async def navigate(
         await home(message, t, cfg, staff)
         return
     group = next((g for g in GROUPS if t.matches(message.text, f"adm_nav_{g}")), "")
-    if not allowed(group, staff):
+    if not allowed(group, staff, cfg):
         await message.answer(t("adm_forbidden"))
         return
     await state.clear()
@@ -286,7 +288,7 @@ async def navigate_cb(
 
             await home(call.message, t, cfg, staff)
         return
-    if not allowed(group, staff):
+    if not allowed(group, staff, cfg):
         await call.answer(t("adm_forbidden"), show_alert=True)
         return
     await state.clear()

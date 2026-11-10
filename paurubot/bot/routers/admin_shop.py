@@ -624,6 +624,7 @@ async def show_category(
             "off" if row.is_active else "on",
         )
     )
+    kb.row(button(t, "adm_s_category_delete", "scats", row.id, "del"))
     kb.row(button(t, "btn_back", "scats"), button(t, "adm_ud_admin", "home"))
     await show(
         event,
@@ -654,7 +655,7 @@ async def categories(
         return
     if action == "add":
         row = None
-    elif action in {"view", "rename", "sort", "on", "off"}:
+    elif action in {"view", "rename", "sort", "on", "off", "del", "delgo"}:
         found = await owned(session, shop.id, "category", callback_data.id)
         if not isinstance(found, Category):
             await call.answer(t("button_expired"), show_alert=True)
@@ -716,8 +717,45 @@ async def categories(
             InlineKeyboardMarkup(inline_keyboard=[[button(t, "btn_cancel", "scats")]]),
         )
         return
-    await call.answer()
     assert row is not None
+    if action == "del":
+        plans = int(
+            await session.scalar(
+                select(func.count(Plan.id)).where(Plan.shop_id == shop.id, Plan.category_id == row.id)
+            )
+            or 0
+        )
+        kb = InlineKeyboardBuilder()
+        kb.row(button(t, "adm_s_category_delete_yes", "scats", row.id, "delgo"))
+        kb.row(button(t, "btn_back", "scats", row.id, "view"))
+        await call.answer()
+        await show(call, t("adm_s_category_delete_ask", name=esc(row.title), plans=plans), kb.as_markup())
+        return
+    if action == "delgo":
+        from paurubot.core import catalog as catalog_core
+
+        title, row_id = row.title, row.id
+        moved = await catalog_core.delete_category(session, row)
+        await record(
+            session,
+            shop_id=shop.id,
+            actor=actor(staff),
+            action="category.delete",
+            entity="category",
+            entity_id=row_id,
+            before={"title": title},
+            after={"plans_moved": moved, "via": "bot"},
+        )
+        await session.commit()
+        await state.clear()
+        await call.answer(t("adm_s_category_deleted", name=title), show_alert=True)
+        await show(
+            call,
+            t("adm_s_category_deleted", name=esc(title)),
+            InlineKeyboardMarkup(inline_keyboard=[[button(t, "btn_back", "scats")]]),
+        )
+        return
+    await call.answer()
     if action in {"on", "off"}:
         await preview(call, "category", row, {"is_active": action == "on"}, shop, t, state)
     else:
