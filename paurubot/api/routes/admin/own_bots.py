@@ -53,6 +53,7 @@ async def _bot(db: DB, shop: Shop | None) -> dict[str, Any] | None:
         "paused": str(cfg.get(own_panel.PAUSED) or ""),
         "hold": bool(cfg.get(own_panel.HOLD)),
         "trial_enabled": bool(cfg.get("trial_enabled")),
+        "expires_at": cfg.get(own_panel.EXPIRES) or None,
         "customers": int(customers or 0),
         "active_services": int(active or 0),
     }
@@ -142,6 +143,33 @@ async def hold_own_bot(customer_id: int, body: HoldBody, ctx: Manager, db: DB) -
         entity="customer",
         entity_id=customer.id,
         after={"shop_id": shop.id},
+    )
+    await db.commit()
+    return {"bot": await _bot(db, shop)}
+
+
+class ExpiryBody(BaseModel):
+    # Days added to the bot's end (from now once it has ended); null: no end at all.
+    days: int | None = Field(default=None, ge=1, le=own_panel.MAX_DAYS)
+
+
+@router.post("/customers/{customer_id}/own-bot/expiry")
+async def own_bot_expiry(customer_id: int, body: ExpiryBody, ctx: Manager, db: DB) -> dict[str, Any]:
+    """How long the main shop lets this bot sell; at the end it stops selling, as on a pause."""
+    customer = await _customer(db, ctx, customer_id)
+    shop = await own_panel.shop_for_customer(db, customer)
+    if shop is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    end = await own_panel.set_expiry(db, shop, body.days)
+    await own_panel.announce(db, [(shop, alert)] if (alert := await own_panel.recheck(db, shop)) else [])
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="own_bot.expiry",
+        entity="customer",
+        entity_id=customer.id,
+        after={"shop_id": shop.id, "expires_at": end.isoformat() if end else None},
     )
     await db.commit()
     return {"bot": await _bot(db, shop)}

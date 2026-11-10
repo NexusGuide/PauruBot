@@ -61,9 +61,16 @@ async def resolve_staff(session: AsyncSession, shop_id: int, telegram_id: int) -
     )
     if staff is not None and staff.role != StaffRole.RESELLER:
         return StaffIdentity(staff.role, staff, frozenset(rbac.permissions_for(staff.role)))
-    if telegram_id in get_settings().owner_telegram_ids:
+    if telegram_id in get_settings().owner_telegram_ids and await _is_root(session, shop_id):
+        # The platform's owners run the main shop; in a reseller's or customer's own bot they are
+        # customers like anyone else, never its admins.
         return StaffIdentity(StaffRole.OWNER, staff, frozenset(rbac.permissions_for(StaffRole.OWNER)))
     return None
+
+
+async def _is_root(session: AsyncSession, shop_id: int) -> bool:
+    shop = await session.get(Shop, shop_id)
+    return shop is not None and shop.parent_id is None
 
 
 def _event_message(event: TelegramObject) -> Message | CallbackQuery | None:
@@ -175,7 +182,7 @@ class ContextMiddleware(BaseMiddleware):
             texts = await texts_for(
                 session,
                 shop.id,
-                customer.locale or shop.default_locale,
+                allowed_locale(customer.locale, shop, cfg),
                 # Messages are sent as HTML: a name like "<3" must not break (or style) them.
                 {
                     "name": esc(tg_user.first_name or ""),
@@ -205,9 +212,16 @@ class ContextMiddleware(BaseMiddleware):
 
 
 def _initial_locale(tg_user: TgUser, shop: Shop, cfg: dict[str, Any]) -> str:
-    code = (tg_user.language_code or "").split("-")[0].lower()
+    return allowed_locale((tg_user.language_code or "").split("-")[0].lower(), shop, cfg)
+
+
+def allowed_locale(code: str | None, shop: Shop, cfg: dict[str, Any]) -> str:
+    """`code` when the shop offers it, else the shop's own language: a language the shop has
+    since turned off (or a dedicated bot never had, following the main shop) is not used."""
     languages = cfg.get("languages") or [shop.default_locale]
-    return code if code in languages else shop.default_locale
+    if code and code in languages:
+        return code
+    return shop.default_locale if shop.default_locale in languages else str(languages[0])
 
 
 class GateMiddleware(BaseMiddleware):

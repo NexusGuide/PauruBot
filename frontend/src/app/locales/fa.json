@@ -108,7 +108,7 @@
   "no_service_yet": "هنوز سرویسی نداری",
   "no_transactions": "هنوز تراکنشی نداری.",
   "open_from_bot": "این صفحه رو از داخل ربات باز کن",
-  "open_from_bot_hint": "از دکمه «اپ پائورو» در منوی ربات وارد شو.",
+  "open_from_bot_hint": "از دکمه «مینی اپ» در منوی ربات وارد شو.",
   "telegram_unreachable": "اتصال به تلگرام برقرار نشد",
   "telegram_unreachable_hint": "اگر فقط از پروکسی داخل تلگرام استفاده می‌کنی، فیلترشکن گوشی رو روشن کن و مینی‌اپ رو دوباره باز کن.",
   "join_title": "عضویت اجباری 🔒",
@@ -276,6 +276,7 @@
   "role_finance": "مالی",
   "role_support": "پشتیبانی",
   "role_reseller": "نماینده",
+  "role_merchant": "مدیر فروشگاه",
   "err_forbidden": "نقش شما اجازهٔ این کار را ندارد.",
   "err_payment_already_reviewed": "کس دیگری دربارهٔ این پرداخت تصمیم گرفته است.",
   "err_not_manual": "این پرداخت را نمی‌شود دستی تأیید کرد.",
@@ -798,5 +799,10 @@
   "err_own_extra_price": "برای گزینه‌ای که روشن است قیمت بگذارید.",
   "err_own_panel_unreachable": "پنل شما الان در دسترس نیست؛ کمی بعد دوباره امتحان کنید.",
   "err_card_holder_required": "نام صاحب کارت را بنویسید.",
-  "err_card_number_invalid": "شماره کارت معتبر نیست."
+  "err_card_number_invalid": "شماره کارت معتبر نیست.",
+  "own_state_bot_expired": "متوقف: اعتبار ربات تمام شده",
+  "own_bot_valid": "اعتبار ربات",
+  "own_bot_no_end": "بدون محدودیت",
+  "own_stop_bot_expired": "اعتبار ربات از طرف فروشگاه تمام شود",
+  "own_alert_bot_expiring": "پایان اعتبار ربات"
 }

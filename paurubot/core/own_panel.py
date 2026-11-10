@@ -14,6 +14,8 @@ that account's own credentials, so the panel itself keeps every sale inside the 
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -219,7 +221,8 @@ async def disconnect(session: AsyncSession, shop: Shop) -> None:
 # bot stops new sales and trials as soon as the account cannot serve, and opens them again once
 # it can, after one live login. Existing services, payments and records are never touched.
 
-PAUSED = "own_sales_paused"  # "" while selling, else why: inactive|expired|traffic_full|users_full
+# "" while selling, else why: inactive|expired|traffic_full|users_full, or bot_expired
+PAUSED = "own_sales_paused"
 HOLD = "own_sales_hold"  # a manual pause by the main shop's staff
 
 
@@ -256,13 +259,72 @@ async def sales_gate(session: AsyncSession, shop_id: int, *, new_user: bool) -> 
     return "own_sales_paused"
 
 
+# --- how long the main shop lets a dedicated bot sell ---------------------------------------
+
+EXPIRES = "own_bot_expires_at"
+EXPIRY_WARNED = "own_bot_expiry_warned"
+EXPIRY_WARN_BEFORE = timedelta(days=3)
+MAX_DAYS = 3650
+
+
+def bot_expires_at(cfg: dict[str, Any]) -> datetime | None:
+    raw = str(cfg.get(EXPIRES) or "")
+    if not raw:
+        return None
+    try:
+        end = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return end if end.tzinfo else end.replace(tzinfo=UTC)
+
+
+def bot_expired(cfg: dict[str, Any]) -> bool:
+    from paurubot.db.base import utcnow
+
+    end = bot_expires_at(cfg)
+    return end is not None and end <= utcnow()
+
+
+async def set_expiry(session: AsyncSession, shop: Shop, days: int | None) -> datetime | None:
+    """Give the bot `days` more days (from its end, or from now once ended); None: no end."""
+    from paurubot.db.base import utcnow
+
+    if days is None:
+        await shop_settings.set_many(session, shop.id, {EXPIRES: "", EXPIRY_WARNED: ""})
+        return None
+    if not 1 <= days <= MAX_DAYS:
+        raise OwnPanelError("own_bot_days_invalid")
+    current = bot_expires_at(await shop_settings.load(session, shop.id, fresh=True))
+    now = utcnow()
+    end = (current if current is not None and current > now else now) + timedelta(days=days)
+    end = end.replace(microsecond=0)
+    await shop_settings.set_many(session, shop.id, {EXPIRES: end.isoformat(), EXPIRY_WARNED: ""})
+    return end
+
+
+async def expiry_warning(session: AsyncSession, shop: Shop) -> str | None:
+    """The bot ends within three days: warn once for that end date."""
+    from paurubot.db.base import utcnow
+
+    cfg = await shop_settings.load(session, shop.id, fresh=True)
+    end = bot_expires_at(cfg)
+    now = utcnow()
+    if end is None or end <= now or end - now > EXPIRY_WARN_BEFORE:
+        return None
+    if str(cfg.get(EXPIRY_WARNED) or "") == str(cfg.get(EXPIRES) or ""):
+        return None
+    await shop_settings.set_many(session, shop.id, {EXPIRY_WARNED: str(cfg.get(EXPIRES) or "")})
+    return "own_bot_expiring"
+
+
 async def recheck(session: AsyncSession, shop: Shop, *, verify: bool = True) -> str | None:
     """Recompute whether `shop` may sell from its account; returns the alert for a change, if any.
 
-    Opening sales again needs one live login, so an account that only looks usable stays paused."""
+    Opening sales again needs one live login, so an account that only looks usable stays paused.
+    A bot whose time with the main shop is up stops selling first, whatever its account says."""
     account = await session.get(PanelAccount, shop.own_account_id) if shop.own_account_id else None
-    reason = blocking_reason(account)
     cfg = await shop_settings.load(session, shop.id, fresh=True)
+    reason = "bot_expired" if bot_expired(cfg) else blocking_reason(account)
     old = str(cfg.get(PAUSED) or "")
     if reason == old:
         return None
@@ -287,6 +349,10 @@ async def recheck_all(session: AsyncSession) -> list[tuple[Shop, str]]:
         alert = await recheck(session, shop)
         if alert:
             changes.append((shop, alert))
+        # A stopped bot sells nothing: no reminder about an end it can't reach.
+        warning = await expiry_warning(session, shop) if shop.status == ShopStatus.ACTIVE else None
+        if warning:
+            changes.append((shop, warning))
     return changes
 
 

@@ -279,7 +279,9 @@ _LEADING = re.compile(r"^[^\w(]+")
 async def _payment_labels(ctx: WebApp, methods: list[str]) -> dict[str, str]:
     """The bot's own button text for each payment method the shop edited (`btn_pay_<method>`),
     without HTML or the leading emoji; methods left as shipped keep the Mini App's own names."""
-    locale = ctx.customer.locale or ctx.shop.default_locale
+    from paurubot.bot.context import allowed_locale
+
+    locale = allowed_locale(ctx.customer.locale, ctx.shop, ctx.cfg)
     edited = (await i18n.load_overrides(ctx.session, ctx.shop.id)).get(locale, {})
     labels: dict[str, str] = {}
     for method in methods:
@@ -299,23 +301,27 @@ async def _tonpay_available(ctx: WebApp) -> bool:
 
 @router.get("/me")
 async def me(ctx: WebApp) -> dict[str, Any]:
+    from paurubot.bot.context import allowed_locale
+
     customer, cfg = ctx.customer, ctx.cfg
     balance = await wallet_balance(ctx.session, ctx.shop.id, customer.id)
     trial_reason = await trials.eligibility(ctx.session, customer)
     profile = customer.reseller_profile
+    locale = allowed_locale(customer.locale, ctx.shop, cfg)
     return {
         "id": customer.id,
         "telegram_id": customer.telegram_id,
         "name": customer.first_name,
         "username": customer.username,
-        "locale": customer.locale or ctx.shop.default_locale,
+        "locale": locale,
         "balance": balance,
         "currency": ctx.shop.currency,
         "shop": {
             "title": ctx.shop.title,
             "bot_username": ctx.shop.bot_username,
             "support": cfg["support_username"] or None,
-            "languages": cfg["languages"],
+            # A dedicated bot follows the main shop's language: nothing to switch there (OPB).
+            "languages": [locale] if cfg.get("own_bot") else cfg["languages"],
             "brand": brand.view(cfg),
         },
         "trial": {
@@ -412,7 +418,7 @@ class LocaleBody(BaseModel):
 
 @router.post("/me/locale")
 async def set_locale(body: LocaleBody, ctx: WebApp) -> dict[str, Any]:
-    if body.locale not in (ctx.cfg["languages"] or []):
+    if body.locale not in (ctx.cfg["languages"] or []) or ctx.cfg.get("own_bot"):
         raise HTTPException(status_code=400, detail="unsupported_locale")
     ctx.customer.locale = body.locale
     return {"locale": body.locale}

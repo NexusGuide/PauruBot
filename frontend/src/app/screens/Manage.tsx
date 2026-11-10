@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { money } from "@shared/format";
 import { api, type Review, type StaffDashboard } from "../api";
 import { errorText, methodName, useApp } from "../state";
@@ -148,6 +149,7 @@ function ReviewCard({ item, onDone }: { item: Review; onDone: (id: number) => vo
 
 export function Manage() {
   const { me, t } = useApp();
+  const navigate = useNavigate();
   const [data, setData] = useState<StaffDashboard | null>(null);
   const [items, setItems] = useState<Review[] | null>(null);
   const staff = me?.staff;
@@ -187,7 +189,12 @@ export function Manage() {
           )}
         </section>
       )}
-      <Button tone="quiet" onClick={openAdmin}>{t("staff_open_admin")}</Button>
+      {staff.own ? (
+        // A customer's dedicated bot has no web panel login: its shop is run from "My shop" (OPB).
+        <Button tone="quiet" onClick={() => navigate("/shop")}>{t("own_title")}</Button>
+      ) : (
+        <Button tone="quiet" onClick={openAdmin}>{t("staff_open_admin")}</Button>
+      )}
     </Screen>
   );
 }

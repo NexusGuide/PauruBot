@@ -1960,5 +1960,21 @@
   "err_own_panel_unreachable": "ورود به پنل با این اکانت ادمین ممکن نشد. پنل و رمز اکانت را بررسی کنید.",
   "account_category_hint": "خریدار اول دسته را انتخاب می‌کند (مثلاً تانل / دایرکت). دسته‌ها همان دسته‌های پلن‌های کانفیگ‌اند و در صفحهٔ کاتالوگ ساخته می‌شوند.",
   "account_category_none": "برای دسته‌بندی این پلن‌ها (مثلاً تانل / دایرکت) در صفحهٔ کاتالوگ دسته بسازید.",
-  "account_no_category": "بدون دسته (سایر پلن‌ها)"
+  "account_no_category": "بدون دسته (سایر پلن‌ها)",
+  "own_bot_status_paused_bot_expired": "متوقف: اعتبار ربات تمام شده",
+  "own_bot_expiry": "اعتبار ربات",
+  "own_bot_expiry_none": "بدون محدودیت زمانی",
+  "own_bot_expiry_until": "تا {date}",
+  "own_bot_expiry_ended": "در {date} تمام شد",
+  "own_bot_expiry_hint": "روزها به پایان فعلی اضافه می‌شود (یا از امروز، اگر تمام شده باشد). با پایان اعتبار، فروش ربات متوقف می‌شود و سرویس‌های مشتری‌ها کار می‌کنند.",
+  "own_bot_expiry_days": "روز برای افزودن",
+  "own_bot_expiry_add": "تمدید",
+  "own_bot_expiry_clear": "حذف محدودیت زمانی",
+  "own_bot_expiry_saved": "اعتبار ربات ذخیره شد",
+  "err_own_bot_days_invalid": "تعداد روز باید بین ۱ تا ۳۶۵۰ باشد.",
+  "setting_own_bot": "ربات اختصاصی (خودکار)",
+  "setting_own_bot_expires_at": "اعتبار ربات اختصاصی تا",
+  "setting_own_bot_expiry_warned": "هشدار پایان اعتبار ربات اختصاصی داده شده",
+  "log_topic_trials": "اکانت‌های تست",
+  "log_topic_referrals": "پورسانت‌ها"
 }

@@ -103,3 +103,20 @@ async def test_a_bad_token_or_someone_elses_account_is_refused(session, http, en
     )
     assert theirs.status_code == 404  # an account is only ever linked to its own buyer
     assert (await shop_settings.load(session, env.shop.id, fresh=True)).get(own_panel.PAUSED) == ""
+
+
+async def test_staff_set_how_long_a_customers_bot_sells(session, http, env, sold) -> None:  # type: ignore[no-untyped-def]  # noqa: F811
+    owner = await login(http, "u_owner")
+    base = f"/api/admin/customers/{env.customer_id}/own-bot"
+    assert (await owner.call("POST", f"{base}/expiry", {"days": 30})).status_code == 404  # no bot yet
+    await owner.call("POST", base, {"account_id": sold["account"].id, "token": TOKEN})
+    first = (await owner.call("POST", f"{base}/expiry", {"days": 30})).json()["bot"]["expires_at"]
+    more = (await owner.call("POST", f"{base}/expiry", {"days": 10})).json()["bot"]["expires_at"]
+    assert first and more and more > first  # added to the current end
+    assert (await owner.call("POST", f"{base}/expiry", {"days": 0})).status_code == 422
+    cleared = await owner.call("POST", f"{base}/expiry", {"days": None})
+    assert cleared.json()["bot"]["expires_at"] is None
+    support = await login(http, "u_support")
+    assert (await support.call("POST", f"{base}/expiry", {"days": 5})).status_code in (403, 404)
+    actions = set(await session.scalars(select(AuditLog.action).where(AuditLog.action == "own_bot.expiry")))
+    assert actions == {"own_bot.expiry"}

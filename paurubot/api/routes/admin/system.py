@@ -54,6 +54,8 @@ LOG_TOPICS = (
     "resellers",
     "panels",
     "tickets",
+    "trials",
+    "referrals",
 )
 CHANNEL_FIELDS = ["id", "chat_id", "title", "url", "is_active", "sort"]
 TRUST_FIELDS = ["id", "chat_id", "title", "url", "kinds", "is_active", "sort"]

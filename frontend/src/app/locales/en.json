@@ -108,7 +108,7 @@
   "no_service_yet": "No services yet",
   "no_transactions": "No transactions yet.",
   "open_from_bot": "Open this page from the bot",
-  "open_from_bot_hint": "Use the «Pauru app» button in the bot menu.",
+  "open_from_bot_hint": "Use the «Mini App» button in the bot menu.",
   "telegram_unreachable": "Could not reach Telegram",
   "telegram_unreachable_hint": "If you only use Telegram's built-in proxy, turn on your phone's VPN and open the Mini App again.",
   "join_title": "Join required 🔒",
@@ -276,6 +276,7 @@
   "role_finance": "Finance",
   "role_support": "Support",
   "role_reseller": "Reseller",
+  "role_merchant": "Shop manager",
   "err_forbidden": "Your role can't do that.",
   "err_payment_already_reviewed": "Someone already decided on this payment.",
   "err_not_manual": "This payment can't be decided by hand.",
@@ -798,5 +799,10 @@
   "err_own_extra_price": "Set a price for what you sell.",
   "err_own_panel_unreachable": "Your panel can't be reached right now; try again in a moment.",
   "err_card_holder_required": "Write the cardholder's name.",
-  "err_card_number_invalid": "That card number isn't valid."
+  "err_card_number_invalid": "That card number isn't valid.",
+  "own_state_bot_expired": "Paused: bot's time is up",
+  "own_bot_valid": "Bot valid until",
+  "own_bot_no_end": "No end date",
+  "own_stop_bot_expired": "The bot's time with the shop is up",
+  "own_alert_bot_expiring": "Bot ending soon"
 }

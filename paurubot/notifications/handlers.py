@@ -114,19 +114,46 @@ async def _to_staff(
     return sent
 
 
-async def report(session: AsyncSession, shop_id: int, topic: str, text: str) -> None:
+# A newer topic goes where the broader one goes until the shop gives it a chat of its own.
+TOPIC_FALLBACK = {"trials": "orders", "referrals": "payments"}
+
+
+async def report(
+    session: AsyncSession,
+    shop_id: int,
+    topic: str,
+    text: str,
+    *,
+    markup: InlineKeyboardMarkup | None = None,
+) -> None:
     """Copy an event to the shop's log channel for that topic (SUP-03)."""
-    channel = await session.scalar(
-        select(LogChannel)
-        .where(LogChannel.shop_id == shop_id, LogChannel.topic.in_([topic, "all"]))
-        .order_by(LogChannel.topic != topic)
+    order = [topic, *([TOPIC_FALLBACK[topic]] if topic in TOPIC_FALLBACK else []), "all"]
+    rows = list(
+        await session.scalars(
+            select(LogChannel).where(LogChannel.shop_id == shop_id, LogChannel.topic.in_(order))
+        )
     )
-    if channel is None:
+    if not rows:
         return
+    channel = min(rows, key=lambda row: order.index(row.topic))
     try:
-        await telegram.send_text(channel.chat_id, text, message_thread_id=channel.thread_id, shop_id=shop_id)
+        await telegram.send_text(
+            channel.chat_id, text, message_thread_id=channel.thread_id, reply_markup=markup, shop_id=shop_id
+        )
     except telegram.Undeliverable:
         log.warning("log channel %s for %s is unreachable", channel.chat_id, topic)
+    except Exception:
+        # A report is a copy for the shop's staff: one Telegram refuses (a removed forum thread,
+        # flood control) must not fail the job and send the customer's own message again.
+        log.warning("report to %s for %s was not sent", channel.chat_id, topic, exc_info=True)
+
+
+async def _quietly(work: Awaitable[Any]) -> None:
+    """Build and send a report without ever failing the customer's notification around it."""
+    try:
+        await work
+    except Exception:
+        log.warning("a report could not be built", exc_info=True)
 
 
 async def report_error(session: AsyncSession, shop_id: int | None, text: str) -> None:
@@ -258,19 +285,13 @@ async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
                 )
         except telegram.Undeliverable:
             pass
-    await report(
-        session,
-        order.shop_id,
-        "orders",
-        t(
-            "report_order",
-            kind=t(f"order_kind_{order.kind.value}"),
-            customer=esc(customer.display_name),
-            telegram_id=customer.telegram_id,
-            amount=money(order.amount),
-            username=esc(service.panel_username),
-        ),
-    )
+    from paurubot.notifications import log_reports
+
+    async def order_report() -> None:
+        topic, text, manage = await log_reports.service_order(session, order, service, customer)
+        await report(session, order.shop_id, topic, text, markup=manage)
+
+    await _quietly(order_report())
 
 
 async def account_ready(session: AsyncSession, job: queue.Claimed) -> None:
@@ -294,19 +315,23 @@ async def account_ready(session: AsyncSession, job: queue.Claimed) -> None:
     if order.kind == OrderKind.ACCOUNT_PURCHASE:
         text, kb = login_message(t, account, panel_accounts.password_of(account))
         await _to_customer(session, customer, text, reply_markup=kb)
-    await report(
-        session,
-        order.shop_id,
-        "orders",
-        t(
-            "report_order",
-            kind=t(f"order_kind_{order.kind.value}"),
-            customer=esc(customer.display_name),
-            telegram_id=customer.telegram_id,
-            amount=money(order.amount),
-            username=esc(account.username),
-        ),
-    )
+    from paurubot.core.formatting import days_left
+    from paurubot.notifications import log_reports
+
+    async def account_report() -> None:
+        topic, text, manage = await log_reports.order_report(
+            session,
+            order,
+            customer,
+            config=account.username,
+            panel=account.panel,
+            gb=int(account.data_limit // log_reports.GB) if account.data_limit else 0,
+            days=days_left(account.expire_at) or 0,
+            plan_title=account.plan.title if account.plan else None,
+        )
+        await report(session, order.shop_id, topic, text, markup=manage)
+
+    await _quietly(account_report())
 
 
 async def account_alert(session: AsyncSession, job: queue.Claimed) -> None:
@@ -438,7 +463,16 @@ async def order_failed(session: AsyncSession, job: queue.Claimed) -> None:
             "adm_order_failed", id=order.id, customer=esc(customer.display_name), reason=esc(reason[:200])
         )
     await _to_staff(session, order.shop_id, "orders.read", text)
-    await report(session, order.shop_id, "errors", text)
+    from paurubot.notifications import log_reports
+
+    async def failure_report() -> None:
+        full = text
+        if "reseller_balance_low" not in reason:
+            full = await log_reports.order_failed(session, order, customer, redact(reason))
+        markup = await log_reports.manage_markup(session, order.shop_id, customer)
+        await report(session, order.shop_id, "errors", full, markup=markup)
+
+    await _quietly(failure_report())
 
 
 async def payment_fulfilled(session: AsyncSession, job: queue.Claimed) -> None:
@@ -460,19 +494,14 @@ async def payment_fulfilled(session: AsyncSession, job: queue.Claimed) -> None:
         else:
             text += "\n" + t("order_after_payment_failed")
     await _to_customer(session, customer, text)
-    await report(
-        session,
-        payment.shop_id,
-        "payments",
-        t(
-            "report_payment",
-            id=payment.id,
-            provider=payment.provider,
-            amount=money(payment.amount),
-            customer=esc(customer.display_name),
-            telegram_id=customer.telegram_id,
-        ),
-    )
+    from paurubot.notifications import log_reports
+
+    async def paid_report() -> None:
+        text = await log_reports.payment_paid(session, payment, customer)
+        markup = await log_reports.manage_markup(session, payment.shop_id, customer)
+        await report(session, payment.shop_id, "payments", text, markup=markup)
+
+    await _quietly(paid_report())
 
 
 async def payment_rejected(session: AsyncSession, job: queue.Claimed) -> None:
@@ -485,6 +514,15 @@ async def payment_rejected(session: AsyncSession, job: queue.Claimed) -> None:
     t = await _texts(session, customer)
     reason = esc(str(job.payload.get("reason") or "")) or "-"
     await _to_customer(session, customer, t("payment_rejected", amount=money(payment.amount), reason=reason))
+    from paurubot.notifications import log_reports
+
+    async def rejected_report() -> None:
+        why = str(job.payload.get("reason") or "")
+        text = await log_reports.payment_rejected(session, payment, customer, why)
+        markup = await log_reports.manage_markup(session, payment.shop_id, customer)
+        await report(session, payment.shop_id, "payments", text, markup=markup)
+
+    await _quietly(rejected_report())
 
 
 async def payment_voided(session: AsyncSession, job: queue.Claimed) -> None:
@@ -725,6 +763,15 @@ async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
     if customer is None:
         return
     alert = str(job.payload["alert"])
+    if alert == "deleted":  # the cleanup removed it: the «cron» report for the shop
+        from paurubot.notifications import log_reports
+
+        async def deleted_report() -> None:
+            text = await log_reports.service_deleted(session, service, customer)
+            markup = await log_reports.manage_markup(session, service.shop_id, customer)
+            await report(session, service.shop_id, "services", text, markup=markup)
+
+        await _quietly(deleted_report())
     if customer.alerts_muted and alert in {"low_volume", "expiring"}:
         return  # the customer turned reminders off (SVC-15); endings are still told
     t = await _texts(session, customer)
@@ -800,6 +847,46 @@ async def ip_replaced(session: AsyncSession, job: queue.Claimed) -> None:
     await _to_customer(session, customer, text)
 
 
+async def _referral_report(session: AsyncSession, referrer: Customer, payload: dict[str, Any]) -> None:
+    """The commission for an invited customer's purchase, with the referrer's balance (GRW-01)."""
+    from paurubot.ledger.accounts import wallet_balance
+    from paurubot.notifications import log_reports
+
+    buyer = await session.get(Customer, int(payload["buyer_id"])) if payload.get("buyer_id") else None
+    if buyer is None:
+        return
+    order = await session.get(Order, int(payload["order_id"])) if payload.get("order_id") else None
+    after = payload.get("balance_after")
+    text = await log_reports.referral_paid(
+        session,
+        buyer=buyer,
+        referrer=referrer,
+        order=order,
+        reward=int(payload["amount"]),
+        percent=int(payload.get("percent") or 0),
+        balance_after=int(after)
+        if after is not None
+        else await wallet_balance(session, referrer.shop_id, referrer.id),
+    )
+    await report(
+        session,
+        referrer.shop_id,
+        "referrals",
+        text,
+        markup=await log_reports.manage_markup(session, referrer.shop_id, referrer),
+    )
+
+
+async def new_user_report(session: AsyncSession, job: queue.Claimed) -> None:
+    from paurubot.notifications import log_reports
+
+    customer = await session.get(Customer, int(job.payload["customer_id"]))
+    if customer is None:
+        return
+    text, manage = await log_reports.new_user(session, customer)
+    await report(session, customer.shop_id, "users", text, markup=manage)
+
+
 async def simple_customer(session: AsyncSession, job: queue.Claimed) -> None:
     customer = await session.get(Customer, int(job.payload["customer_id"]))
     if customer is None:
@@ -814,6 +901,7 @@ async def simple_customer(session: AsyncSession, job: queue.Claimed) -> None:
         text = t("referral_joined", name=esc(str(job.payload.get("name", ""))))
     elif job.kind == "referral_reward":
         text = t("referral_reward", amount=money(int(job.payload["amount"])))
+        await _quietly(_referral_report(session, customer, job.payload))
     elif job.kind == "referral_config_ready":
         text = t("referral_config_ready", available=int(job.payload.get("available") or 1))
     elif job.kind == "wallet_adjusted":
@@ -1411,6 +1499,7 @@ register_queue(
             "ticket_new_message": ticket_new_message,
             "ticket_reply": ticket_reply,
             "report": report_job,
+            "new_user_report": new_user_report,
         },
         batch=20,
     ),

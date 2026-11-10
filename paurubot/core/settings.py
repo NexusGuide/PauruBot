@@ -129,6 +129,11 @@ SPECS: dict[str, Spec] = {
     # the settings page: why it stopped selling ("" while it sells) and a manual pause by staff.
     "own_sales_paused": Spec(str, "", "own"),
     "own_sales_hold": Spec(bool, False, "own"),  # stopped by the shop's staff: only they restart it
+    # Set on load for a dedicated bot's shop (never stored): a selling-only bot.
+    "own_bot": Spec(bool, False, "own"),
+    # Until when the shop's staff let this dedicated bot sell (ISO time); "" has no end.
+    "own_bot_expires_at": Spec(str, "", "own"),
+    "own_bot_expiry_warned": Spec(str, "", "own"),  # the end date already warned about
     # Set in the main shop: what a reseller pays from its wallet per trial its own bot gives (TEN-18).
     "resale_trial_fee": Spec(int, 2_000, "resale"),
     "miniapp_enabled": Spec(bool, True, "appearance"),
@@ -310,8 +315,25 @@ async def load(session: AsyncSession, shop_id: int, *, fresh: bool = False) -> d
             data[key] = secretbox.decrypt("payment", value["enc"])
         else:
             data[key] = value
+    await _inherit(session, shop_id, data, fresh)
     _cache[shop_id] = (time.monotonic() + _TTL, data)
     return data
+
+
+# A dedicated bot on a reseller's own panel follows the main shop for these (OPB).
+INHERITED_BY_OWN_BOTS = ("languages",)
+
+
+async def _inherit(session: AsyncSession, shop_id: int, data: dict[str, Any], fresh: bool) -> None:
+    from paurubot.db.models import Shop
+
+    shop = await session.get(Shop, shop_id)
+    if shop is None or shop.own_account_id is None or shop.parent_id is None:
+        return
+    parent = await load(session, shop.parent_id, fresh=fresh)
+    for key in INHERITED_BY_OWN_BOTS:
+        data[key] = parent[key]
+    data["own_bot"] = True
 
 
 async def get(session: AsyncSession, shop_id: int, key: str) -> Any:

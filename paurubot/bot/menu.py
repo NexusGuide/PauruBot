@@ -130,6 +130,12 @@ def available(cfg: dict[str, Any]) -> set[str]:
         hidden.add("accounts")
     if not get_settings().public_url.startswith("https://") or not cfg.get("miniapp_enabled", True):
         hidden.add("miniapp")
+    if len(cfg.get("languages") or []) < 2:
+        hidden.add("language")  # nothing to choose between
+    if cfg.get("own_bot"):
+        # A customer's dedicated bot only sells: it follows the main shop's language and has no
+        # resellers or admin accounts of its own (OPB).
+        hidden.update({"language", "reseller", "accounts"})
     return set(BUTTONS) - hidden
 
 

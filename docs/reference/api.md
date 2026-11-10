@@ -55,6 +55,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/customers/{customer_id}/adjust` | `wallet.adjust` | Adjust |
 | POST | `/api/admin/customers/{customer_id}/ban` | `customers.ban` | Ban |
 | POST | `/api/admin/customers/{customer_id}/message` | `customers.write` | Message |
+| POST | `/api/admin/customers/{customer_id}/own-bot/expiry` | `resellers.manage` | How long the main shop lets this bot sell; at the end it stops selling, as on a pause. |
 | POST | `/api/admin/customers/{customer_id}/own-bot/hold` | `resellers.manage` | Hold own bot |
 | DELETE | `/api/admin/customers/{customer_id}/own-bot` | `resellers.manage` | Disconnect own bot |
 | GET | `/api/admin/customers/{customer_id}/own-bot` | `resellers.manage` | Own bot |
