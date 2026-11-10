@@ -7,6 +7,7 @@ import { haptic } from "../telegram";
 import { Icon } from "../icons";
 import { Button, Chevron, Empty, ReadFailure, Ring, Screen, Switch } from "../ui";
 import { useResource } from "../useResource";
+import { Chips } from "./Buy";
 
 import { DAY_STEPS, GB_STEPS, USER_STEPS, parseAmount, stepsWithin } from "../agency-extras";
 
@@ -38,6 +39,7 @@ export function Agency() {
   const navigate = useNavigate();
   const plans = useResource(api.accountPlans);
   const accounts = useResource(api.accounts);
+  const [category, setCategory] = useState<number | null>(null);
   if (plans.error || accounts.error) {
     const failure = plans.error ?? accounts.error;
     const retry = plans.error ? plans.retry : accounts.retry;
@@ -49,6 +51,9 @@ export function Agency() {
   }
   if (!plans.data || !accounts.data) return <div className="app-loading" />;
   const items = accounts.data.items;
+  const groups = (plans.data.categories ?? []).filter((group) => plans.data?.plans.some((plan) => plan.category_id === group.id));
+  // Uncategorised plans stay under "all" when the shop sorts the rest into categories.
+  const shown = category === null ? plans.data.plans : plans.data.plans.filter((plan) => plan.category_id === category);
   return (
     <Screen title={t("agency_title")} subtitle={t("agency_sub")}>
       <p className="app-lbl">{t("agency_plans")}</p>
@@ -58,8 +63,15 @@ export function Agency() {
       {plans.data.plans.length === 0 && items.length > 0 && (
         <p className="app-hint px-1 text-sm">{t("agency_none_now")}</p>
       )}
+      {groups.length > 0 && (
+        <Chips
+          items={[{ id: null, label: t("all") }, ...groups.map((group) => ({ id: group.id as number | null, label: group.title }))]}
+          value={category}
+          onChange={setCategory}
+        />
+      )}
       <ul className="flex flex-col gap-3" role="group" aria-label={t("agency_plans")}>
-        {plans.data.plans.map(plan => (
+        {shown.map(plan => (
           <li key={plan.id} className="app-card">
             <button
               type="button"

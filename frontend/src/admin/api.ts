@@ -555,6 +555,8 @@ export { ApiError };
 export interface AccountPlan {
   id: number;
   panel_id: number;
+  /** One of the shop's categories; null: listed under "other plans". */
+  category_id: number | null;
   title: string;
   description: string | null;
   role_id: number;

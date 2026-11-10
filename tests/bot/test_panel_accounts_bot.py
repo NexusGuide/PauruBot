@@ -260,3 +260,84 @@ async def test_a_discount_code_on_an_admin_account_purchase(session, env) -> Non
     rows = (await session.execute(Order.__table__.select().where(Order.customer_id == owner.id))).all()
     live = [r for r in rows if r.status == "pending"]
     assert len(live) == 1 and live[0].amount == 600_000 and live[0].code_discount == 200_000
+
+
+async def test_categories_come_first_when_the_shop_sorts_its_admin_plans(session, env) -> None:  # type: ignore[no-untyped-def]
+    """Like config plans: Tunnel / Direct first, then that category's plans; the rest under
+    "other plans"; a switched-off category hides its plans."""
+    from paurubot.db.models import Category
+
+    send, fake, shop, plan = env["send"], env["fake"], env["shop"], env["plan"]
+    tunnel = Category(shop_id=shop.id, title="TUNNEL", sort=0)
+    direct = Category(shop_id=shop.id, title="DIRECT", sort=1)
+    hidden = Category(shop_id=shop.id, title="OFF", sort=2, is_active=False)
+    session.add_all([tunnel, direct, hidden])
+    await session.flush()
+    plan.category_id = tunnel.id
+    session.add_all(
+        [
+            AccountPlan(
+                shop_id=shop.id,
+                panel_id=plan.panel_id,
+                category_id=direct.id,
+                title="Direct admin",
+                role_id=2,
+                data_gb=100,
+                days=30,
+                price=300_000,
+            ),
+            AccountPlan(
+                shop_id=shop.id,
+                panel_id=plan.panel_id,
+                category_id=hidden.id,
+                title="Hidden admin",
+                role_id=2,
+                data_gb=100,
+                days=30,
+                price=1,
+            ),
+            AccountPlan(
+                shop_id=shop.id,
+                panel_id=plan.panel_id,
+                title="Loose admin",
+                role_id=2,
+                data_gb=50,
+                days=30,
+                price=100_000,
+            ),
+        ]
+    )
+    await session.commit()
+    await send(message_update(UID, "/start"))
+    await send(callback_update(UID, Acc(action="plans").pack()))
+    shown = fake.last(EditMessageText)
+    assert shown.text == FA("acc_choose_category")
+    assert [text for text, _ in fake.buttons(shown)] == [
+        "TUNNEL",
+        "DIRECT",
+        FA("btn_other_plans"),
+        FA("btn_back"),
+    ]
+
+    await send(callback_update(UID, Acc(action="cat", id=direct.id).pack()))
+    labels = [text for text, _ in fake.buttons(fake.last(EditMessageText))]
+    assert any("Direct admin" in x for x in labels) and not any("Pro admin" in x for x in labels)
+
+    await send(callback_update(UID, Acc(action="cat", id=0).pack()))
+    labels = [text for text, _ in fake.buttons(fake.last(EditMessageText))]
+    assert any("Loose admin" in x for x in labels) and not any("Direct admin" in x for x in labels)
+
+    # a plan inside a switched-off category is off sale everywhere
+    await send(callback_update(UID, Acc(action="cat", id=hidden.id).pack()))
+    assert not any("Hidden admin" in x for x, _ in fake.buttons(fake.last(EditMessageText)))
+    await send(callback_update(UID, Acc(action="plan", id=plan.id).pack()))
+    back = [data for text, data in fake.buttons(fake.last(EditMessageText)) if text == FA("btn_back")]
+    assert back == [Acc(action="cat", id=tunnel.id).pack()]
+
+
+async def test_without_categories_the_plans_show_straight_away(session, env) -> None:  # type: ignore[no-untyped-def]
+    send, fake = env["send"], env["fake"]
+    await send(message_update(UID, "/start"))
+    await send(callback_update(UID, Acc(action="plans").pack()))
+    shown = fake.last(EditMessageText)
+    assert shown.text == FA("acc_plans") and any("Pro admin" in x for x, _ in fake.buttons(shown))

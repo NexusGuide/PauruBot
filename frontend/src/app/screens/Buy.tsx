@@ -9,7 +9,7 @@ import { ActionBar, Button, Empty, Item, Loading, ReadFailure, Screen, Steps } f
 
 import { useResource } from "../useResource";
 
-function Chips({
+export function Chips({
   items,
   value,
   onChange,

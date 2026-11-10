@@ -641,6 +641,7 @@
   "acc_home": "🛡 <b>Panel admin accounts</b>\nWith an admin account you create and manage your own users in the panel.\n\nYour accounts: {count}",
   "acc_btn_buy": "➕ Buy an admin account",
   "acc_plans": "Pick an admin account plan:",
+  "acc_choose_category": "Pick the kind of panel you want:",
   "acc_no_plans": "No admin account plans yet.",
   "acc_plan_line": "🛡 <b>{title}</b>\n📦 Traffic: {gb} GB\n👥 Users: {users}\n⏳ Period: {days} days\n💰 Price: {price} Toman",
   "acc_btn_buy_plan": "🛒 Buy",

@@ -464,6 +464,7 @@ def account_plan_view(plan: AccountPlan) -> dict[str, Any]:
         "id": plan.id,
         "title": plan.title,
         "description": plan.description,
+        "category_id": plan.category_id,
         "data_gb": plan.data_gb,
         "max_users": plan.max_users,
         "days": plan.days,
@@ -517,10 +518,12 @@ def account_view(account: PanelAccount) -> dict[str, Any]:
 @router.get("/account-plans")
 async def account_plans_view(ctx: WebApp) -> dict[str, Any]:
     """The panel admin plans the customer buys from (TEN-14) and whether they are sold at all."""
+    items = await panel_accounts.plans(ctx.session, ctx.shop.id, ctx.customer)
     return {
         "available": await panel_accounts.available(ctx.session, ctx.customer),
-        "plans": [
-            account_plan_view(p) for p in await panel_accounts.plans(ctx.session, ctx.shop.id, ctx.customer)
+        "plans": [account_plan_view(p) for p in items],
+        "categories": [
+            {"id": c.id, "title": c.title} for c in await panel_accounts.categories(ctx.session, items)
         ],
     }
 

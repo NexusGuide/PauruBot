@@ -232,6 +232,8 @@ export interface PanelPlan {
   id: number;
   title: string;
   description: string | null;
+  /** Missing from older servers. */
+  category_id?: number | null;
   data_gb: number;
   max_users: number | null;
   days: number;
@@ -243,6 +245,8 @@ export interface PanelPlan {
 export interface AccountPlans {
   available: boolean;
   plans: PanelPlan[];
+  /** The categories the plans sit in (e.g. Tunnel / Direct); missing from older servers. */
+  categories?: { id: number; title: string }[];
 }
 
 /** A panel admin account the customer owns: status, quota, users, expiry. */

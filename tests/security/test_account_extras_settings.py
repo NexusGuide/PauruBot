@@ -63,3 +63,37 @@ async def test_an_account_plan_saves_its_renewal_options_and_ranges(session, htt
     ):
         resp = await owner.call("PUT", f"/api/admin/account-plans/{saved['id']}", {**body, **bad})
         assert resp.status_code == 422, bad
+
+
+async def test_an_account_plan_takes_only_its_own_shops_category(session, http, env) -> None:  # noqa: F811
+    from paurubot.db.models import Category, PanelKind
+    from tests import factories
+
+    pasarguard = await factories.panel(session, env.shop, PanelKind.PASARGUARD)
+    mine = Category(shop_id=env.shop.id, title="TUNNEL")
+    other_shop = await factories.shop(session, "Other")
+    theirs = Category(shop_id=other_shop.id, title="THEIRS")
+    session.add_all([mine, theirs])
+    await session.commit()
+    owner = await login(http, "u_owner")
+    body = {
+        "panel_id": pasarguard.id,
+        "title": "Tunnel admin",
+        "role_id": 2,
+        "price": 1,
+        "category_id": mine.id,
+    }
+    created = await owner.call("POST", "/api/admin/account-plans", body)
+    assert created.status_code == 200, created.text
+    assert created.json()["category_id"] == mine.id
+    listed = (await owner.call("GET", "/api/admin/account-plans")).json()
+    assert {"id": mine.id, "title": "TUNNEL", "is_active": True} in listed["categories"]
+    assert all(c["id"] != theirs.id for c in listed["categories"])
+    refused = await owner.call(
+        "PUT", f"/api/admin/account-plans/{created.json()['id']}", {**body, "category_id": theirs.id}
+    )
+    assert refused.status_code == 404
+    cleared = await owner.call(
+        "PUT", f"/api/admin/account-plans/{created.json()['id']}", {**body, "category_id": None}
+    )
+    assert cleared.json()["category_id"] is None

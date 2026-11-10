@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from html import escape
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -135,6 +135,26 @@ def _service_option(t: Texts, plan, checked: bool) -> str:  # type: ignore[no-un
     return _option(t, _choice("service", plan.id), plan.title, specs, plan.price, checked)
 
 
+async def _account_options(db: Any, t: Texts, accounts: list[Any], *, first: bool) -> str:
+    """Panel plans, under their category's name when the shop sorts them (e.g. Tunnel / Direct)."""
+    from paurubot.core import panel_accounts
+
+    groups = await panel_accounts.categories(db, accounts)
+    if not groups:
+        return "".join(_account_option(t, p, first and i == 0) for i, p in enumerate(accounts))
+    ordered = [(g.title, [p for p in accounts if p.category_id == g.id]) for g in groups]
+    loose = [p for p in accounts if p.category_id not in {g.id for g in groups}]
+    if loose:
+        ordered.append((t("btn_other_plans"), loose))
+    html, index = "", 0
+    for title, items in ordered:
+        html += f'<h4 class="subgroup">{escape(title)}</h4>'
+        for plan in items:
+            html += _account_option(t, plan, first and index == 0)
+            index += 1
+    return html
+
+
 def _account_option(t: Texts, plan, checked: bool) -> str:  # type: ignore[no-untyped-def]
     specs = t(
         "guest_account_specs",
@@ -195,7 +215,7 @@ async def _store(db: DB, request: Request, shop: Shop, t: Texts, error: str = ""
     if not (plans or accounts) or not methods:
         return _page(t, title, f'<section class="card"><p>{escape(t("guest_closed"))}</p></section>')
     options = "".join(_service_option(t, p, i == 0) for i, p in enumerate(plans))
-    account_options = "".join(_account_option(t, p, not plans and i == 0) for i, p in enumerate(accounts))
+    account_options = await _account_options(db, t, accounts, first=not plans)
     if accounts:
         groups = (
             (f'<h3 class="group">{escape(t("guest_group_services"))}</h3>{options}' if plans else "")

@@ -12,7 +12,7 @@ from paurubot.api.admin_common import owned, plain
 from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record, snapshot
 from paurubot.core import panel_accounts
-from paurubot.db.models import AccountPlan, Customer, Panel, PanelAccount, PanelKind, PlanAudience
+from paurubot.db.models import AccountPlan, Category, Customer, Panel, PanelAccount, PanelKind, PlanAudience
 from paurubot.panels import PanelError, registry
 from paurubot.panels.drivers.pasarguard import PasarGuardDriver
 
@@ -22,6 +22,7 @@ Manager = Annotated[StaffContext, Depends(require("resellers.manage"))]
 PLAN_FIELDS = [
     "id",
     "panel_id",
+    "category_id",
     "title",
     "description",
     "role_id",
@@ -68,6 +69,8 @@ ACCOUNT_FIELDS = [
 
 class AccountPlanBody(BaseModel):
     panel_id: int
+    # One of the shop's categories (shared with config plans); None: shown with "other plans".
+    category_id: int | None = None
     title: str = Field(min_length=1, max_length=96)
     description: str | None = Field(default=None, max_length=2000)
     role_id: int = Field(ge=1)
@@ -109,6 +112,11 @@ class AccountPlanBody(BaseModel):
         return self
 
 
+async def _check_category(db: DB, ctx: StaffContext, category_id: int | None) -> None:
+    if category_id is not None:
+        await owned(db, Category, category_id, ctx)  # another shop's category: 404
+
+
 async def _pasarguard(db: DB, ctx: StaffContext, panel_id: int) -> Panel:
     panel = await owned(db, Panel, panel_id, ctx)
     if panel.kind != PanelKind.PASARGUARD:
@@ -126,9 +134,13 @@ async def account_plans(ctx: Manager, db: DB) -> dict[str, Any]:
     panels = await db.scalars(
         select(Panel).where(Panel.shop_id == ctx.shop_id, Panel.kind == PanelKind.PASARGUARD)
     )
+    categories = await db.scalars(
+        select(Category).where(Category.shop_id == ctx.shop_id).order_by(Category.sort, Category.id)
+    )
     return {
         "items": [plain(x, PLAN_FIELDS) for x in rows],
         "panels": [{"id": p.id, "name": p.name, "is_active": p.is_active} for p in panels],
+        "categories": [{"id": c.id, "title": c.title, "is_active": c.is_active} for c in categories],
     }
 
 
@@ -148,6 +160,7 @@ async def account_roles(panel_id: int, ctx: Manager, db: DB) -> dict[str, Any]:
 @router.post("/account-plans")
 async def create_account_plan(body: AccountPlanBody, ctx: Manager, db: DB) -> dict[str, Any]:
     await _pasarguard(db, ctx, body.panel_id)
+    await _check_category(db, ctx, body.category_id)
     row = AccountPlan(shop_id=ctx.shop_id, **body.model_dump())
     db.add(row)
     await db.flush()
@@ -167,6 +180,7 @@ async def create_account_plan(body: AccountPlanBody, ctx: Manager, db: DB) -> di
 async def update_account_plan(row_id: int, body: AccountPlanBody, ctx: Manager, db: DB) -> dict[str, Any]:
     row = await owned(db, AccountPlan, row_id, ctx)
     await _pasarguard(db, ctx, body.panel_id)
+    await _check_category(db, ctx, body.category_id)
     before = snapshot(row)
     for key, value in body.model_dump().items():
         setattr(row, key, value)

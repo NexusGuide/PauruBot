@@ -128,6 +128,8 @@ class AccountPlan(Base, UpdatedMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"), index=True)
     panel_id: Mapped[int] = mapped_column(ForeignKey("panels.id", ondelete="CASCADE"))
+    # The shop's categories, shared with config plans; a buyer picks one first (e.g. Tunnel / Direct).
+    category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id", ondelete="SET NULL"))
     title: Mapped[str] = mapped_column(String(96))
     description: Mapped[str | None] = mapped_column(Text)
     role_id: Mapped[int] = mapped_column(Integer)
