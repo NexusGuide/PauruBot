@@ -1974,5 +1974,7 @@
   "err_own_bot_days_invalid": "Days must be between 1 and 3650.",
   "setting_own_bot": "Dedicated bot (automatic)",
   "setting_own_bot_expires_at": "Dedicated bot valid until",
-  "setting_own_bot_expiry_warned": "Dedicated bot end already warned about"
+  "setting_own_bot_expiry_warned": "Dedicated bot end already warned about",
+  "log_topic_trials": "Free trials",
+  "log_topic_referrals": "Referral commissions"
 }

@@ -1974,5 +1974,7 @@
   "err_own_bot_days_invalid": "تعداد روز باید بین ۱ تا ۳۶۵۰ باشد.",
   "setting_own_bot": "ربات اختصاصی (خودکار)",
   "setting_own_bot_expires_at": "اعتبار ربات اختصاصی تا",
-  "setting_own_bot_expiry_warned": "هشدار پایان اعتبار ربات اختصاصی داده شده"
+  "setting_own_bot_expiry_warned": "هشدار پایان اعتبار ربات اختصاصی داده شده",
+  "log_topic_trials": "اکانت‌های تست",
+  "log_topic_referrals": "پورسانت‌ها"
 }

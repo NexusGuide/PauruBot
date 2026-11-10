@@ -232,16 +232,20 @@ async def start(
             if posted.created:
                 welcome_gift = gift
         await queue.enqueue(
-            session,
-            "notify",
-            "report",
-            {
-                "topic": "users",
-                "key": "report_new_user",
-                "params": {"user": customer.display_name, "telegram_id": customer.telegram_id},
-            },
-            shop_id=shop.id,
+            session, "notify", "new_user_report", {"customer_id": customer.id}, shop_id=shop.id
         )
+    if arg.startswith("cust_") and arg[5:].isdigit():
+        # «Manage user» under a report in the shop's group: the customer's card, for staff only.
+        if staff is not None and staff.can("customers.read"):
+            from paurubot.bot.routers.admin import customer_card
+
+            found = await customers.get(session, shop.id, int(arg[5:]))
+            if found is not None:
+                text, kb = await customer_card(session, t, found, staff)
+                await message.answer(text, reply_markup=kb)
+                return
+        await home(message, t, cfg, staff)
+        return
     if arg.startswith("claim_"):
         from paurubot.core import guest
 

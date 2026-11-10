@@ -81,13 +81,23 @@ async def reward_referrer(session: AsyncSession, order: Order) -> int:
         key=key,
         memo=f"referral reward for customer {customer.id}",
     )
+    from paurubot.ledger.accounts import wallet_balance
     from paurubot.worker import queue
 
+    balance = await wallet_balance(session, order.shop_id, customer.referrer_id)
     await queue.enqueue(
         session,
         "notify",
         "referral_reward",
-        {"customer_id": customer.referrer_id, "amount": reward},
+        {
+            "customer_id": customer.referrer_id,
+            "amount": reward,
+            # For the shop's commission report: who bought, which order, the referrer's balance.
+            "buyer_id": customer.id,
+            "order_id": order.id,
+            "percent": percent,
+            "balance_after": balance,
+        },
         shop_id=order.shop_id,
         dedupe_key=f"{key}:notify",
     )
