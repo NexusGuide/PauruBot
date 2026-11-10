@@ -165,3 +165,20 @@ async def test_staff_note_on_a_service(session, env) -> None:  # type: ignore[no
     await session.refresh(service)
     assert service.staff_note == "paid in cash"
     assert FA("adm_service_note", note="paid in cash") in fake.last(SendMessage).text
+
+
+async def test_quick_link_opens_its_section(session, env) -> None:  # type: ignore[no-untyped-def]
+    """`t.me/<bot>?start=go_<item>` from the panel's quick links opens that part of the bot."""
+    send, fake, shop = env["send"], env["fake"], env["shop"]
+    await send(message_update(UID, "/start go_wallet"))
+    assert FA("btn_topup") in [text for text, _ in fake.buttons(fake.last(SendMessage))]
+    # A section that is off, or not a menu item at all, just shows the menu.
+    await send(message_update(UID, "/start go_trial"))
+    assert FA("btn_topup") not in [text for text, _ in fake.buttons(fake.last(SendMessage))]
+    await send(message_update(UID, "/start go_admin"))
+    assert FA("btn_topup") not in [text for text, _ in fake.buttons(fake.last(SendMessage))]
+    await shop_settings.set_many(session, shop.id, {"trial_enabled": True})
+    await session.commit()
+    before = len(fake.calls)
+    await send(message_update(UID, "/start go_trial"))
+    assert len(fake.calls) > before + 1  # the menu, then the trial screen

@@ -142,10 +142,6 @@ async def menu_press(
     waits on the row locked by this callback, which cannot finish until that
     nested update returns. Reuse the session, shop, customer and FSM instead.
     """
-    from datetime import UTC, datetime
-
-    from aiogram.types import Chat, Update
-
     await call.answer()
     if not isinstance(call.message, Message) or call.message.chat.type != "private":
         return
@@ -156,24 +152,46 @@ async def menu_press(
         await state.clear()
         await home(call.message, t, cfg, staff)
         return
-    label_key = BUTTONS.get(callback_data.item)
+    await open_item(
+        callback_data.item, call.message, call.from_user, t, cfg, staff, dispatcher, bot, state, data
+    )
+
+
+def item_shown(item: str, cfg: dict[str, Any]) -> bool:
+    """A main-menu item this customer can open now: on, and placed in the menu."""
     layout = cfg.get("menu_layout") or DEFAULT_LAYOUT
-    if (
-        label_key is None
-        or callback_data.item not in available(cfg)
-        or not any(callback_data.item in row for row in layout)
-    ):
+    return item in BUTTONS and item in available(cfg) and any(item in row for row in layout)
+
+
+async def open_item(
+    item: str,
+    message: Message,
+    user: Any,
+    t: Texts,
+    cfg: dict[str, Any],
+    staff: StaffIdentity | None,
+    dispatcher: Any,
+    bot: Bot,
+    state: FSMContext,
+    data: dict[str, Any],
+) -> None:
+    """Open a main-menu item as if its button was pressed, inside the current update context."""
+    from datetime import UTC, datetime
+
+    from aiogram.types import Chat, Update
+
+    if not item_shown(item, cfg):
         return
     synthetic = Message(
-        message_id=call.message.message_id,
+        message_id=message.message_id,
         date=datetime.now(UTC),
-        chat=Chat(id=call.from_user.id, type="private"),
-        from_user=call.from_user,
-        text=t(label_key),
+        chat=Chat(id=user.id, type="private"),
+        from_user=user,
+        text=t(BUTTONS[item]),
     ).as_(bot)
     # Main-menu navigation must not become a ticket body, receipt or other FSM input.
     await state.clear()
-    for key in ("handler", "event_router", "callback_data"):
+    for key in ("handler", "event_router", "callback_data", "command"):
         data.pop(key, None)
     data.update(
         dispatcher=dispatcher,
@@ -183,7 +201,7 @@ async def menu_press(
         t=t,
         cfg=cfg,
         staff=staff,
-        event_from_user=call.from_user,
+        event_from_user=user,
         event_chat=synthetic.chat,
         event_update=Update(update_id=0, message=synthetic),
     )
@@ -202,6 +220,9 @@ async def start(
     cfg: dict[str, Any],
     staff: StaffIdentity | None,
     state: FSMContext,
+    dispatcher: Any,
+    bot: Bot,
+    **data: Any,
 ) -> None:
     await state.clear()
     arg = (command.args or "").strip()
@@ -270,6 +291,26 @@ async def start(
     await home(message, t, cfg, staff)
     if welcome_gift:
         await message.answer(t("start_gift", amount=money(welcome_gift)))
+    if arg.startswith("go_") and message.from_user is not None and menu_mode(cfg) != "miniapp":
+        # A quick link from the panel (t.me/<bot>?start=go_<item>): straight into that section.
+        await open_item(
+            arg[3:],
+            message,
+            message.from_user,
+            t,
+            cfg,
+            staff,
+            dispatcher,
+            bot,
+            state,
+            {
+                **data,
+                "session": session,
+                "shop": shop,
+                "customer": customer,
+                "is_new_customer": is_new_customer,
+            },
+        )
 
 
 @router.message(Command("cancel"))

@@ -52,6 +52,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/channels` | `settings.read` | List channels |
 | DELETE | `/api/admin/contacts/{row_id}` | `settings.write` | Remove contact |
 | POST | `/api/admin/contacts` | `settings.write` | Add contact |
+| GET | `/api/admin/customer-bots` | `resellers.manage` | Every bot the shop's customers run: resellers' bots selling the shop's plans (TEN-04) and |
 | POST | `/api/admin/customers/bulk` | `customers.ban` | Bulk customers |
 | POST | `/api/admin/customers/{customer_id}/adjust` | `wallet.adjust` | Adjust |
 | POST | `/api/admin/customers/{customer_id}/ban` | `customers.ban` | Ban |
@@ -98,6 +99,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | PUT | `/api/admin/manual-sales/national/{panel_id}` | `catalog.write` | National switch |
 | GET | `/api/admin/manual-sales/{item_id}/content` | `catalog.write` | Content |
 | GET | `/api/admin/manual-sales` | `catalog.read` | Inventory |
+| GET | `/api/admin/message-variables` | `settings.read` | Every `{variable}` the bot's texts use, with the texts that use it. |
 | GET | `/api/admin/migration/last` | `backups.manage` | Migration last |
 | POST | `/api/admin/migration/run` | `backups.manage` | Migration run |
 | POST | `/api/admin/migration/upload` | `backups.manage` | Store a MySQL dump or SQLite file and describe what it holds. |
@@ -144,6 +146,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | DELETE | `/api/admin/plans/{row_id}` | `catalog.write` | Plans are archived, never deleted: services and orders keep pointing at them. |
 | PUT | `/api/admin/plans/{row_id}` | `catalog.write` | Update plan |
 | POST | `/api/admin/plans` | `catalog.write` | Create plan |
+| GET | `/api/admin/quick-links` | `settings.read` | `t.me/<bot>?start=go_<item>` for each section, and whether it opens right now. |
 | GET | `/api/admin/reports/funnel` | `reports.read` | Of the people who joined in the period, how many shared a phone, took a trial and bought (ADM-06). |
 | GET | `/api/admin/reports/sales.csv` | `reports.read` | Sales csv |
 | GET | `/api/admin/reports/sales` | `reports.read` | Sales report |

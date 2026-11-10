@@ -13,6 +13,8 @@ import { BotMenu } from "./screens/BotMenu";
 import { Migration } from "./screens/Migration";
 import { Updates } from "./screens/Updates";
 import { AdminAccounts } from "./screens/AdminAccounts";
+import { CustomerBots } from "./screens/CustomerBots";
+import { QuickLinks, Variables } from "./screens/BotLinks";
 import { Desk } from "./screens/Desk";
 import { MyBilling, Resellers, Staff, SubResellers, TicketPage, Tickets } from "./screens/People";
 import { Services } from "./screens/Services";
@@ -65,6 +67,7 @@ function Routed() {
         <Route path="/lotteries" element={g("broadcast.send", <Lotteries />)} />
         <Route path="/resellers" element={g("resellers.manage", <Resellers />)} />
         <Route path="/admin-accounts" element={g("resellers.manage", <AdminAccounts />)} />
+        <Route path="/customer-bots" element={g("resellers.manage", <CustomerBots />)} />
         <Route path="/desk" element={g("services.create", <Desk />)} />
         <Route path="/sub-resellers" element={g("resellers.sub", <SubResellers />)} />
         <Route path="/billing" element={g("dashboard.view", <MyBilling />)} />
@@ -77,6 +80,8 @@ function Routed() {
         <Route path="/settings" element={g("settings.read", <Settings />)} />
         <Route path="/texts" element={g("texts.write", <Texts />)} />
         <Route path="/channels" element={g("settings.read", <Channels />)} />
+        <Route path="/quick-links" element={g("settings.read", <QuickLinks />)} />
+        <Route path="/variables" element={g("settings.read", <Variables />)} />
         <Route path="/appearance" element={g("settings.read", <MiniAppLook />)} />
         <Route path="/staff" element={g("staff.manage", <Staff />)} />
         <Route path="/audit" element={g("audit.read", <Audit />)} />

@@ -23,11 +23,14 @@ test("every page of the panel is reachable from a hub", () => {
   assert.equal(new Set(nav.allPaths()).size, nav.allPaths().length, "a page sits in one hub only");
 });
 
-test("the sidebar is short: hubs, not every page", () => {
+test("the sidebar is short: a few folders, each with a few entries", () => {
   const groups = nav.visibleGroups(owner);
-  const hubs = groups.flatMap((group) => group.hubs);
-  assert.ok(hubs.length <= 13, `owner sidebar has ${hubs.length} entries`);
+  assert.ok(groups.length <= 7, `owner sidebar has ${groups.length} groups`);
+  for (const group of groups) assert.ok(group.hubs.length <= 5, `${group.key} has ${group.hubs.length} entries`);
   assert.ok(nav.allPaths().length >= 25);
+  assert.equal(nav.groupFor(groups, "/customer-bots").key, "nav_group_resellers");
+  assert.equal(nav.groupFor(groups, "/variables").key, "nav_group_settings");
+  assert.equal(nav.groupFor(groups, "/nowhere"), undefined);
 });
 
 test("a page and its detail pages light up their hub", () => {
@@ -45,7 +48,8 @@ test("tabs follow permissions: a hub shows only what this person may open", () =
   const support = nav.visibleFor((p) => ["customers.read", "services.read", "settings.read"].includes(p), "support");
   const groups = nav.visibleGroups(support);
   const bot = nav.hubFor(groups, "/settings");
-  assert.deepEqual(bot.tabs.map((tab) => tab.to), ["/settings", "/bot-menu", "/channels", "/appearance"]); // no texts.write
+  assert.deepEqual(bot.tabs.map((tab) => tab.to), ["/settings", "/bot-menu", "/appearance", "/quick-links", "/variables"]); // no texts.write
+  assert.equal(nav.hubFor(groups, "/customer-bots"), undefined, "customer bots need resellers.manage");
   assert.equal(nav.hubFor(groups, "/staff"), undefined, "no server hub without its rights");
 
   const reseller = nav.visibleFor(() => true, "reseller");
@@ -141,6 +145,7 @@ test("every new label exists in both admin languages", () => {
   const groups = nav.visibleGroups(owner);
   const keys = [
     ...groups.map((group) => group.key),
+    ...Object.keys(JSON.parse(readFileSync(src("locales/fa.json"), "utf8"))).filter((key) => key.startsWith("cbots_") || key.startsWith("qlinks_") || key.startsWith("vars_")),
     ...groups.flatMap((group) => group.hubs.flatMap((hub) => [hub.key, ...hub.tabs.map((tab) => tab.key)])),
     ...settings.CATEGORIES.map((category) => `settings_category_${category.key}`),
     ...texts.SECTIONS.map((section) => `texts_section_${section}`),
@@ -163,4 +168,35 @@ test("the Mini App look page edits real appearance settings, each with a label",
     assert.ok(`setting_${key}` in fa && `setting_${key}` in en, `label for ${key}`);
   }
   assert.ok(nav.allPaths().includes("/appearance"));
+});
+
+test("customer bots: filters and search", () => {
+  const screen = h.compile(src("screens/CustomerBots.tsx"), {
+    "react-router-dom": {}, "@shared/format": {}, "../api": {}, "../hooks": {}, "../session": {}, "../ui": {},
+  });
+  const bot = (shop_id, kind, state, title, owner) => ({ shop_id, kind, state, title, bot_username: `${title}_bot`, owner });
+  const items = [
+    bot(1, "own", "selling", "Ali", { id: 1, name: "علی", username: "ali" }),
+    bot(2, "reseller", "blocked", "Sara", { id: 2, name: "سارا", username: null }),
+    bot(3, "reseller", "selling", "Mina", null),
+  ];
+  const ids = (list) => list.map((b) => b.shop_id);
+  assert.deepEqual(ids(screen.filterBots(items, "all", "")), [1, 2, 3]);
+  assert.deepEqual(ids(screen.filterBots(items, "reseller", "")), [2, 3]);
+  assert.deepEqual(ids(screen.filterBots(items, "own", "")), [1]);
+  assert.deepEqual(ids(screen.filterBots(items, "attention", "")), [2]);
+  assert.deepEqual(ids(screen.filterBots(items, "all", "@sara_BOT")), [2]);
+  assert.deepEqual(ids(screen.filterBots(items, "all", "علی")), [1]);
+});
+
+test("quick links and variables", () => {
+  const screen = h.compile(src("screens/BotLinks.tsx"), {
+    "react-router-dom": {}, "@shared/format": {}, "../hooks": {}, "../session": {}, "../ui": {}, "../texts-layout": texts,
+  });
+  assert.equal(screen.linkFor("pauru_bot", "go_buy"), "https://t.me/pauru_bot?start=go_buy");
+  assert.equal(screen.linkFor(null, "go_buy"), "?start=go_buy");
+  assert.equal(screen.variableSection(["btn_wallet", "wallet_topup", "welcome"]), texts.sectionOf("btn_wallet"));
+  assert.equal(screen.variableSection([]), "other");
+  const app = readFileSync(src("App.tsx"), "utf8");
+  for (const path of ["/customer-bots", "/quick-links", "/variables"]) assert.ok(app.includes(`path="${path}"`), path);
 });
