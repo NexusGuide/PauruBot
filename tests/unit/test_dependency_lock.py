@@ -99,7 +99,7 @@ def test_image_and_ci_install_only_the_hashed_lock() -> None:
     assert "-r requirements.txt" not in ci
     # CI tests the Python and Node the image ships.
     python_image = re.search(r"FROM python:(\d+\.\d+)-slim", dockerfile)
-    node_image = re.search(r"FROM node:(\d+)-alpine", dockerfile)
+    node_image = re.search(r"FROM (?:--platform=\S+ )?node:(\d+)-alpine", dockerfile)
     assert python_image and f'"{python_image.group(1)}"' in ci
     assert node_image and f'node-version: "{node_image.group(1)}"' in ci
 
