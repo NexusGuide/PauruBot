@@ -13,7 +13,7 @@ import string
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core import settings as shop_settings
@@ -21,6 +21,7 @@ from paurubot.core.orders import ACCOUNT_KINDS, Draft, OrderError
 from paurubot.db.base import utcnow
 from paurubot.db.models import (
     AccountPlan,
+    Category,
     Customer,
     Order,
     OrderKind,
@@ -97,9 +98,18 @@ def offered_to(plan: AccountPlan, customer: Customer | None) -> bool:
     return (audience == PlanAudience.RESELLERS) == bool(customer.is_reseller)
 
 
-async def plans(session: AsyncSession, shop_id: int, customer: Customer | None = None) -> list[AccountPlan]:
-    """The plans on sale; with a customer, only those offered to them."""
-    rows = await session.scalars(
+async def plans(
+    session: AsyncSession,
+    shop_id: int,
+    customer: Customer | None = None,
+    *,
+    category_id: int | None = None,
+    uncategorised: bool = False,
+) -> list[AccountPlan]:
+    """The plans on sale; with a customer, only those offered to them. A plan in a category that
+    is switched off is not on sale, as with config plans."""
+    category_ok = select(Category.id).where(Category.shop_id == shop_id, Category.is_active.is_(True))
+    stmt = (
         select(AccountPlan)
         .join(Panel, Panel.id == AccountPlan.panel_id)
         .where(
@@ -107,10 +117,28 @@ async def plans(session: AsyncSession, shop_id: int, customer: Customer | None =
             AccountPlan.is_active.is_(True),
             Panel.is_active.is_(True),
             Panel.kind == PanelKind.PASARGUARD,
+            or_(AccountPlan.category_id.is_(None), AccountPlan.category_id.in_(category_ok)),
         )
         .order_by(AccountPlan.sort, AccountPlan.price, AccountPlan.id)
     )
-    return [plan for plan in rows if offered_to(plan, customer)]
+    if category_id:
+        stmt = stmt.where(AccountPlan.category_id == category_id)
+    elif uncategorised:
+        stmt = stmt.where(AccountPlan.category_id.is_(None))
+    return [plan for plan in await session.scalars(stmt) if offered_to(plan, customer)]
+
+
+async def categories(session: AsyncSession, items: list[AccountPlan]) -> list[Category]:
+    """The categories these plans sit in, in the shop's order (empty when none has one)."""
+    ids = {plan.category_id for plan in items} - {None}
+    if not ids:
+        return []
+    rows = await session.scalars(
+        select(Category)
+        .where(Category.id.in_(ids), Category.is_active.is_(True))
+        .order_by(Category.sort, Category.id)
+    )
+    return list(rows)
 
 
 async def plan_for(

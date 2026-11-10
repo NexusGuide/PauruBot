@@ -408,6 +408,18 @@ async def test_admin_account_plans_on_the_web(session, store) -> None:  # type: 
     page = await client.get(f"/buy/{shop.id}?lang=en&new=1")
     assert "Reseller 500" in page.text and f'value="a:{admin_plan.id}"' in page.text
     assert "Wholesale" not in page.text  # a plan for resellers only stays off the web
+    # sorted into a category, the web page shows it under that category's name
+    from paurubot.db.models import Category
+
+    tunnel = Category(shop_id=shop.id, title="TUNNEL")
+    session.add(tunnel)
+    await session.flush()
+    admin_plan.category_id = tunnel.id
+    await session.commit()
+    grouped = await client.get(f"/buy/{shop.id}?lang=en&new=1")
+    assert '<h4 class="subgroup">TUNNEL</h4>' in grouped.text
+    assert grouped.text.index("TUNNEL") < grouped.text.index("Reseller 500")
+    page = grouped  # the newest page carries the live checkout token
 
     started = await client.post(
         f"/buy/{shop.id}?lang=en",

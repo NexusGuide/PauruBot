@@ -28,6 +28,7 @@ type PlanDraft = Omit<AccountPlan, "id"> & { id?: number };
 
 const EMPTY: PlanDraft = {
   panel_id: 0,
+  category_id: null,
   title: "",
   description: null,
   role_id: 0,
@@ -57,6 +58,7 @@ const EMPTY: PlanDraft = {
 interface PlansData {
   items: AccountPlan[];
   panels: { id: number; name: string; is_active: boolean }[];
+  categories?: { id: number; title: string; is_active: boolean }[];
 }
 
 function Roles({ panelId, value, onChange }: { panelId: number; value: number; onChange: (v: number) => void }) {
@@ -133,7 +135,19 @@ function RenewPackages({ value, onChange }: { value: RenewPackage[]; onChange: (
   );
 }
 
-function PlanSheet({ draft, panels, onClose, onSaved }: { draft: PlanDraft | null; panels: PlansData["panels"]; onClose: () => void; onSaved: () => void }) {
+function PlanSheet({
+  draft,
+  panels,
+  categories,
+  onClose,
+  onSaved,
+}: {
+  draft: PlanDraft | null;
+  panels: PlansData["panels"];
+  categories: NonNullable<PlansData["categories"]>;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const { t, toast, errorText } = useSession();
   const [form, setForm] = useState<PlanDraft>(EMPTY);
   const [busy, run] = useAction();
@@ -179,6 +193,23 @@ function PlanSheet({ draft, panels, onClose, onSaved }: { draft: PlanDraft | nul
           )}
         </Field>
         <Roles panelId={form.panel_id} value={form.role_id} onChange={(role_id) => set({ role_id })} />
+        <Field label={t("category")} hint={categories.length ? t("account_category_hint") : t("account_category_none")}>
+          {(id) => (
+            <Select
+              id={id}
+              value={form.category_id === null ? "" : String(form.category_id)}
+              onChange={(e) => set({ category_id: e.target.value ? Number(e.target.value) : null })}
+            >
+              <option value="">{t("account_no_category")}</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title}
+                  {c.is_active ? "" : ` (${t("inactive")})`}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label={t("account_data_gb")} hint={t("zero_unlimited")}>
             {(id) => <NumberInput id={id} value={form.data_gb} onChange={(v) => set({ data_gb: v ?? 0 })} />}
@@ -311,7 +342,7 @@ function Plans() {
               ))}
             </ul>
           )}
-          <PlanSheet draft={draft} panels={value.panels} onClose={() => setDraft(null)} onSaved={() => { setDraft(null); void reload(); }} />
+          <PlanSheet draft={draft} panels={value.panels} categories={value.categories ?? []} onClose={() => setDraft(null)} onSaved={() => { setDraft(null); void reload(); }} />
         </Section>
       )}
     </Async>

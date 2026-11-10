@@ -302,3 +302,25 @@ async def test_discount_codes_on_admin_accounts_only_where_the_plan_allows(sessi
     view = order.json()["order"]
     assert view["code_discount"] == plan.price // 5 and view["amount"] == plan.price - plan.price // 5
     assert view["params"]["discounts"] is True
+
+
+async def test_admin_plans_come_with_their_categories(session, acc_env) -> None:  # type: ignore[no-untyped-def]
+    """The Mini App gets each plan's category and the categories in the shop's order."""
+    from paurubot.db.models import AccountPlan, Category
+
+    shop, plan = acc_env["shop"], acc_env["plan"]
+    direct = Category(shop_id=shop.id, title="DIRECT", sort=1)
+    tunnel = Category(shop_id=shop.id, title="TUNNEL", sort=0)
+    off = Category(shop_id=shop.id, title="OFF", sort=2, is_active=False)
+    session.add_all([direct, tunnel, off])
+    await session.flush()
+    plan.category_id = direct.id
+    session.add(
+        AccountPlan(
+            shop_id=shop.id, panel_id=plan.panel_id, category_id=off.id, title="Gone", role_id=2, price=1
+        )
+    )
+    await session.commit()
+    view = (await acc_env["client"].get("/api/webapp/account-plans", headers=h(64001))).json()
+    assert view["categories"] == [{"id": direct.id, "title": "DIRECT"}]  # only categories with plans
+    assert [(p["title"], p["category_id"]) for p in view["plans"]] == [(plan.title, direct.id)]

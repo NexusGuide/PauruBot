@@ -169,10 +169,44 @@ async def plans(call: CallbackQuery, session: AsyncSession, customer: Customer, 
         await show(call, t("accounts_unavailable"))
         return
     items = await panel_accounts.plans(session, customer.shop_id, customer)
+    groups = await panel_accounts.categories(session, items)
+    if not groups:
+        await _plan_list(call, t, items, back=Acc(action="home"))
+        return
+    # A category first (e.g. Tunnel / Direct), like config plans; the rest under "other plans".
+    kb = InlineKeyboardBuilder()
+    for group in groups:
+        kb.button(text=group.title, callback_data=Acc(action="cat", id=group.id))
+    if any(plan.category_id is None for plan in items):
+        kb.button(text=t("btn_other_plans"), callback_data=Acc(action="cat", id=0))
+    kb.button(text=t("btn_back"), callback_data=Acc(action="home"))
+    kb.adjust(1)
+    await show(call, t("acc_choose_category"), kb.as_markup())
+
+
+@router.callback_query(Acc.filter(F.action == "cat"))
+async def category(
+    call: CallbackQuery, callback_data: Acc, session: AsyncSession, customer: Customer, t: Texts
+) -> None:
+    await call.answer()
+    if not await panel_accounts.available(session, customer):
+        await show(call, t("accounts_unavailable"))
+        return
+    items = await panel_accounts.plans(
+        session,
+        customer.shop_id,
+        customer,
+        category_id=callback_data.id or None,
+        uncategorised=not callback_data.id,
+    )
+    await _plan_list(call, t, items, back=Acc(action="plans"))
+
+
+async def _plan_list(call: CallbackQuery, t: Texts, items: list[AccountPlan], *, back: Acc) -> None:
     kb = InlineKeyboardBuilder()
     for plan in items:
         kb.button(text=f"{plan.title} — {money(plan.price)}", callback_data=Acc(action="plan", id=plan.id))
-    kb.button(text=t("btn_back"), callback_data=Acc(action="home"))
+    kb.button(text=t("btn_back"), callback_data=back)
     kb.adjust(1)
     await show(call, t("acc_plans") if items else t("acc_no_plans"), kb.as_markup())
 
@@ -191,7 +225,8 @@ async def plan_view(
         text += "\n\n" + esc(plan.description)
     kb = InlineKeyboardBuilder()
     kb.button(text=t("acc_btn_buy_plan"), callback_data=Acc(action="buy", id=plan.id))
-    kb.button(text=t("btn_back"), callback_data=Acc(action="plans"))
+    back = Acc(action="cat", id=plan.category_id) if plan.category_id else Acc(action="plans")
+    kb.button(text=t("btn_back"), callback_data=back)
     kb.adjust(1)
     await show(call, text, kb.as_markup())
 

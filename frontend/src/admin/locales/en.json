@@ -1957,5 +1957,8 @@
   "own_bot_status_paused_traffic_full": "Paused: traffic used up",
   "own_bot_status_paused_users_full": "New users paused: user limit reached",
   "err_own_panel_account_unusable": "This admin account is not active, so a bot cannot sell from it.",
-  "err_own_panel_unreachable": "Could not log in to the panel with this admin account. Check the panel and the account's password."
+  "err_own_panel_unreachable": "Could not log in to the panel with this admin account. Check the panel and the account's password.",
+  "account_category_hint": "Buyers pick a category first (e.g. Tunnel / Direct). Categories are shared with config plans, on the catalog page.",
+  "account_category_none": "Make categories on the catalog page to sort these plans (e.g. Tunnel / Direct).",
+  "account_no_category": "No category (other plans)"
 }

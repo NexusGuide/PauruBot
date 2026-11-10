@@ -133,6 +133,7 @@ h2{display:flex;align-items:center;gap:8px}
 color:var(--accent-ink);font-size:13px;flex:none}
 .group{font-size:13px;color:var(--muted);margin:14px 0 8px;font-weight:600}
 .group:first-of-type{margin-top:4px}
+.subgroup{font-size:14px;font-weight:700;margin:12px 0 6px}
 .hint{font-size:12px;color:var(--muted);margin:-4px 0 8px}
 .opt{display:flex;gap:10px;align-items:center;padding:14px 12px;border:1.5px solid var(--line);border-radius:12px;
 margin-bottom:8px;cursor:pointer;transition:border-color .15s,background .15s}
