@@ -356,6 +356,14 @@ async def test_a_prize_whose_panel_is_gone_is_left_to_staff(session, env) -> Non
     assert lottery.result["awards"][0]["status"] == "failed"
     await drain(session, "notify")
     assert FA("lottery_won_manual") in "\n".join(tg.texts(lonely.telegram_id))
+    # the same result job again (a retry) tells nobody twice
+    told = len(tg.texts(lonely.telegram_id))
+    await queue.enqueue(
+        session, "notify", "lottery_result", {"lottery_id": lottery.id}, shop_id=shop.id, dedupe_key="again"
+    )
+    await session.commit()
+    await drain(session, "notify")
+    assert len(tg.texts(lonely.telegram_id)) == told
 
 
 async def test_old_lotteries_still_pay_every_winner_the_same(session, env) -> None:  # type: ignore[no-untyped-def]

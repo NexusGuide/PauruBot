@@ -1333,24 +1333,35 @@ async def trust_post(session: AsyncSession, job: queue.Claimed) -> None:
 async def lottery_result(session: AsyncSession, job: queue.Claimed) -> None:
     """Tell each winner what they won and staff who won what (GRW-04). A new service prize is
     a free order: the config itself reaches the winner like any purchase."""
+    from paurubot import kv
     from paurubot.db.models import Lottery
     from paurubot.notifications import log_reports
 
     lottery = await session.get(Lottery, int(job.payload["lottery_id"]))
     if lottery is None:
         return
+    # A retry after a failed send must not tell anyone twice: each message is marked once sent.
     for award in log_reports.lottery_awards(lottery):
+        sent = f"lottery:{lottery.id}:told:{award['rank']}"
         customer = await session.get(Customer, int(award["customer_id"]))
-        if customer is None:
+        if customer is None or await kv.marked([sent]):
             continue
         t = await _texts(session, customer)
         tail = {"paid": "lottery_won_paid", "queued": "lottery_won_service"}.get(
             str(award.get("status")), "lottery_won_manual"
         )
         await _to_customer(session, customer, f"{_won_head(t, lottery, award)}\n{t(tail)}")
+        await kv.mark(sent, LOTTERY_SENT_TTL)
+    staff_sent = f"lottery:{lottery.id}:told:staff"
+    if await kv.marked([staff_sent]):
+        return
     for text, markup in await log_reports.lottery_result(session, lottery):
         await _to_staff(session, lottery.shop_id, "broadcast.send", text, markup=markup)
         await report(session, lottery.shop_id, "reports", text, markup=markup)
+    await kv.mark(staff_sent, LOTTERY_SENT_TTL)
+
+
+LOTTERY_SENT_TTL = 30 * 86400
 
 
 def _won_head(t: Texts, lottery: Any, award: dict[str, Any]) -> str:

@@ -564,6 +564,13 @@ async def _clean_prizes(db: Any, shop_id: int, items: list[LotteryPrize]) -> lis
     return prizes
 
 
+def _contact(ctx: StaffContext, customer: Any) -> dict[str, Any]:
+    """Who a winner or player is, for staff who may read customers (an API key may not)."""
+    if customer is None or not ctx.can("customers.read"):
+        return {"username": None, "telegram_id": None, "phone": None}
+    return {"username": customer.username, "telegram_id": customer.telegram_id, "phone": customer.phone}
+
+
 @router.get("/lotteries")
 async def list_lotteries(ctx: Sender, db: DB) -> dict[str, Any]:
     from paurubot.core import growth
@@ -593,15 +600,7 @@ async def list_lotteries(ctx: Sender, db: DB) -> dict[str, Any]:
             customer = await db.get(Customer, int(award["customer_id"]))
             name = log_reports.person_name(customer) if customer else f"#{award['customer_id']}"
             names.append({"id": int(award["customer_id"]), "name": name})
-            awards.append(
-                {
-                    **award,
-                    "name": name,
-                    "username": customer.username if customer else None,
-                    "telegram_id": customer.telegram_id if customer else None,
-                    "phone": customer.phone if customer else None,
-                }
-            )
+            awards.append({**award, "name": name, **_contact(ctx, customer)})
         data["winner_names"], data["awards"] = names, awards
         items.append(data)
     panels = [{"id": p.id, "name": p.name} for p in await growth.prize_panels(db, ctx.shop_id)]
@@ -633,9 +632,7 @@ async def lottery_standings(
                 "rank": rank,
                 "customer_id": customer.id,
                 "name": log_reports.person_name(customer),
-                "username": customer.username,
-                "telegram_id": customer.telegram_id,
-                "phone": customer.phone,
+                **_contact(ctx, customer),
                 "points": entry.points,
                 "purchases": entry.purchases,
                 "spent": entry.spent,

@@ -445,7 +445,7 @@ interface Standing {
   customer_id: number;
   name: string;
   username: string | null;
-  telegram_id: number;
+  telegram_id: number | null;
   phone: string | null;
   points: number;
   purchases: number;
