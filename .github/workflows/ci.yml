@@ -40,6 +40,22 @@ jobs:
           python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: requirements.lock
+      # Backups are made and restored with pg_dump / pg_restore, which must match the PostgreSQL 16
+      # server (a newer client writes settings 16 rejects, like transaction_timeout). The runner's
+      # own client follows its image, so pin 16 from the PGDG repository, as the Dockerfile does.
+      - name: PostgreSQL 16 client tools
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --dearmor --yes -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg
+          . /etc/os-release
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends postgresql-client-16
+          echo /usr/lib/postgresql/16/bin >> "$GITHUB_PATH"
+      - name: PostgreSQL client version
+        run: pg_dump --version && pg_restore --version
       - name: install the locked dependencies
         run: pip install --require-hashes -r requirements.lock
       - name: install the test tools
