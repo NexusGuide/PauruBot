@@ -54,11 +54,17 @@ async def test_live_services_cap_counts_services_and_orders_in_flight(session, e
         )
     )
     await session.flush()
-    first = await _buy(session, env)  # 1 live + this one = 2
+    first = await _buy(session, env)
+    await _buy(session, env)  # an opened checkout alone holds no place: «buy» twice is fine
+    first.status = OrderStatus.AWAITING_PAYMENT  # a receipt sent: 1 live + 1 being paid = 2
+    await session.flush()
     with pytest.raises(orders.OrderError) as caught:
         await _buy(session, env)
     assert caught.value.key == "limit_active_services" and caught.value.params == {"limit": 2}
-    first.status = OrderStatus.CANCELED  # an abandoned order frees its place
+    first.expires_at = utcnow() - timedelta(minutes=1)  # an abandoned payment frees its place
+    await session.flush()
+    await _buy(session, env)
+    first.status = OrderStatus.CANCELED
     await session.flush()
     await _buy(session, env)
 
@@ -102,6 +108,9 @@ async def test_terms_before_purchase_stop_a_new_order_until_accepted(session, en
     with pytest.raises(orders.OrderError) as caught:
         await _buy(session, env)
     assert caught.value.key == "terms_required"
+    # A guest's web checkout never showed the terms: it is not asked there.
+    draft = await orders.draft(session, env["customer"], OrderKind.PURCHASE, plan=env["plan"])
+    await orders.create(session, env["customer"], draft, source="web")
     env["customer"].terms_accepted_version = 3
     await _buy(session, env)
     with pytest.raises(shop_settings.SettingError):

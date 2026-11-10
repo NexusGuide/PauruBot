@@ -468,9 +468,14 @@ async def move_targets(session: AsyncSession, service: Service) -> list[tuple[Lo
     return out
 
 
-# Orders that will become a service: paid and on their way, or still open for payment.
+# Orders that will become a service: paid and on their way, or being paid (a receipt or a
+# gateway payment under way). A merely opened checkout does not count, so pressing «buy» twice
+# never locks a customer out.
 IN_FLIGHT = [OrderStatus.PAID, OrderStatus.PROVISIONING]
-OPEN = [OrderStatus.PENDING, OrderStatus.AWAITING_PAYMENT]
+PAYING = [OrderStatus.AWAITING_PAYMENT]
+# Where the customer can see and accept the terms: the bot and the Mini App (guest web checkout
+# and staff desks never asked for them).
+TERMS_SOURCES = {"bot", "webapp", "bulk"}
 
 
 async def check_purchase_terms(session: AsyncSession, customer: Customer) -> None:
@@ -487,7 +492,7 @@ async def check_purchase_terms(session: AsyncSession, customer: Customer) -> Non
 async def check_purchase_limits(session: AsyncSession, customer: Customer) -> None:
     """The shop's caps on new services for one customer (settings › limits).
 
-    An open order counts until it expires, so opening many before paying any cannot pass a cap."""
+    Orders being paid count until they expire, beside live services and paid orders."""
     if customer.is_reseller:
         return  # resellers have their own caps on their profile (TEN-05)
     cfg = await shop_settings.load(session, customer.shop_id)
@@ -497,7 +502,7 @@ async def check_purchase_limits(session: AsyncSession, customer: Customer) -> No
         return
     now = utcnow()
     counting = (Order.status.in_(IN_FLIGHT)) | (
-        Order.status.in_(OPEN) & ((Order.expires_at.is_(None)) | (Order.expires_at > now))
+        Order.status.in_(PAYING) & ((Order.expires_at.is_(None)) | (Order.expires_at > now))
     )
     purchases = select(func.count(Order.id)).where(
         Order.customer_id == customer.id, Order.kind == OrderKind.PURCHASE
@@ -531,7 +536,8 @@ async def create(
     source: str = "bot",
 ) -> Order:
     if d.kind == OrderKind.PURCHASE:
-        await check_purchase_terms(session, customer)
+        if source in TERMS_SOURCES:
+            await check_purchase_terms(session, customer)
         await check_purchase_limits(session, customer)
     if resellers.metered(customer) and d.kind not in ACCOUNT_KINDS:
         code = None  # nothing to discount: the order itself is free
