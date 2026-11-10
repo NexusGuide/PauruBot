@@ -142,6 +142,18 @@ async def report(
         )
     except telegram.Undeliverable:
         log.warning("log channel %s for %s is unreachable", channel.chat_id, topic)
+    except Exception:
+        # A report is a copy for the shop's staff: one Telegram refuses (a removed forum thread,
+        # flood control) must not fail the job and send the customer's own message again.
+        log.warning("report to %s for %s was not sent", channel.chat_id, topic, exc_info=True)
+
+
+async def _quietly(work: Awaitable[Any]) -> None:
+    """Build and send a report without ever failing the customer's notification around it."""
+    try:
+        await work
+    except Exception:
+        log.warning("a report could not be built", exc_info=True)
 
 
 async def report_error(session: AsyncSession, shop_id: int | None, text: str) -> None:
@@ -275,8 +287,11 @@ async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
             pass
     from paurubot.notifications import log_reports
 
-    topic, text, manage = await log_reports.service_order(session, order, service, customer)
-    await report(session, order.shop_id, topic, text, markup=manage)
+    async def order_report() -> None:
+        topic, text, manage = await log_reports.service_order(session, order, service, customer)
+        await report(session, order.shop_id, topic, text, markup=manage)
+
+    await _quietly(order_report())
 
 
 async def account_ready(session: AsyncSession, job: queue.Claimed) -> None:
@@ -303,17 +318,20 @@ async def account_ready(session: AsyncSession, job: queue.Claimed) -> None:
     from paurubot.core.formatting import days_left
     from paurubot.notifications import log_reports
 
-    topic, text, manage = await log_reports.order_report(
-        session,
-        order,
-        customer,
-        config=account.username,
-        panel=account.panel,
-        gb=int(account.data_limit // log_reports.GB) if account.data_limit else 0,
-        days=days_left(account.expire_at) or 0,
-        plan_title=account.plan.title if account.plan else None,
-    )
-    await report(session, order.shop_id, topic, text, markup=manage)
+    async def account_report() -> None:
+        topic, text, manage = await log_reports.order_report(
+            session,
+            order,
+            customer,
+            config=account.username,
+            panel=account.panel,
+            gb=int(account.data_limit // log_reports.GB) if account.data_limit else 0,
+            days=days_left(account.expire_at) or 0,
+            plan_title=account.plan.title if account.plan else None,
+        )
+        await report(session, order.shop_id, topic, text, markup=manage)
+
+    await _quietly(account_report())
 
 
 async def account_alert(session: AsyncSession, job: queue.Claimed) -> None:
@@ -447,15 +465,14 @@ async def order_failed(session: AsyncSession, job: queue.Claimed) -> None:
     await _to_staff(session, order.shop_id, "orders.read", text)
     from paurubot.notifications import log_reports
 
-    if "reseller_balance_low" not in reason:
-        text = await log_reports.order_failed(session, order, customer, reason)
-    await report(
-        session,
-        order.shop_id,
-        "errors",
-        text,
-        markup=await log_reports.manage_markup(session, order.shop_id, customer),
-    )
+    async def failure_report() -> None:
+        full = text
+        if "reseller_balance_low" not in reason:
+            full = await log_reports.order_failed(session, order, customer, redact(reason))
+        markup = await log_reports.manage_markup(session, order.shop_id, customer)
+        await report(session, order.shop_id, "errors", full, markup=markup)
+
+    await _quietly(failure_report())
 
 
 async def payment_fulfilled(session: AsyncSession, job: queue.Claimed) -> None:
@@ -479,13 +496,12 @@ async def payment_fulfilled(session: AsyncSession, job: queue.Claimed) -> None:
     await _to_customer(session, customer, text)
     from paurubot.notifications import log_reports
 
-    await report(
-        session,
-        payment.shop_id,
-        "payments",
-        await log_reports.payment_paid(session, payment, customer),
-        markup=await log_reports.manage_markup(session, payment.shop_id, customer),
-    )
+    async def paid_report() -> None:
+        text = await log_reports.payment_paid(session, payment, customer)
+        markup = await log_reports.manage_markup(session, payment.shop_id, customer)
+        await report(session, payment.shop_id, "payments", text, markup=markup)
+
+    await _quietly(paid_report())
 
 
 async def payment_rejected(session: AsyncSession, job: queue.Claimed) -> None:
@@ -500,13 +516,13 @@ async def payment_rejected(session: AsyncSession, job: queue.Claimed) -> None:
     await _to_customer(session, customer, t("payment_rejected", amount=money(payment.amount), reason=reason))
     from paurubot.notifications import log_reports
 
-    await report(
-        session,
-        payment.shop_id,
-        "payments",
-        await log_reports.payment_rejected(session, payment, customer, str(job.payload.get("reason") or "")),
-        markup=await log_reports.manage_markup(session, payment.shop_id, customer),
-    )
+    async def rejected_report() -> None:
+        why = str(job.payload.get("reason") or "")
+        text = await log_reports.payment_rejected(session, payment, customer, why)
+        markup = await log_reports.manage_markup(session, payment.shop_id, customer)
+        await report(session, payment.shop_id, "payments", text, markup=markup)
+
+    await _quietly(rejected_report())
 
 
 async def payment_voided(session: AsyncSession, job: queue.Claimed) -> None:
@@ -750,13 +766,12 @@ async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
     if alert == "deleted":  # the cleanup removed it: the «cron» report for the shop
         from paurubot.notifications import log_reports
 
-        await report(
-            session,
-            service.shop_id,
-            "services",
-            await log_reports.service_deleted(session, service, customer),
-            markup=await log_reports.manage_markup(session, service.shop_id, customer),
-        )
+        async def deleted_report() -> None:
+            text = await log_reports.service_deleted(session, service, customer)
+            markup = await log_reports.manage_markup(session, service.shop_id, customer)
+            await report(session, service.shop_id, "services", text, markup=markup)
+
+        await _quietly(deleted_report())
     if customer.alerts_muted and alert in {"low_volume", "expiring"}:
         return  # the customer turned reminders off (SVC-15); endings are still told
     t = await _texts(session, customer)
@@ -886,7 +901,7 @@ async def simple_customer(session: AsyncSession, job: queue.Claimed) -> None:
         text = t("referral_joined", name=esc(str(job.payload.get("name", ""))))
     elif job.kind == "referral_reward":
         text = t("referral_reward", amount=money(int(job.payload["amount"])))
-        await _referral_report(session, customer, job.payload)
+        await _quietly(_referral_report(session, customer, job.payload))
     elif job.kind == "referral_config_ready":
         text = t("referral_config_ready", available=int(job.payload.get("available") or 1))
     elif job.kind == "wallet_adjusted":

@@ -145,3 +145,12 @@ async def test_the_bot_stops_selling_when_its_time_is_up_and_warns_before(sessio
     assert await own_panel.sales_gate(session, child.id, new_user=True) is None
     await own_panel.set_expiry(session, child, None)
     assert own_panel.bot_expires_at(await shop_settings.load(session, child.id, fresh=True)) is None
+
+
+async def test_a_stopped_bot_gets_no_reminder_about_its_end(session, own) -> None:  # type: ignore[no-untyped-def]
+    child = own["child"]
+    await own_panel.set_expiry(session, child, 2)
+    await own_panel.disconnect(session, child)
+    await session.commit()
+    changes = await own_panel.recheck_all(session)
+    assert all(alert != "own_bot_expiring" for _, alert in changes)

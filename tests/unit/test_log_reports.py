@@ -293,3 +293,52 @@ async def test_a_failed_trial_is_reported_with_the_panels_error(session, env) ->
     for part in (FA("order_kind_trial"), "Inbound japan", env["panel"].name, "8053694064", "@jaber"):
         assert part in report["text"], part
     assert "cust_" in manage_url(report)
+
+
+async def test_a_refused_report_never_fails_the_customers_notice(session, env, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A removed forum thread or flood control on the report group: logged, never a job retry that
+    would send the customer the same message again."""
+    from aiogram.exceptions import TelegramBadRequest
+    from aiogram.methods import SendMessage as Send
+
+    shop, customer = env["shop"], env["customer"]
+    payment = Payment(
+        shop_id=shop.id,
+        customer_id=customer.id,
+        purpose=PaymentPurpose.TOPUP,
+        provider="card",
+        status=PaymentStatus.FAILED,
+        amount=75_000,
+        idempotency_key="report-3",
+    )
+    session.add(payment)
+    await session.commit()
+    told: list[int] = []
+
+    async def picky(chat_id, text, **kwargs):  # type: ignore[no-untyped-def]
+        if chat_id < 0:
+            raise TelegramBadRequest(
+                Send(chat_id=chat_id, text=text), "Bad Request: message thread not found"
+            )
+        told.append(chat_id)
+
+    monkeypatch.setattr(notify_telegram, "send_text", picky)
+    await handlers.payment_rejected(session, job("payment_rejected", {"payment_id": payment.id}, shop.id))
+    assert told == [customer.telegram_id]
+
+
+async def test_the_failure_report_hides_secrets_in_the_panels_error(session, env) -> None:  # type: ignore[no-untyped-def]
+    shop, customer = env["shop"], env["customer"]
+    session.add(LogChannel(shop_id=shop.id, topic="errors", chat_id=-1004))
+    order = Order(
+        shop_id=shop.id, customer_id=customer.id, kind=OrderKind.PURCHASE, status=OrderStatus.FAILED
+    )
+    session.add(order)
+    await session.commit()
+    error = "POST https://admin:hunter2secret@panel.example.com/api/user failed: token=abcdefgh12345"
+    await handlers.order_failed(
+        session, job("order_failed", {"order_id": order.id, "reason": error}, shop.id)
+    )
+    report = next(e for e in env["sent"] if e["chat"] == -1004)
+    assert "hunter2secret" not in report["text"] and "abcdefgh12345" not in report["text"]
+    assert "panel.example.com" in report["text"]

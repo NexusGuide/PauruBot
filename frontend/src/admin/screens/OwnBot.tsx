@@ -3,7 +3,7 @@ import { date, daysLeft, digits, gb } from "@shared/format";
 import { call } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
-import { Badge, Button, Field, Section, Toggle } from "../ui";
+import { Badge, Button, Field, NumberInput, Section, Toggle } from "../ui";
 
 /** A purchased PasarGuard admin account the bot can sell from. */
 export interface OwnAccount {
@@ -50,7 +50,7 @@ export function OwnBotSection({ customerId }: { customerId: number | string }) {
   const { data, setData } = useLoad<OwnBotView>(path);
   const [token, setToken] = useState("");
   const [picked, setPicked] = useState<number | null>(null);
-  const [days, setDays] = useState("30");
+  const [days, setDays] = useState<number | null>(30);
   const [busy, run] = useAction();
   if (!data) return null;
   const { bot, accounts } = data;
@@ -180,18 +180,9 @@ export function OwnBotSection({ customerId }: { customerId: number | string }) {
             </div>
             <div className="flex flex-wrap items-end gap-2">
               <Field label={t("own_bot_expiry_days")} className="w-32">
-                {(id) => (
-                  <input
-                    id={id}
-                    dir="ltr"
-                    inputMode="numeric"
-                    value={days}
-                    onChange={(e) => setDays(e.target.value.replace(/[^0-9]/g, ""))}
-                    className="min-h-10 w-full rounded-xl bg-[var(--surface)] px-3 text-[0.88rem] ring-1 ring-[var(--line)]"
-                  />
-                )}
+                {(id) => <NumberInput id={id} allowEmpty value={days} onChange={setDays} />}
               </Field>
-              <Button busy={busy} disabled={!Number(days)} onClick={() => void extend(Number(days))}>
+              <Button busy={busy} disabled={!days || days < 1} onClick={() => days && void extend(days)}>
                 {t("own_bot_expiry_add")}
               </Button>
               {bot.expires_at && (

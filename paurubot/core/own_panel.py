@@ -349,7 +349,8 @@ async def recheck_all(session: AsyncSession) -> list[tuple[Shop, str]]:
         alert = await recheck(session, shop)
         if alert:
             changes.append((shop, alert))
-        warning = await expiry_warning(session, shop)
+        # A stopped bot sells nothing: no reminder about an end it can't reach.
+        warning = await expiry_warning(session, shop) if shop.status == ShopStatus.ACTIVE else None
         if warning:
             changes.append((shop, warning))
     return changes

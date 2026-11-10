@@ -221,10 +221,9 @@ async def daily_details(session: AsyncSession, shop_id: int, start: datetime, en
             )
         ).all()
     )
-    panels = {
-        panel.id: PanelDay(panel.name)
-        for panel in await session.scalars(select(Panel).where(Panel.shop_id == shop_id).order_by(Panel.id))
-    }
+    all_panels = list(await session.scalars(select(Panel).where(Panel.shop_id == shop_id).order_by(Panel.id)))
+    active_ids = {panel.id for panel in all_panels if panel.is_active}
+    panels = {panel.id: PanelDay(panel.name) for panel in all_panels}
     for order in rows:
         panel_id = service_panels.get(order.service_id) if order.service_id else None
         if panel_id in panels:
@@ -259,7 +258,8 @@ async def daily_details(session: AsyncSession, shop_id: int, start: datetime, en
         best_hour=max(hours, key=lambda h: (hours[h], -h)) if hours else None,
         active_users=active,
         inactive_users=max(0, people - active),
-        panels=[day for day in panels.values()],
+        # A switched-off panel only shows when it still sold something that day.
+        panels=[day for pid, day in panels.items() if pid in active_ids or day.orders],
     )
 
 
