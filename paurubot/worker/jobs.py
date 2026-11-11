@@ -733,12 +733,21 @@ async def daily_report() -> None:
     for shop_id in shop_ids:
         async with session_scope() as session:
             cfg = await shop_settings.load(session, shop_id)
-            sections = list(cfg.get("daily_report_sections") or [])
-            if not cfg.get("daily_report_enabled", True) or not sections:
-                continue
             hour = cfg.get("daily_report_hour")
             # Due from its hour on, so a missed hour sends it late instead of never (REF-06).
             start, end = day_bounds(report_day(now, 23 if hour is None else int(hour)))
+        # The resellers' own report has its own marker: it goes out even with the staff report off.
+        if cfg.get("reseller_daily_report") and await kv.get_redis().set(
+            f"report:reseller:{shop_id}:{start.date().isoformat()}", "1", nx=True, ex=3 * 86400
+        ):
+            try:
+                await _reseller_daily_reports(shop_id, start, end)
+            except Exception:  # one shop's resellers must not stop the other shops' reports
+                log.warning("reseller daily reports for shop %s failed", shop_id, exc_info=True)
+        async with session_scope() as session:
+            sections = list(cfg.get("daily_report_sections") or [])
+            if not cfg.get("daily_report_enabled", True) or not sections:
+                continue
             marker = f"report:daily:{shop_id}:{start.date().isoformat()}"
             if not await kv.get_redis().set(marker, "1", nx=True, ex=3 * 86400):
                 continue
@@ -768,8 +777,6 @@ async def daily_report() -> None:
                 except telegram.Undeliverable:
                     log.warning("daily report to %s was not delivered", chat_id)
                     break
-        if cfg.get("reseller_daily_report"):
-            await _reseller_daily_reports(shop_id, start, end)
 
 
 async def _reseller_daily_reports(shop_id: int, start: Any, end: Any) -> None:
@@ -827,7 +834,7 @@ async def refresh_rates() -> None:
             if cfg.get("fx_source") == "nobitex":
                 uses_nobitex = True
             elif cfg.get("fx_source") == "api":  # a shop's own rate API (ClockBot parity)
-                own_apis[str(cfg.get("fx_api_url"))] = cfg
+                own_apis[fx.api_key(cfg)] = cfg  # one fetch per distinct URL, path and divisor
     if uses_nobitex:
         await fx.refresh()
     for cfg in own_apis.values():

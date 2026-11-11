@@ -38,3 +38,34 @@ async def test_a_resellers_own_day(session) -> None:  # type: ignore[no-untyped-
     day = await reports.reseller_day(session, profile, now - timedelta(days=1), now)
     assert (day.orders, day.spent) == (2, 150_000)
     assert day.balance == 0 and day.bot_orders == 0 and day.bot_revenue == 0
+
+
+async def test_resellers_get_theirs_once_even_with_the_staff_report_off(session, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from paurubot import kv
+    from paurubot.config import get_settings
+    from paurubot.core import settings as shop_settings
+    from paurubot.notifications import telegram
+    from paurubot.worker import jobs
+
+    shop = await factories.shop(session)
+    reseller = await factories.customer(session, shop, telegram_id=66009999)
+    session.add(ResellerProfile(shop_id=shop.id, customer_id=reseller.id))
+    hour = (utcnow().astimezone(get_settings().tz) - timedelta(hours=2)).hour
+    await shop_settings.set_many(
+        session,
+        shop.id,
+        {"daily_report_hour": hour, "daily_report_enabled": False, "reseller_daily_report": True},
+    )
+    await session.commit()
+    sent: list[int] = []
+
+    async def capture(chat_id, text, **kwargs):  # type: ignore[no-untyped-def]
+        sent.append(chat_id)
+
+    monkeypatch.setattr(telegram, "send_text", capture)
+    await kv.get_redis().delete(
+        *[k async for k in kv.get_redis().scan_iter(f"report:*:{shop.id}:*")] or ["-"]
+    )
+    await jobs.daily_report()
+    await jobs.daily_report()  # the next 5-minute run: already sent
+    assert sent == [66009999]

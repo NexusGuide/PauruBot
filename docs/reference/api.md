@@ -18,6 +18,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/announcements` | `broadcast.send` | Staff publish |
 | GET | `/api/admin/audit` | `audit.read` | Audit log |
 | PUT | `/api/admin/backups/schedule` | `backups.manage` | Save backup schedule |
+| GET | `/api/admin/backups/telegram` | `backups.manage` | Whether a separate backup bot is set (never its token) and its chats. |
 | PUT | `/api/admin/backups/telegram` | `backups.manage` | Send backups with a separate bot to chosen chats (ClockBot parity). |
 | POST | `/api/admin/backups/{name}/verify` | `backups.manage` | Check that an archive opens and its database dump is whole (ClockBot's «verify last»). |
 | GET | `/api/admin/backups/{name}` | `backups.manage` | Download backup |

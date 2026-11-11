@@ -196,7 +196,11 @@ export function SettingsFileButtons({ onImported }: { onImported: () => void }) 
       </Button>
       <label className="inline-flex min-h-8 cursor-pointer items-center rounded-xl px-3 text-[0.82rem] font-semibold ring-1 ring-[var(--line)] hover:bg-[var(--bg)]">
         {t("settings_import")}
-        <input type="file" accept="application/json,.json" className="hidden" onChange={(e) => e.target.files?.[0] && void upload(e.target.files[0])} />
+        <input type="file" accept="application/json,.json" className="hidden" onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = ""; // the same file can be picked again
+            if (file) void upload(file);
+          }} />
       </label>
     </div>
   );
@@ -231,19 +235,23 @@ export function parseChatIds(text: string): number[] {
 
 export function BackupBotForm() {
   const { t, toast, errorText } = useSession();
+  const current = useLoad<{ bot: boolean; chat_ids: number[] }>("/api/admin/backups/telegram");
   const [token, setToken] = useState("");
-  const [chats, setChats] = useState("");
+  const [chats, setChats] = useState<string | null>(null); // null: still the saved chats
   const [busy, run] = useAction();
+  const shownChats = chats ?? (current.data?.chat_ids ?? []).join(", ");
   const save = async () => {
     try {
       const done = await run(() =>
         call<{ bot: boolean; chat_ids: number[] }>("/api/admin/backups/telegram", {
           method: "PUT",
-          body: { bot_token: token.trim() || null, chat_ids: parseChatIds(chats) },
+          body: { bot_token: token.trim() || null, chat_ids: parseChatIds(shownChats) },
         }),
       );
       setToken("");
-      toast(t(done?.bot ? "backup_bot_saved" : "backup_bot_cleared"));
+      setChats(null);
+      void current.reload();
+      toast(t(done?.bot && done.chat_ids.length ? "backup_bot_saved" : "backup_bot_cleared"));
     } catch (err) {
       toast(errorText(err), "error");
     }
@@ -252,8 +260,8 @@ export function BackupBotForm() {
     <Section title={t("backup_bot_title")}>
       <p className="mb-3 text-[0.82rem] text-[var(--hint)]">{t("backup_bot_hint")}</p>
       <div className="grid gap-3 md:grid-cols-2">
-        <Field label={t("backup_bot_token")}>{(id) => <Input id={id} type="password" dir="ltr" autoComplete="off" placeholder="123456:ABC…" value={token} onChange={(e) => setToken(e.target.value)} />}</Field>
-        <Field label={t("backup_bot_chats")}>{(id) => <Input id={id} dir="ltr" placeholder="-1001234567890" value={chats} onChange={(e) => setChats(e.target.value)} />}</Field>
+        <Field label={t("backup_bot_token")}>{(id) => <Input id={id} type="password" dir="ltr" autoComplete="off" placeholder={current.data?.bot ? "••••••••" : "123456:ABC…"} value={token} onChange={(e) => setToken(e.target.value)} />}</Field>
+        <Field label={t("backup_bot_chats")}>{(id) => <Input id={id} dir="ltr" placeholder="-1001234567890" value={shownChats} onChange={(e) => setChats(e.target.value)} />}</Field>
       </div>
       <Button className="mt-3" tone="primary" busy={busy} onClick={() => void save()}>
         {t("save")}

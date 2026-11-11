@@ -90,7 +90,7 @@ def pick(data: Any, path: str) -> float | None:
         return None
 
 
-def _api_key(cfg: dict[str, Any]) -> str:
+def api_key(cfg: dict[str, Any]) -> str:
     import hashlib
 
     raw = f"{cfg.get('fx_api_url')}|{cfg.get('fx_api_path')}|{cfg.get('fx_api_divisor')}"
@@ -130,7 +130,7 @@ async def fetch_api(cfg: dict[str, Any], transport: httpx.AsyncBaseTransport | N
 
 
 async def cached_api(cfg: dict[str, Any]) -> dict[str, int]:
-    raw = await kv.get_redis().get(_api_key(cfg))
+    raw = await kv.get_redis().get(api_key(cfg))
     if not raw:
         return {}
     data = json.loads(raw)
@@ -143,7 +143,7 @@ async def refresh_api(cfg: dict[str, Any]) -> dict[str, int]:
     rates = await fetch_api(cfg)
     if rates:
         await kv.get_redis().set(
-            _api_key(cfg), json.dumps({"rates": rates, "at": time.time()}), ex=MAX_AGE * 2
+            api_key(cfg), json.dumps({"rates": rates, "at": time.time()}), ex=MAX_AGE * 2
         )
     return rates
 

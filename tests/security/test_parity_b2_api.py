@@ -140,6 +140,8 @@ async def test_verify_a_backup_and_a_separate_backup_bot(session, http, env, mon
         {"bot_token": "123456:ABCdefGhIJKlmNoPQRsTUVwxyZ1234567890", "chat_ids": [-1001234]},
     )
     assert saved.status_code == 200 and saved.json() == {"bot": True, "chat_ids": [-1001234]}
+    state = await owner.call("GET", "/api/admin/backups/telegram")
+    assert state.json() == {"bot": True, "chat_ids": [-1001234]} and "token" not in state.text
     cfg = await shop_settings.load(session, env.shop.id, fresh=True)
     assert cfg["backup_chat_ids"] == [-1001234] and cfg["backup_bot_token"]
     assert (

@@ -1236,6 +1236,18 @@ class BackupBotBody(BaseModel):
     chat_ids: list[int] = Field(default_factory=list, max_length=10)
 
 
+@router.get("/backups/telegram")
+async def backup_bot_state(ctx: Backups, db: DB) -> dict[str, Any]:
+    """Whether a separate backup bot is set (never its token) and its chats."""
+    from paurubot.core.shops import require_root_shop
+
+    shop = await require_root_shop(db)
+    if ctx.shop_id != shop.id:
+        raise HTTPException(status_code=403, detail="backup_root_only")
+    cfg = await shop_settings.load(db, shop.id, fresh=True)
+    return {"bot": bool(cfg.get("backup_bot_token")), "chat_ids": list(cfg.get("backup_chat_ids") or [])}
+
+
 @router.put("/backups/telegram")
 async def backup_bot(body: BackupBotBody, ctx: Backups, db: DB) -> dict[str, Any]:
     """Send backups with a separate bot to chosen chats (ClockBot parity)."""
@@ -1536,14 +1548,14 @@ async def import_settings(
     skipped, and texts are imported only with the right to edit them."""
     if body.format != EXPORT_FORMAT:
         raise HTTPException(status_code=422, detail="settings_file_invalid")
+    if body.texts and not ctx.can("texts.write"):  # checked first: nothing is written half way
+        raise HTTPException(status_code=403, detail="forbidden")
     values = {key: value for key, value in body.settings.items() if _portable(key)}
     skipped = len(body.settings) - len(values)
     if values:
         await write_settings(SettingsBody(values=values), ctx, db)
     imported_texts = 0
     if body.texts:
-        if not ctx.can("texts.write"):
-            raise HTTPException(status_code=403, detail="forbidden")
         for item in body.texts:
             if item.locale not in i18n.LOCALES or item.key not in i18n.catalog(i18n.DEFAULT_LOCALE):
                 skipped += 1
@@ -1561,7 +1573,6 @@ async def import_settings(
             else:
                 row.value = item.value
             imported_texts += 1
-        i18n.invalidate(ctx.shop_id)
     await record(
         db,
         shop_id=ctx.shop_id,
@@ -1572,4 +1583,6 @@ async def import_settings(
         after={"settings": len(values), "texts": imported_texts, "skipped": skipped},
     )
     await db.commit()
+    if imported_texts:
+        i18n.invalidate(ctx.shop_id)
     return {"settings": len(values), "texts": imported_texts, "skipped": skipped}

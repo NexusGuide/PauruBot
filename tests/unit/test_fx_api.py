@@ -47,3 +47,28 @@ async def test_the_api_source_reads_the_shops_cached_rates(monkeypatch) -> None:
     assert await fx.rate(cfg, "usdt") == 77000
     with pytest.raises(fx.RateUnavailable):
         await fx.rate({**cfg, "trx_rate": 0}, "trx")
+
+
+async def test_every_shops_own_api_is_refreshed(session, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.core import settings as shop_settings
+    from paurubot.worker import jobs
+    from tests import factories
+
+    url = "https://rates.example.com/v1?s={symbol}"
+    for path in ("result.price", "data.price"):  # same URL, a different path to the number
+        shop = await factories.shop(session)
+        await shop_settings.set_many(
+            session,
+            shop.id,
+            {"crypto_enabled": True, "fx_source": "api", "fx_api_url": url, "fx_api_path": path},
+        )
+    await session.commit()
+    refreshed: list[str] = []
+
+    async def fake(cfg: dict) -> dict[str, int]:  # type: ignore[type-arg]
+        refreshed.append(str(cfg["fx_api_path"]))
+        return {}
+
+    monkeypatch.setattr(fx, "refresh_api", fake)
+    await jobs.refresh_rates()
+    assert sorted(refreshed) == ["data.price", "result.price"]

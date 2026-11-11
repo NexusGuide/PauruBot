@@ -308,7 +308,9 @@ test("ClockBot parity batch 2: editor inputs the server accepts", () => {
   assert.equal(cb.parseChatIds(Array.from({ length: 12 }, (_, i) => i + 1).join(",")).length, 10);
   assert.ok(nav.allPaths().includes("/stuck-orders"));
   const fa = locale("fa"), en = locale("en");
-  for (const key of ["nav_stuck_orders", "quick_renew", "settings_export", "backup_verify", "connection_guides_title", "plan_clone"]) {
-    assert.ok(key in fa && key in en, key);
-  }
+  const screen = readFileSync(src("screens/ClockTools2.tsx"), "utf8");
+  const used = new Set([...screen.matchAll(/\bt\(\s*"([a-z0-9_]+)"/g)].map((m) => m[1]));
+  for (const m of screen.matchAll(/t\(\w+ \? "([a-z0-9_]+)" : "([a-z0-9_]+)"\)/g)) used.add(m[1]).add(m[2]);
+  assert.ok(used.size > 30);
+  for (const key of used) assert.ok(key in fa && key in en, key);
 });
