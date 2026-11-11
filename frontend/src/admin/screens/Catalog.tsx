@@ -52,8 +52,8 @@ const EMPTY_PLAN: PlanDraft = {
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
-      <h3 className="text-[0.88rem] font-bold">{title}</h3>
+    <div className="flex flex-col gap-4 rounded-2xl bg-[var(--bg)] p-4 ring-1 ring-[var(--line)]">
+      <h3 className="text-[0.92rem] font-bold">{title}</h3>
       {children}
     </div>
   );
@@ -256,6 +256,7 @@ function PlanSheet({
       }
     >
       <div className="flex flex-col gap-4">
+        <Group title={t("plan_group_basics")}>
         <Field label={t("plan_title")}>
           {(id) => <Input id={id} value={form.title} maxLength={96} onChange={(e) => set("title", e.target.value)} />}
         </Field>
@@ -349,8 +350,9 @@ function PlanSheet({
         )}
         {form.delivery === "stock" && form.id && <StockEditor planId={form.id} />}
         {form.delivery === "stock" && !form.id && (
-          <p className="rounded-xl bg-[var(--bg)] px-3 py-2 text-[0.82rem] text-[var(--hint)]">{t("stock_save_first")}</p>
+          <p className="rounded-xl bg-[var(--surface)] px-3 py-2 text-[0.82rem] text-[var(--hint)]">{t("stock_save_first")}</p>
         )}
+        </Group>
 
         <Group title={t("plan_look")}>
           <div className="grid grid-cols-2 gap-3">

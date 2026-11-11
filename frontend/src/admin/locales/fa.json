@@ -2426,5 +2426,8 @@
   "intro_more": "بیشتر",
   "intro_less": "کمتر",
   "cust_info": "اطلاعات",
-  "cust_markers": "نشانه‌ها و دسترسی"
+  "cust_markers": "نشانه‌ها و دسترسی",
+  "plan_group_basics": "قیمت و تحویل",
+  "panel_group_connection": "اتصال به پنل",
+  "panel_group_sales": "فروش، ظرفیت و نام‌گذاری"
 }

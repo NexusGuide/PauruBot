@@ -12,6 +12,7 @@ import {
   CopyText,
   Empty,
   Field,
+  FormCard,
   Icon,
   Input,
   NumberInput,
@@ -315,7 +316,8 @@ function PanelSheet({
         </>
       }
     >
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
+        <FormCard title={t("panel_group_connection")}>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label={t("panel_name")}>
             {(id) => <Input id={id} value={form.name} maxLength={64} onChange={(e) => set("name", e.target.value)} />}
@@ -480,6 +482,8 @@ function PanelSheet({
           <GroupIds value={form.options} onChange={(options) => set("options", options)} />
         )}
 
+        </FormCard>
+        <FormCard title={t("panel_group_sales")}>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label={t("location")}>
             {(id) => (
@@ -530,7 +534,8 @@ function PanelSheet({
           </Field>
         </div>
         <Toggle checked={form.is_active} onChange={(v) => set("is_active", v)} label={t("panel_active")} hint={t("panel_active_hint")} />
-        <section className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
+        </FormCard>
+        <section className="flex flex-col gap-3 rounded-2xl bg-[var(--bg)] p-4 ring-1 ring-[var(--line)]">
           <h3 className="font-bold">{t("panel_sales_title")}</h3>
           <Toggle
             checked={form.options.sell_extra_volume !== false}
@@ -566,7 +571,7 @@ function PanelSheet({
         )}
 
         {form.id && owner && (
-          <section className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
+          <section className="flex flex-col gap-3 rounded-2xl bg-[var(--bg)] p-4 ring-1 ring-[var(--line)]">
             <h3 className="font-bold">{t("tls_title")}</h3>
             <p className="text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("tls_hint")}</p>
             <div className="flex flex-wrap gap-2">
@@ -599,7 +604,7 @@ function PanelSheet({
         )}
 
         {form.id && owner && ["pasarguard", "marzban"].includes(form.kind) && (
-          <section className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
+          <section className="flex flex-col gap-3 rounded-2xl bg-[var(--bg)] p-4 ring-1 ring-[var(--line)]">
             <h3 className="font-bold">{t("webhook_title")}</h3>
             <p className="text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("webhook_hint")}</p>
             {webhook ? (

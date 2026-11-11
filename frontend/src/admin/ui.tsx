@@ -1252,3 +1252,13 @@ export function Intro({ children }: { children: string }) {
     </div>
   );
 }
+
+/** One titled block of a long form, as a card, so a sheet reads in steps. */
+export function FormCard({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-4 rounded-2xl bg-[var(--bg)] p-4 ring-1 ring-[var(--line)]">
+      <h3 className="text-[0.92rem] font-bold">{title}</h3>
+      {children}
+    </section>
+  );
+}
