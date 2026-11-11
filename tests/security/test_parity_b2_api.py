@@ -187,3 +187,43 @@ async def test_backups_fall_back_to_the_main_bot_when_the_backup_bot_reaches_no_
     sent = await delivery.send_backup(info)
     assert own == [-1001234]
     assert sent == 1 and main == [-1009999], "the main bot must deliver when the backup bot can't"
+
+
+async def test_a_renewal_waiting_for_the_period_to_end_is_not_stuck(session, http, env) -> None:  # type: ignore[no-untyped-def]  # noqa: F811
+    """A renewal paid while the service is still active waits for its end date (SVC-02); listing it
+    as stuck invites staff to close a paid renewal that never ran."""
+    from datetime import timedelta
+
+    from paurubot.db.base import utcnow
+    from paurubot.db.models import Order, OrderKind, OrderStatus
+
+    old = utcnow() - timedelta(hours=1)
+    waiting = Order(
+        shop_id=env.shop.id,
+        customer_id=env.customer_id,
+        kind=OrderKind.RENEW,
+        status=OrderStatus.PAID,
+        base_price=1000,
+        amount=1000,
+        params={"queued": True, "queued_until": (utcnow() + timedelta(days=5)).isoformat()},
+        created_at=old,
+        updated_at=old,
+    )
+    overdue = Order(
+        shop_id=env.shop.id,
+        customer_id=env.customer_id,
+        kind=OrderKind.RENEW,
+        status=OrderStatus.PAID,
+        base_price=1000,
+        amount=1000,
+        params={"queued": True, "queued_until": (utcnow() - timedelta(hours=2)).isoformat()},
+        created_at=old,
+        updated_at=old,
+    )
+    session.add_all([waiting, overdue])
+    await session.commit()
+    owner = await login(http, "u_owner")
+    ids = [o["id"] for o in (await owner.call("GET", "/api/admin/stuck-orders")).json()["items"]]
+    assert waiting.id not in ids and overdue.id in ids
+    done = await owner.call("POST", f"/api/admin/orders/{waiting.id}/mark-delivered", {"note": "x"})
+    assert done.status_code == 409  # never close a renewal that is still waiting for its turn

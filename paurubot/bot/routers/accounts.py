@@ -107,7 +107,7 @@ def account_kb(t: Texts, account: PanelAccount) -> InlineKeyboardMarkup:
     plan = account.plan
     kb.button(text=t("acc_btn_login"), callback_data=Acc(action="login", id=account.id))
     kb.button(text=t("acc_btn_refresh"), callback_data=Acc(action="view", id=account.id, value=1))
-    if plan is not None and plan.is_active:
+    if plan is not None:  # an archived plan only stops new sales
         if plan.renewable:
             kb.button(text=t("acc_btn_renew"), callback_data=Acc(action="renew", id=account.id))
         if plan.gb_price > 0 and account.data_limit and account.status != "expired":

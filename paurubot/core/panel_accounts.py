@@ -289,7 +289,9 @@ async def _draft(
     if account is None or account.customer_id != customer.id or account.status not in LIVE:
         raise OrderError("account_not_found")
     current = await session.get(AccountPlan, account.plan_id) if account.plan_id else None
-    if current is None or not current.is_active:
+    # An archived plan is no longer sold, but the accounts sold with it keep their renewals and
+    # add-ons (as config services do); "renewable: off" is what stops renewals.
+    if current is None:
         raise OrderError("plan_unavailable")
     params: dict[str, Any] = {"account_id": account.id, "account_plan_id": current.id}
     if kind == OrderKind.ACCOUNT_RENEW:
