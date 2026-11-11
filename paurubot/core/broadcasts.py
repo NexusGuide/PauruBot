@@ -17,6 +17,42 @@ from paurubot.db.base import affected, utcnow
 from paurubot.db.models import Broadcast, JobStatus
 from paurubot.worker import queue
 
+# Buttons that open a section of the bot instead of a link (Foxima parity): the main-menu item
+# each one opens. "home" brings back the main menu.
+ACTIONS = ("home", "buy", "services", "wallet", "trial", "referral", "tickets", "guide")
+IDLE_DAYS_MAX = 365
+
+
+def valid_button(button: Any) -> bool:
+    """A link button (`text` + https/tg `url`) or a section button (`text` + `action`)."""
+    if not isinstance(button, dict) or not str(button.get("text") or "").strip():
+        return False
+    if "action" in button:
+        return button["action"] in ACTIONS and "url" not in button
+    return str(button.get("url") or "").startswith(("https://", "tg://"))
+
+
+def markup(buttons: list[dict[str, Any]] | None) -> Any:
+    """The keyboard under a broadcast: link buttons as before, section buttons as menu presses."""
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+    from paurubot.bot.callbacks import Menu, Nav
+
+    rows = []
+    for button in buttons or []:
+        if not valid_button(button):
+            continue
+        text = str(button["text"])[:64]
+        action = button.get("action")
+        if action == "home":
+            rows.append([InlineKeyboardButton(text=text, callback_data=Nav(to="home").pack())])
+        elif action:
+            rows.append([InlineKeyboardButton(text=text, callback_data=Menu(item=str(action)).pack())])
+        else:
+            rows.append([InlineKeyboardButton(text=text, url=str(button["url"]))])
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+
+
 PAUSABLE = (JobStatus.QUEUED, JobStatus.RUNNING)
 FINISHED = (JobStatus.DONE, JobStatus.CANCELED)
 # Longer than one runner batch, so a job told to stop has finished before the next one starts.

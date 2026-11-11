@@ -452,7 +452,10 @@ async def message_ask(call: CallbackQuery, callback_data: Admin, t: Texts, state
         await call.message.answer(t("adm_message_ask"), reply_markup=keyboards.cancel(t))
 
 
-@router.message(AdminStates.message, F.text)
+MESSAGE_MEDIA = F.text | F.photo | F.video | F.document | F.animation | F.voice | F.audio
+
+
+@router.message(AdminStates.message, MESSAGE_MEDIA)
 async def message_send(
     message: Message,
     session: AsyncSession,
@@ -462,20 +465,89 @@ async def message_send(
     cfg: dict[str, Any],
     state: FSMContext,
 ) -> None:
-    from paurubot.notifications import telegram
-
+    """Text or media for one customer (Foxima parity): staff then choose whether it carries a
+    reply button, which opens the customer's support tickets."""
     data = await state.get_data()
-    await clear_customer_input(state)
     customer = await _customer(session, shop, int(data.get("customer_id") or 0))
+    await clear_customer_input(state)
     if customer is None:
         await message.answer(t("adm_customer_not_found"), reply_markup=menu(t, cfg, staff))
         return
-    try:
-        await telegram.send_text(
-            customer.telegram_id, t("adm_message_from_shop", text=esc(message.text or "")), shop_id=shop.id
+    await state.update_data(
+        umsg={
+            "customer_id": customer.id,
+            "chat_id": message.chat.id,
+            "message_id": message.message_id,
+            "text": message.text if message.text else None,
+            "caption": message.caption or "",
+        }
+    )
+    kb = InlineKeyboardBuilder()
+    kb.button(
+        text=t("adm_umsg_reply_yes"), callback_data=Admin(section="umsgs", action="reply", id=customer.id)
+    )
+    kb.button(
+        text=t("adm_umsg_reply_no"), callback_data=Admin(section="umsgs", action="plain", id=customer.id)
+    )
+    kb.button(text=t("btn_cancel"), callback_data=Admin(section="user", id=customer.id))
+    kb.adjust(1)
+    await message.answer(t("adm_umsg_reply_ask"), reply_markup=kb.as_markup())
+
+
+@router.callback_query(Admin.filter(F.section == "umsgs"), StaffOnly("customers.write"))
+async def message_deliver(
+    call: CallbackQuery,
+    callback_data: Admin,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+    from paurubot.bot.callbacks import Menu
+    from paurubot.notifications import telegram
+
+    data = (await state.get_data()).get("umsg") or {}
+    customer = await _customer(session, shop, callback_data.id)
+    if customer is None or int(data.get("customer_id") or 0) != customer.id:
+        await call.answer(t("button_expired"), show_alert=True)
+        return
+    await state.update_data(umsg=None)
+    await call.answer()
+    markup = None
+    if callback_data.action == "reply":
+        markup = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=t("btn_reply_staff"), callback_data=Menu(item="tickets").pack())]
+            ]
         )
+    try:
+        if data.get("text"):
+            await telegram.send_text(
+                customer.telegram_id,
+                t("adm_message_from_shop", text=esc(str(data["text"]))),
+                shop_id=shop.id,
+                reply_markup=markup,
+            )
+        else:
+            caption = str(t("adm_message_from_shop", text=esc(str(data.get("caption") or ""))))[:1024]
+            bot = call.bot
+            assert bot is not None
+            await telegram.deliver(
+                lambda: bot.copy_message(
+                    customer.telegram_id,
+                    int(data["chat_id"]),
+                    int(data["message_id"]),
+                    caption=caption,
+                    reply_markup=markup,
+                )
+            )
     except telegram.Undeliverable:
-        await message.answer(t("adm_message_undeliverable"), reply_markup=menu(t, cfg, staff))
+        if isinstance(call.message, Message):
+            await call.message.answer(t("adm_message_undeliverable"), reply_markup=menu(t, cfg, staff))
         return
     await record(
         session,
@@ -484,8 +556,11 @@ async def message_send(
         action="customer.message",
         entity="customer",
         entity_id=customer.id,
+        after={"media": not data.get("text"), "reply": markup is not None},
     )
-    await message.answer(t("adm_message_sent"), reply_markup=menu(t, cfg, staff))
+    await session.commit()
+    if isinstance(call.message, Message):  # and the admin keyboard back in place of "cancel"
+        await call.message.answer(t("adm_message_sent"), reply_markup=menu(t, cfg, staff))
 
 
 @router.callback_query(Admin.filter(F.section == "ugive"), StaffOnly("services.create"))
@@ -1419,18 +1494,36 @@ def audience_kb(t: Texts, section: str, row_id: int = 0) -> InlineKeyboardMarkup
             text=t(f"adm_aud_{audience}"),
             callback_data=Admin(section=section, action="aud", id=row_id, page=index),
         )
+    if section == "bc":
+        # Foxima parity: the buyers of one panel, and those who have not used the bot for a while.
+        kb.button(text=t("adm_aud_panel"), callback_data=Admin(section="bc", action="aud_panel", id=row_id))
+        kb.button(text=t("adm_aud_idle"), callback_data=Admin(section="bc", action="aud_idle", id=row_id))
     kb.button(text=t("btn_cancel"), callback_data=Admin(section="home"))
     kb.adjust(1)
     return kb.as_markup()
 
 
-async def _audience_count(session: AsyncSession, shop_id: int, audience: str) -> int:
+async def _audience_count(
+    session: AsyncSession, shop_id: int, audience: str, *, panel_id: int | None = None, idle_days: int = 0
+) -> int:
     from paurubot.notifications.handlers import audience_conditions
 
-    return int(
-        await session.scalar(select(func.count(Customer.id)).where(*audience_conditions(shop_id, audience)))
-        or 0
-    )
+    conditions = audience_conditions(shop_id, audience, panel_id=panel_id, idle_days=idle_days)
+    return int(await session.scalar(select(func.count(Customer.id)).where(*conditions)) or 0)
+
+
+def _audience_label(t: Texts, audience: dict[str, Any]) -> str:
+    kind = audience.get("kind", "all")
+    if kind == "idle":
+        return str(t("adm_aud_idle_days", days=int(audience.get("idle_days") or 0)))
+    return str(t(f"adm_aud_{kind}"))
+
+
+def action_label(t: Texts, action: str) -> str:
+    """A section button's text: the menu button it stands for (Foxima parity)."""
+    from paurubot.bot.menu import BUTTONS
+
+    return str(t("adm_bc_act_home") if action == "home" else t(BUTTONS[action]))
 
 
 # --- broadcast options ---------------------------------------------------------------------
@@ -1442,7 +1535,7 @@ def broadcast_kb(t: Texts, row: Broadcast) -> InlineKeyboardMarkup:
     forward = bool((row.audience or {}).get("forward"))
     kb = InlineKeyboardBuilder()
     kb.button(
-        text=t("adm_bc_audience", audience=t(f"adm_aud_{audience}")),
+        text=t("adm_bc_audience", audience=_audience_label(t, row.audience or {"kind": audience})),
         callback_data=Admin(section="bc", action="aud_menu", id=row.id),
     )
     if pin is None:
@@ -1463,6 +1556,8 @@ def broadcast_kb(t: Texts, row: Broadcast) -> InlineKeyboardMarkup:
         else t("adm_bc_button_add"),
         callback_data=Admin(section="bc", action="button", id=row.id),
     )
+    # Foxima parity: a button that opens a section of the bot (buy, trial, wallet...).
+    kb.button(text=t("adm_bc_action_add"), callback_data=Admin(section="bc", action="act_menu", id=row.id))
     kb.button(text=t("adm_bc_test"), callback_data=Admin(section="bc", action="test", id=row.id))
     kb.button(text=t("adm_bc_send"), callback_data=Admin(section="bc", action="send", id=row.id))
     kb.button(text=t("btn_cancel"), callback_data=Admin(section="home"))
@@ -1471,8 +1566,15 @@ def broadcast_kb(t: Texts, row: Broadcast) -> InlineKeyboardMarkup:
 
 
 async def broadcast_options_text(session: AsyncSession, t: Texts, row: Broadcast) -> str:
-    audience = (row.audience or {}).get("kind", "all")
-    return t("adm_bc_options", count=await _audience_count(session, row.shop_id, audience))
+    audience = row.audience or {}
+    count = await _audience_count(
+        session,
+        row.shop_id,
+        audience.get("kind", "all"),
+        panel_id=audience.get("panel_id"),
+        idle_days=int(audience.get("idle_days") or 0),
+    )
+    return t("adm_bc_options", count=count)
 
 
 @router.callback_query(Admin.filter(F.section == "bc"), StaffOnly("broadcast.send"))
@@ -1496,6 +1598,57 @@ async def broadcast_options(
         return
     if action == "aud":
         row.audience = {**(row.audience or {}), "kind": AUDIENCES[callback_data.page % len(AUDIENCES)]}
+    elif action == "aud_panel":
+        from paurubot.db.models import Panel
+
+        panels = await session.scalars(
+            select(Panel).where(Panel.shop_id == shop.id, Panel.is_active.is_(True)).order_by(Panel.id)
+        )
+        kb = InlineKeyboardBuilder()
+        for option in panels:
+            kb.button(
+                text=option.name[:60],
+                callback_data=Admin(section="bc", action="panel", id=row.id, page=option.id),
+            )
+        kb.button(text=t("btn_back"), callback_data=Admin(section="bc", action="aud_menu", id=row.id))
+        kb.adjust(1)
+        await call.answer()
+        await show(call, t("adm_bc_pick_panel"), kb.as_markup())
+        return
+    elif action == "panel":
+        from paurubot.db.models import Panel
+
+        panel = await session.get(Panel, callback_data.page)
+        if panel is None or panel.shop_id != shop.id:
+            await call.answer(t("button_expired"), show_alert=True)
+            return
+        row.audience = {**(row.audience or {}), "kind": "panel", "panel_id": panel.id}
+    elif action == "aud_idle":
+        await call.answer()
+        await state.set_state(AdminStates.broadcast_idle)
+        await state.update_data(broadcast_id=row.id)
+        if isinstance(call.message, Message):
+            await call.message.answer(t("adm_bc_idle_ask"), reply_markup=keyboards.cancel(t))
+        return
+    elif action == "act_menu":
+        from paurubot.core.broadcasts import ACTIONS
+
+        kb = InlineKeyboardBuilder()
+        for index, item in enumerate(ACTIONS):
+            kb.button(
+                text=action_label(t, item),
+                callback_data=Admin(section="bc", action="act", id=row.id, page=index),
+            )
+        kb.button(text=t("btn_back"), callback_data=Admin(section="bc", action="view", id=row.id))
+        kb.adjust(2)
+        await call.answer()
+        await show(call, t("adm_bc_pick_action"), kb.as_markup())
+        return
+    elif action == "act":
+        from paurubot.core.broadcasts import ACTIONS
+
+        item = ACTIONS[callback_data.page % len(ACTIONS)]
+        row.buttons = [{"text": action_label(t, item), "action": item}]
     elif action == "pin":
         current = (row.audience or {}).get("pin_hours") if (row.audience or {}).get("pin") else None
         following = PIN_CYCLE[(PIN_CYCLE.index(current) + 1) % len(PIN_CYCLE)] if current in PIN_CYCLE else 0
@@ -1609,6 +1762,41 @@ async def broadcast_control(
         await session.refresh(row)
         await call.answer()
     await show(call, broadcast_status_text(t, row), broadcast_status_kb(t, row))
+
+
+@router.message(AdminStates.broadcast_idle, F.text)
+async def broadcast_idle_days(
+    message: Message,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    """How many days without the bot puts a customer in the "idle" audience (Foxima parity)."""
+    from paurubot.core.broadcasts import IDLE_DAYS_MAX
+
+    data = await state.get_data()
+    row = await session.get(Broadcast, int(data.get("broadcast_id") or 0))
+    if row is None or row.shop_id != shop.id or row.status != JobStatus.DRAFT:
+        await state.clear()
+        return
+    raw = (
+        (message.text or "")
+        .strip()
+        .translate(
+            str.maketrans("\u06f0\u06f1\u06f2\u06f3\u06f4\u06f5\u06f6\u06f7\u06f8\u06f9", "0123456789")
+        )
+    )
+    if not raw.isdigit() or not 1 <= int(raw) <= IDLE_DAYS_MAX:
+        await message.answer(t("adm_bc_idle_invalid", max=IDLE_DAYS_MAX))
+        return
+    row.audience = {**(row.audience or {}), "kind": "idle", "idle_days": int(raw)}
+    await state.clear()
+    await session.commit()
+    await message.answer(t("adm_saved"), reply_markup=menu(t, cfg, staff))
+    await message.answer(await broadcast_options_text(session, t, row), reply_markup=broadcast_kb(t, row))
 
 
 @router.message(AdminStates.broadcast_button, F.text)

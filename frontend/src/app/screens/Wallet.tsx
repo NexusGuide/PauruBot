@@ -6,7 +6,7 @@ import { api } from "../api";
 import { Icon } from "../icons";
 import { PendingPayments } from "../payments/PendingPayments";
 import { errorText, methodName, useApp } from "../state";
-import { haptic, openExternal, openInvoice } from "../telegram";
+import { haptic, openExternal, openInvoice, showNote } from "../telegram";
 import { actionGate, topupIntents } from "../topup-intents";
 import { Button, CountUp, Item, Screen } from "../ui";
 import { rememberCard, rememberPayment } from "./Payment";
@@ -46,6 +46,7 @@ export function Wallet() {
       intent = topupIntents().get(me.id, chosen, method);
       const { payment } = await api.topup(chosen, method, intent);
       if (!payment.uncertain) topupIntents().clear(me.id, chosen, method, intent);
+      if (payment.help) await showNote(payment.help);
       if (payment.provider === "tonpay_custom") {
         navigate(`/payment/${payment.payment_id}`);
       } else if (payment.accounts) {

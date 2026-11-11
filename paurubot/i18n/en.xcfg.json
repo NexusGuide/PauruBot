@@ -54,5 +54,7 @@
   "adm_x_move_price": "Move price",
   "adm_x_self_delete_enabled": "Self delete by customer",
   "adm_x_self_delete_refund_percent": "Self delete refund percent",
-  "transfer_max": "A single transfer can be at most {high}."
+  "transfer_max": "A single transfer can be at most {high}.",
+  "adm_x_referral_require_phone": "Only with the friend's verified phone",
+  "adm_x_referral_min_account_hours": "Friend's minimum account age (hours)"
 }

@@ -415,6 +415,8 @@ export interface PaymentStart {
   invoice_link?: string;
   crypto?: CryptoInstructions;
   uncertain?: boolean;
+  /** The shop's own help for this payment method (Foxima parity), shown before paying. */
+  help?: string;
 }
 
 export interface PendingPayment {

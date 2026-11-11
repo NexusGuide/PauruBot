@@ -5,7 +5,8 @@ import { useSession } from "../session";
 import { Sheet } from "../ui";
 import { UnpinAllButton } from "../screens/Tools";
 import { ClearBroadcastsButton, DeleteBroadcastButton } from "../screens/ClockTools";
-import { AUDIENCE_KINDS, audiencePreviewPath, previewReady, submitPath, actions, audienceKey, buildBody, codepoints, emptyDraft, parsePage, parseReachable, parseRow, type Action, type Body, type BroadcastRow, type Draft } from "./model";
+import { ALL_KINDS, BUTTON_ACTIONS, PIN_HOURS, IDLE_DAYS_MAX, type ButtonAction } from "./model";
+import { audiencePreviewPath, previewReady, submitPath, actions, audienceKey, buildBody, codepoints, emptyDraft, parsePage, parseReachable, parseRow, type Action, type Body, type BroadcastRow, type Draft } from "./model";
 import { translator, type CopyKey } from "./copy";
 import "./broadcasts.css";
 type T = ReturnType<typeof translator>;
@@ -73,6 +74,15 @@ function Notice({ text, error = false }: {
     useEffect(() => { ref.current?.focus(); ref.current?.scrollIntoView({ block: "nearest" }); }, [text]);
     return <div ref={ref} tabIndex={-1} role={error ? "alert" : "status"} className={`bc-note ${error ? "bc-error" : ""}`}>{text}</div>;
 }
+/** The shop's panels for the "buyers of one panel" audience; only id and name are used. */
+function parsePanels(value: unknown): { id: number; name: string }[] {
+    const items = (value as { items?: unknown } | null)?.items;
+    if (!Array.isArray(items)) throw new Error("invalid_panels");
+    return items.flatMap(p => {
+        const row = p as { id?: unknown; name?: unknown };
+        return typeof row.id === "number" && typeof row.name === "string" ? [{ id: row.id, name: row.name }] : [];
+    });
+}
 function stamp(value: string | null, locale: string): string {
     if (!value)
         return "—";
@@ -111,6 +121,7 @@ function Composer({ t, locale, onClose, onSaved }: {
         body: Body;
     } | null>(null);
     const previewPath = audiencePreviewPath(draft);
+    const panels = useRead("/api/admin/panels", parsePanels);
     const preview = useRead(previewPath, parseReachable);
     const canQueue = previewReady(previewPath, preview.dataPath, preview.loading, preview.error, preview.data);
     const [ack, setAck] = useState(false), [busy, setBusy] = useState(false), [discard, setDiscard] = useState(false), [testOK, setTestOK] = useState(false);
@@ -143,7 +154,7 @@ function Composer({ t, locale, onClose, onSaved }: {
         }
         catch (err) {
             const key = err instanceof Error ? err.message : "text";
-            setMessage(t(key === "schedule" ? "scheduleError" : key === "buttons" ? "buttonsError" : "textError"));
+            setMessage(t(key === "schedule" ? "scheduleError" : key === "buttons" ? "buttonsError" : key === "audience" ? "audienceError" : "textError"));
             setFailed(true);
         }
     };
@@ -207,21 +218,28 @@ function Composer({ t, locale, onClose, onSaved }: {
     {!review ? <fieldset disabled={busy} style={{ border: 0, padding: 0 }}>
       <label htmlFor="bc-text">{t("text")}</label><textarea id="bc-text" value={draft.text} onChange={e => change({ ...draft, text: e.target.value })} aria-describedby="bc-count"/>
       <p id="bc-count" className="bc-muted" aria-live="polite"><bdi dir="ltr">{codepoints(draft.text)} / 4000</bdi></p>
-      <label htmlFor="bc-audience">{t("audience")}</label><select id="bc-audience" value={draft.audience} onChange={e => change({ ...draft, audience: e.target.value as Draft["audience"] })}>{AUDIENCE_KINDS.map(k => <option key={k} value={k}>{t(k)}</option>)}</select>
+      <label htmlFor="bc-audience">{t("audience")}</label><select id="bc-audience" value={draft.audience} onChange={e => change({ ...draft, audience: e.target.value as Draft["audience"] })}>{ALL_KINDS.map(k => <option key={k} value={k}>{t(k)}</option>)}</select>
+      {draft.audience === "panel" && <><label htmlFor="bc-panel">{t("pickPanel")}</label><select id="bc-panel" value={draft.panelId ?? ""} onChange={e => change({ ...draft, panelId: e.target.value ? Number(e.target.value) : null })}><option value="">—</option>{(panels.data ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></>}
+      {draft.audience === "idle" && <><label htmlFor="bc-idle">{t("idleDays")}</label><input id="bc-idle" type="number" min={1} max={IDLE_DAYS_MAX} dir="ltr" value={draft.idleDays ?? ""} onChange={e => change({ ...draft, idleDays: e.target.value ? Number(e.target.value) : null })}/></>}
+      <label className="bc-check"><input type="checkbox" checked={Boolean(draft.pin)} onChange={e => change({ ...draft, pin: e.target.checked, pinHours: draft.pinHours ?? 0 })}/>{t("pinLabel")}</label>
+      {draft.pin && <><label htmlFor="bc-pin">{t("pinFor")}</label><select id="bc-pin" value={draft.pinHours ?? 0} onChange={e => change({ ...draft, pinHours: Number(e.target.value) })}>{PIN_HOURS.map(h => <option key={h} value={h}>{h ? `${h} ${t("hours")}` : t("pinForever")}</option>)}</select></>}
       <label htmlFor="bc-language">{t("language")}</label><select id="bc-language" value={draft.locale} onChange={e => change({ ...draft, locale: e.target.value as Draft["locale"] })}><option value="">{t("anyLanguage")}</option><option value="fa">فارسی</option><option value="en">English</option></select><p className="bc-muted">{t("languageHint")}</p>
       <section className="bc-note" aria-live="polite"><p>{t("selectedEstimate")}: {preview.loading ? t("loading") : canQueue ? new Intl.NumberFormat(locale).format(preview.data!) : t("unknown")}</p><p className="bc-muted">{t("previewHint")}</p><button disabled={preview.loading} onClick={() => void preview.reload()}>{t("refresh")}</button></section>
       <fieldset><legend>{t("buttons")}</legend>{draft.buttons.map((b, i) => <div className="bc-link" key={i}>
         <label htmlFor={`bc-label-${i}`}>{t("label")} {i + 1}</label><input id={`bc-label-${i}`} value={b.text} onChange={e => change({ ...draft, buttons: draft.buttons.map((v, j) => j === i ? { ...v, text: e.target.value } : v) })}/>
-        <label htmlFor={`bc-url-${i}`}>{t("url")} {i + 1}</label><input id={`bc-url-${i}`} dir="ltr" type="url" value={b.url} onChange={e => change({ ...draft, buttons: draft.buttons.map((v, j) => j === i ? { ...v, url: e.target.value } : v) })}/>
+        {b.action
+          ? <><label htmlFor={`bc-act-${i}`}>{t("actionLabel")} {i + 1}</label><select id={`bc-act-${i}`} value={b.action} onChange={e => change({ ...draft, buttons: draft.buttons.map((v, j) => j === i ? { ...v, action: e.target.value as ButtonAction } : v) })}>{BUTTON_ACTIONS.map(a => <option key={a} value={a}>{t(`act_${a}`)}</option>)}</select></>
+          : <><label htmlFor={`bc-url-${i}`}>{t("url")} {i + 1}</label><input id={`bc-url-${i}`} dir="ltr" type="url" value={b.url} onChange={e => change({ ...draft, buttons: draft.buttons.map((v, j) => j === i ? { ...v, url: e.target.value } : v) })}/></>}
         <button onClick={() => change({ ...draft, buttons: draft.buttons.filter((_, j) => j !== i) })} aria-label={`${t("remove")} ${i + 1}`}>{t("remove")}</button>
-      </div>)}<button disabled={busy || draft.buttons.length >= 6} onClick={() => change({ ...draft, buttons: [...draft.buttons, { text: "", url: "" }] })}>{t("add")}</button></fieldset>
+      </div>)}<button disabled={busy || draft.buttons.length >= 6} onClick={() => change({ ...draft, buttons: [...draft.buttons, { text: "", url: "" }] })}>{t("add")}</button>
+        <button disabled={busy || draft.buttons.length >= 6} onClick={() => change({ ...draft, buttons: [...draft.buttons, { text: t("act_buy"), url: "", action: "buy" }] })}>{t("addAction")}</button></fieldset>
       <label htmlFor="bc-schedule">{t("schedule")}</label><input id="bc-schedule" type="datetime-local" value={draft.schedule} onChange={e => change({ ...draft, schedule: e.target.value })}/><p className="bc-muted"><bdi>{zone}</bdi> · {t("scheduleHint")}</p>
       {testOK && <p className="bc-note">{t("testOK")}</p>}
       <div className="bc-actions"><button disabled={busy || blocked} onClick={() => prepare("test")}>{t("test")}</button><button className="bc-primary" disabled={busy || blocked || !canQueue} onClick={() => prepare("create")}>{t("review")}</button></div>
     </fieldset> : <section aria-label={t(review.kind === "test" ? "testTitle" : "reviewTitle")}>
       <h2 tabIndex={-1} ref={reviewHeading}>{t(review.kind === "test" ? "testTitle" : "reviewTitle")}</h2><p>{t(review.kind === "test" ? "testHint" : "reviewHint")}</p>
-      {review.kind === "create" && <dl><dt>{t("audience")}</dt><dd>{t(draft.audience)}</dd><dt>{t("language")}</dt><dd>{draft.locale || t("anyLanguage")}</dd><dt>{t("scheduled")}</dt><dd>{review.body.scheduled_at ? <><time>{stamp(review.body.scheduled_at, locale)}</time> · <bdi>{zone}</bdi><br /><bdi>{review.body.scheduled_at}</bdi></> : t("now")}</dd></dl>}
-      <pre dir="auto">{review.body.text}</pre>{review.body.buttons.length > 0 && <ul>{review.body.buttons.map((b, i) => <li key={i}>{b.text} — <bdi>{b.url}</bdi></li>)}</ul>}
+      {review.kind === "create" && <dl><dt>{t("audience")}</dt><dd>{t(draft.audience)}{draft.audience === "panel" ? ` — ${(panels.data ?? []).find(p => p.id === draft.panelId)?.name ?? ""}` : draft.audience === "idle" ? ` — ${draft.idleDays}` : ""}</dd><dt>{t("language")}</dt><dd>{draft.locale || t("anyLanguage")}</dd><dt>{t("scheduled")}</dt><dd>{review.body.scheduled_at ? <><time>{stamp(review.body.scheduled_at, locale)}</time> · <bdi>{zone}</bdi><br /><bdi>{review.body.scheduled_at}</bdi></> : t("now")}</dd></dl>}
+      <pre dir="auto">{review.body.text}</pre>{review.body.buttons.length > 0 && <ul>{review.body.buttons.map((b, i) => <li key={i}>{b.text} — {"action" in b ? t(`act_${b.action}`) : <bdi>{b.url}</bdi>}</li>)}</ul>}
       <label className="bc-check"><input type="checkbox" checked={ack} disabled={busy || blocked} onChange={e => setAck(e.target.checked)}/>{t("ack")}</label>
       <div className="bc-actions"><button disabled={busy} onClick={() => { setReview(null); setAck(false); setMessage(""); }}>{t("edit")}</button><button className="bc-primary" disabled={busy || blocked || !ack || (review.kind === "create" && !canQueue)} onClick={() => void send()}>{t(review.kind === "test" ? "confirmTest" : review.body.scheduled_at ? "queueScheduled" : "queue")}</button></div>
     </section>}

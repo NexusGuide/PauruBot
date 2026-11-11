@@ -178,7 +178,8 @@ async def update_code(
     return await _code_out(db, row)
 
 
-AudienceKind = Literal["all", "resellers", "buyers", "active", "inactive", "never_bought"]
+AudienceKind = Literal["all", "resellers", "buyers", "active", "inactive", "never_bought", "panel", "idle"]
+PIN_HOURS_MAX = 24 * 30
 
 
 class BroadcastBody(BaseModel):
@@ -190,6 +191,12 @@ class BroadcastBody(BaseModel):
     locale: str | None = Field(default=None, max_length=8)
     # F-16: start later instead of now (timezone-aware, at most 60 days ahead)
     scheduled_at: datetime | None = None
+    # Foxima parity: the buyers of one panel ("panel"), people idle for N days ("idle"), and a pin
+    # (0 hours: until unpinned), as the bot offers.
+    panel_id: int | None = None
+    idle_days: int | None = None
+    pin: bool = False
+    pin_hours: int = Field(default=0, ge=0, le=PIN_HOURS_MAX)
 
 
 class TargetedBroadcastBody(BroadcastBody):
@@ -201,10 +208,29 @@ class TargetedBroadcastBody(BroadcastBody):
 
 
 def _check_buttons(body: BroadcastBody) -> None:
+    """Link buttons as before, and section buttons that open a part of the bot (Foxima parity)."""
+    from paurubot.core.broadcasts import valid_button
+
     for button in body.buttons:
-        url = button.get("url", "")
-        if not button.get("text") or not url.startswith(("https://", "tg://")):
+        if not valid_button(button):
             raise HTTPException(status_code=422, detail="bad_button")
+
+
+async def _check_audience(db: DB, shop_id: int, body: BroadcastBody) -> dict[str, Any]:
+    """The extra audience fields of "panel" and "idle"; refused when they are missing or foreign."""
+    from paurubot.core.broadcasts import IDLE_DAYS_MAX
+    from paurubot.db.models import Panel
+
+    if body.kind == "panel":
+        panel = await db.get(Panel, body.panel_id) if body.panel_id else None
+        if panel is None or panel.shop_id != shop_id:
+            raise HTTPException(status_code=422, detail="panel_required")
+        return {"panel_id": panel.id}
+    if body.kind == "idle":
+        if not body.idle_days or not 1 <= body.idle_days <= IDLE_DAYS_MAX:
+            raise HTTPException(status_code=422, detail="idle_days_invalid")
+        return {"idle_days": body.idle_days}
+    return {}
 
 
 @router.get("/broadcasts")
@@ -233,7 +259,10 @@ async def create_broadcast(
         "resellers_only": body.resellers_only,
         "buyers_only": body.buyers_only,
         "locale": body.locale,
+        **await _check_audience(db, ctx.shop_id, body),
     }
+    if body.pin:
+        audience.update(pin=True, pin_hours=body.pin_hours)
     row = Broadcast(
         shop_id=ctx.shop_id,
         created_by_staff_id=ctx.staff.id,
@@ -413,9 +442,16 @@ async def audience_size(
     locale: str | None = None,
     resellers_only: bool = False,
     buyers_only: bool = False,
+    panel_id: int | None = None,
+    idle_days: int | None = None,
 ) -> dict[str, int]:
+    from paurubot.db.models import Panel
     from paurubot.notifications.handlers import _audience
 
+    if panel_id is not None:
+        panel = await db.get(Panel, panel_id)
+        if panel is None or panel.shop_id != ctx.shop_id:
+            panel_id = 0  # another shop's panel counts nobody
     draft = Broadcast(
         shop_id=ctx.shop_id,
         audience={
@@ -423,6 +459,8 @@ async def audience_size(
             "locale": locale,
             "resellers_only": resellers_only,
             "buyers_only": buyers_only,
+            "panel_id": panel_id,
+            "idle_days": idle_days,
         },
     )
     total = await db.scalar(select(func.count(Customer.id)).where(*_audience(draft)))
@@ -435,9 +473,17 @@ async def targeted_audience_size(
     db: DB,
     kind: AudienceKind,
     locale: Annotated[str | None, Query(max_length=8)] = None,
+    panel_id: int | None = None,
+    idle_days: Annotated[int | None, Query(ge=1, le=365)] = None,
 ) -> dict[str, int]:
-    # Same tenant, opt-out and segment predicates as the legacy count and worker.
-    return await audience_size(ctx, db, kind=kind, locale=locale)
+    # Same tenant, opt-out and segment predicates as the legacy count and worker; the panel and
+    # idle filters (Foxima parity) ride along only when given.
+    extra: dict[str, Any] = {}
+    if panel_id is not None:
+        extra["panel_id"] = panel_id
+    if idle_days is not None:
+        extra["idle_days"] = idle_days
+    return await audience_size(ctx, db, kind=kind, locale=locale, **extra)
 
 
 # --- gift codes (FIN-03) -----------------------------------------------------------

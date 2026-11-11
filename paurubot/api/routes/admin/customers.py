@@ -805,6 +805,8 @@ class BulkCustomers(BaseModel):
     reason: str | None = Field(default=None, max_length=255)
     tag: str | None = Field(default=None, min_length=1, max_length=24)
     text: str | None = Field(default=None, min_length=1, max_length=3500)
+    # Foxima parity: a "reply" button under the message, which opens the customer's tickets.
+    reply: bool = False
 
 
 class NewCustomer(BaseModel):
@@ -890,7 +892,11 @@ async def bulk_customers(
             )
         )
         await queue.enqueue(
-            db, "notify", "staff_message", {"customer_ids": ids, "text": body.text}, shop_id=ctx.shop_id
+            db,
+            "notify",
+            "staff_message",
+            {"customer_ids": ids, "text": body.text, "reply": body.reply},
+            shop_id=ctx.shop_id,
         )
         await record(
             db,

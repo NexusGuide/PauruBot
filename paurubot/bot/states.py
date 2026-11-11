@@ -80,6 +80,7 @@ class AdminStates(StatesGroup):
     setting_value = State()
     gift_amount = State()
     broadcast_button = State()
+    broadcast_idle = State()  # days without the bot, for the "idle" audience (Foxima parity)
     premium_emoji = State()
     start_media = State()
     buy_banner = State()

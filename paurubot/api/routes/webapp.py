@@ -796,6 +796,9 @@ class PayBody(BaseModel):
 async def _payment_view(ctx: WebApp, started: payments.Started) -> dict[str, Any]:
     payment, checkout = started.payment, started.checkout
     view: dict[str, Any] = {"payment_id": payment.id, "provider": payment.provider, "amount": payment.amount}
+    help_text = await payments.method_help(ctx.session, payment.shop_id, payment.provider)
+    if help_text:  # Foxima parity: the shop's own words for this method
+        view["help"] = help_text
     if payment.provider == "card":
         view["accounts"] = checkout.instructions.get("accounts", [])
     elif payment.provider == "stars" and checkout.instructions.get("invoice_link"):

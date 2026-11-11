@@ -8,7 +8,7 @@ import { prepareDraft, reviseDraft } from "../order-draft";
 import { actionGate } from "../topup-intents";
 import { RenewalPreview } from "../renewal/Preview";
 import { errorText, methodName, useApp } from "../state";
-import { haptic, openExternal, openInvoice } from "../telegram";
+import { haptic, openExternal, openInvoice, showNote } from "../telegram";
 import { ActionBar, Button, Loading, Panel, Screen, Steps } from "../ui";
 import { rememberCard, rememberPayment } from "./Payment";
 
@@ -170,6 +170,7 @@ export function Checkout() {
       }
       const payment = result.payment;
       if (!payment) return;
+      if (payment.help) await showNote(payment.help);
       if (payment.accounts) rememberCard(payment.payment_id, payment.accounts, payment.amount);
       if (payment.crypto) {
         rememberPayment({ paymentId: payment.payment_id, amount: payment.amount, crypto: payment.crypto });

@@ -390,6 +390,9 @@ async def pay(
     message = call.message if isinstance(call.message, Message) else None
     if message is None:
         return
+    help_text = await payments.method_help(session, customer.shop_id, payment.provider)
+    if help_text:  # the shop's own words for this method, before how to pay (Foxima parity)
+        await message.answer(esc(help_text))
     if payment.provider == "card":
         accounts = "\n".join(
             t("card_line", number=esc(a["number"]), holder=esc(a["holder"]), bank=esc(a["bank"]))

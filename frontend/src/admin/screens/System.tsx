@@ -38,6 +38,7 @@ import { AlertMatrix, AutoReplies, ReportSections, type AutoReply } from "../set
 import { TrialResetCard } from "./Tools";
 import { AmountList, ResetTextsButton } from "./ClockTools";
 import { BackupBotForm, DateTimeInput, IdPicker, PackagesEditor, SettingsFileButtons, TierEditor, VerifyBackupButton, type ExtraPackage, type Tier as BulkTier } from "./ClockTools2";
+import { MethodRules, type MethodRule } from "./FoximaTools";
 import { compact } from "./Home";
 import { controllers, matchesQuery, shown } from "../settings-layout";
 import { atAnHour, everyLabel, everyOptions, summary, type BackupSchedule } from "../backup-schedule";
@@ -318,6 +319,10 @@ function SettingControl({
   const hint = hintText === hintKey ? undefined : hintText;
 
   if (item.type === "bool") return <Toggle checked={Boolean(value)} onChange={onChange} label={label} hint={hint} />;
+  if (item.key === "payment_method_rules") {
+    const rows = Array.isArray(value) ? (value as Partial<MethodRule>[]).map((r) => ({ provider: String(r.provider ?? "card"), min: Number(r.min ?? 0), max: Number(r.max ?? 0), help: String(r.help ?? "") })) : [];
+    return <Field label={label} hint={hint}>{() => <MethodRules value={rows} onChange={onChange} />}</Field>;
+  }
   if (item.key === "topup_bonus_rules") {
     return (
       <Field label={label} hint={hint}>
@@ -571,7 +576,7 @@ function SettingControl({
   );
 }
 
-const WIDE_SETTINGS = ["bulk_buy_tiers", "extra_packages", "catalog_discount_category_ids", "service_import_panel_ids", "alerts_muted", "auto_replies", "card_accounts", "topup_bonus_rules", "app_links", "loyalty_tiers", "wheel_prizes", "business_rules", "business_reply", "guest_plan_ids"];
+const WIDE_SETTINGS = ["payment_method_rules", "bulk_buy_tiers", "extra_packages", "catalog_discount_category_ids", "service_import_panel_ids", "alerts_muted", "auto_replies", "card_accounts", "topup_bonus_rules", "app_links", "loyalty_tiers", "wheel_prizes", "business_rules", "business_reply", "guest_plan_ids"];
 // Edited elsewhere: the trust channel on the channels screen; appearance and resale on their own screens.
 const HIDDEN_GROUPS = ["appearance", "resale"];
 const HIDDEN_SETTINGS = ["trust_channel_id"];

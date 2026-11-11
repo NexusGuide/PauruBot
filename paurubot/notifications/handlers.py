@@ -973,10 +973,21 @@ async def staff_message(session: AsyncSession, job: queue.Claimed) -> None:
     text = esc(str(data.get("text") or ""))
     if not text:
         return
+    markup = None
+    if data.get("reply"):  # Foxima parity: the customer can answer through their tickets
+        from paurubot.bot.callbacks import Menu
+
+        shop = await session.get(Shop, job.shop_id) if job.shop_id else None
+        t = await texts_for(session, job.shop_id or 0, shop.default_locale if shop else "fa")
+        markup = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=t("btn_reply_staff"), callback_data=Menu(item="tickets").pack())]
+            ]
+        )
     for index in range(done, len(ids)):
         customer = await session.get(Customer, ids[index])
         if customer is not None and customer.shop_id == job.shop_id and not customer.is_banned:
-            await _to_customer(session, customer, text)
+            await _to_customer(session, customer, text, reply_markup=markup)
         if index % 20 == 19:
             await queue.update_payload(session, job, {**data, "done": index + 1})
             await asyncio.sleep(1)  # well inside Telegram's broadcast limits
@@ -1654,15 +1665,9 @@ async def run_unpin(session: AsyncSession, job: queue.Claimed) -> None:
 
 def broadcast_copier(bot: Any, row: Broadcast) -> Callable[[int], Callable[[], Awaitable[Any]]]:
     """How one broadcast reaches one chat; also used for the staff test send (F-16)."""
-    markup = None
-    if row.buttons:
-        markup = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text=b["text"], url=b["url"])]
-                for b in row.buttons
-                if b.get("text") and b.get("url")
-            ]
-        )
+    from paurubot.core import broadcasts
+
+    markup = broadcasts.markup(row.buttons)  # link buttons, and section buttons (Foxima parity)
     forward = bool((row.audience or {}).get("forward"))
     if row.source_chat_id is not None and row.source_message_id is not None:
         source_chat, source_message = int(row.source_chat_id), int(row.source_message_id)
@@ -1759,10 +1764,32 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
     row.status = JobStatus.DONE
     row.finished_at = utcnow()
     await session.commit()
+    await _broadcast_report(session, row)
 
 
-def audience_conditions(shop_id: int, kind: str = "all") -> list[Any]:
-    """Who a broadcast or a mass gift reaches (GRW-06, ADM-09)."""
+async def _broadcast_report(session: AsyncSession, row: Broadcast) -> None:
+    """Tell the staff member who sent it how the broadcast went (Foxima parity)."""
+    from paurubot.core import broadcasts
+    from paurubot.db.models import Staff
+
+    staff = await session.get(Staff, row.created_by_staff_id) if row.created_by_staff_id else None
+    if staff is None or not staff.telegram_id:
+        return
+    shop = await session.get(Shop, row.shop_id)
+    t = await texts_for(session, row.shop_id, shop.default_locale if shop else "fa")
+    figures = broadcasts.progress(row)
+    text = t("adm_bc_report", id=row.id, **{k: v for k, v in figures.items() if k != "status"})
+    try:
+        await telegram.send_text(int(staff.telegram_id), text, shop_id=row.shop_id)
+    except Exception:  # the report is a courtesy; the broadcast itself is done
+        log.warning("broadcast %s report not delivered", row.id)
+
+
+def audience_conditions(
+    shop_id: int, kind: str = "all", *, panel_id: int | None = None, idle_days: int = 0
+) -> list[Any]:
+    """Who a broadcast or a mass gift reaches (GRW-06, ADM-09). Foxima parity adds the buyers of
+    one panel (`panel`) and those who have not used the bot for `idle_days` (`idle`)."""
     from paurubot.db.models import ResellerProfile
 
     conditions: list[Any] = [
@@ -1798,6 +1825,29 @@ def audience_conditions(shop_id: int, kind: str = "all") -> list[Any]:
         )
     elif kind == "never_bought":
         conditions.append(Customer.id.not_in(select(Service.customer_id).where(Service.is_trial.is_(False))))
+    elif kind == "panel":
+        # Buyers with a (non-trial) service on that panel; no panel picked reaches nobody.
+        conditions.append(
+            Customer.id.in_(
+                select(Service.customer_id).where(
+                    Service.panel_id == int(panel_id or 0),
+                    Service.is_trial.is_(False),
+                    Service.status != ServiceStatus.DELETED,
+                )
+            )
+        )
+    elif kind == "idle":
+        from datetime import timedelta
+
+        from sqlalchemy import and_
+
+        cutoff = utcnow() - timedelta(days=max(1, int(idle_days or 0)))
+        conditions.append(
+            or_(
+                Customer.last_seen_at < cutoff,
+                and_(Customer.last_seen_at.is_(None), Customer.created_at < cutoff),
+            )
+        )
     return conditions
 
 
@@ -1808,7 +1858,12 @@ def _audience(row: Broadcast) -> list[Any]:
         kind = "resellers"
     elif audience.get("buyers_only") and kind == "all":
         kind = "buyers"
-    conditions = audience_conditions(row.shop_id, kind)
+    conditions = audience_conditions(
+        row.shop_id,
+        kind,
+        panel_id=audience.get("panel_id"),
+        idle_days=int(audience.get("idle_days") or 0),
+    )
     # Do not put this in audience_conditions: wallet gifts are ledger operations, not ads.
     conditions.append(Customer.marketing_opt_out.is_(False))
     if audience.get("locale"):

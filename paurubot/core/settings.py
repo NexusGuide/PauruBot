@@ -57,6 +57,10 @@ SPECS: dict[str, Spec] = {
     "referral_min_order": Spec(int, 0, "growth"),
     "referral_daily_max": Spec(int, 0, "growth"),
     "referral_monthly_max": Spec(int, 0, "growth"),
+    # Foxima parity, against fake invites: an invite counts only once the friend shared a phone
+    # number, and only after their account is this many hours old (0: no wait).
+    "referral_require_phone": Spec(bool, False, "growth"),
+    "referral_min_account_hours": Spec(int, 0, "growth"),
     "referral_every_purchase": Spec(bool, False, "growth"),
     "referral_repeat_percent": Spec(int, None, "growth"),  # None: the same as referral_percent
     # A free config for every N counted invites, instead of or beside the cash reward
@@ -97,6 +101,9 @@ SPECS: dict[str, Spec] = {
     # Amounts offered as buttons on a wallet top-up; empty: the built-in list.
     "wallet_topup_presets": Spec(list, [], "payments"),
     "min_topup": Spec(int, 20_000, "payments"),
+    # Foxima parity: per payment method, a minimum and a maximum amount and a help text shown
+    # before paying: [{"provider": "zarinpal", "min": 0, "max": 0, "help": ""}] (0: no own limit).
+    "payment_method_rules": Spec(list, [], "payments"),
     "max_topup": Spec(int, 50_000_000, "payments"),
     "order_expire_minutes": Spec(int, 60, "payments"),
     "payment_expire_minutes": Spec(int, 60, "payments"),
@@ -376,6 +383,31 @@ ALERT_KEYS = {f"group:{t}" for t in REPORT_TOPICS} | {f"dm:{e}" for e in STAFF_E
 MAX_AUTO_REPLIES, MAX_AUTO_WORDS, MAX_WORD, MAX_REPLY = 30, 12, 40, 2000
 
 
+def _check_method_rules(value: list[Any]) -> None:
+    from paurubot.payments.engine import PROVIDERS
+
+    seen: set[str] = set()
+    if len(value) > 20:
+        raise SettingError("payment_method_rules_invalid")
+    for rule in value:
+        if not isinstance(rule, dict) or rule.get("provider") not in PROVIDERS or rule["provider"] in seen:
+            raise SettingError("payment_method_rules_invalid")
+        seen.add(rule["provider"])
+        low, high, help_text = rule.get("min") or 0, rule.get("max") or 0, rule.get("help") or ""
+        if (
+            not isinstance(low, int)
+            or not isinstance(high, int)
+            or isinstance(low, bool)
+            or isinstance(high, bool)
+            or not 0 <= low <= 10**12
+            or not 0 <= high <= 10**12
+            or (low and high and low > high)
+            or not isinstance(help_text, str)
+            or len(help_text) > 2000
+        ):
+            raise SettingError("payment_method_rules_invalid")
+
+
 def _check_guides(value: list[Any]) -> None:
     if len(value) > 12:
         raise SettingError("connection_guides_invalid")
@@ -456,6 +488,8 @@ def _check(key: str, value: Any) -> None:
         raise SettingError("extra_packages_invalid")
     if key == "connection_guides":
         _check_guides(value)
+    if key == "payment_method_rules":
+        _check_method_rules(value)
     if key == "auto_replies":
         _check_auto_replies(value)
     if key in {"terms_when", "phone_when"} and value not in {"entry", "purchase"}:
