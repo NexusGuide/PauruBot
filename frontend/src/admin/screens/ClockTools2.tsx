@@ -3,7 +3,7 @@ import { useState } from "react";
 import { call } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
-import { Button, Checkbox, Field, Input, Money, NumberInput, Page, Section, Select, Table, Textarea, When, useConfirm } from "../ui";
+import { Button, Checkbox, Field, Input, Money, NumberInput, Page, Section, Select, Table, Textarea, When, useConfirm, Intro } from "../ui";
 
 export interface Tier {
   min: number;
@@ -300,7 +300,7 @@ export function StuckOrders() {
   const writable = can("services.write");
   return (
     <Page title={t("nav_stuck_orders")} wide>
-      <p className="-mt-3 text-[0.88rem] text-[var(--hint)]">{t("stuck_intro")}</p>
+      <Intro>{t("stuck_intro")}</Intro>
       <Section flush>
         <Table
           rows={data?.items ?? []}

@@ -4,7 +4,7 @@ import { digits } from "@shared/format";
 import { useLoad } from "../hooks";
 import { useSession } from "../session";
 import { SECTIONS, sectionOf, type Section as TextSection } from "../texts-layout";
-import { Async, Badge, CopyText, Empty, Page, SearchBox, Section } from "../ui";
+import { Async, Badge, CopyText, Empty, Page, SearchBox, Section, Intro } from "../ui";
 
 export interface QuickLink {
   item: string;
@@ -25,7 +25,7 @@ export function QuickLinks() {
       <Async data={data} error={error} reload={() => void reload()}>
         {({ bot_username, items }) => (
           <>
-            <p className="-mt-3 text-[0.88rem] text-[var(--hint)]">{t("qlinks_intro")}</p>
+            <Intro>{t("qlinks_intro")}</Intro>
             {!bot_username && <p className="rounded-xl bg-saffron-100 p-3 text-[0.86rem] text-saffron-700">{t("qlinks_no_username")}</p>}
             <Section title={t("qlinks_sections")}>
               <div className="grid gap-3 md:grid-cols-2">
@@ -96,7 +96,7 @@ export function Variables() {
           })).filter((g) => g.vars.length > 0);
           return (
             <>
-              <p className="-mt-3 text-[0.88rem] text-[var(--hint)]">{t("vars_intro")}</p>
+              <Intro>{t("vars_intro")}</Intro>
               <div className="md:w-80">
                 <SearchBox value={query} onChange={setQuery} placeholder={t("vars_search")} />
               </div>

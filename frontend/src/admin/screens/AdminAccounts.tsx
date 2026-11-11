@@ -21,7 +21,7 @@ import {
   Textarea,
   Toggle,
   When,
-  useConfirm,
+  useConfirm, Intro
 } from "../ui";
 
 type PlanDraft = Omit<AccountPlan, "id"> & { id?: number };
@@ -640,7 +640,7 @@ export function AdminAccounts() {
   const { t } = useSession();
   return (
     <Page title={t("nav_admin_accounts")}>
-      <p className="text-[0.85rem] leading-relaxed text-[var(--hint)]">{t("account_intro")}</p>
+      <Intro>{t("account_intro")}</Intro>
       <Plans />
       <Accounts />
     </Page>

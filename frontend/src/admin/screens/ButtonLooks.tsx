@@ -5,7 +5,7 @@ import { call } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
 import { SECTIONS, sectionOf, type Section as TextSection } from "../texts-layout";
-import { Async, Button, Input, Page, SearchBox, Section } from "../ui";
+import { Async, Button, Input, Page, SearchBox, Section, Intro } from "../ui";
 
 export type Tone = "" | "primary" | "success" | "danger";
 export interface Look { style?: Tone; emoji_id?: string }
@@ -14,7 +14,7 @@ interface Item { key: string; fa: string; en: string }
 
 export const TONES: Tone[] = ["", "primary", "success", "danger"];
 const SWATCH: Record<Tone, string> = {
-  "": "bg-[#e7e9ee] text-[#20252d] dark:bg-[#2b313a] dark:text-white",
+  "": "bg-[var(--surface-2)] text-[var(--text)] ring-1 ring-[var(--line)]",
   primary: "bg-[#3390ec] text-white",
   success: "bg-[#31b545] text-white",
   danger: "bg-[#e5484d] text-white",
@@ -59,7 +59,7 @@ export function ButtonLooks() {
           const grouped = SECTIONS.map((s) => [s, shown.filter((i) => sectionOf(i.key) === s)] as const).filter(([, list]) => list.length);
           return (
             <div className="flex flex-col gap-4 pb-24">
-              <p className="-mt-3 text-[0.88rem] leading-6 text-[var(--hint)]">{t("blooks_intro")}</p>
+              <Intro>{t("blooks_intro")}</Intro>
               <SearchBox value={query} onChange={setQuery} placeholder={t("blooks_search")} />
               {grouped.map(([section, list]) => (
                 <Section key={section} title={t(`texts_section_${section as TextSection}`)}>

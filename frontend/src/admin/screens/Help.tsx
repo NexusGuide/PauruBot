@@ -18,7 +18,7 @@ function Text({ text }: { text: string }) {
         if (piece.kind === "link") {
           const to = linkTarget(piece.href);
           return to ? (
-            <Link key={i} to={to} className="font-semibold text-firouzeh-700 underline decoration-firouzeh-500/40 underline-offset-4 dark:text-firouzeh-100">
+            <Link key={i} to={to} className="font-semibold text-firouzeh-700 underline decoration-firouzeh-500/40 underline-offset-4">
               {piece.text}
             </Link>
           ) : (
@@ -56,7 +56,7 @@ function Blocks({ blocks, locale }: { blocks: Block[]; locale: string }) {
             );
           case "tip":
             return (
-              <p key={i} className="rounded-2xl border-s-4 border-saffron-500 bg-saffron-100 px-4 py-3 text-[0.9rem] text-[var(--text)] dark:bg-saffron-700/20">
+              <p key={i} className="rounded-2xl border-s-4 border-saffron-500 bg-saffron-100 px-4 py-3 text-[0.9rem] text-[var(--text)]">
                 <Text text={block.text} />
               </p>
             );
@@ -171,7 +171,7 @@ export function HelpArticle() {
     <Page
       title={found.title}
       actions={
-        <Link to="/help" className="inline-flex min-h-10 items-center gap-1.5 rounded-xl px-3 font-semibold text-firouzeh-700 ring-1 ring-[var(--line)] dark:text-firouzeh-100">
+        <Link to="/help" className="inline-flex min-h-10 items-center gap-1.5 rounded-xl px-3 font-semibold text-firouzeh-700 ring-1 ring-[var(--line)]">
           <Icon name="search" size={18} />
           {t("help_all")}
         </Link>
