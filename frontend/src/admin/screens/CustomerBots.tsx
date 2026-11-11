@@ -4,7 +4,7 @@ import { daysLeft, digits } from "@shared/format";
 import { call } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
-import { Async, Badge, Button, Empty, Icon, Money, Page, SearchBox, When, useConfirm } from "../ui";
+import { Async, Badge, Button, Empty, Icon, Money, Page, SearchBox, When, useConfirm, Intro } from "../ui";
 
 /** One bot run by a customer of this shop, as `GET /api/admin/customer-bots` reports it. */
 export interface CustomerBot {
@@ -65,7 +65,7 @@ export function CustomerBots() {
           const revenue = items.reduce((sum, bot) => sum + bot.revenue_month, 0);
           return (
             <>
-              <p className="-mt-3 text-[0.88rem] text-[var(--hint)]">{t("cbots_intro")}</p>
+              <Intro>{t("cbots_intro")}</Intro>
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                 <Stat label={t("cbots_total")} value={digits(items.length, locale)} />
                 <Stat label={t("cbots_selling")} value={digits(count("all") - count("attention"), locale)} />

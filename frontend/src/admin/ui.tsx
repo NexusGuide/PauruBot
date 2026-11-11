@@ -965,7 +965,7 @@ export function Table<T extends { id: number }>({
                 onClick={onRow ? () => onRow(row) : undefined}
                 className={`border-b border-[var(--line)] last:border-0 ${
                   onRow ? "cursor-pointer hover:bg-[var(--surface-2)]" : ""
-                } ${selection?.selected.has(row.id) ? "bg-firouzeh-50/60 dark:bg-firouzeh-700/10" : ""}`}
+                } ${selection?.selected.has(row.id) ? "bg-firouzeh-50/60" : ""}`}
               >
                 {selection && (
                   <td className="px-3 py-2.5">
@@ -1112,7 +1112,7 @@ export function BulkBar({ count, children, onClear }: { count: number; children:
   const { t, locale } = useSession();
   if (count === 0) return null;
   return (
-    <div className="sticky top-14 z-10 flex flex-wrap items-center gap-2 border-b border-[var(--line)] bg-firouzeh-50 px-4 py-2.5 text-[0.85rem] dark:bg-firouzeh-700/20 md:top-0">
+    <div className="sticky top-14 z-10 flex flex-wrap items-center gap-2 border-b border-[var(--line)] bg-firouzeh-50 px-4 py-2.5 text-[0.85rem] md:top-0">
       <span className="font-bold">{t("selected_n", { n: money(count, locale) })}</span>
       <span className="flex flex-1 flex-wrap gap-2">{children}</span>
       <Button small tone="ghost" onClick={onClear}>
@@ -1232,6 +1232,23 @@ export function Segmented<T extends string>({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/** A page's opening explanation: two lines on a phone with "more" to read the rest; whole on a desktop. */
+export function Intro({ children }: { children: string }) {
+  const { t } = useSession();
+  const [open, setOpen] = useState(false);
+  const long = children.length > 120;
+  return (
+    <div className="-mt-2 flex flex-col items-start gap-1">
+      <p className={`text-[0.86rem] leading-relaxed text-[var(--hint)] ${long && !open ? "line-clamp-2 md:line-clamp-none" : ""}`}>{children}</p>
+      {long && (
+        <button type="button" onClick={() => setOpen(!open)} className="text-[0.8rem] font-semibold text-firouzeh-700 md:hidden">
+          {open ? t("intro_less") : t("intro_more")}
+        </button>
+      )}
     </div>
   );
 }

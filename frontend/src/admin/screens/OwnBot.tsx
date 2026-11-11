@@ -127,7 +127,7 @@ export function OwnBotSection({ customerId }: { customerId: number | string }) {
               <label
                 key={account.id}
                 className={`flex flex-wrap items-center gap-3 rounded-xl px-3 py-2.5 ring-1 ${
-                  chosen === account.id ? "bg-firouzeh-50/60 ring-firouzeh-600 dark:bg-firouzeh-700/10" : "ring-[var(--line)]"
+                  chosen === account.id ? "bg-firouzeh-50/60 ring-firouzeh-600" : "ring-[var(--line)]"
                 } ${account.usable ? "cursor-pointer" : "opacity-60"}`}
               >
                 <input

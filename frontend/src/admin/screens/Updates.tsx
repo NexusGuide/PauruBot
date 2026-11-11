@@ -119,7 +119,7 @@ export function Updates() {
                 ]}
               />
               {value.update_available && (
-                <p className="mt-4 rounded-2xl bg-firouzeh-50 px-4 py-3 text-[0.88rem] font-semibold text-firouzeh-700 dark:bg-firouzeh-700/20 dark:text-firouzeh-100">
+                <p className="mt-4 rounded-2xl bg-firouzeh-50 px-4 py-3 text-[0.88rem] font-semibold text-firouzeh-700">
                   {t("updates_available", { version: value.latest ?? "" })}
                 </p>
               )}

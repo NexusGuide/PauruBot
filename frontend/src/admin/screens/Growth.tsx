@@ -21,7 +21,7 @@ import {
   Toggle,
   When,
   useConfirm,
-  type Column,
+  type Column, Intro
 } from "../ui";
 
 type CodeDraft = Omit<Discount, "id" | "used_count" | "created_at"> & { id?: number };
@@ -666,7 +666,7 @@ export function Lotteries() {
         </Button>
       }
     >
-      <p className="text-[0.85rem] leading-relaxed text-[var(--hint)]">{t("lottery_intro")}</p>
+      <Intro>{t("lottery_intro")}</Intro>
       <Async data={data} error={error} reload={reload}>
         {(value) =>
           value.items.length === 0 ? (
