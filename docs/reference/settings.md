@@ -149,6 +149,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `miniapp_notice` | str | "" | Mini App home notice. One short paragraph (300 characters at most) above the wallet. Empty means none |
 | `menu_layout` | list | [] | — |
 | `button_styles` | dict | {} | — |
+| `button_looks` | dict | {} | — |
 | `premium_emoji_enabled` | bool | false | — |
 | `premium_emojis` | dict | {} | — |
 | `start_media` | dict | {} | — |

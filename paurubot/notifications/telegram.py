@@ -37,6 +37,9 @@ def make_bot(token: str | None = None, shop_id: int | None = None) -> Bot:
     )
     bot.session.middleware(PollingRetryMiddleware(shop_id))
     bot.session.middleware(PremiumEmojiMiddleware(shop_id))  # BOT-10
+    from paurubot.bot.button_looks import ButtonLookMiddleware
+
+    bot.session.middleware(ButtonLookMiddleware(shop_id))  # ClockBot parity: every button's look
     return bot
 
 

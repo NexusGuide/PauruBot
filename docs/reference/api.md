@@ -37,6 +37,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/broadcasts` | `broadcast.send` | Create broadcast |
 | GET | `/api/admin/bundle` | `backups.manage` | The shop's setup (no secrets, no customers) as a JSON file. |
 | POST | `/api/admin/bundle` | `backups.manage` | Import bundle |
+| GET | `/api/admin/button-looks` | `settings.read` | Every button of the bot with its label (as the shop shows it) and its color / premium emoji |
 | DELETE | `/api/admin/canned-replies/{reply_id}` | `settings.write` | Delete canned reply |
 | PUT | `/api/admin/canned-replies/{reply_id}` | `settings.write` | Update canned reply |
 | GET | `/api/admin/canned-replies` | `tickets.reply` | List canned replies |

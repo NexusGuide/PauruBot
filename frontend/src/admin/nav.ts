@@ -126,6 +126,7 @@ export const NAV_GROUPS: NavGroup[] = [
           page("/settings", "nav_settings", "settings", { permission: "settings.read" }),
           page("/texts", "nav_texts", "texts", { permission: "texts.write" }),
           page("/bot-menu", "nav_bot_menu", "texts", { permission: "settings.read" }),
+          page("/button-looks", "nav_button_looks", "texts", { permission: "settings.read" }),
           page("/appearance", "nav_appearance", "account", { permission: "settings.read" }),
           page("/quick-links", "nav_quick_links", "link", { permission: "settings.read" }),
           page("/variables", "nav_variables", "variable", { permission: "settings.read" }),

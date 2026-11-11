@@ -48,7 +48,7 @@ test("tabs follow permissions: a hub shows only what this person may open", () =
   const support = nav.visibleFor((p) => ["customers.read", "services.read", "settings.read"].includes(p), "support");
   const groups = nav.visibleGroups(support);
   const bot = nav.hubFor(groups, "/settings");
-  assert.deepEqual(bot.tabs.map((tab) => tab.to), ["/settings", "/bot-menu", "/appearance", "/quick-links", "/variables", "/channels"]); // no texts.write
+  assert.deepEqual(bot.tabs.map((tab) => tab.to), ["/settings", "/bot-menu", "/button-looks", "/appearance", "/quick-links", "/variables", "/channels"]); // no texts.write
   assert.equal(nav.hubFor(groups, "/customer-bots"), undefined, "customer bots need resellers.manage");
   assert.equal(nav.hubFor(groups, "/staff"), undefined, "no server hub without its rights");
 
@@ -331,4 +331,12 @@ test("Foxima parity F1: payment method rules editor matches the server", () => {
   const fa = locale("fa"), en = locale("en");
   for (const m of fx.METHODS) assert.ok(`provider_${m}` in fa && `provider_${m}` in en, m);
   for (const k of ["setting_payment_method_rules", "setting_referral_require_phone", "setting_referral_min_account_hours", "method_rule_add"]) assert.ok(k in fa && k in en, k);
+});
+
+test("ClockBot parity: button looks page saves only real looks", () => {
+  const bl = h.compile(src("screens/ButtonLooks.tsx"), { react: { useState: () => [null, () => {}], useEffect: () => {}, useMemo: (f) => f() }, "../api": {}, "../hooks": {}, "../session": {}, "../texts-layout": { SECTIONS: [], sectionOf: () => "other" }, "../ui": {} });
+  assert.deepEqual(bl.cleanLooks({ btn_buy: { style: "success", emoji_id: "53683241706" }, btn_back: { style: "", emoji_id: "" }, btn_x: { style: "pink", emoji_id: "abc" } }), { btn_buy: { style: "success", emoji_id: "53683241706" } });
+  assert.ok(nav.allPaths().includes("/button-looks"));
+  const fa = locale("fa"), en = locale("en");
+  for (const tone of ["default", "primary", "success", "danger"]) assert.ok(`blooks_tone_${tone}` in fa && `blooks_tone_${tone}` in en);
 });
