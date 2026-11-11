@@ -3,9 +3,9 @@ notes and canned replies (F-14)."""
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.db.base import utcnow
@@ -182,6 +182,38 @@ async def close(session: AsyncSession, ticket: Ticket) -> None:
     ticket.status = TicketStatus.CLOSED
     ticket.updated_at = utcnow()
     await session.flush()
+
+
+async def auto_close(session: AsyncSession) -> int:
+    """Close answered tickets the customer has left alone for the shop's set number of days.
+
+    Only tickets the staff answered last: one where the customer is waiting on us is never closed
+    for us. Off unless a shop sets ``ticket_auto_close_days``. Returns how many were closed."""
+    from paurubot.core import settings as shop_settings
+
+    closed = 0
+    shops = await session.scalars(
+        select(Ticket.shop_id).where(Ticket.status == TicketStatus.ANSWERED).distinct()
+    )
+    for shop_id in list(shops):
+        days = int((await shop_settings.load(session, shop_id)).get("ticket_auto_close_days") or 0)
+        if days <= 0:
+            continue
+        cutoff = utcnow() - timedelta(days=days)
+        rows = await session.scalars(
+            select(Ticket).where(
+                Ticket.shop_id == shop_id,
+                Ticket.status == TicketStatus.ANSWERED,
+                Ticket.last_staff_at.is_not(None),
+                Ticket.last_staff_at <= cutoff,
+                or_(Ticket.last_customer_at.is_(None), Ticket.last_customer_at <= Ticket.last_staff_at),
+            )
+        )
+        for ticket in list(rows):
+            await close(session, ticket)
+            closed += 1
+    await session.commit()
+    return closed
 
 
 async def for_customer(session: AsyncSession, customer: Customer, limit: int = 10) -> list[Ticket]:

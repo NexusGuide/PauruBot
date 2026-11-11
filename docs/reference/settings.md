@@ -120,6 +120,12 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `business_quiet_minutes` | int | 30 | Stay quiet after you write (minutes). While you're talking with someone, the bot doesn't step in |
 | `business_rules` | list | [] | Keyword answers. When a message contains one of the words, its answer is sent. The first matching row wins |
 
+## Tickets
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `ticket_auto_close_days` | int | 0 | Auto-close answered tickets. When you answered a ticket and the customer wrote nothing for this many days, it closes by itself. A ticket where the customer waits on you never closes by itself. 0 turns it off (0–365 days) |
+
 ## Resale
 
 | Key | Type | Default | Meaning |

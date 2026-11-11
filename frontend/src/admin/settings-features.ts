@@ -71,6 +71,7 @@ export const FEATURES: Feature[] = [
   { key: "resellers", groups: ["resellers"] },
   { key: "reports", groups: ["reports"] },
   { key: "business", groups: ["business"], keys: ["auto_replies"] },
+  { key: "tickets", groups: ["tickets"] },
 ];
 
 const NAMED = new Map<string, string>();

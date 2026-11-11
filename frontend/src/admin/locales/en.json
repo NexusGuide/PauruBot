@@ -2417,5 +2417,10 @@
   "settings_tab_other": "Other",
   "settings_tab_referral": "Referrals and commission",
   "setting_renew_mode_follow": "Follow “renewal resets usage”",
-  "setting_renew_mode_pick_hint": "Each plan may set its own; this is the shop's default."
+  "setting_renew_mode_pick_hint": "Each plan may set its own; this is the shop's default.",
+  "settings_tab_tickets": "Tickets",
+  "setting_ticket_auto_close_days": "Auto-close answered tickets",
+  "setting_ticket_auto_close_days_hint": "When you answered a ticket and the customer wrote nothing for this many days, it closes by itself. A ticket where the customer waits on you never closes by itself. 0 turns it off (0–365 days).",
+  "err_ticket_auto_close_days_invalid": "Ticket auto-close days must be between 0 and 365.",
+  "settings_group_tickets": "Tickets"
 }
