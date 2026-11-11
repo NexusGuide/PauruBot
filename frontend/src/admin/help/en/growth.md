@@ -71,3 +71,7 @@ In [Settings](/settings), **Referrals** group, with **Referrals on** every custo
 With "Referral reward on every purchase", the inviter earns on each of the invited customer's purchases, not only the first; "Referral percent on later purchases" can set a lower share for them. "Referral rewards per inviter per 30 days" caps it.
 
 A discount code with "Only for this customer" set to a Telegram ID works for that customer alone. The customer is told about it and finds it under Wallet → My discounts in the bot, with a copy button.
+
+## Invitation only, and unpinning
+
+With "Invitation only" in growth settings, a newcomer gets in only through a customer's invite link or by sending their invite code (their Telegram id). On [Broadcasts](/broadcasts), the unpin button takes down every broadcast pinned in customers' chats.

@@ -15,6 +15,7 @@ import {
   type Hub,
   type NavGroup,
 } from "./nav";
+import { activeSettings, visibleSettings } from "./settings-nav";
 
 export { NAV_GROUPS, type NavItem } from "./nav";
 
@@ -145,6 +146,50 @@ function NavList({ onNavigate, tone = "dark" }: { onNavigate?: () => void; tone?
   );
 }
 
+/** The bot's settings as two levels (groups, then the group's tabs), as in the approved design. */
+function SettingsNav() {
+  const { t, can } = useSession();
+  const { pathname, search } = useLocation();
+  const groups = visibleSettings(can);
+  const here = activeSettings(pathname, search);
+  const current = groups.find((g) => g.key === here?.group.key) ?? groups[0];
+  if (!current) return null;
+  const pill = (active: boolean) =>
+    `flex min-h-10 shrink-0 items-center whitespace-nowrap rounded-full px-4 text-[0.88rem] font-bold transition-colors ${
+      active ? "bg-firouzeh-600 text-white" : "bg-[var(--surface)] text-[var(--text)] ring-1 ring-[var(--line)] hover:bg-[var(--bg)]"
+    }`;
+  return (
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 pt-4 md:px-8 md:pt-6">
+      <nav aria-label={t("nav_hub_bot")} className="flex gap-2 overflow-x-auto pb-1">
+        {groups.map((g) => (
+          <Link key={g.key} to={g.tabs[0]!.to} aria-current={g === current ? "true" : undefined} className={pill(g === current)}>
+            {t(`settings_nav_${g.key}`)}
+          </Link>
+        ))}
+      </nav>
+      {current.tabs.length > 1 && (
+        <nav aria-label={t(`settings_nav_${current.key}`)} className="flex gap-1 overflow-x-auto border-b border-[var(--line)]">
+          {current.tabs.map((tab) => {
+            const active = here?.tab.key === tab.key;
+            return (
+              <Link
+                key={tab.key}
+                to={tab.to}
+                aria-current={active ? "page" : undefined}
+                className={`-mb-px flex min-h-11 shrink-0 items-center whitespace-nowrap border-b-[3px] px-4 text-[0.9rem] font-semibold transition-colors ${
+                  active ? "border-firouzeh-600 text-firouzeh-700" : "border-transparent text-[var(--hint)] hover:text-[var(--text)]"
+                }`}
+              >
+                {t(`settings_tab_${tab.key}`)}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
+    </div>
+  );
+}
+
 /** The pages of the current hub, as tabs above the page (APP-ADMIN regroup). */
 function HubTabs({ hub }: { hub: Hub }) {
   const { t } = useSession();
@@ -239,7 +284,7 @@ export function Shell({ children }: { children: ReactNode }) {
       </header>
 
       <main className="min-w-0 flex-1">
-        {current && current.tabs.length > 1 && <HubTabs hub={current} />}
+        {current?.key === "nav_hub_bot" ? <SettingsNav /> : current && current.tabs.length > 1 && <HubTabs hub={current} />}
         {children}
       </main>
 

@@ -807,5 +807,7 @@
   "own_alert_bot_expiring": "Bot ending soon",
   "err_limit_active_services": "You have reached your cap of active services.",
   "err_limit_daily_purchases": "You have reached today's purchase cap; try again later.",
-  "gate_terms_later": "Not now"
+  "gate_terms_later": "Not now",
+  "err_referral_required": "This shop is by invitation only. First send your friend's invite link or code in the bot.",
+  "err_reseller_terms_required": "First accept the reseller purchase terms in the bot."
 }

@@ -202,3 +202,106 @@ async def test_keyword_auto_replies(session, env) -> None:  # type: ignore[no-un
     assert fake.last(SendMessage).text != "آموزش آیفون"  # no keyword: the menu as before
     with pytest.raises(shop_settings.SettingError):
         await shop_settings.set_many(session, shop.id, {"auto_replies": [{"words": [], "text": "x"}]})
+
+
+async def test_phone_asked_only_before_buying(session, env) -> None:  # type: ignore[no-untyped-def]
+    """Settings › phone «before purchase»: the bot opens; a new order asks for the number."""
+    from paurubot.core import orders
+    from paurubot.db.models import Customer, OrderKind
+
+    send, fake, shop = env["send"], env["fake"], env["shop"]
+    await shop_settings.set_many(session, shop.id, {"require_phone": True, "phone_when": "purchase"})
+    await session.commit()
+    await send(message_update(UID, "/start"))
+    assert fake.last(SendMessage).text != FA("phone_required")
+    plan = await factories.plan(session, shop, env["panel"])
+    customer = await session.scalar(
+        select(Customer).where(Customer.shop_id == shop.id, Customer.telegram_id == UID)
+    )
+    draft = await orders.draft(session, customer, OrderKind.PURCHASE, plan=plan)
+    with pytest.raises(orders.OrderError) as caught:
+        await orders.create(session, customer, draft)
+    assert caught.value.key == "phone_required"
+    customer.phone = "989121234567"
+    await orders.create(session, customer, draft)
+    with pytest.raises(shop_settings.SettingError):
+        await shop_settings.set_many(session, shop.id, {"phone_when": "never"})
+
+
+async def test_forced_referrer(session, env) -> None:  # type: ignore[no-untyped-def]
+    """Settings › growth «invite required»: a newcomer needs an inviter's link or code first."""
+    from paurubot.db.models import Customer
+
+    send, fake, shop = env["send"], env["fake"], env["shop"]
+    await send(message_update(8301, "/start"))  # an existing customer, who will invite
+    await shop_settings.set_many(session, shop.id, {"referral_required": True})
+    await session.commit()
+    await send(message_update(8302, "/start"))
+    assert fake.last(SendMessage).text == FA("referral_required")
+    await send(message_update(8302, "سلام"))
+    assert fake.last(SendMessage).text == FA("referral_required")
+    await send(message_update(8302, "999999"))  # not a customer of this shop
+    assert fake.last(SendMessage).text == FA("referral_required_invalid")
+    await send(message_update(8302, "8301"))  # the inviter's code
+    newcomer = await session.scalar(
+        select(Customer).where(Customer.shop_id == shop.id, Customer.telegram_id == 8302)
+    )
+    await session.refresh(newcomer)
+    inviter = await session.scalar(
+        select(Customer).where(Customer.shop_id == shop.id, Customer.telegram_id == 8301)
+    )
+    assert newcomer.referrer_id == inviter.id
+    await send(message_update(8302, "/start"))
+    assert fake.last(SendMessage).text != FA("referral_required")
+    # A link carries the code too.
+    await send(message_update(8303, "/start ref_8301"))
+    third = await session.scalar(
+        select(Customer).where(Customer.shop_id == shop.id, Customer.telegram_id == 8303)
+    )
+    await session.refresh(third)
+    assert third.referrer_id == inviter.id and fake.last(SendMessage).text != FA("referral_required")
+
+
+async def test_customer_adds_a_previous_service_from_the_bot(session, env) -> None:  # type: ignore[no-untyped-def]
+    """«Add a previous service» in My services: paste a link or username; it joins or waits."""
+    from paurubot.bot.callbacks import Svc
+    from paurubot.db.models import Customer, ServiceClaim
+    from paurubot.panels import registry
+    from tests.fakes.panels import FakeTokenPanel, transport
+    from tests.unit.test_importer import _panel_user
+
+    send, fake, shop, panel = env["send"], env["fake"], env["shop"], env["panel"]
+    CUID = 55507777  # a real-length Telegram id, as panel notes carry them
+    panel_fake = FakeTokenPanel("marzban")
+    registry.test_transports[panel.id] = transport(panel_fake)
+    try:
+        _panel_user(panel_fake, "mine_old", note=f"tg:{CUID}")
+        _panel_user(panel_fake, "unknown_old")
+        await send(message_update(CUID, "/start"))
+        await send(message_update(CUID, FA("btn_services")))
+        assert Svc(action="claim").pack() not in [d for _, d in fake.buttons(fake.last(SendMessage)) if d]
+        await shop_settings.set_many(session, shop.id, {"service_import_enabled": True})
+        await session.commit()
+        await send(message_update(CUID, FA("btn_services")))
+        assert fake.last(SendMessage).text == FA("no_services")  # still offered when there are none
+        assert Svc(action="claim").pack() in [d for _, d in fake.buttons(fake.last(SendMessage)) if d]
+        await send(callback_update(CUID, Svc(action="claim").pack()))
+        assert fake.last(SendMessage).text == FA("import_ask")
+        await send(message_update(CUID, "https://sub.example.com/sub/mine_old"))
+        assert fake.last(SendMessage).text == FA("import_added", name="mine_old")
+        await send(callback_update(CUID, Svc(action="claim").pack()))
+        await send(message_update(CUID, "unknown_old"))
+        assert fake.last(SendMessage).text == FA("import_waiting")
+        await send(callback_update(CUID, Svc(action="claim").pack()))
+        await send(message_update(CUID, "nobody_here"))
+        assert fake.last(SendMessage).text == FA("import_not_found")
+        customer = await session.scalar(
+            select(Customer).where(Customer.shop_id == shop.id, Customer.telegram_id == CUID)
+        )
+        statuses = sorted(
+            await session.scalars(select(ServiceClaim.status).where(ServiceClaim.customer_id == customer.id))
+        )
+        assert statuses == ["approved", "pending"]
+    finally:
+        registry.test_transports.clear()
+        registry._cache.clear()

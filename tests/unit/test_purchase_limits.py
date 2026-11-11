@@ -115,3 +115,28 @@ async def test_terms_before_purchase_stop_a_new_order_until_accepted(session, en
     await _buy(session, env)
     with pytest.raises(shop_settings.SettingError):
         await shop_settings.set_many(session, env["shop"].id, {"terms_when": "sometimes"})
+
+
+async def test_resellers_accept_their_own_purchase_terms(session, env) -> None:  # type: ignore[no-untyped-def]
+    await shop_settings.set_many(
+        session,
+        env["shop"].id,
+        {
+            "terms_required": True,
+            "terms_when": "purchase",
+            "reseller_terms_required": True,
+            "reseller_terms_version": 2,
+        },
+    )
+    profile = ResellerProfile(shop_id=env["shop"].id, customer_id=env["customer"].id)
+    session.add(profile)
+    await session.flush()
+    await session.refresh(env["customer"], ["reseller_profile"])
+    with pytest.raises(orders.OrderError) as caught:
+        await _buy(session, env)
+    assert caught.value.key == "reseller_terms_required"  # not the customers' terms
+    env["customer"].reseller_terms_version = 2
+    await _buy(session, env)
+    await shop_settings.set_many(session, env["shop"].id, {"reseller_terms_version": 3})  # a new version
+    with pytest.raises(orders.OrderError):
+        await _buy(session, env)

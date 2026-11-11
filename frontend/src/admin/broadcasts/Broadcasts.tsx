@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { ApiError, call } from "../api";
 import { useSession } from "../session";
 import { Sheet } from "../ui";
+import { UnpinAllButton } from "../screens/Tools";
 import { AUDIENCE_KINDS, audiencePreviewPath, previewReady, submitPath, actions, audienceKey, buildBody, codepoints, emptyDraft, parsePage, parseReachable, parseRow, type Action, type Body, type BroadcastRow, type Draft } from "./model";
 import { translator, type CopyKey } from "./copy";
 import "./broadcasts.css";
@@ -279,7 +280,7 @@ function Manager({ t, locale }: {
         next.set("page", String(value));
     else
         next.delete("page"); return next; }, { replace: true }); };
-    return <main className="bc"><header className="bc-top"><h1>{t("title")}</h1><button className="bc-primary" onClick={() => { setCompose(true); setNotice(""); }}>{t("new")}</button></header>
+    return <main className="bc"><header className="bc-top"><h1>{t("title")}</h1><UnpinAllButton /><button className="bc-primary" onClick={() => { setCompose(true); setNotice(""); }}>{t("new")}</button></header>
     <section className="bc-card"><h2>{t("estimate")}: {audience.loading ? t("loading") : audience.error || audience.data === null ? t("unknown") : new Intl.NumberFormat(locale).format(audience.data)}</h2><p className="bc-muted">{t("estimateHint")}</p></section>
     <div className="bc-actions"><p className="bc-muted">{t("plain")}</p><button disabled={history.loading || audience.loading} onClick={refresh}>{t("refresh")}</button></div>
     {notice && <Notice text={notice}/>}{history.loading && <p role="status">{t("loading")}</p>}{history.error && <Notice text={t(history.data ? "stale" : "loadError")} error/>}

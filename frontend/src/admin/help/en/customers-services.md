@@ -71,3 +71,11 @@ Under "Hidden panels" on a customer's page (or «🙈 Hidden panels» on their c
 ## All links in one message
 
 When a customer has more than one service, «📋 All links in one message» at the top of their services list sends every subscription link together. If they don't fit in one message they come as a file. «📄 All configs in one file» then asks the panels for every config and sends them as one text file.
+
+## Add a previous service
+
+When "Add a previous service" is on in settings (Services & sales › Services), a customer adds a service they have on this shop's panels from My services, by its subscription link or username. If the panel user's note holds their Telegram id it joins at once; otherwise the request waits at the top of [Services](/services) for you to approve or reject. A service tied to another customer is never handed over.
+
+## Wallet gift for many
+
+On [Customers](/customers), the wallet gift button adds the same amount to the wallet of everyone or of a group (buyers, those with an active service, never bought, and so on). Each person gets it once.

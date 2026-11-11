@@ -32,6 +32,7 @@ class AccountStates(StatesGroup):
 
 class ServiceStates(StatesGroup):
     rename = State()
+    claim = State()
 
 
 class TicketStates(StatesGroup):

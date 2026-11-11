@@ -7,7 +7,7 @@ export const REPORT_TOPICS = [
   "orders", "payments", "users", "errors", "services", "reports",
   "backups", "resellers", "panels", "tickets", "trials", "referrals",
 ] as const;
-export const STAFF_EVENTS = ["receipt", "card_verify", "order_failed", "reseller_application", "panel", "lottery", "own_bot"] as const;
+export const STAFF_EVENTS = ["receipt", "service_claim", "card_verify", "order_failed", "reseller_application", "panel", "lottery", "own_bot"] as const;
 export const DAILY_SECTIONS = ["summary", "money", "panels"] as const;
 
 /** Turn one alert on or off; the setting stores the ones that are off. */

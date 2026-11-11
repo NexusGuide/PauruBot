@@ -792,7 +792,7 @@ async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
             await report(session, service.shop_id, "services", text, markup=markup)
 
         await _quietly(deleted_report())
-    if customer.alerts_muted and alert in {"low_volume", "expiring"}:
+    if customer.alerts_muted and alert in {"low_volume", "expiring", "first_use"}:
         return  # the customer turned reminders off (SVC-15); endings are still told
     t = await _texts(session, customer)
     name = esc(service.label or service.panel_username)
@@ -808,7 +808,7 @@ async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
             text += "\n" + t("alert_reason", reason=esc(reason))
         await _to_customer(session, customer, text)
         return
-    markup = None if alert == "deleted" or service.is_trial else _renew_markup(t, service.id)
+    markup = None if alert in {"deleted", "first_use"} or service.is_trial else _renew_markup(t, service.id)
     message = await _to_customer(session, customer, text, reply_markup=markup)
     if message is not None and alert in REPLACEABLE_ALERTS:
         await _replace_alert(customer, service.id, message)
@@ -951,6 +951,43 @@ async def simple_customer(session: AsyncSession, job: queue.Claimed) -> None:
     else:
         raise Permanent(f"unknown customer notification {job.kind}")
     await _to_customer(session, customer, text)
+
+
+async def service_claim(session: AsyncSession, job: queue.Claimed) -> None:
+    """A customer asks to add a previous service: tell the staff who can approve it."""
+    from paurubot.db.models import Panel, ServiceClaim
+
+    row = await session.get(ServiceClaim, int(job.payload["claim_id"]))
+    if row is None or row.status != "pending":
+        return
+    customer = await session.get(Customer, row.customer_id)
+    panel = await session.get(Panel, row.panel_id)
+    shop = await session.get(Shop, row.shop_id)
+    if customer is None or panel is None or shop is None:
+        return
+    t = await texts_for(session, shop.id, shop.default_locale)
+    text = t(
+        "adm_service_claim",
+        customer=esc(customer.display_name),
+        panel=esc(panel.name),
+        username=esc(row.panel_username),
+    )
+    await _to_staff(session, shop.id, "services.write", text, event="service_claim")
+
+
+async def service_claim_decided(session: AsyncSession, job: queue.Claimed) -> None:
+    """Tell the customer whether the previous service they asked for joined their list."""
+    from paurubot.db.models import ServiceClaim
+
+    row = await session.get(ServiceClaim, int(job.payload["claim_id"]))
+    if row is None or row.status not in {"approved", "rejected"}:
+        return
+    customer = await session.get(Customer, row.customer_id)
+    if customer is None:
+        return
+    t = await texts_for(session, customer.shop_id, customer.locale)
+    key = "import_approved_note" if row.status == "approved" else "import_rejected_note"
+    await _to_customer(session, customer, t(key, name=esc(row.panel_username)))
 
 
 async def reseller_application(session: AsyncSession, job: queue.Claimed) -> None:
@@ -1533,6 +1570,8 @@ register_queue(
             "private_code": simple_customer,
             "card_verify": card_verify,
             "reseller_application": reseller_application,
+            "service_claim": service_claim,
+            "service_claim_decided": service_claim_decided,
             "ticket_new_message": ticket_new_message,
             "ticket_reply": ticket_reply,
             "report": report_job,

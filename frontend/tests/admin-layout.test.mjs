@@ -48,7 +48,7 @@ test("tabs follow permissions: a hub shows only what this person may open", () =
   const support = nav.visibleFor((p) => ["customers.read", "services.read", "settings.read"].includes(p), "support");
   const groups = nav.visibleGroups(support);
   const bot = nav.hubFor(groups, "/settings");
-  assert.deepEqual(bot.tabs.map((tab) => tab.to), ["/settings", "/bot-menu", "/appearance", "/quick-links", "/variables"]); // no texts.write
+  assert.deepEqual(bot.tabs.map((tab) => tab.to), ["/settings", "/bot-menu", "/appearance", "/quick-links", "/variables", "/channels"]); // no texts.write
   assert.equal(nav.hubFor(groups, "/customer-bots"), undefined, "customer bots need resellers.manage");
   assert.equal(nav.hubFor(groups, "/staff"), undefined, "no server hub without its rights");
 
@@ -222,4 +222,58 @@ test("settings editors match the server's lists and store what is off", () => {
     "daily_report_sections", "alerts_muted", "auto_replies", "terms_when"]) {
     assert.ok(`setting_${key}` in fa && `setting_${key}` in en, key);
   }
+});
+
+test("settings nav: two levels like the design, every settings group reachable, the right tab lit", () => {
+  const sn = h.compile(src("settings-nav.ts"), {});
+  assert.deepEqual(sn.SETTINGS_NAV.map((g) => g.key), ["look", "sales", "pay", "growth", "alerts", "connect"]);
+  const specs = readFileSync(new URL("../../paurubot/core/settings.py", import.meta.url), "utf8");
+  const serverGroups = new Set([...specs.matchAll(/Spec\([^)]*"([a-z_]+)"\)/g)].map((m) => m[1]));
+  const elsewhere = ["appearance", "resale", "backups", "own"]; // own screens, or never shown
+  const missing = [...serverGroups].filter((g) => !elsewhere.includes(g) && !sn.navGroups().includes(g));
+  assert.deepEqual(missing, [], "every settings group has a tab");
+  assert.equal(sn.activeSettings("/texts", "").tab.key, "messages", "no kind: message texts");
+  assert.equal(sn.activeSettings("/texts", "?kind=buttons").tab.key, "buttons");
+  assert.equal(sn.activeSettings("/settings", "?group=crypto").group.key, "pay");
+  assert.equal(sn.activeSettings("/settings", "").tab.key, "general");
+  assert.equal(sn.activeSettings("/channels", "").group.key, "connect");
+  assert.equal(sn.activeSettings("/customers", ""), undefined);
+  const support = sn.visibleSettings((p) => p === "settings.read");
+  assert.deepEqual(support.find((g) => g.key === "look").tabs.map((tab) => tab.key), ["menu", "miniapp", "general"]);
+  const fa = locale("fa"), en = locale("en");
+  for (const g of sn.SETTINGS_NAV) {
+    for (const key of [`settings_nav_${g.key}`, ...g.tabs.map((tab) => `settings_tab_${tab.key}`)]) {
+      assert.ok(key in fa && key in en, key);
+    }
+  }
+  // Every page of the nav is a page of the settings hub, so the nav shows on it.
+  for (const tab of sn.SETTINGS_NAV.flatMap((g) => g.tabs)) {
+    assert.equal(nav.hubFor(nav.visibleGroups(owner), tab.to.split("?")[0]).key, "nav_hub_bot", tab.to);
+  }
+});
+
+test("texts: messages and button labels are separate tabs", () => {
+  assert.equal(texts.kindOf("btn_buy"), "buttons");
+  assert.equal(texts.kindOf("acc_btn_login"), "buttons");
+  assert.equal(texts.kindOf("welcome"), "messages");
+});
+
+test("staff tools: the same limits and audiences as the server", () => {
+  const tools = h.compile(src("screens/Tools.tsx"), {
+    "@shared/format": {}, "../api": {}, "../hooks": {}, "../session": {}, "../ui": {},
+  });
+  const server = readFileSync(new URL("../../paurubot/api/routes/admin/tools.py", import.meta.url), "utf8");
+  const audiences = [...server.match(/Audience = Literal\[([^\]]+)\]/)[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+  assert.deepEqual([...tools.AUDIENCES], audiences);
+  assert.equal(tools.GIFT_MIN, 1000);
+  assert.equal(tools.GIFT_MAX, 10_000_000);
+  assert.equal(tools.validPercent(10), true);
+  assert.equal(tools.validPercent(-90), true);
+  assert.equal(tools.validPercent(0), false);
+  assert.equal(tools.validPercent(91), false);
+  assert.equal(tools.validPercent(null), false);
+  assert.equal(tools.priceAfter(100_000, 10), 110_000);
+  assert.equal(tools.priceAfter(123_456, -15), 104_900);
+  const fa = locale("fa"), en = locale("en");
+  for (const a of tools.AUDIENCES) assert.ok(`audience_${a}` in fa && `audience_${a}` in en, a);
 });

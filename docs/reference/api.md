@@ -164,6 +164,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/resellers/{profile_id}/suspend` | `resellers.manage` | Suspend reseller |
 | GET | `/api/admin/resellers` | `resellers.manage` | Resellers |
 | PUT | `/api/admin/resellers` | `resellers.manage` | Upsert profile |
+| POST | `/api/admin/service-claims/{claim_id}` | `services.write` | Decide |
+| GET | `/api/admin/service-claims` | `services.write` | List claims |
 | POST | `/api/admin/services/bulk/confirm` | `services.write` | Step one of a bulk delete or disable (F-22): type how many services it touches. |
 | POST | `/api/admin/services/bulk` | `services.write` | Queue one job per service so slow panels never block the request and failures retry. |
 | POST | `/api/admin/services/{service_id}/action` | `services.write` | Service action |
@@ -200,6 +202,12 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | PATCH | `/api/admin/tickets/{ticket_id}` | `tickets.reply` | Update ticket |
 | GET | `/api/admin/tickets` | `tickets.read` | List tickets |
 | POST | `/api/admin/tickets` | `tickets.reply` | A reseller writes to the shop owner from the web panel (SUP-02). |
+| GET | `/api/admin/tools/gift` | `wallet.adjust` | How many customers a gift for this audience would reach. |
+| POST | `/api/admin/tools/gift` | `wallet.adjust` | The same wallet gift for everyone in an audience; credited in the background, never twice. |
+| POST | `/api/admin/tools/plan-prices` | `catalog.write` | Every active plan's price up or down by a percentage, rounded like other prices. |
+| GET | `/api/admin/tools/reseller-ranking` | `resellers.manage` | Resellers by sales, revenue and confirmed complaints over the last `days` (0: all time). |
+| POST | `/api/admin/tools/trial-reset` | `settings.write` | Everyone may take a free trial again (a new trial round, CAT-11). |
+| POST | `/api/admin/tools/unpin-all` | `broadcast.send` | Take down every broadcast still pinned in customers' chats (GRW-06). |
 | DELETE | `/api/admin/updates` | `backups.manage` | Cancel update |
 | GET | `/api/admin/updates` | `backups.manage` | Update status |
 | POST | `/api/admin/updates` | `backups.manage` | Request update |

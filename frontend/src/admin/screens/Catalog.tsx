@@ -21,6 +21,7 @@ import {
   Toggle,
   useConfirm,
 } from "../ui";
+import { PlanPricesButton } from "./Tools";
 
 type PlanDraft = Omit<Plan, "id" | "services" | "stock"> & { id?: number };
 
@@ -578,9 +579,12 @@ export function Catalog() {
             title={t("nav_catalog")}
             actions={
               writable && (
-                <Button tone="primary" icon="plus" onClick={() => setPlan({ ...EMPTY_PLAN })}>
-                  {t("new_plan")}
-                </Button>
+                <>
+                  <PlanPricesButton onDone={() => void catalog.reload()} samplePrice={data.plans.find((p) => p.is_active)?.price} />
+                  <Button tone="primary" icon="plus" onClick={() => setPlan({ ...EMPTY_PLAN })}>
+                    {t("new_plan")}
+                  </Button>
+                </>
               )
             }
           >

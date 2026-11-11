@@ -82,6 +82,13 @@ async def evaluate_alerts(
             seconds = (service.expire_at - datetime.now(UTC)).total_seconds()
             if 0 < seconds <= alert_policy.warn_days(cfg) * 86400:
                 once("expiring", period, {"days": max(1, int(seconds // 86400) + 1)})
+        nudge = int(cfg.get("first_use_nudge_hours") or 0)
+        created = getattr(service, "created_at", None)
+        if nudge > 0 and not service.used_bytes and created is not None:
+            # Bought but never connected: one nudge with the connection guide (settings › reminders).
+            age = (datetime.now(UTC) - created).total_seconds()
+            if nudge * 3600 <= age <= nudge * 3600 + 7 * 86400:
+                once("first_use", "1", {})
     if service.status == ServiceStatus.EXPIRED and previous != ServiceStatus.EXPIRED:
         once("expired", period, {})
     if service.status == ServiceStatus.LIMITED and previous != ServiceStatus.LIMITED:

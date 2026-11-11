@@ -17,6 +17,7 @@ from paurubot.bot.states import ServiceStates
 from paurubot.bot.utils import Btn, error_text, show
 from paurubot.bot.views import qr_png, service_card
 from paurubot.core import auto_renew
+from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import esc
 from paurubot.core.orders import MOVABLE, OrderError, can_change, service_extras
 from paurubot.db.models import Customer, Plan, Service, ServiceStatus
@@ -77,8 +78,11 @@ async def list_services(
     base = select(Service).where(Service.customer_id == customer.id, Service.status != ServiceStatus.DELETED)
     total = int(await session.scalar(select(func.count()).select_from(base.subquery())) or 0)
     has_stock = bool(await stock.for_customer(session, customer.id, limit=1))
+    claim = bool((await shop_settings.load(session, customer.shop_id)).get("service_import_enabled"))
     if not total and not has_stock:
-        await show(event, t("no_services"))
+        await show(
+            event, t("no_services"), keyboards.services_kb(t, [], 0, False, claim=True) if claim else None
+        )
         return
     rows = list(await session.scalars(base.order_by(Service.id.desc()).offset(page * PAGE).limit(PAGE)))
     await show(
@@ -92,8 +96,46 @@ async def list_services(
             stock=has_stock,
             muted=customer.alerts_muted,
             all_links=total > 1,
+            claim=claim,
         ),
     )
+
+
+@router.callback_query(Svc.filter(F.action == "claim"))
+async def claim_ask(call: CallbackQuery, t: Texts, state: FSMContext) -> None:
+    """Add a previous service: ask for its subscription link or username."""
+    await call.answer()
+    await state.set_state(ServiceStates.claim)
+    if isinstance(call.message, Message):
+        await call.message.answer(t("import_ask"), reply_markup=keyboards.cancel(t))
+
+
+@router.message(ServiceStates.claim, F.text)
+async def claim_text(
+    message: Message, session: AsyncSession, customer: Customer, t: Texts, state: FSMContext
+) -> None:
+    from paurubot.core import service_claims
+
+    try:
+        result = await service_claims.claim(session, customer, message.text or "")
+    except service_claims.ClaimError as exc:
+        await session.rollback()
+        await message.answer(t(exc.key))
+        if exc.key not in {"import_not_found"}:
+            await state.clear()
+        return
+    await state.clear()
+    if result.service is None:
+        from paurubot.worker import queue
+
+        await queue.enqueue(
+            session, "notify", "service_claim", {"claim_id": result.claim.id}, shop_id=customer.shop_id
+        )
+    await session.commit()
+    if result.service is not None:
+        await message.answer(t("import_added", name=result.service.panel_username))
+    else:
+        await message.answer(t("import_waiting"))
 
 
 @router.callback_query(Svc.filter(F.action == "stock"))

@@ -479,8 +479,17 @@ TERMS_SOURCES = {"bot", "webapp", "bulk"}
 
 
 async def check_purchase_terms(session: AsyncSession, customer: Customer) -> None:
-    """With the terms asked «before purchase», a new purchase waits until they are accepted."""
+    """With the phone or the terms asked «before purchase», a new purchase waits for them."""
     cfg = await shop_settings.load(session, customer.shop_id)
+    if cfg.get("require_phone") and cfg.get("phone_when") == "purchase" and not customer.phone:
+        raise OrderError("phone_required")
+    if customer.is_reseller:
+        # Resellers accept their own purchase terms, when the shop has them, instead.
+        if cfg.get("reseller_terms_required") and customer.reseller_terms_version != int(
+            cfg.get("reseller_terms_version") or 1
+        ):
+            raise OrderError("reseller_terms_required")
+        return
     if (
         cfg.get("terms_required")
         and cfg.get("terms_when") == "purchase"

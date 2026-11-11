@@ -356,6 +356,17 @@ async def accept_terms(
         await home(call.message, t, cfg, staff)
 
 
+@router.callback_query(Nav.filter(F.to == "rterms"))
+async def accept_reseller_terms(
+    call: CallbackQuery, customer: Customer, t: Texts, cfg: dict[str, Any], staff: StaffIdentity | None
+) -> None:
+    """A reseller accepts the shop's separate purchase terms; buying goes on from the menu."""
+    customer.reseller_terms_version = int(cfg.get("reseller_terms_version") or 1)
+    await call.answer(t("terms_accepted"))
+    if isinstance(call.message, Message):
+        await home(call.message, t, cfg, staff)
+
+
 @router.callback_query(Nav.filter(F.to == "noop"))
 async def noop(call: CallbackQuery) -> None:
     await call.answer()

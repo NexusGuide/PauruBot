@@ -92,8 +92,9 @@ export function Checkout() {
       setBalance(result.balance);
     }).catch(async (err) => {
       if (!active) return;
-      if (err instanceof Error && err.message === "terms_required") {
-        // The shop asks for its terms before a purchase: show them, then this checkout runs again.
+      if (err instanceof Error && (err.message === "terms_required" || err.message === "phone_required")) {
+        // The shop asks for its terms or the phone before a purchase: the gate screen, then this
+        // checkout runs again.
         try {
           if (!(await checkGate(await api.gate("purchase")))) return;
         } catch {

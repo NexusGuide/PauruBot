@@ -103,3 +103,7 @@ The same can be done without the web panel, much like in other sales bots:
 ## Customer bots
 
 [Customer bots](/customer-bots) shows every bot your customers run in one place: reseller sales bots (selling this shop's plans) and dedicated bots on a customer's own panel. Each shows its state, owner, buyers, active services and the last 30 days' sales. From here you can pause a dedicated bot's sales or extend it, and stop a reseller bot or let it connect again. Connecting and changing the token are on that customer's page.
+
+## Ranking and reseller purchase terms
+
+The bottom of [Resellers](/resellers) ranks resellers by sales, revenue and confirmed complaints. With separate reseller purchase terms on, a reseller accepts the reseller_terms_text once before buying; raising the version asks again.

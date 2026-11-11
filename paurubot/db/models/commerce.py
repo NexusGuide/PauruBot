@@ -108,6 +108,27 @@ class Service(Base, UpdatedMixin):
         return max(0, self.data_limit - self.used_bytes)
 
 
+class ServiceClaim(Base, TimestampMixin):
+    """A customer asks to add a service they already have on one of the shop's panels (settings ›
+    add a previous service). Staff approve it unless the panel user's note names the customer."""
+
+    __tablename__ = "service_claims"
+    __table_args__ = (
+        Index("ix_service_claims_shop_status", "shop_id", "status"),
+        UniqueConstraint("customer_id", "panel_id", "panel_username"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"))
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id", ondelete="CASCADE"))
+    panel_id: Mapped[int] = mapped_column(ForeignKey("panels.id", ondelete="CASCADE"))
+    panel_username: Mapped[str] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending|approved|rejected
+    service_id: Mapped[int | None] = mapped_column(ForeignKey("services.id", ondelete="SET NULL"))
+    decided_at: Mapped[datetime | None] = mapped_column()
+    decided_by: Mapped[str | None] = mapped_column(String(128))
+
+
 class Order(Base, UpdatedMixin):
     __tablename__ = "orders"
     __table_args__ = (Index("ix_orders_shop_status", "shop_id", "status"),)

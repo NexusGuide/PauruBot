@@ -129,7 +129,12 @@ async def account_gate(
     «before purchase» count only for a purchase.
     """
     terms_now = cfg.get("terms_when") != "purchase" or purchase
-    if cfg["require_phone"] and not customer.phone:
+    phone_now = cfg.get("phone_when") != "purchase" or purchase
+    from paurubot.core import referral
+
+    if cfg.get("referral_required") and await referral.needs_inviter(db, customer):
+        need = "referral_required"  # named in the bot only: a link or the inviter's code
+    elif cfg["require_phone"] and phone_now and not customer.phone:
         need = "phone_required"
     elif cfg["terms_required"] and terms_now and customer.terms_accepted_version != int(cfg["terms_version"]):
         need = "terms_required"

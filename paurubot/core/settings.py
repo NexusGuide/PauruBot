@@ -29,6 +29,8 @@ SPECS: dict[str, Spec] = {
     "languages": Spec(list, ["fa", "en"], "general"),
     "require_phone": Spec(bool, False, "general"),
     "phone_country_codes": Spec(list, [], "general"),
+    # entry: before using the bot at all; purchase: only before a new purchase.
+    "phone_when": Spec(str, "entry", "general"),
     "support_username": Spec(str, "", "general"),
     "terms_required": Spec(bool, False, "general"),
     "terms_version": Spec(int, 1, "general"),
@@ -49,6 +51,8 @@ SPECS: dict[str, Spec] = {
     "trial_min_account_minutes": Spec(int, 0, "trial"),
     # referral (GRW-01)
     "referral_enabled": Spec(bool, True, "growth"),
+    # A newcomer must come with an inviter (a link or the inviter's code) before using the shop.
+    "referral_required": Spec(bool, False, "growth"),
     "referral_percent": Spec(int, 10, "growth"),
     "referral_min_order": Spec(int, 0, "growth"),
     "referral_daily_max": Spec(int, 0, "growth"),
@@ -201,6 +205,8 @@ SPECS: dict[str, Spec] = {
     "warn_remaining_percent": Spec(int, 10, "services"),
     # Local hours (0-23) when customer alerts wait for the morning; off unless both are set.
     "alerts_quiet_start": Spec(int, None, "services"),
+    # Hours after purchase to remind a customer whose service was never used; 0 is off.
+    "first_use_nudge_hours": Spec(int, 0, "services"),
     "alerts_quiet_end": Spec(int, None, "services"),
     "warn_days": Spec(int, 2, "services"),
     "delete_expired_after_days": Spec(int, 7, "services"),
@@ -225,6 +231,10 @@ SPECS: dict[str, Spec] = {
     "ip_notice_enabled": Spec(bool, True, "services"),
     # Shop-wide caps for customers (resellers follow their own profile's caps); 0 is no cap.
     "max_active_services": Spec(int, 0, "services"),
+    # Customers add a service they already have on the shop's panels; at once when the panel
+    # user's note names them (auto), else after staff approve.
+    "service_import_enabled": Spec(bool, False, "services"),
+    "service_import_auto": Spec(bool, True, "services"),
     "max_daily_purchases": Spec(int, 0, "services"),
     "info_card_enabled": Spec(bool, True, "services"),
     "info_card_theme": Spec(str, "midnight", "services"),
@@ -266,6 +276,10 @@ SPECS: dict[str, Spec] = {
     "reseller_membership_group_id": Spec(int, None, "resellers"),
     "reseller_membership_days": Spec(int, 30, "resellers"),
     "reseller_bot_open": Spec(bool, False, "resellers"),
+    # Separate terms a reseller accepts before buying (text: reseller_terms_text); a new
+    # version asks again.
+    "reseller_terms_required": Spec(bool, False, "resellers"),
+    "reseller_terms_version": Spec(int, 1, "resellers"),
     "panel_accounts_enabled": Spec(bool, False, "resellers"),
     "panel_accounts_resellers_only": Spec(bool, False, "resellers"),
     # How much extra traffic or time an admin account owner may buy in one order.
@@ -318,6 +332,7 @@ REPORT_TOPICS = (
 )
 STAFF_EVENTS = (
     "receipt",
+    "service_claim",
     "card_verify",
     "order_failed",
     "reseller_application",
@@ -351,8 +366,8 @@ def _check(key: str, value: Any) -> None:
         return
     if key == "auto_replies":
         _check_auto_replies(value)
-    if key == "terms_when" and value not in {"entry", "purchase"}:
-        raise SettingError("terms_when_invalid")
+    if key in {"terms_when", "phone_when"} and value not in {"entry", "purchase"}:
+        raise SettingError(f"{key}_invalid")
     if key == "alerts_muted" and not set(value) <= ALERT_KEYS:
         raise SettingError("alerts_muted_invalid")
     if key == "daily_report_sections" and not set(value) <= set(DAILY_SECTIONS):

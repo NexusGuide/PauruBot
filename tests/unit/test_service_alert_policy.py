@@ -195,3 +195,32 @@ async def test_alerts_inside_quiet_hours_are_queued_for_later(monkeypatch):
     )
     assert await sync.evaluate_alerts(object(), service, ServiceStatus.ACTIVE) == ["expiring"]
     assert enqueue.await_args.kwargs["run_at"] == NOW + timedelta(hours=5)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "age_hours,used,expected",
+    [(30, 0, True), (10, 0, False), (30, 5, False), (24 * 9, 0, False)],
+)
+async def test_a_service_never_used_gets_one_first_use_nudge(monkeypatch, age_hours, used, expected):
+    monkeypatch.setattr(sync, "datetime", FixedDatetime)
+    policy = {"warn_days": 0, "warn_remaining_percent": 0, "first_use_nudge_hours": 24}
+    monkeypatch.setattr(sync.shop_settings, "load", AsyncMock(return_value=policy))
+    monkeypatch.setattr(sync.orders, "has_queued", AsyncMock(return_value=False))
+    monkeypatch.setattr(sync.orders, "release_queued", AsyncMock(return_value=False))
+    monkeypatch.setattr(sync.queue, "enqueue", AsyncMock())
+    service = SimpleNamespace(
+        id=7,
+        shop_id=42,
+        status=ServiceStatus.ACTIVE,
+        data_limit=0,
+        used_bytes=used,
+        alerts_sent={},
+        expire_at=None,
+        is_trial=False,
+        created_at=NOW - timedelta(hours=age_hours),
+    )
+    result = await sync.evaluate_alerts(object(), service, ServiceStatus.ACTIVE)
+    assert ("first_use" in result) == expected
+    if expected:  # once only
+        assert "first_use" not in await sync.evaluate_alerts(object(), service, ServiceStatus.ACTIVE)

@@ -25,6 +25,7 @@ from paurubot.db.models.commerce import (
     PanelUsernameClaim,
     Payment,
     Service,
+    ServiceClaim,
     Settlement,
 )
 from paurubot.db.models.enums import (
@@ -77,6 +78,7 @@ from paurubot.db.models.tenancy import (
 from paurubot.db.models.usage import ServiceUsage
 
 __all__ = [
+    "ServiceClaim",
     "GuestCheckoutIntent",
     "Announcement",
     "AnnouncementRead",

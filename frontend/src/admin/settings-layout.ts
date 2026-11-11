@@ -32,8 +32,9 @@ export function categorize(groups: string[]): SettingCategory[] {
 // A switch named `<prefix>_enabled` controls the options named `<prefix>_…` in its group. These
 // are the switches whose options are named otherwise, and the one whose prefix is not its family.
 const CONTROLS: Record<string, string[]> = {
-  require_phone: ["phone_country_codes"],
+  require_phone: ["phone_country_codes", "phone_when"],
   terms_required: ["terms_version", "terms_when"],
+  reseller_terms_required: ["reseller_terms_version"],
   guest_buy_enabled: ["guest_plan_ids"],
   extras_enabled: ["extra_gb_price", "extra_day_price"],
   crypto_enabled: ["crypto_networks", "tron_address", "ton_address", "fx_source", "usdt_rate", "trx_rate", "ton_rate", "fx_markup_percent"],

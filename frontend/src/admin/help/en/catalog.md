@@ -69,3 +69,7 @@ To let one customer try again, use "Another trial" on their page (or «🎁 Anot
 ## Customers naming their service
 
 With "Customers choose the username" (services settings) the bot asks for a service name before payment: 3 to 16 lowercase English letters, digits or _, starting with a letter. "-" skips it and the panel's usual naming is used. If the name already exists on the panel, a few random characters are added to the end, so nobody ever gets someone else's account.
+
+## Change prices at once
+
+The change-prices button moves every active plan's price up or down by one percentage (e.g. 10 or -10), rounded to hundreds.

@@ -4,6 +4,7 @@ import { money } from "@shared/format";
 import { ApiError, call, type PanelRow, type Service } from "../api";
 import { PAGE_SIZE, useAction, useList, useLoad, useSelection } from "../hooks";
 import { useSession } from "../session";
+import { ServiceClaims } from "./Tools";
 import {
   Async,
   Badge,
@@ -361,6 +362,7 @@ export function Services() {
         ) : null
       }
     >
+      <ServiceClaims />
       <Section flush>
         <Toolbar>
           <SearchBox value={list.get("q")} onChange={(q) => list.set({ q })} placeholder={t("search_services")} />
