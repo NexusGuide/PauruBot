@@ -29,6 +29,7 @@ import {
   type Column,
 } from "../ui";
 import { OwnBotSection } from "./OwnBot";
+import { GiftAllButton } from "./Tools";
 import { HiddenPanels } from "./People";
 import { ServiceTable } from "./Services";
 
@@ -128,7 +129,7 @@ export function Customers() {
   ];
 
   return (
-    <Page title={t("nav_customers")} wide>
+    <Page title={t("nav_customers")} wide actions={<GiftAllButton />}>
       <Section flush>
         <Toolbar>
           <SearchBox value={list.get("q")} onChange={(q) => list.set({ q })} placeholder={t("search_customers")} />

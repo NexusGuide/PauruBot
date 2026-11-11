@@ -31,7 +31,7 @@ function Line({ label, value, strong, tone }: { label: string; value: string; st
 }
 
 export function Checkout() {
-  const { me, t, locale, reload, toast } = useApp();
+  const { me, t, locale, reload, toast, checkGate } = useApp();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [order, setOrder] = useState<Order | null>(null);
@@ -90,7 +90,19 @@ export function Checkout() {
       setOrder(result.order);
       setDue(result.due);
       setBalance(result.balance);
-    }).catch((err) => { if (active) setFailed(errorText(t, err)); });
+    }).catch(async (err) => {
+      if (!active) return;
+      if (err instanceof Error && (err.message === "terms_required" || err.message === "phone_required")) {
+        // The shop asks for its terms or the phone before a purchase: the gate screen, then this
+        // checkout runs again.
+        try {
+          if (!(await checkGate(await api.gate("purchase")))) return;
+        } catch {
+          // fall through to the error below
+        }
+      }
+      setFailed(errorText(t, err));
+    });
     return () => { active = false; };
   }, [create, params, setParams, me?.id, retry, navigate, t]);
 

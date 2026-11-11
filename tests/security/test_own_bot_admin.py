@@ -120,3 +120,43 @@ async def test_staff_set_how_long_a_customers_bot_sells(session, http, env, sold
     assert (await support.call("POST", f"{base}/expiry", {"days": 5})).status_code in (403, 404)
     actions = set(await session.scalars(select(AuditLog.action).where(AuditLog.action == "own_bot.expiry")))
     assert actions == {"own_bot.expiry"}
+
+
+async def test_all_customer_bots_in_one_list(session, http, env, sold) -> None:  # type: ignore[no-untyped-def]  # noqa: F811
+    """The customer-bots page: every bot of the shop's customers, resellers' and own-panel alike."""
+    from paurubot.db.models import ResellerProfile
+
+    owner = await login(http, "u_owner")
+    assert (await owner.call("GET", "/api/admin/customer-bots")).json()["items"] == []
+    await owner.call(
+        "POST",
+        f"/api/admin/customers/{env.customer_id}/own-bot",
+        {"account_id": sold["account"].id, "token": TOKEN, "title": "Ali"},
+    )
+    profile = await session.scalar(select(ResellerProfile).where(ResellerProfile.shop_id == env.shop.id))
+    assert profile is not None
+    await resale.connect(session, profile, "887766555:AAH-reseller-bot-token-for-tests-only-y", "Sara VPN")
+    await session.commit()
+
+    items = (await owner.call("GET", "/api/admin/customer-bots")).json()["items"]
+    by_kind = {item["kind"]: item for item in items}
+    assert set(by_kind) == {"own", "reseller"}
+    own, sara = by_kind["own"], by_kind["reseller"]
+    assert own["owner"]["id"] == env.customer_id and own["title"] == "Ali" and own["state"] == "selling"
+    assert own["account"]["id"] == sold["account"].id and own["profile_id"] is None
+    assert sara["owner"]["id"] == env.reseller_customer_id and sara["profile_id"] == profile.id
+    assert sara["state"] == "selling" and sara["customers"] == 0 and sara["revenue_month"] == 0
+    assert "bot_token_enc" not in own and "token" not in own
+
+    await owner.call("POST", f"/api/admin/customers/{env.customer_id}/own-bot/hold", {"hold": True})
+    await owner.call("POST", f"/api/admin/resellers/{profile.id}/bot/stop")
+    states = {
+        i["kind"]: i["state"] for i in (await owner.call("GET", "/api/admin/customer-bots")).json()["items"]
+    }
+    assert states == {"own": "held", "reseller": "blocked"}
+
+    for username in ("u_reseller", "u_support", "u_finance"):
+        staff = await login(http, username)
+        assert (await staff.call("GET", "/api/admin/customer-bots")).status_code == 403, username
+    other = await login(http, "other_owner")  # another shop sees none of them
+    assert (await other.call("GET", "/api/admin/customer-bots")).json()["items"] == []

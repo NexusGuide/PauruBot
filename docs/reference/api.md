@@ -52,6 +52,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/channels` | `settings.read` | List channels |
 | DELETE | `/api/admin/contacts/{row_id}` | `settings.write` | Remove contact |
 | POST | `/api/admin/contacts` | `settings.write` | Add contact |
+| GET | `/api/admin/customer-bots` | `resellers.manage` | Every bot the shop's customers run: resellers' bots selling the shop's plans (TEN-04) and |
 | POST | `/api/admin/customers/bulk` | `customers.ban` | Bulk customers |
 | POST | `/api/admin/customers/{customer_id}/adjust` | `wallet.adjust` | Adjust |
 | POST | `/api/admin/customers/{customer_id}/ban` | `customers.ban` | Ban |
@@ -98,6 +99,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | PUT | `/api/admin/manual-sales/national/{panel_id}` | `catalog.write` | National switch |
 | GET | `/api/admin/manual-sales/{item_id}/content` | `catalog.write` | Content |
 | GET | `/api/admin/manual-sales` | `catalog.read` | Inventory |
+| GET | `/api/admin/message-variables` | `settings.read` | Every `{variable}` the bot's texts use, with the texts that use it. |
 | GET | `/api/admin/migration/last` | `backups.manage` | Migration last |
 | POST | `/api/admin/migration/run` | `backups.manage` | Migration run |
 | POST | `/api/admin/migration/upload` | `backups.manage` | Store a MySQL dump or SQLite file and describe what it holds. |
@@ -144,6 +146,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | DELETE | `/api/admin/plans/{row_id}` | `catalog.write` | Plans are archived, never deleted: services and orders keep pointing at them. |
 | PUT | `/api/admin/plans/{row_id}` | `catalog.write` | Update plan |
 | POST | `/api/admin/plans` | `catalog.write` | Create plan |
+| GET | `/api/admin/quick-links` | `settings.read` | `t.me/<bot>?start=go_<item>` for each section, and whether it opens right now. |
 | GET | `/api/admin/reports/funnel` | `reports.read` | Of the people who joined in the period, how many shared a phone, took a trial and bought (ADM-06). |
 | GET | `/api/admin/reports/sales.csv` | `reports.read` | Sales csv |
 | GET | `/api/admin/reports/sales` | `reports.read` | Sales report |
@@ -161,6 +164,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/resellers/{profile_id}/suspend` | `resellers.manage` | Suspend reseller |
 | GET | `/api/admin/resellers` | `resellers.manage` | Resellers |
 | PUT | `/api/admin/resellers` | `resellers.manage` | Upsert profile |
+| POST | `/api/admin/service-claims/{claim_id}` | `services.write` | Decide |
+| GET | `/api/admin/service-claims` | `services.write` | List claims |
 | POST | `/api/admin/services/bulk/confirm` | `services.write` | Step one of a bulk delete or disable (F-22): type how many services it touches. |
 | POST | `/api/admin/services/bulk` | `services.write` | Queue one job per service so slow panels never block the request and failures retry. |
 | POST | `/api/admin/services/{service_id}/action` | `services.write` | Service action |
@@ -197,6 +202,12 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | PATCH | `/api/admin/tickets/{ticket_id}` | `tickets.reply` | Update ticket |
 | GET | `/api/admin/tickets` | `tickets.read` | List tickets |
 | POST | `/api/admin/tickets` | `tickets.reply` | A reseller writes to the shop owner from the web panel (SUP-02). |
+| GET | `/api/admin/tools/gift` | `wallet.adjust` | How many customers a gift for this audience would reach. |
+| POST | `/api/admin/tools/gift` | `wallet.adjust` | The same wallet gift for everyone in an audience; credited in the background, never twice. |
+| POST | `/api/admin/tools/plan-prices` | `catalog.write` | Every active plan's price up or down by a percentage, rounded like other prices. |
+| GET | `/api/admin/tools/reseller-ranking` | `resellers.manage` | Resellers by sales, revenue and confirmed complaints over the last `days` (0: all time). |
+| POST | `/api/admin/tools/trial-reset` | `settings.write` | Everyone may take a free trial again (a new trial round, CAT-11). |
+| POST | `/api/admin/tools/unpin-all` | `broadcast.send` | Take down every broadcast still pinned in customers' chats (GRW-06). |
 | DELETE | `/api/admin/updates` | `backups.manage` | Cancel update |
 | GET | `/api/admin/updates` | `backups.manage` | Update status |
 | POST | `/api/admin/updates` | `backups.manage` | Request update |
@@ -270,7 +281,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/discounts` | Mini App initData | Discounts |
 | POST | `/api/webapp/gate/phone` | Mini App initData | Save the phone from the Mini App's signed contact (F-12), with the bot's own rules. |
 | POST | `/api/webapp/gate/terms` | Mini App initData | Accept the terms version that was shown; a newer version answers 409 terms_changed. |
-| GET | `/api/webapp/gate` | Mini App initData | What the customer must still do, phone then terms, before the rest of the Mini App answers (SEC-F11). |
+| GET | `/api/webapp/gate` | Mini App initData | What the customer must still do, phone then terms, before the rest of the Mini App answers |
 | GET | `/api/webapp/help` | Mini App initData | Customer help view |
 | POST | `/api/webapp/join/check` | Mini App initData | Ask Telegram again after the customer joined; the answer is never cached. |
 | GET | `/api/webapp/join` | Mini App initData | Channels a customer must join before the rest of the Mini App answers (GRW-07). |

@@ -21,6 +21,7 @@ export interface Hub {
 
 export interface NavGroup {
   key: string;
+  icon: string;
   hubs: Hub[];
 }
 
@@ -35,6 +36,7 @@ const single = (item: NavItem): Hub => ({ key: item.key, icon: item.icon, tabs: 
 export const NAV_GROUPS: NavGroup[] = [
   {
     key: "nav_group_daily",
+    icon: "inbox",
     hubs: [
       single(page("/", "nav_inbox", "inbox", { permission: "dashboard.view" })),
       {
@@ -49,8 +51,8 @@ export const NAV_GROUPS: NavGroup[] = [
         key: "nav_hub_sales",
         icon: "payments",
         tabs: [
-          page("/orders", "nav_orders", "orders", { permission: "orders.read" }),
           page("/payments", "nav_payments", "payments", { permission: "payments.read" }),
+          page("/orders", "nav_orders", "orders", { permission: "orders.read" }),
         ],
       },
       single(page("/tickets", "nav_tickets", "tickets", { permission: "tickets.read" })),
@@ -59,6 +61,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     key: "nav_group_shop",
+    icon: "catalog",
     hubs: [
       {
         key: "nav_hub_products",
@@ -66,10 +69,16 @@ export const NAV_GROUPS: NavGroup[] = [
         tabs: [
           page("/catalog", "nav_catalog", "catalog", { permission: "catalog.read", shopWide: true }),
           page("/manual-sales", "nav_manual_sales", "catalog", { permission: "catalog.read", shopWide: true }),
-          page("/discounts", "nav_discounts", "discounts", { permission: "discounts.write" }),
         ],
       },
+      single(page("/admin-accounts", "nav_admin_accounts", "panels", { permission: "resellers.manage", shopWide: true })),
       single(page("/panels", "nav_panels", "panels", { permission: "panels.read" })),
+    ],
+  },
+  {
+    key: "nav_group_marketing",
+    icon: "broadcast",
+    hubs: [
       {
         key: "nav_hub_marketing",
         icon: "broadcast",
@@ -79,14 +88,15 @@ export const NAV_GROUPS: NavGroup[] = [
           page("/lotteries", "nav_lotteries", "discounts", { permission: "broadcast.send", shopWide: true }),
         ],
       },
-      {
-        key: "nav_hub_resellers",
-        icon: "resellers",
-        tabs: [
-          page("/resellers", "nav_resellers", "resellers", { permission: "resellers.manage" }),
-          page("/admin-accounts", "nav_admin_accounts", "panels", { permission: "resellers.manage", shopWide: true }),
-        ],
-      },
+      single(page("/discounts", "nav_discounts", "discounts", { permission: "discounts.write" })),
+    ],
+  },
+  {
+    key: "nav_group_resellers",
+    icon: "resellers",
+    hubs: [
+      single(page("/resellers", "nav_resellers", "resellers", { permission: "resellers.manage" })),
+      single(page("/customer-bots", "nav_customer_bots", "bot", { permission: "resellers.manage", shopWide: true })),
       {
         key: "nav_hub_my_sales",
         icon: "catalog",
@@ -96,11 +106,16 @@ export const NAV_GROUPS: NavGroup[] = [
           page("/my-bot", "nav_my_bot", "channels", { permission: "resellers.bot", resellerOnly: true }),
         ],
       },
-      single(page("/reports", "nav_reports", "reports", { permission: "reports.read" })),
     ],
   },
   {
+    key: "nav_group_reports",
+    icon: "reports",
+    hubs: [single(page("/reports", "nav_reports", "reports", { permission: "reports.read" }))],
+  },
+  {
     key: "nav_group_settings",
+    icon: "settings",
     hubs: [
       {
         key: "nav_hub_bot",
@@ -109,23 +124,31 @@ export const NAV_GROUPS: NavGroup[] = [
           page("/settings", "nav_settings", "settings", { permission: "settings.read" }),
           page("/texts", "nav_texts", "texts", { permission: "texts.write" }),
           page("/bot-menu", "nav_bot_menu", "texts", { permission: "settings.read" }),
-          page("/channels", "nav_channels", "channels", { permission: "settings.read" }),
           page("/appearance", "nav_appearance", "account", { permission: "settings.read" }),
+          page("/quick-links", "nav_quick_links", "link", { permission: "settings.read" }),
+          page("/variables", "nav_variables", "variable", { permission: "settings.read" }),
+          page("/channels", "nav_channels", "channels", { permission: "settings.read" }),
         ],
       },
+      single(page("/staff", "nav_staff", "staff", { permission: "staff.manage" })),
+    ],
+  },
+  {
+    key: "nav_group_system",
+    icon: "jobs",
+    hubs: [
       {
         key: "nav_hub_server",
         icon: "jobs",
         tabs: [
-          page("/staff", "nav_staff", "staff", { permission: "staff.manage" }),
-          page("/audit", "nav_audit", "audit", { permission: "audit.read" }),
-          page("/jobs", "nav_jobs", "jobs", { permission: "settings.write" }),
           page("/health", "nav_health", "jobs", { permission: "settings.write" }),
+          page("/jobs", "nav_jobs", "jobs", { permission: "settings.write" }),
           page("/backups", "nav_backups", "backup", { permission: "backups.manage" }),
           page("/migration", "nav_migration", "backup", { permission: "backups.manage" }),
           page("/updates", "nav_updates", "refresh", { permission: "backups.manage" }),
         ],
       },
+      single(page("/audit", "nav_audit", "audit", { permission: "audit.read" })),
       single(page("/help", "nav_help", "help")),
     ],
   },
@@ -152,6 +175,7 @@ export function visibleFor(
 export function visibleGroups(visible: VisibleFn): NavGroup[] {
   return NAV_GROUPS.map((group) => ({
     key: group.key,
+    icon: group.icon,
     hubs: group.hubs
       .map((hub) => ({ ...hub, tabs: hub.tabs.filter(visible) }))
       .filter((hub) => hub.tabs.length > 0),
@@ -171,6 +195,11 @@ export function hubFor(groups: NavGroup[], pathname: string): Hub | undefined {
     }
   }
   return undefined;
+}
+
+/** The group holding the current page: the one the sidebar keeps open. */
+export function groupFor(groups: NavGroup[], pathname: string): NavGroup | undefined {
+  return groups.find((group) => group.hubs.some((hub) => hub.tabs.some((item) => matches(item, pathname))));
 }
 
 /** Where a hub's sidebar entry leads: its first page this person may open. */

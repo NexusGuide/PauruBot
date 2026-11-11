@@ -34,10 +34,12 @@ import {
   CopyText,
   useConfirm,
 } from "../ui";
+import { AlertMatrix, AutoReplies, ReportSections, type AutoReply } from "../settings-editors";
+import { TrialResetCard } from "./Tools";
 import { compact } from "./Home";
-import { categorize, controllers, matchesQuery, shown } from "../settings-layout";
+import { controllers, matchesQuery, shown } from "../settings-layout";
 import { atAnHour, everyLabel, everyOptions, summary, type BackupSchedule } from "../backup-schedule";
-import { bySectionOrder, countBySection, isButton, preview, sectionOf, SECTIONS, type PreviewNode, type Section as TextSection } from "../texts-layout";
+import { bySectionOrder, countBySection, isButton, kindOf, preview, sectionOf, SECTIONS, type PreviewNode, type Section as TextSection, type TextKind } from "../texts-layout";
 
 // ---------------------------------------------------------------- settings
 
@@ -237,6 +239,8 @@ const CHOICES: Record<string, string[]> = {
   referral_reward_mode: ["cash", "config", "both"],
   referral_config_counts: ["purchase", "join"],
   referral_config_source: ["plan", "custom"],
+  terms_when: ["entry", "purchase"],
+  phone_when: ["entry", "purchase"],
 };
 
 function RefSelect({
@@ -430,6 +434,27 @@ function SettingControl({
       </Field>
     );
   }
+  if (item.key === "alerts_muted") {
+    return (
+      <Field label={label} hint={hint}>
+        {() => <AlertMatrix value={Array.isArray(value) ? (value as string[]) : []} onChange={onChange} />}
+      </Field>
+    );
+  }
+  if (item.key === "auto_replies") {
+    return (
+      <Field label={label} hint={hint}>
+        {() => <AutoReplies value={Array.isArray(value) ? (value as AutoReply[]) : []} onChange={onChange} />}
+      </Field>
+    );
+  }
+  if (item.key === "daily_report_sections") {
+    return (
+      <Field label={label} hint={hint}>
+        {() => <ReportSections value={Array.isArray(value) ? (value as string[]) : []} onChange={onChange} />}
+      </Field>
+    );
+  }
   if (item.key === "app_links") {
     return (
       <Field label={label} hint={hint}>
@@ -523,7 +548,7 @@ function SettingControl({
   );
 }
 
-const WIDE_SETTINGS = ["card_accounts", "topup_bonus_rules", "app_links", "loyalty_tiers", "wheel_prizes", "business_rules", "business_reply", "guest_plan_ids"];
+const WIDE_SETTINGS = ["alerts_muted", "auto_replies", "card_accounts", "topup_bonus_rules", "app_links", "loyalty_tiers", "wheel_prizes", "business_rules", "business_reply", "guest_plan_ids"];
 // Edited elsewhere: the trust channel on the channels screen; appearance and resale on their own screens.
 const HIDDEN_GROUPS = ["appearance", "resale"];
 const HIDDEN_SETTINGS = ["trust_channel_id"];
@@ -533,7 +558,7 @@ export function Settings() {
   const { data, error, reload } = useLoad<{ groups: Record<string, SettingItem[]> }>("/api/admin/settings");
   const [changes, setChanges] = useState<Record<string, unknown>>({});
   const [query, setQuery] = useState("");
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const [busy, run] = useAction();
   const writable = can("settings.write");
   const dirty = Object.keys(changes).length > 0;
@@ -560,7 +585,8 @@ export function Settings() {
           );
           const names = Object.keys(groups);
           const asked = params.get("group");
-          const selected = asked && names.includes(asked) ? asked : names[0];
+          // The two-level settings nav above picks the group; general when none is asked.
+          const selected = asked && names.includes(asked) ? asked : names.includes("general") ? "general" : names[0];
           const label = (key: string) => t(`setting_${key}`);
           const hintOf = (key: string) => {
             const hint = t(`setting_${key}_hint`);
@@ -570,42 +596,10 @@ export function Settings() {
           const changed = Object.keys(changes);
           return (
             <div className="flex flex-col gap-6">
-              <div className="flex flex-wrap items-start gap-6">
-                <aside aria-label={t("settings_categories")} className="flex w-full flex-col gap-3 md:sticky md:top-6 md:w-64 md:shrink-0">
+              <div className="flex flex-col gap-5">
+                <div className="md:w-96">
                   <SearchBox value={query} onChange={setQuery} placeholder={t("settings_search")} />
-                  <nav className="flex flex-col gap-0.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-2">
-                    {categorize(names).map((category) => (
-                      <div key={category.key} className="flex flex-col gap-0.5">
-                        <p className="px-3 pb-0.5 pt-2 text-[0.75rem] font-semibold text-[var(--hint)]">{t(`settings_category_${category.key}`)}</p>
-                        {category.groups.map((group) => {
-                          const active = !query.trim() && group === selected;
-                          return (
-                            <button
-                              key={group}
-                              type="button"
-                              aria-current={active ? "true" : undefined}
-                              onClick={() => {
-                                setQuery("");
-                                setParams((prev) => {
-                                  const next = new URLSearchParams(prev);
-                                  next.set("group", group);
-                                  return next;
-                                }, { replace: true });
-                              }}
-                              className={`flex min-h-11 items-center gap-2 rounded-xl px-3 text-start text-[0.9rem] font-semibold ${
-                                active ? "bg-firouzeh-50 text-firouzeh-700" : "hover:bg-[var(--line)]"
-                              }`}
-                            >
-                              {t(`settings_group_${group}`)}
-                              <span className="ms-auto text-[0.75rem] font-normal text-[var(--hint)]">{groups[group]?.length ?? 0}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </nav>
-                </aside>
-
+                </div>
                 <div className="flex min-w-0 flex-1 flex-col gap-5">
                   {shownGroups.map((group) => {
                     const items = groups[group] ?? [];
@@ -639,6 +633,7 @@ export function Settings() {
                       </Section>
                     );
                   })}
+                  {!query.trim() && selected === "trial" && <TrialResetCard />}
                   {query.trim() && shownGroups.every((group) => !(groups[group] ?? []).some((item) => matchesQuery(query, label(item.key), hintOf(item.key), item.key))) && (
                     <Empty title={t("empty_list")} />
                   )}
@@ -947,8 +942,9 @@ export function Texts() {
   const { data, error, reload } = useLoad<TextsData>("/api/admin/texts");
   const [query, setQuery] = useState("");
   const [onlyChanged, setOnlyChanged] = useState(false);
-  const [onlyButtons, setOnlyButtons] = useState(false);
   const [params, setParams] = useSearchParams();
+  // Message texts and button labels are two tabs of the settings nav, like the design.
+  const kind: TextKind = params.get("kind") === "buttons" ? "buttons" : "messages";
   const [open, setOpen] = useState<TextItem | null>(null);
   const asked = params.get("section");
   const section: TextSection = SECTIONS.find((name) => name === asked) ?? "start";
@@ -957,19 +953,21 @@ export function Texts() {
     () =>
       (data?.items ?? []).filter((item) => {
         if (onlyChanged && Object.keys(item.overrides).length === 0) return false;
-        if (onlyButtons && !isButton(item.key)) return false;
+        if (kindOf(item.key) !== kind) return false;
         return matchesQuery(query, item.key, ...Object.values(item.defaults), ...Object.values(item.overrides));
       }),
-    [data, query, onlyChanged, onlyButtons],
+    [data, query, onlyChanged, kind],
   );
   const counts = useMemo(() => countBySection(filtered.map((item) => item.key)), [filtered]);
+  const changedCount = (data?.items ?? []).filter((item) => kindOf(item.key) === kind && Object.keys(item.overrides).length > 0).length;
+  const firstSection = SECTIONS.find((name) => counts[name] > 0) ?? "start";
+  const current: TextSection = asked || searching ? section : counts[section] > 0 ? section : firstSection;
   const items = searching
     ? filtered
-    : filtered.filter((item) => sectionOf(item.key) === section).sort((a, b) => bySectionOrder(a.key, b.key));
-  const changedCount = (data?.items ?? []).filter((item) => Object.keys(item.overrides).length > 0).length;
+    : filtered.filter((item) => sectionOf(item.key) === current).sort((a, b) => bySectionOrder(a.key, b.key));
 
   return (
-    <Page title={t("nav_texts")} wide>
+    <Page title={t(kind === "buttons" ? "settings_tab_buttons" : "settings_tab_messages")} wide>
       <Async data={data} error={error} reload={reload}>
         {(value) => (
           <div className="flex flex-wrap items-start gap-6">
@@ -979,13 +977,10 @@ export function Texts() {
                 <Button small tone={onlyChanged ? "primary" : "quiet"} aria-pressed={onlyChanged} onClick={() => setOnlyChanged((v) => !v)}>
                   {t("only_changed")} · {changedCount}
                 </Button>
-                <Button small tone={onlyButtons ? "primary" : "quiet"} aria-pressed={onlyButtons} onClick={() => setOnlyButtons((v) => !v)}>
-                  {t("texts_only_buttons")}
-                </Button>
               </div>
               <nav className="flex flex-col gap-0.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-2">
-                {SECTIONS.filter((name) => counts[name] > 0 || name === section).map((name) => {
-                  const active = !searching && name === section;
+                {SECTIONS.filter((name) => counts[name] > 0 || name === current).map((name) => {
+                  const active = !searching && name === current;
                   return (
                     <button
                       key={name}
@@ -1012,7 +1007,7 @@ export function Texts() {
             </aside>
 
             <div className="min-w-0 flex-1">
-              <Section flush title={searching ? t("texts_search_results", { count: items.length }) : t(`texts_section_${section}`)}>
+              <Section flush title={searching ? t("texts_search_results", { count: items.length }) : t(`texts_section_${current}`)}>
                 {items.length === 0 ? (
                   <Empty title={t("empty_list")} />
                 ) : (

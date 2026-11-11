@@ -13,7 +13,15 @@ from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record
 from paurubot.core import own_panel
 from paurubot.core import settings as shop_settings
-from paurubot.db.models import Customer, PanelAccount, Service, ServiceStatus, Shop, ShopStatus
+from paurubot.db.models import (
+    Customer,
+    PanelAccount,
+    ResellerProfile,
+    Service,
+    ServiceStatus,
+    Shop,
+    ShopStatus,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 Manager = Annotated[StaffContext, Depends(require("resellers.manage"))]
@@ -73,6 +81,73 @@ async def own_bot(customer_id: int, ctx: Manager, db: DB) -> dict[str, Any]:
         "accounts": [_account(a) for a in accounts],
         "bot": await _bot(db, await own_panel.shop_for_customer(db, customer)),
     }
+
+
+def _state(shop: Shop, cfg: dict[str, Any]) -> str:
+    """One word for the list: blocked|stopped|held|paused|selling."""
+    if cfg.get("resale_blocked"):
+        return "blocked"  # stopped by the shop's staff; only they let it connect again
+    if shop.status != ShopStatus.ACTIVE or shop.bot_token_enc is None:
+        return "stopped"
+    if cfg.get(own_panel.HOLD):
+        return "held"
+    if cfg.get(own_panel.PAUSED):
+        return "paused"
+    return "selling"
+
+
+@router.get("/customer-bots")
+async def customer_bots(ctx: Manager, db: DB) -> dict[str, Any]:
+    """Every bot the shop's customers run: resellers' bots selling the shop's plans (TEN-04) and
+    dedicated bots on a customer's own panel (OPB), with the figures to follow them."""
+    from paurubot.core import resale
+
+    if ctx.scoped:
+        raise HTTPException(status_code=403, detail="forbidden")
+    shops = list(
+        await db.scalars(
+            select(Shop)
+            .where(
+                Shop.parent_id == ctx.shop_id,
+                (Shop.reseller_profile_id.is_not(None)) | (Shop.own_account_id.is_not(None)),
+            )
+            .order_by(Shop.id.desc())
+        )
+    )
+    items: list[dict[str, Any]] = []
+    for shop in shops:
+        cfg = await shop_settings.load(db, shop.id, fresh=True)
+        profile = (
+            await db.get(ResellerProfile, shop.reseller_profile_id) if shop.reseller_profile_id else None
+        )
+        account = await db.get(PanelAccount, shop.own_account_id) if shop.own_account_id else None
+        owner_id = profile.customer_id if profile else account.customer_id if account else None
+        owner = await db.get(Customer, owner_id) if owner_id else None
+        numbers = await resale.figures(db, shop)
+        items.append(
+            {
+                "shop_id": shop.id,
+                "kind": "own" if shop.own_account_id else "reseller",
+                "title": shop.title,
+                "bot_username": shop.bot_username,
+                "state": _state(shop, cfg),
+                "paused": str(cfg.get(own_panel.PAUSED) or ""),
+                "expires_at": cfg.get(own_panel.EXPIRES) or None,
+                "owner": {"id": owner.id, "name": owner.display_name, "username": owner.username}
+                if owner
+                else None,
+                "profile_id": profile.id if profile else None,
+                "account": {"id": account.id, "username": account.username, "status": account.status}
+                if account
+                else None,
+                "customers": numbers.customers,
+                "active_services": numbers.active,
+                "orders_month": numbers.orders_month,
+                "revenue_month": numbers.revenue_month,
+                "created_at": shop.created_at.isoformat(),
+            }
+        )
+    return {"items": items}
 
 
 class ConnectBody(BaseModel):

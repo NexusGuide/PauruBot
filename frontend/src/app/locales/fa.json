@@ -804,5 +804,10 @@
   "own_bot_valid": "اعتبار ربات",
   "own_bot_no_end": "بدون محدودیت",
   "own_stop_bot_expired": "اعتبار ربات از طرف فروشگاه تمام شود",
-  "own_alert_bot_expiring": "پایان اعتبار ربات"
+  "own_alert_bot_expiring": "پایان اعتبار ربات",
+  "err_limit_active_services": "به سقف سرویس‌های فعالت رسیدی.",
+  "err_limit_daily_purchases": "امروز به سقف خرید رسیدی؛ کمی بعد دوباره امتحان کن.",
+  "gate_terms_later": "فعلاً نه",
+  "err_referral_required": "عضویت در این فروشگاه فقط با دعوت است. اول از داخل ربات لینک یا کد دعوت دوستت را بفرست.",
+  "err_reseller_terms_required": "اول در ربات قوانین خرید نمایندگان را بپذیر."
 }

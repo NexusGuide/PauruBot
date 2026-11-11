@@ -45,6 +45,7 @@ import {
   When,
   type Column,
 } from "../ui";
+import { ResellerRanking } from "./Tools";
 
 // ---------------------------------------------------------------- resellers
 
@@ -590,6 +591,7 @@ export function Resellers() {
               </Field>
             )}
           </Sheet>
+          <ResellerRanking />
         </Page>
       )}
     </Async>

@@ -67,6 +67,10 @@ async def test_daily_summary_counts_only_that_day(session) -> None:  # type: ign
     assert len(messages) == 3 and all("{" not in m for m in messages)
     assert "300,000" in messages[0] and "+100٪" in messages[0] and "150,000" in messages[1]
     assert panel.name in messages[2]
+    # The shop picks which parts of the report to send (settings › daily report).
+    only = jobs.daily_messages(Texts("fa"), "1405/07/14", asdict(summary), details, ["panels", "summary"])
+    assert only == [messages[0], messages[2]]
+    assert jobs.daily_messages(Texts("fa"), "1405/07/14", asdict(summary), details, []) == []
 
 
 def test_day_bounds_are_one_local_day() -> None:

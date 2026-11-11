@@ -25,6 +25,8 @@ When a payment method's money (a gateway or a card, say) reaches your bank, reco
 
 Every day at the hour set with **Daily report hour** (Tehran time) in the **Reports** group of [Settings](/settings), a summary of the day goes to the **Daily report** channel in [Channels](/channels): sales count and amount, renewals, new customers, trials, active and expiring services, pending receipts, open tickets, panels down and the total of all wallet balances.
 
+In settings (Alerts & reports) you can turn the daily report off or send only some of its parts. There you also choose, for each event, whether staff chats and the report group get it, and set quiet hours for customers' data and expiry reminders so alerts due at night go out in the morning.
+
 ## History and retention
 
 **Keep logs (days)** in the same group sets how long finished jobs stay in the [Job queue](/jobs). Wallet history, orders and the [Audit log](/audit) are never deleted.

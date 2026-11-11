@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from aiogram import Bot, Dispatcher, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import BaseStorage
 from aiogram.fsm.storage.redis import DefaultKeyBuilder, RedisStorage
@@ -57,7 +58,31 @@ async def unknown(
     if await state.get_state() is not None:
         await message.answer(t("unexpected_input"))
         return
+    reply = auto_reply(message.text or message.caption or "", cfg.get("auto_replies") or [])
+    if reply is not None:
+        try:
+            await message.answer(reply)
+        except TelegramBadRequest:  # broken HTML in the shop's text: send it as it is
+            await message.answer(reply, parse_mode=None)
+        return
     await start.home(message, t, cfg, staff, "unknown_command")
+
+
+def _fold(text: str) -> str:
+    """Case and Arabic/Persian letter forms do not matter when matching keywords."""
+    folded = text.casefold().replace("\u0643", "\u06a9").replace("\u064a", "\u06cc")  # Arabic kaf, yeh
+    return folded.replace("\u0649", "\u06cc").replace("\u200c", " ")  # alef maksura; ZWNJ
+
+
+def auto_reply(text: str, rules: list[Any]) -> str | None:
+    """The shop's answer for the first rule with a keyword in `text` (settings › auto replies)."""
+    folded = _fold(text)
+    if not folded.strip():
+        return None
+    for rule in rules:
+        if isinstance(rule, dict) and any(_fold(str(w)).strip() in folded for w in rule.get("words") or []):
+            return str(rule.get("text") or "") or None
+    return None
 
 
 @fallback.callback_query()

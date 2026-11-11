@@ -1,5 +1,5 @@
 # Resellers
-<!-- screens: /resellers /sub-resellers /billing /my-bot -->
+<!-- screens: /resellers /sub-resellers /billing /my-bot /customer-bots -->
 
 A reseller is a customer who buys at a discount and sells services to their own customers. Resellers can work from the bot and from the web panel, and always see only their own customers and services.
 
@@ -99,3 +99,11 @@ The same can be done without the web panel, much like in other sales bots:
 - The reseller: «🤖 My sales bot» in the reseller panel of the bot explains how to make a bot with @BotFather; «🔌 Connect bot» takes the token and the bot starts selling at once. From that screen the reseller sets the markup, a fixed price per plan, the cards buyers pay to, the support username, turns the bot off and on, swaps the token or removes the bot. The token message is deleted from the chat once read. In the reseller's own bot, the admin menu has the same button.
 - You: on a reseller's card in the bot, «🤖 Sales bot» shows its state. «Build bot with a token» connects a token the reseller gave you and tells them the bot is live; you can also stop it, allow it again, and give or take away the right to build one.
 - "Sales bot for every reseller" in the resellers settings lets every prepaid reseller (not sub-resellers) build one without ticking each of them.
+
+## Customer bots
+
+[Customer bots](/customer-bots) shows every bot your customers run in one place: reseller sales bots (selling this shop's plans) and dedicated bots on a customer's own panel. Each shows its state, owner, buyers, active services and the last 30 days' sales. From here you can pause a dedicated bot's sales or extend it, and stop a reseller bot or let it connect again. Connecting and changing the token are on that customer's page.
+
+## Ranking and reseller purchase terms
+
+The bottom of [Resellers](/resellers) ranks resellers by sales, revenue and confirmed complaints. With separate reseller purchase terms on, a reseller accepts the reseller_terms_text once before buying; raising the version asks again.

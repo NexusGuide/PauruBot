@@ -120,14 +120,23 @@ async def _gate_exempt(db: AsyncSession, shop_id: int, telegram_id: int) -> bool
     return role is not None and role != StaffRole.RESELLER
 
 
-async def account_gate(db: AsyncSession, shop: Shop, customer: Customer, cfg: dict[str, Any]) -> str | None:
+async def account_gate(
+    db: AsyncSession, shop: Shop, customer: Customer, cfg: dict[str, Any], *, purchase: bool = False
+) -> str | None:
     """What the customer must do before using the Mini App, exactly as the bot asks (SEC-F11).
 
-    Phone first, then the current terms version. None when nothing is missing.
+    Phone first, then the current terms version. None when nothing is missing. Terms asked only
+    «before purchase» count only for a purchase.
     """
-    if cfg["require_phone"] and not customer.phone:
+    terms_now = cfg.get("terms_when") != "purchase" or purchase
+    phone_now = cfg.get("phone_when") != "purchase" or purchase
+    from paurubot.core import referral
+
+    if cfg.get("referral_required") and await referral.needs_inviter(db, customer):
+        need = "referral_required"  # named in the bot only: a link or the inviter's code
+    elif cfg["require_phone"] and phone_now and not customer.phone:
         need = "phone_required"
-    elif cfg["terms_required"] and customer.terms_accepted_version != int(cfg["terms_version"]):
+    elif cfg["terms_required"] and terms_now and customer.terms_accepted_version != int(cfg["terms_version"]):
         need = "terms_required"
     else:
         return None
@@ -195,7 +204,8 @@ async def webapp_context(request: Request, db: DB) -> WebAppContext:
         if path not in GATE_PATHS:
             # The bot refuses everything until phone and terms are done; so does every Mini App
             # route, so a purchase can never skip what the shop requires (SEC-F11).
-            need = await account_gate(db, shop, customer, cfg)
+            purchase = request.method == "POST" and path == "/api/webapp/orders"
+            need = await account_gate(db, shop, customer, cfg, purchase=purchase)
             if need is not None:
                 raise HTTPException(status_code=403, detail=need)
     return WebAppContext(db, shop, customer, cfg)

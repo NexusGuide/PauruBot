@@ -468,6 +468,74 @@ async def move_targets(session: AsyncSession, service: Service) -> list[tuple[Lo
     return out
 
 
+# Orders that will become a service: paid and on their way, or being paid (a receipt or a
+# gateway payment under way). A merely opened checkout does not count, so pressing «buy» twice
+# never locks a customer out.
+IN_FLIGHT = [OrderStatus.PAID, OrderStatus.PROVISIONING]
+PAYING = [OrderStatus.AWAITING_PAYMENT]
+# Where the customer can see and accept the terms: the bot and the Mini App (guest web checkout
+# and staff desks never asked for them).
+TERMS_SOURCES = {"bot", "webapp", "bulk"}
+
+
+async def check_purchase_terms(session: AsyncSession, customer: Customer) -> None:
+    """With the phone or the terms asked «before purchase», a new purchase waits for them."""
+    cfg = await shop_settings.load(session, customer.shop_id)
+    if cfg.get("require_phone") and cfg.get("phone_when") == "purchase" and not customer.phone:
+        raise OrderError("phone_required")
+    if customer.is_reseller:
+        # Resellers accept their own purchase terms, when the shop has them, instead.
+        if cfg.get("reseller_terms_required") and customer.reseller_terms_version != int(
+            cfg.get("reseller_terms_version") or 1
+        ):
+            raise OrderError("reseller_terms_required")
+        return
+    if (
+        cfg.get("terms_required")
+        and cfg.get("terms_when") == "purchase"
+        and customer.terms_accepted_version != int(cfg.get("terms_version") or 1)
+    ):
+        raise OrderError("terms_required")
+
+
+async def check_purchase_limits(session: AsyncSession, customer: Customer) -> None:
+    """The shop's caps on new services for one customer (settings › limits).
+
+    Orders being paid count until they expire, beside live services and paid orders."""
+    if customer.is_reseller:
+        return  # resellers have their own caps on their profile (TEN-05)
+    cfg = await shop_settings.load(session, customer.shop_id)
+    live_cap = max(0, int(cfg.get("max_active_services") or 0))
+    daily_cap = max(0, int(cfg.get("max_daily_purchases") or 0))
+    if not live_cap and not daily_cap:
+        return
+    now = utcnow()
+    counting = (Order.status.in_(IN_FLIGHT)) | (
+        Order.status.in_(PAYING) & ((Order.expires_at.is_(None)) | (Order.expires_at > now))
+    )
+    purchases = select(func.count(Order.id)).where(
+        Order.customer_id == customer.id, Order.kind == OrderKind.PURCHASE
+    )
+    if live_cap:
+        live = await session.scalar(
+            select(func.count(Service.id)).where(
+                Service.customer_id == customer.id, Service.status.in_(resellers.LIVE)
+            )
+        )
+        coming = await session.scalar(purchases.where(counting))
+        if int(live or 0) + int(coming or 0) >= live_cap:
+            raise OrderError("limit_active_services", limit=live_cap)
+    if daily_cap:
+        today = await session.scalar(
+            purchases.where(
+                Order.created_at >= now - timedelta(days=1),
+                counting | (Order.status == OrderStatus.COMPLETED),
+            )
+        )
+        if int(today or 0) >= daily_cap:
+            raise OrderError("limit_daily_purchases", limit=daily_cap)
+
+
 async def create(
     session: AsyncSession,
     customer: Customer,
@@ -476,6 +544,10 @@ async def create(
     code: DiscountCode | None = None,
     source: str = "bot",
 ) -> Order:
+    if d.kind == OrderKind.PURCHASE:
+        if source in TERMS_SOURCES:
+            await check_purchase_terms(session, customer)
+        await check_purchase_limits(session, customer)
     if resellers.metered(customer) and d.kind not in ACCOUNT_KINDS:
         code = None  # nothing to discount: the order itself is free
     if code is not None:

@@ -62,11 +62,10 @@ def join(t: Texts, channels: Sequence[ForcedChannel]) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def terms(t: Texts) -> InlineKeyboardMarkup:
+def terms(t: Texts, *, reseller: bool = False) -> InlineKeyboardMarkup:
+    to = "rterms" if reseller else "terms"
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=t("btn_accept_terms"), callback_data=Nav(to="terms").pack())]
-        ]
+        inline_keyboard=[[InlineKeyboardButton(text=t("btn_accept_terms"), callback_data=Nav(to=to).pack())]]
     )
 
 
@@ -242,6 +241,7 @@ def services_kb(
     stock: bool = False,
     muted: bool | None = None,
     all_links: bool = False,
+    claim: bool = False,
 ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if all_links:
@@ -267,6 +267,8 @@ def services_kb(
         kb.row(*nav)
     if stock:
         kb.row(InlineKeyboardButton(text=t("btn_stock"), callback_data=Svc(action="stock").pack()))
+    if claim:
+        kb.row(InlineKeyboardButton(text=t("btn_import_service"), callback_data=Svc(action="claim").pack()))
     if muted is not None:
         kb.row(
             InlineKeyboardButton(

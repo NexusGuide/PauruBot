@@ -46,6 +46,13 @@ export function isButton(key: string): boolean {
   return key.startsWith("btn_") || key.includes("_btn_");
 }
 
+export type TextKind = "messages" | "buttons";
+
+/** Texts are edited as two tabs: button labels, and every other message. */
+export function kindOf(key: string): TextKind {
+  return isButton(key) ? "buttons" : "messages";
+}
+
 /** The order inside a section: the welcome text first, then buttons, then the rest by key. */
 export function bySectionOrder(a: string, b: string): number {
   const rank = (key: string) => (key === "welcome" ? 0 : key.startsWith("start_") ? 1 : isButton(key) ? 2 : 3);

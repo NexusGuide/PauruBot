@@ -174,12 +174,15 @@ async def test_receipt_storage_and_staff_delivery_use_same_shop(monkeypatch):  #
     send_photo = AsyncMock(return_value=message)
     monkeypatch.setattr(telegram, "send_photo", send_photo)
     monkeypatch.setattr(handlers, "staff_chats", AsyncMock(return_value=[888]))
+    monkeypatch.setattr(handlers, "_muted", AsyncMock(return_value=False))
     ctx = SimpleNamespace(shop=SimpleNamespace(id=9), customer=SimpleNamespace(id=7, telegram_id=777))
     file_id = await webapp._store_receipt(ctx, png())
     assert file_id == "shop-nine-photo"
     assert send_photo.await_args.args[0] == 777
     assert send_photo.await_args.kwargs["shop_id"] == 9
-    await handlers._to_staff(SimpleNamespace(), 9, "payments.review", "receipt", photo=file_id)
+    await handlers._to_staff(
+        SimpleNamespace(), 9, "payments.review", "receipt", photo=file_id, event="receipt"
+    )
     assert send_photo.await_args.args[:2] == (888, "shop-nine-photo")
     assert send_photo.await_args.kwargs["shop_id"] == 9
 

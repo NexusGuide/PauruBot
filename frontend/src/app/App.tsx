@@ -106,8 +106,9 @@ function Shell() {
       </>
     );
   }
-  if (gate && !me) {
+  if (gate) {
     // Phone, then terms, as the bot asks: nothing else answers until they are done (SEC-F11).
+    // With terms asked only before buying, checkout opens this screen while the app is in use.
     return (
       <>
         <Gate />

@@ -1,5 +1,5 @@
 # Bot menu, texts and channels
-<!-- screens: /bot-menu /texts /channels -->
+<!-- screens: /bot-menu /texts /channels /quick-links /variables -->
 
 Change how the bot looks without touching code: button layout, message texts, customer guide, app download links and channels.
 
@@ -60,3 +60,11 @@ With Telegram Business (Telegram Premium), you can let this bot answer people wh
 - After you write in a conversation yourself, the bot stays out of it for **Stay quiet after you write (minutes)**.
 
 Only accounts of your staff are answered for; if someone else adds the bot to their account it does nothing. People who write to you are not added to your customers.
+
+## Quick links
+
+[Quick links](/quick-links) has a ready link for each part of the bot (buy, wallet, free trial and so on). Pressing one opens that part directly; a newcomer signs up first, and requirements such as channel membership or a phone number are asked as usual. A link to a part that is off or not in the menu just opens the main menu.
+
+## Message variables
+
+[Message variables](/variables) lists every variable the bot's texts use, with the texts that use it. Each text fills in only its own variables.

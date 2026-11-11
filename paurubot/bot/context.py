@@ -235,12 +235,17 @@ class GateMiddleware(BaseMiddleware):
             return None
         if isinstance(event, Message) and (event.successful_payment or event.contact):
             return await handler(event, data)
-        if isinstance(event, CallbackQuery) and event.data and event.data.startswith(("n:joined", "n:terms")):
+        if (
+            isinstance(event, CallbackQuery)
+            and event.data
+            and event.data.startswith(("n:joined", "n:terms", "n:rterms"))
+        ):
             return await handler(event, data)
         texts: Texts = data["t"]
         cfg: dict[str, Any] = data["cfg"]
         session: AsyncSession = data["session"]
         from paurubot.bot import keyboards
+        from paurubot.core import referral
 
         missing = await missing_channels(data["bot"], session, customer)
         if missing:
@@ -249,13 +254,31 @@ class GateMiddleware(BaseMiddleware):
             elif isinstance(event, Message):
                 await event.answer(texts("join_required"), reply_markup=keyboards.join(texts, missing))
             return None
-        if cfg["require_phone"] and not customer.phone:
+        if cfg.get("referral_required") and await referral.needs_inviter(session, customer):
+            if isinstance(event, Message) and await referral.join_by_code(
+                session, customer, event.text or "", cfg
+            ):
+                if (event.text or "").startswith("/start"):
+                    return await handler(event, data)
+                await event.answer(texts("referral_accepted"))
+                return None
+            if isinstance(event, Message):
+                bad = bool(referral.code_of(event.text or "")) and not (event.text or "").startswith("/start")
+                await event.answer(texts("referral_required_invalid" if bad else "referral_required"))
+            elif isinstance(event, CallbackQuery):
+                await event.answer(texts("referral_required"), show_alert=True)
+            return None
+        if cfg["require_phone"] and cfg.get("phone_when") != "purchase" and not customer.phone:
             if isinstance(event, Message):
                 await event.answer(texts("phone_required"), reply_markup=keyboards.share_phone(texts))
             elif isinstance(event, CallbackQuery):
                 await event.answer(texts("phone_required_alert"), show_alert=True)
             return None
-        if cfg["terms_required"] and customer.terms_accepted_version != int(cfg["terms_version"]):
+        if (
+            cfg["terms_required"]
+            and cfg.get("terms_when") != "purchase"  # «before purchase»: asked when an order is made
+            and customer.terms_accepted_version != int(cfg["terms_version"])
+        ):
             if isinstance(event, Message):
                 await event.answer(texts("terms_text"), reply_markup=keyboards.terms(texts))
             elif isinstance(event, CallbackQuery):

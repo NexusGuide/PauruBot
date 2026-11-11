@@ -36,6 +36,12 @@ async def priced(session: AsyncSession, plans: list[Plan], customer: Customer) -
     return out
 
 
+async def _ask_phone(event: Message | CallbackQuery, t: Texts) -> None:
+    message = event.message if isinstance(event, CallbackQuery) else event
+    if isinstance(message, Message):
+        await message.answer(t("phone_required_buy"), reply_markup=keyboards.share_phone(t))
+
+
 async def show_start(
     event: Message | CallbackQuery, session: AsyncSession, shop: ShopRow, customer: Customer, t: Texts
 ) -> None:
@@ -361,6 +367,15 @@ async def checkout(
             order = await orders.create(session, customer, draft)  # sticky code no longer applies
             code = None
     except orders.OrderError as exc:
+        if exc.key == "terms_required":  # the shop asks for its terms before a purchase
+            await show(event, t("terms_text"), keyboards.terms(t))
+            return
+        if exc.key == "reseller_terms_required":
+            await show(event, t("reseller_terms_text"), keyboards.terms(t, reseller=True))
+            return
+        if exc.key == "phone_required":  # and the phone number, when it asks for it only here
+            await _ask_phone(event, t)
+            return
         await show(event, error_text(t, exc.key, exc.params))
         return
     except pricing.DiscountError as exc:
@@ -709,6 +724,15 @@ async def bulk_pay(
     except orders.OrderError as exc:
         await session.rollback()
         await call.answer()
+        if exc.key == "terms_required":
+            await show(call, t("terms_text"), keyboards.terms(t))
+            return
+        if exc.key == "reseller_terms_required":
+            await show(call, t("reseller_terms_text"), keyboards.terms(t, reseller=True))
+            return
+        if exc.key == "phone_required":
+            await _ask_phone(call, t)
+            return
         await show(call, error_text(t, exc.key, exc.params))
         return
     await session.commit()

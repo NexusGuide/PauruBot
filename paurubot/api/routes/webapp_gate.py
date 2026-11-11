@@ -48,9 +48,9 @@ class TermsBody(BaseModel):
     version: int = Field(ge=1, le=2**31 - 1, strict=True)
 
 
-async def _view(ctx: Any) -> dict[str, Any]:
+async def _view(ctx: Any, *, purchase: bool = False) -> dict[str, Any]:
     cfg, customer = ctx.cfg, ctx.customer
-    need = await account_gate(ctx.session, ctx.shop, customer, cfg)
+    need = await account_gate(ctx.session, ctx.shop, customer, cfg, purchase=purchase)
     view: dict[str, Any] = {"requirement": need, "bot_username": ctx.shop.bot_username}
     if need == "terms_required":
         texts = await texts_for(ctx.session, ctx.shop.id, customer.locale or ctx.shop.default_locale)
@@ -59,9 +59,10 @@ async def _view(ctx: Any) -> dict[str, Any]:
 
 
 @router.get("/gate")
-async def gate(ctx: WebApp) -> dict[str, Any]:
-    """What the customer must still do, phone then terms, before the rest of the Mini App answers (SEC-F11)."""
-    return await _view(ctx)
+async def gate(ctx: WebApp, purpose: str | None = None) -> dict[str, Any]:
+    """What the customer must still do, phone then terms, before the rest of the Mini App answers
+    (SEC-F11); `purpose=purchase` also asks for terms the shop wants only before a purchase."""
+    return await _view(ctx, purchase=purpose == "purchase")
 
 
 async def _bot_token(ctx: Any) -> str:

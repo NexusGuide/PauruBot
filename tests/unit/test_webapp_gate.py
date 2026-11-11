@@ -107,3 +107,39 @@ async def test_forced_channels_still_come_first(session, app_env) -> None:  # ty
     app_env["fake"].non_members.add(("@gate_news", 9501))
     response = await client.get("/api/webapp/gate", headers=h(9501))
     assert response.status_code == 403 and response.json()["error"] == "join_required"
+
+
+async def test_terms_asked_only_before_buying_when_the_shop_says_so(session, app_env) -> None:  # type: ignore[no-untyped-def]
+    """Settings › terms: «before purchase» leaves the app open and asks for the terms at the order."""
+    client, shop, plan = app_env["client"], app_env["shop"], app_env["plan"]
+    await _require(session, shop, terms_required=True, terms_version=2, terms_when="purchase")
+    assert (await client.get("/api/webapp/me", headers=h(9501))).status_code == 200
+    assert (await client.get("/api/webapp/catalog", headers=h(9501))).status_code == 200
+    assert (await client.get("/api/webapp/gate", headers=h(9501))).json()["requirement"] is None
+    order = await client.post(
+        "/api/webapp/orders", headers=h(9501), json={"kind": "purchase", "plan_id": plan.id}
+    )
+    assert order.status_code == 403 and order.json()["error"] == "terms_required"
+    gate = (await client.get("/api/webapp/gate?purpose=purchase", headers=h(9501))).json()
+    assert gate["requirement"] == "terms_required" and gate["terms"]["version"] == 2
+    accepted = await client.post("/api/webapp/gate/terms", headers=h(9501), json={"version": 2})
+    assert accepted.json()["requirement"] is None
+    again = await client.post(
+        "/api/webapp/orders", headers=h(9501), json={"kind": "purchase", "plan_id": plan.id}
+    )
+    assert again.status_code == 200, again.text
+
+
+async def test_phone_before_purchase_and_invite_required_in_the_app(session, app_env) -> None:  # type: ignore[no-untyped-def]
+    client, shop, plan = app_env["client"], app_env["shop"], app_env["plan"]
+    await _require(session, shop, require_phone=True, phone_when="purchase")
+    assert (await client.get("/api/webapp/me", headers=h(9601))).status_code == 200
+    order = await client.post(
+        "/api/webapp/orders", headers=h(9601), json={"kind": "purchase", "plan_id": plan.id}
+    )
+    assert order.status_code == 403 and order.json()["error"] == "phone_required"
+    assert (await client.get("/api/webapp/gate?purpose=purchase", headers=h(9601))).json()[
+        "requirement"
+    ] == "phone_required"
+    await _require(session, shop, require_phone=False, referral_required=True)
+    assert (await client.get("/api/webapp/me", headers=h(9602))).json()["error"] == "referral_required"
