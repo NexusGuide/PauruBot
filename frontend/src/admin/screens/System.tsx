@@ -41,6 +41,10 @@ import { BackupBotForm, DateTimeInput, IdPicker, PackagesEditor, SettingsFileBut
 import { MethodRules, type MethodRule } from "./FoximaTools";
 import { compact } from "./Home";
 import { controllers, matchesQuery, shown } from "../settings-layout";
+import { byFeature, FEATURES } from "../settings-features";
+
+const FEATURE_KEYS = [...FEATURES.map((feature) => feature.key), "other"];
+import { featureFor } from "../settings-nav";
 import { atAnHour, everyLabel, everyOptions, summary, type BackupSchedule } from "../backup-schedule";
 import { bySectionOrder, countBySection, isButton, kindOf, preview, sectionOf, SECTIONS, type PreviewNode, type Section as TextSection, type TextKind } from "../texts-layout";
 
@@ -319,6 +323,23 @@ function SettingControl({
   const hint = hintText === hintKey ? undefined : hintText;
 
   if (item.type === "bool") return <Toggle checked={Boolean(value)} onChange={onChange} label={label} hint={hint} />;
+  if (item.key === "renew_mode") {
+    // A list in place of typing the mode's code; "" keeps following the reset switch above.
+    return (
+      <Field label={label} hint={t("setting_renew_mode_pick_hint")}>
+        {(id) => (
+          <Select id={id} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
+            <option value="">{t("setting_renew_mode_follow")}</option>
+            {["extend_reset", "extend_carry", "restart_reset", "restart_carry"].map((mode) => (
+              <option key={mode} value={mode}>
+                {t(`renew_mode_${mode}`)}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+    );
+  }
   if (item.key === "payment_method_rules") {
     const rows = Array.isArray(value) ? (value as Partial<MethodRule>[]).map((r) => ({ provider: String(r.provider ?? "card"), min: Number(r.min ?? 0), max: Number(r.max ?? 0), help: String(r.help ?? "") })) : [];
     return <Field label={label} hint={hint}>{() => <MethodRules value={rows} onChange={onChange} />}</Field>;
@@ -614,18 +635,20 @@ export function Settings() {
   };
 
   return (
-    <Page title={t("nav_settings")} wide>
+    <Page title={t(`settings_tab_${featureFor(params.get("group"), FEATURE_KEYS) ?? "general"}`)} wide>
       <Async data={data} error={error} reload={reload}>
         {(value) => {
-          const groups = Object.fromEntries(
-            Object.entries(value.groups)
-              .filter(([group]) => !HIDDEN_GROUPS.includes(group))
-              .map(([group, items]) => [group, items.filter((item) => !HIDDEN_SETTINGS.includes(item.key))]),
+          // Every option on the page of its feature, whatever group the server files it under.
+          const groups = byFeature(
+            Object.fromEntries(
+              Object.entries(value.groups)
+                .filter(([group]) => !HIDDEN_GROUPS.includes(group))
+                .map(([group, items]) => [group, items.filter((item) => !HIDDEN_SETTINGS.includes(item.key))]),
+            ),
           );
           const names = Object.keys(groups);
-          const asked = params.get("group");
-          // The two-level settings nav above picks the group; general when none is asked.
-          const selected = asked && names.includes(asked) ? asked : names.includes("general") ? "general" : names[0];
+          // The two-level settings nav above picks the feature; general when none is asked.
+          const selected = featureFor(params.get("group"), names);
           const label = (key: string) => t(`setting_${key}`);
           const hintOf = (key: string) => {
             const hint = t(`setting_${key}_hint`);
@@ -652,7 +675,7 @@ export function Settings() {
                     );
                     if (query.trim() && visible.length === 0) return null;
                     return (
-                      <Section key={group} title={t(`settings_group_${group}`)}>
+                      <Section key={group} title={t(`settings_tab_${group}`)}>
                         <div className="grid gap-5 md:grid-cols-2">
                           {visible.map((item) => {
                             const nested = !query.trim() && (deps[item.key]?.length ?? 0) > 0;
@@ -1850,9 +1873,9 @@ function TopCustomers({ range }: { range: { start: string; end: string } }) {
                 render: (r) => (
                   <span className="flex items-center gap-2">
                     {can("customers.read") && !r.is_reseller ? (
-                      <Link className="font-semibold text-firouzeh-700" to={`/customers/${r.customer_id}`}>{r.customer}</Link>
+                      <Link className="font-semibold text-firouzeh-700" to={`/customers/${r.customer_id}`}><bdi>{r.customer}</bdi></Link>
                     ) : (
-                      <span className="font-semibold">{r.customer}</span>
+                      <bdi className="font-semibold">{r.customer}</bdi>
                     )}
                     {r.is_reseller && <Badge tone="brand">{t("reseller")}</Badge>}
                   </span>

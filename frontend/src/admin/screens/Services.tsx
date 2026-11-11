@@ -59,7 +59,7 @@ function useServiceColumns(): Column<Service>[] {
         </span>
       ),
     },
-    { key: "customer", label: t("col_customer"), mobile: "meta", render: (s) => s.customer ?? "—" },
+    { key: "customer", label: t("col_customer"), mobile: "meta", render: (s) => <bdi>{s.customer ?? "—"}</bdi> },
     { key: "panel", label: t("col_panel"), mobile: "meta", render: (s) => s.panel ?? "—" },
     { key: "status", label: t("col_status"), sort: "status", mobile: "end", render: (s) => <Status value={s.status} /> },
     {

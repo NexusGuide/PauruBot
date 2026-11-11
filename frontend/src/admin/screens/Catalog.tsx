@@ -184,7 +184,7 @@ function StockEditor({ planId }: { planId: number }) {
                 {item.preview}
               </span>
               <Badge tone={item.status === "available" ? "health" : "neutral"}>{t(`stock_status_${item.status}`)}</Badge>
-              {item.customer && <span className="text-[var(--hint)]">{item.customer}</span>}
+              {item.customer && <bdi className="text-[var(--hint)]">{item.customer}</bdi>}
               <Button small onClick={() => void reveal(item.id)}>
                 {t("stock_show")}
               </Button>
@@ -601,7 +601,7 @@ export function Catalog() {
                     <li key={row.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                       <button
                         type="button"
-                        className="flex min-w-0 flex-1 flex-col gap-0.5 text-start disabled:cursor-default"
+                        className="flex min-w-0 flex-1 basis-full flex-col gap-0.5 text-start disabled:cursor-default sm:basis-0"
                         disabled={!writable}
                         onClick={() => setPlan({ ...row })}
                       >
@@ -628,7 +628,7 @@ export function Catalog() {
                           {t("services_n", { n: money(row.services ?? 0, locale) })}
                         </span>
                       </button>
-                      <Money amount={row.price} className="font-bold" />
+                      <Money amount={row.price} className="me-auto font-bold sm:me-0" />
                       {writable && <ClonePlanButton planId={row.id} onDone={() => void catalog.reload()} />}
                       {writable && row.is_active && (
                         <Button small tone="ghost" onClick={() => void archive(row)}>

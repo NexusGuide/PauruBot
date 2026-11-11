@@ -27,3 +27,17 @@
 .bc-modal input:not([type=checkbox]),.bc-modal textarea,.bc-modal select{border-color:#788695}
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .bc-modal input:not([type=checkbox]),:root:not([data-theme="light"]) .bc-modal textarea,:root:not([data-theme="light"]) .bc-modal select{border-color:#8197a7}}
 :root[data-theme="dark"] .bc-modal input:not([type=checkbox]),:root[data-theme="dark"] .bc-modal textarea,:root[data-theme="dark"] .bc-modal select{border-color:#8197a7}
+
+/* 2026 redesign: audience cards, a Telegram-like preview, a big reach figure. */
+.bc-tools{display:flex;flex-wrap:wrap;gap:.5rem}
+.bc-label{font-weight:700;margin:.8rem 0 .35rem}
+.bc-aud{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem}
+@media(min-width:640px){.bc-aud{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.bc-modal .bc-aud button{min-height:52px;text-align:start;border-radius:14px;background:var(--surface-2,var(--surface));font-weight:600}
+.bc-modal .bc-aud button.bc-aud-on{border:1.5px solid var(--bc-accent);background:color-mix(in srgb,var(--bc-accent) 14%,var(--surface));color:var(--text);font-weight:800}
+.bc-chat{padding:.9rem;border-radius:18px;background:color-mix(in srgb,var(--bg) 70%,#0e1a24);border:1px solid var(--line)}
+.bc-bubble{max-width:20rem;padding:.6rem .8rem;border-radius:16px 16px 16px 4px;background:#182533;color:#e9eef3;white-space:pre-line;overflow-wrap:anywhere}
+:root[data-theme="light"] .bc-bubble{background:#ffffff;color:#121826;box-shadow:0 1px 2px rgb(0 0 0/.08)}
+.bc-kb{max-width:20rem;margin-top:.3rem;padding:.45rem;border-radius:10px;background:#22344a;color:#e3eefa;text-align:center;font-weight:600;font-size:.9rem}
+:root[data-theme="light"] .bc-kb{background:#dfe8f3;color:#1d3550}
+.bc-stat .bc-big{font-size:2rem;font-weight:800;line-height:1.3}

@@ -1,4 +1,5 @@
 const copy = {
+    previewTitle: ["How it looks in Telegram", "پیش‌نمایش در تلگرام"],
     title: ["Broadcast management", "مدیریت پیام همگانی"], new: ["New broadcast", "پیام همگانی جدید"], refresh: ["Refresh history", "به‌روزرسانی تاریخچه"],
     denied: ["You need broadcast.send permission to view or manage broadcasts.", "برای مشاهده و مدیریت پیام‌ها به دسترسی broadcast.send نیاز داری."],
     loading: ["Loading…", "در حال دریافت…"], loadError: ["History could not be loaded. This is not an empty history.", "تاریخچه دریافت نشد؛ این به معنی خالی بودن آن نیست."],

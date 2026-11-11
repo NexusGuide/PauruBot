@@ -6,7 +6,7 @@ import { Columns } from "../chart";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
 import { InboxResetButton } from "./ClockTools";
-import { Async, Badge, Button, Empty, Field, Money, Page, Section, Sheet, Textarea, When } from "../ui";
+import { Async, Badge, Button, Empty, Field, Icon, Money, Page, Section, Sheet, Textarea, When } from "../ui";
 
 export function compact(value: number, locale: string): string {
   return new Intl.NumberFormat(locale === "fa" ? "fa-IR" : "en-US", {
@@ -17,7 +17,7 @@ export function compact(value: number, locale: string): string {
 
 function Figure({ label, value, hint }: { label: string; value: ReactNode; hint?: ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1 px-4 py-3 first:ps-0">
+    <div className="flex min-w-0 flex-col gap-1">
       <span className="text-[0.78rem] text-[var(--hint)]">{label}</span>
       <span className="num text-xl font-extrabold leading-tight">{value}</span>
       {hint && <span className="text-[0.75rem] text-[var(--hint)]">{hint}</span>}
@@ -25,63 +25,166 @@ function Figure({ label, value, hint }: { label: string; value: ReactNode; hint?
   );
 }
 
-function Overview({ data }: { data: Dashboard }) {
+const TILE_TONES = {
+  brand: "bg-firouzeh-100 text-firouzeh-700",
+  health: "bg-pista-100 text-pista-700",
+  violet: "bg-[#2a2344] text-[#cdbbff]",
+  wait: "bg-saffron-100 text-saffron-700",
+} as const;
+
+/** One figure as a card: an icon, the number, what it counts; a link when it has a page. */
+function Tile({
+  icon,
+  tone,
+  value,
+  label,
+  to,
+}: {
+  icon: string;
+  tone: keyof typeof TILE_TONES;
+  value: ReactNode;
+  label: string;
+  to?: string;
+}) {
+  const body = (
+    <>
+      <span className={`grid h-9 w-9 place-items-center rounded-[11px] ${TILE_TONES[tone]}`}>
+        <Icon name={icon} size={18} />
+      </span>
+      <span className="num mt-1 text-[1.45rem] font-extrabold leading-none">{value}</span>
+      <span className="text-[0.78rem] text-[var(--hint)]">{label}</span>
+    </>
+  );
+  const box = "flex flex-col gap-1.5 rounded-[18px] bg-[var(--surface)] p-4 ring-1 ring-[var(--line)]";
+  return to ? (
+    <Link to={to} className={`${box} transition-colors hover:bg-[var(--surface-2)]`}>
+      {body}
+    </Link>
+  ) : (
+    <div className={box}>{body}</div>
+  );
+}
+
+function ResellerOverview({ data }: { data: Dashboard }) {
   const { t, locale, can } = useSession();
   const n = (value: number | undefined) => money(value ?? 0, locale);
-  if (data.revenue_today === undefined) {
-    // A reseller's own figures.
-    const r = data.reseller;
-    return (
-      <div className="flex flex-col gap-4">
-        {r?.suspended && (
-          <div role="alert" className="rounded-2xl bg-anar-100 px-4 py-3 text-[0.9rem] font-semibold text-anar-700">
-            {t("reseller_suspended_banner", { debt: n(r.debt) })}
-          </div>
-        )}
-        <Section>
-          <div className="grid grid-cols-2 divide-x divide-[var(--line)] rtl:divide-x-reverse sm:grid-cols-3">
-            <Figure label={t("dash_active_services")} value={n(data.active_services)} />
-            <Figure label={t("dash_orders_month")} value={n(data.orders_month)} />
-            <Figure label={t("dash_spent_month")} value={<Money amount={data.spent_month ?? 0} />} />
+  const r = data.reseller;
+  return (
+    <div className="flex flex-col gap-4">
+      {r?.suspended && (
+        <div role="alert" className="rounded-2xl bg-anar-100 px-4 py-3 text-[0.9rem] font-semibold text-anar-700">
+          {t("reseller_suspended_banner", { debt: n(r.debt) })}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+        <Tile icon="services" tone="violet" value={n(data.active_services)} label={t("dash_active_services")} to="/services" />
+        <Tile icon="orders" tone="brand" value={n(data.orders_month)} label={t("dash_orders_month")} />
+        <Tile icon="wallet" tone="wait" value={<Money amount={data.spent_month ?? 0} />} label={t("dash_spent_month")} />
+      </div>
+      {r && (
+        <Section
+          title={t("my_reseller_account")}
+          actions={
+            <div className="flex gap-3">
+              {r.billing_mode !== "prepaid" && (
+                <Link className="text-[0.85rem] font-semibold text-firouzeh-700" to="/billing">
+                  {t("billing_history")}
+                </Link>
+              )}
+              {r.level === 1 && can("resellers.sub") && (
+                <Link className="text-[0.85rem] font-semibold text-firouzeh-700" to="/sub-resellers">
+                  {t("nav_sub_resellers")}
+                </Link>
+              )}
+            </div>
+          }
+        >
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <Figure label={t("balance")} value={<Money amount={r.balance} />} />
+            <Figure label={t("discount")} value={`${n(r.discount_percent)}٪`} />
+            <Figure
+              label={t("billing_mode")}
+              value={<span className="text-base">{t(`billing_mode_${r.billing_mode}`)}</span>}
+              hint={r.debt > 0 ? t("debt_hint", { debt: n(r.debt) }) : undefined}
+            />
+            <Figure
+              label={t("reseller_expires")}
+              value={<span className="text-base">{r.expires_at ? <When iso={r.expires_at} /> : t("never")}</span>}
+              hint={r.level === 1 && r.sub_resellers > 0 ? t("sub_count", { n: n(r.sub_resellers) }) : undefined}
+            />
           </div>
         </Section>
-        {r && (
-          <Section
-            title={t("my_reseller_account")}
-            actions={
-              <div className="flex gap-3">
-                {r.billing_mode !== "prepaid" && (
-                  <Link className="text-[0.85rem] font-semibold text-firouzeh-700" to="/billing">
-                    {t("billing_history")}
-                  </Link>
-                )}
-                {r.level === 1 && can("resellers.sub") && (
-                  <Link className="text-[0.85rem] font-semibold text-firouzeh-700" to="/sub-resellers">
-                    {t("nav_sub_resellers")}
-                  </Link>
-                )}
-              </div>
-            }
-          >
-            <div className="grid grid-cols-2 divide-x divide-[var(--line)] rtl:divide-x-reverse sm:grid-cols-4">
-              <Figure label={t("balance")} value={<Money amount={r.balance} />} />
-              <Figure label={t("discount")} value={`${n(r.discount_percent)}٪`} />
-              <Figure
-                label={t("billing_mode")}
-                value={<span className="text-base">{t(`billing_mode_${r.billing_mode}`)}</span>}
-                hint={r.debt > 0 ? t("debt_hint", { debt: n(r.debt) }) : undefined}
-              />
-              <Figure
-                label={t("reseller_expires")}
-                value={<span className="text-base">{r.expires_at ? <When iso={r.expires_at} /> : t("never")}</span>}
-                hint={r.level === 1 && r.sub_resellers > 0 ? t("sub_count", { n: n(r.sub_resellers) }) : undefined}
-              />
-            </div>
-          </Section>
-        )}
+      )}
+    </div>
+  );
+}
+
+/** Today's takings with the last seven days as small columns, today's in the accent. */
+function TodayCard({ data }: { data: Dashboard }) {
+  const { t, locale } = useSession();
+  const week = (data.series ?? []).slice(-7);
+  const top = Math.max(1, ...week.map((point) => point.revenue));
+  const weekday = new Intl.DateTimeFormat(locale === "fa" ? "fa-IR" : "en-GB", { weekday: "narrow" });
+  return (
+    <section className="flex flex-col gap-4 rounded-[22px] bg-[var(--surface)] p-5 ring-1 ring-[var(--line)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-[0.82rem] text-[var(--hint)]">{t("dash_revenue_today")}</span>
+          <span className="num text-[1.9rem] font-extrabold leading-tight tracking-tight">
+            <Money amount={data.revenue_today ?? 0} />
+          </span>
+        </div>
+        <Link to="/reports" className="rounded-full px-3 py-1.5 text-[0.8rem] font-semibold text-firouzeh-700 hover:bg-firouzeh-50">
+          {t("nav_reports")}
+        </Link>
       </div>
-    );
-  }
+      {week.length > 0 && (
+        <div className="flex h-24 items-end gap-2" aria-hidden="true">
+          {week.map((point, index) => {
+            const last = index === week.length - 1;
+            return (
+              <div key={point.day} className="flex flex-1 flex-col items-center gap-1.5">
+                <div
+                  className={`w-full rounded-[7px] ${last ? "bg-[var(--accent)]" : "bg-[var(--surface-2)]"}`}
+                  style={{ height: `${Math.max(6, (point.revenue / top) * 72)}px` }}
+                />
+                <span className={`text-[0.7rem] ${last ? "font-bold text-[var(--text)]" : "text-[var(--hint)]"}`}>
+                  {last ? t("today") : weekday.format(new Date(point.day))}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-3 border-t border-[var(--line)] pt-3">
+        <Figure label={t("dash_revenue_week")} value={<Money amount={data.revenue_week ?? 0} />} />
+        <Figure label={t("dash_revenue_month")} value={<Money amount={data.revenue_month ?? 0} />} />
+      </div>
+    </section>
+  );
+}
+
+function Tiles({ data }: { data: Dashboard }) {
+  const { t, locale } = useSession();
+  const n = (value: number | undefined) => money(value ?? 0, locale);
+  return (
+    <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+      <Tile icon="orders" tone="brand" value={n(data.orders_month)} label={t("dash_orders_month")} to="/orders" />
+      <Tile
+        icon="users"
+        tone="health"
+        value={n(data.customers_today)}
+        label={t("dash_customers_new", { total: n(data.customers) })}
+        to="/customers"
+      />
+      <Tile icon="services" tone="violet" value={n(data.active_services)} label={t("dash_active_services")} to="/services" />
+      <Tile icon="tickets" tone="wait" value={n(data.open_tickets)} label={t("dash_open_tickets")} to="/tickets" />
+    </div>
+  );
+}
+
+function MonthChart({ data }: { data: Dashboard }) {
+  const { t, locale } = useSession();
   const series = (data.series ?? []).map((point) => ({
     key: point.day,
     label: new Intl.DateTimeFormat(locale === "fa" ? "fa-IR-u-ca-persian" : "en-GB", {
@@ -91,34 +194,16 @@ function Overview({ data }: { data: Dashboard }) {
     value: point.revenue,
     detail: t("dash_orders_n", { n: money(point.orders, locale) }),
   }));
+  if (series.length === 0) return null;
   return (
-    <Section>
-      <div className="grid grid-cols-2 gap-y-2 sm:grid-cols-3 lg:grid-cols-5 lg:divide-x lg:divide-[var(--line)] lg:rtl:divide-x-reverse">
-        <Figure label={t("dash_revenue_today")} value={<Money amount={data.revenue_today ?? 0} />} />
-        <Figure
-          label={t("dash_revenue_month")}
-          value={<Money amount={data.revenue_month ?? 0} />}
-          hint={t("dash_orders_n", { n: n(data.orders_month) })}
-        />
-        <Figure label={t("dash_active_services")} value={n(data.active_services)} />
-        <Figure
-          label={t("dash_customers")}
-          value={n(data.customers)}
-          hint={t("dash_new_today", { n: n(data.customers_today) })}
-        />
-        <Figure label={t("dash_revenue_week")} value={<Money amount={data.revenue_week ?? 0} />} />
-      </div>
-      {series.length > 0 && (
-        <div className="mt-4 border-t border-[var(--line)] pt-4">
-          <Columns
-            title={t("dash_chart_title")}
-            data={series}
-            format={(value) => `${money(value, locale)} ${t("currency")}`}
-            axisFormat={(value) => compact(value, locale)}
-          />
-        </div>
-      )}
-    </Section>
+    <section className="hidden rounded-[22px] bg-[var(--surface)] p-5 ring-1 ring-[var(--line)] md:block">
+      <Columns
+        title={t("dash_chart_title")}
+        data={series}
+        format={(value) => `${money(value, locale)} ${t("currency")}`}
+        axisFormat={(value) => compact(value, locale)}
+      />
+    </section>
   );
 }
 
@@ -126,23 +211,27 @@ function PanelHealth({ data }: { data: Dashboard }) {
   const { t } = useSession();
   if (!data.panels || data.panels.length === 0) return null;
   return (
-    <Section title={t("dash_panels")} actions={<Link className="text-[0.82rem] font-semibold text-firouzeh-700" to="/panels">{t("manage")}</Link>}>
-      <ul className="flex flex-wrap gap-2">
+    <Section
+      title={t("dash_panels")}
+      actions={
+        <Link className="text-[0.82rem] font-semibold text-firouzeh-700" to="/panels">
+          {t("manage")}
+        </Link>
+      }
+    >
+      <ul className="flex flex-col gap-1">
         {data.panels.map((panel) => (
           <li key={panel.id}>
-            <Link
-              to="/panels"
-              className="flex items-center gap-2 rounded-xl px-3 py-2 ring-1 ring-[var(--line)] hover:bg-[var(--bg)]"
-            >
+            <Link to="/panels" className="flex min-h-11 items-center gap-3 rounded-xl px-2 hover:bg-[var(--surface-2)]">
               <span
-                className={`h-2.5 w-2.5 rounded-full ${
-                  !panel.active ? "bg-[var(--hint)]" : panel.healthy ? "bg-pista-500" : "bg-anar-500"
+                className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                  !panel.active ? "bg-[var(--hint)]" : panel.healthy ? "bg-pista-700" : "bg-anar-500"
                 }`}
               />
-              <span className="text-[0.86rem] font-semibold">{panel.name}</span>
-              <span className="text-[0.75rem] text-[var(--hint)]">
+              <span className="min-w-0 flex-1 truncate text-[0.9rem] font-semibold">{panel.name}</span>
+              <Badge tone={!panel.active ? "neutral" : panel.healthy ? "health" : "loss"}>
                 {!panel.active ? t("panel_off") : panel.healthy ? t("panel_ok") : t("panel_down")}
-              </span>
+              </Badge>
             </Link>
           </li>
         ))}
@@ -151,7 +240,13 @@ function PanelHealth({ data }: { data: Dashboard }) {
   );
 }
 
-const TYPE_TONE = { payment: "wait", ticket: "brand", order: "loss", job: "loss", application: "brand" } as const;
+const TYPE_LOOK = {
+  payment: { icon: "payments", tint: "bg-saffron-100 text-saffron-700" },
+  ticket: { icon: "tickets", tint: "bg-firouzeh-100 text-firouzeh-700" },
+  order: { icon: "alert", tint: "bg-anar-100 text-anar-700" },
+  job: { icon: "alert", tint: "bg-anar-100 text-anar-700" },
+  application: { icon: "resellers", tint: "bg-[#2a2344] text-[#cdbbff]" },
+} as const;
 
 function InboxRow({
   item,
@@ -174,24 +269,22 @@ function InboxRow({
 }) {
   const { t } = useSession();
   const [showReceipt, setShowReceipt] = useState(false);
-  const edge = {
-    payment: "border-s-saffron-500",
-    ticket: "border-s-firouzeh-500",
-    order: "border-s-anar-500",
-    job: "border-s-anar-500",
-    application: "border-s-firouzeh-500",
-  }[item.type];
+  const look = TYPE_LOOK[item.type];
 
   return (
     <li
-      className={`border-s-4 ${edge} ${active ? "bg-[var(--bg)]" : ""}`}
+      className={`transition-colors ${active ? "bg-[var(--surface-2)]" : ""}`}
       onClick={onFocus}
       onFocus={onFocus}
     >
-      <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
+      <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center md:px-5">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+        <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${look.tint}`}>
+          <Icon name={look.icon} size={19} />
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={TYPE_TONE[item.type]}>{t(`inbox_${item.type}`)}</Badge>
+            <span className="text-[0.78rem] font-bold text-[var(--hint)]">{t(`inbox_${item.type}`)}</span>
             <span className="text-[0.75rem] text-[var(--hint)]">
               <When iso={item.at} time />
             </span>
@@ -200,7 +293,7 @@ function InboxRow({
           <p className="text-[0.92rem] font-semibold">
             {item.type === "payment" && (
               <>
-                <Money amount={item.amount ?? 0} /> <span className="text-[var(--hint)]">{item.customer}</span>
+                <Money amount={item.amount ?? 0} /> <bdi className="text-[var(--hint)]">{item.customer}</bdi>
               </>
             )}
             {item.type === "ticket" && item.subject}
@@ -214,7 +307,8 @@ function InboxRow({
           </p>
           {item.error && <p className="line-clamp-2 text-[0.8rem] text-anar-700" dir="auto">{item.error}</p>}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        </div>
+        <div className="flex flex-wrap items-center gap-2 ps-[3.25rem] sm:ps-0">
           {item.type === "payment" && (
             <>
               <Button small tone="ghost" onClick={() => setShowReceipt((v) => !v)}>
@@ -223,7 +317,7 @@ function InboxRow({
               <Button small tone="danger" busy={busy} onClick={onReject}>
                 {t("reject")}
               </Button>
-              <Button small tone="approve" icon="check" busy={busy} onClick={onApprove}>
+              <Button small tone="approve" icon="check" busy={busy} onClick={onApprove} className="min-w-24">
                 {t("approve")}
               </Button>
             </>
@@ -248,13 +342,11 @@ function InboxRow({
               {t("retry")}
             </Button>
           )}
-          <Button small tone="ghost" onClick={onDismiss} aria-label={t("dismiss")}>
-            {t("dismiss")}
-          </Button>
+          <Button small tone="ghost" icon="close" onClick={onDismiss} aria-label={t("dismiss")} title={t("dismiss")} />
         </div>
       </div>
       {item.type === "payment" && showReceipt && (
-        <div className="px-4 pb-4">
+        <div className="px-4 pb-4 md:px-5">
           <img
             src={`/api/admin/payments/${item.id}/receipt`}
             alt={t("receipt_alt", { id: item.id })}
@@ -425,18 +517,39 @@ function Inbox() {
 }
 
 export function Home() {
-  const { t, can } = useSession();
+  const { t, can, me, locale } = useSession();
   const { data, error, reload } = useLoad<Dashboard>("/api/admin/dashboard");
+  const name = me?.display_name || me?.username || "";
+  const today = new Intl.DateTimeFormat(locale === "fa" ? "fa-IR-u-ca-persian" : "en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  }).format(new Date());
+  const inbox = can("payments.read") || can("tickets.read") || can("orders.read");
   return (
-    <Page title={t("nav_inbox")} wide>
-      {can("payments.read") || can("tickets.read") || can("orders.read") ? <Inbox /> : null}
+    <Page title={t("home_hello", { name })} wide>
+      <p className="-mt-4 text-[0.85rem] text-[var(--hint)] md:-mt-5">{today}</p>
       <Async data={data} error={error} reload={reload}>
-        {(value) => (
-          <>
-            <Overview data={value} />
-            <PanelHealth data={value} />
-          </>
-        )}
+        {(value) =>
+          value.revenue_today === undefined ? (
+            <>
+              <ResellerOverview data={value} />
+              {inbox && <Inbox />}
+            </>
+          ) : (
+            <>
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+                <TodayCard data={value} />
+                <div className="flex flex-col gap-4">
+                  <Tiles data={value} />
+                  <PanelHealth data={value} />
+                </div>
+              </div>
+              {inbox && <Inbox />}
+              <MonthChart data={value} />
+            </>
+          )
+        }
       </Async>
     </Page>
   );

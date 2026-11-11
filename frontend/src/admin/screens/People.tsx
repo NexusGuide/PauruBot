@@ -456,7 +456,7 @@ export function Resellers() {
                   <li key={app.id} className="flex flex-col gap-2 border-s-4 border-s-saffron-500 px-4 py-3 sm:flex-row sm:items-center">
                     <div className="flex min-w-0 flex-1 flex-col gap-1">
                       <Link className="font-semibold text-firouzeh-700" to={`/customers/${app.customer_id}`}>
-                        {app.customer}
+                        <bdi>{app.customer}</bdi>
                       </Link>
                       {app.text && <p className="text-[0.85rem] leading-relaxed" dir="auto">{app.text}</p>}
                       <span className="text-[0.75rem] text-[var(--hint)]">
@@ -516,7 +516,7 @@ export function Resellers() {
                       className="flex w-full items-center justify-between gap-3 px-4 py-3 text-start hover:bg-[var(--bg)]"
                     >
                       <span className="flex flex-wrap items-center gap-2 font-semibold">
-                        {p.customer}
+                        <bdi>{p.customer}</bdi>
                         {!p.is_current && <Badge tone="loss">{t("inactive")}</Badge>}
                         {p.suspended_at && <Badge tone="loss">{t("suspended")}</Badge>}
                         {p.billing_mode !== "prepaid" && <Badge>{t(`billing_mode_${p.billing_mode}`)}</Badge>}
@@ -973,7 +973,7 @@ function ResellerTicketPage() {
           <p className="-mt-3 flex flex-wrap items-center gap-2 text-[0.85rem] text-[var(--hint)]">
             <Status value={value.ticket.status} />
             <Link className="font-semibold text-firouzeh-700" to={`/customers/${value.ticket.customer_id}`}>
-              {value.customer}
+              <bdi>{value.customer}</bdi>
             </Link>
           </p>
           <ol className="flex flex-col gap-3">

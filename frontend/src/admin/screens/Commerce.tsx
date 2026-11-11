@@ -5,8 +5,10 @@ import { PAGE_SIZE, useAction, useList } from "../hooks";
 import { useSession } from "../session";
 import {
   Async,
+  Avatar,
   Badge,
   Button,
+  Chips,
   Facts,
   Field,
   Money,
@@ -19,14 +21,14 @@ import {
   Table,
   Textarea,
   Toggle,
-  Toolbar,
   When,
   useTypedConfirm,
   type Column,
 } from "../ui";
 
-const ORDER_STATUSES = ["pending", "awaiting_payment", "paid", "provisioning", "completed", "failed", "canceled", "refunded"];
-const PAYMENT_STATUSES = ["created", "pending", "verifying", "paid", "failed", "expired", "refunded", "disputed", "voided"];
+// The same statuses as filters, the ones staff look for most first.
+const PAYMENT_CHIPS = ["verifying", "paid", "pending", "created", "failed", "expired", "refunded", "disputed", "voided"];
+const ORDER_CHIPS = ["completed", "provisioning", "paid", "awaiting_payment", "pending", "failed", "refunded", "canceled"];
 const VOID_REASONS = ["fake_receipt", "wrong_amount", "duplicate", "mistake", "other"];
 const PROVIDERS = ["card", "zarinpal", "stars", "usdt_trc20", "trx", "ton", "nowpayments", "plisio", "aqayepardakht", "tetra98", "variza", "abangateway", "blupal", "tronado", "cubepay", "atlaspay"];
 
@@ -70,44 +72,43 @@ export function Orders() {
       sort: "id",
       mobile: "title",
       render: (o) => (
-        <span className="flex flex-col">
-          <span className="font-semibold">
-            {t(`order_kind_${o.kind}`)} #{o.id}
+        <span className="flex min-w-0 items-center gap-3">
+          <Avatar id={o.customer_id} name={o.customer} size={38} />
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="truncate font-bold">
+              <bdi>{o.customer}</bdi> · {t(`order_kind_${o.kind}`)}
+            </span>
+            <span className="truncate text-[0.76rem] font-normal text-[var(--hint)]">
+              #{o.id} · {o.plan ?? "—"}
+            </span>
           </span>
-          <span className="text-[0.75rem] text-[var(--hint)]">{o.plan ?? "—"}</span>
         </span>
       ),
     },
-    { key: "customer", label: t("col_customer"), mobile: "meta", render: (o) => o.customer },
     { key: "amount", label: t("col_amount"), sort: "amount", mobile: "end", render: (o) => <Money amount={o.amount} /> },
     { key: "status", label: t("col_status"), sort: "status", mobile: "end", render: (o) => <Status value={o.status} /> },
     { key: "source", label: t("col_source"), mobile: "hide", render: (o) => (o.source ? t(`source_${o.source}`) : "—") },
-    { key: "created", label: t("col_created"), sort: "created_at", mobile: "meta", render: (o) => <When iso={o.created_at} time /> },
+    { key: "created", label: t("col_created"), sort: "created_at", mobile: "hide", render: (o) => <When iso={o.created_at} time /> },
   ];
 
   return (
     <Page title={t("nav_orders")} wide>
-      <Section flush>
-        <Toolbar>
-          <Select
-            className="w-auto"
-            aria-label={t("filter_status")}
-            value={list.get("status")}
-            onChange={(event) => list.set({ status: event.target.value })}
-          >
-            <option value="">{t("filter_all_statuses")}</option>
-            {ORDER_STATUSES.map((status) => (
-              <option key={status} value={status}>
-                {t(`status_${status}`)}
-              </option>
-            ))}
-          </Select>
-          {(list.get("customer_id") || list.get("id")) && (
-            <Button small onClick={() => list.set({ customer_id: null, id: null })}>
-              {t("clear_filters")} ✕
+      <div className="flex flex-col gap-3">
+        <Chips
+          label={t("filter_status")}
+          value={list.get("status") || "all"}
+          onChange={(status) => list.set({ status: status === "all" ? null : status })}
+          options={[{ value: "all", label: t("seg_all") }, ...ORDER_CHIPS.map((status) => ({ value: status, label: t(`status_${status}`) }))]}
+        />
+        {(list.get("customer_id") || list.get("id")) && (
+          <div>
+            <Button small icon="close" onClick={() => list.set({ customer_id: null, id: null })}>
+              {t("clear_filters")}
             </Button>
-          )}
-        </Toolbar>
+          </div>
+        )}
+      </div>
+      <Section flush>
         <Async data={list.data} error={list.error} reload={list.reload}>
           {(data) => (
             <>
@@ -374,14 +375,20 @@ export function Payments() {
       sort: "id",
       mobile: "title",
       render: (p) => (
-        <span className="flex flex-wrap items-center gap-2">
-          <span className="font-semibold">#{p.id}</span>
-          <span className="text-[var(--hint)]">{t(`provider_${p.provider}`)}</span>
-          {p.duplicate_of_id && <Badge tone="loss">{t("duplicate")}</Badge>}
+        <span className="flex min-w-0 items-center gap-3">
+          <Avatar id={p.customer_id} name={p.customer} size={38} />
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <bdi className="truncate font-bold">{p.customer}</bdi>
+              {p.duplicate_of_id && <Badge tone="loss">{t("duplicate")}</Badge>}
+            </span>
+            <span className="truncate text-[0.76rem] font-normal text-[var(--hint)]">
+              #{p.id} · {t(`provider_${p.provider}`)}
+            </span>
+          </span>
         </span>
       ),
     },
-    { key: "customer", label: t("col_customer"), mobile: "meta", render: (p) => p.customer },
     { key: "purpose", label: t("col_purpose"), mobile: "hide", render: (p) => t(`purpose_${p.purpose}`) },
     { key: "amount", label: t("col_amount"), sort: "amount", mobile: "end", render: (p) => <Money amount={p.amount} /> },
     { key: "status", label: t("col_status"), sort: "status", mobile: "end", render: (p) => <Status value={p.status} /> },
@@ -390,21 +397,14 @@ export function Payments() {
 
   return (
     <Page title={t("nav_payments")} wide>
-      <Section flush>
-        <Toolbar>
-          <Select
-            className="w-auto"
-            aria-label={t("filter_status")}
-            value={list.get("status")}
-            onChange={(event) => list.set({ status: event.target.value })}
-          >
-            <option value="">{t("filter_all_statuses")}</option>
-            {PAYMENT_STATUSES.map((status) => (
-              <option key={status} value={status}>
-                {t(`status_${status}`)}
-              </option>
-            ))}
-          </Select>
+      <div className="flex flex-col gap-3">
+        <Chips
+          label={t("filter_status")}
+          value={list.get("status") || "all"}
+          onChange={(status) => list.set({ status: status === "all" ? null : status })}
+          options={[{ value: "all", label: t("seg_all") }, ...PAYMENT_CHIPS.map((status) => ({ value: status, label: t(`status_${status}`) }))]}
+        />
+        <div className="flex flex-wrap items-center gap-2">
           <Select
             className="w-auto"
             aria-label={t("col_method")}
@@ -419,11 +419,13 @@ export function Payments() {
             ))}
           </Select>
           {(list.get("customer_id") || list.get("id")) && (
-            <Button small onClick={() => list.set({ customer_id: null, id: null })}>
-              {t("clear_filters")} ✕
+            <Button small icon="close" onClick={() => list.set({ customer_id: null, id: null })}>
+              {t("clear_filters")}
             </Button>
           )}
-        </Toolbar>
+        </div>
+      </div>
+      <Section flush>
         <Async data={list.data} error={list.error} reload={list.reload}>
           {(data) => (
             <>
