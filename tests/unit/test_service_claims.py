@@ -97,3 +97,15 @@ async def test_auto_can_be_turned_off(session, env) -> None:  # type: ignore[no-
     assert result.claim.status == "rejected"
     again = await service_claims.claim(session, env["customer"], "noted")  # may ask once more
     assert again.claim.id == result.claim.id and again.claim.status == "pending"
+
+
+async def test_only_the_panels_the_shop_allows(session, env) -> None:  # type: ignore[no-untyped-def]
+    _panel_user(env["fake"], "allowed_only", note="tg:55501234")
+    await shop_settings.set_many(
+        session, env["shop"].id, {"service_import_panel_ids": [env["panel"].id + 999]}
+    )
+    with pytest.raises(service_claims.ClaimError) as missing:
+        await service_claims.claim(session, env["customer"], "allowed_only")
+    assert missing.value.key == "import_not_found"
+    await shop_settings.set_many(session, env["shop"].id, {"service_import_panel_ids": [env["panel"].id]})
+    assert (await service_claims.claim(session, env["customer"], "allowed_only")).service is not None

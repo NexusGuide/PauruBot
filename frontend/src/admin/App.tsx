@@ -15,6 +15,7 @@ import { Updates } from "./screens/Updates";
 import { AdminAccounts } from "./screens/AdminAccounts";
 import { CustomerBots } from "./screens/CustomerBots";
 import { TrialUsers } from "./screens/ClockTools";
+import { StuckOrders } from "./screens/ClockTools2";
 import { QuickLinks, Variables } from "./screens/BotLinks";
 import { Desk } from "./screens/Desk";
 import { MyBilling, Resellers, Staff, SubResellers, TicketPage, Tickets } from "./screens/People";
@@ -56,6 +57,7 @@ function Routed() {
         <Route path="/customers/:id" element={g("customers.read", <CustomerPage />)} />
         <Route path="/services" element={g("services.read", <Services />)} />
         <Route path="/trial-users" element={g("customers.read", <TrialUsers />)} />
+        <Route path="/stuck-orders" element={g("orders.read", <StuckOrders />)} />
         <Route path="/orders" element={g("orders.read", <Orders />)} />
         <Route path="/payments" element={g("payments.read", <Payments />)} />
         <Route path="/tickets" element={g("tickets.read", <Tickets />)} />

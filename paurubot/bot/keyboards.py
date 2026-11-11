@@ -233,6 +233,14 @@ def history_kb(t: Texts, before: int | None) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
+def guides_kb(t: Texts, items: Sequence[dict[str, Any]]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for index, item in enumerate(items[:12]):
+        kb.button(text=str(item.get("title") or "")[:40], callback_data=Svc(action="guide", id=index))
+    kb.adjust(2)
+    return kb.as_markup()
+
+
 def services_kb(
     t: Texts,
     items: Sequence[Service],
@@ -243,6 +251,7 @@ def services_kb(
     muted: bool | None = None,
     all_links: bool = False,
     claim: bool = False,
+    guides: bool = False,
 ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if all_links:
@@ -270,6 +279,8 @@ def services_kb(
         kb.row(InlineKeyboardButton(text=t("btn_stock"), callback_data=Svc(action="stock").pack()))
     if claim:
         kb.row(InlineKeyboardButton(text=t("btn_import_service"), callback_data=Svc(action="claim").pack()))
+    if guides:
+        kb.row(InlineKeyboardButton(text=t("btn_guides"), callback_data=Svc(action="guides").pack()))
     kb.row(InlineKeyboardButton(text=t("btn_lookup"), callback_data=Svc(action="lookup").pack()))
     if muted is not None:
         kb.row(
@@ -395,9 +406,22 @@ def auto_renew_kb(
 
 
 def extra_kb(
-    t: Texts, service_id: int, kind: str, options: Sequence[int], unit_price: int
+    t: Texts,
+    service_id: int,
+    kind: str,
+    options: Sequence[int],
+    unit_price: int,
+    packages: Sequence[tuple[int, dict[str, Any]]] = (),
 ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    # Ready-made packages first (ClockBot parity), each its own row; then the per-unit amounts.
+    for index, pack in packages:
+        kb.row(
+            InlineKeyboardButton(
+                text=t(f"extra_{kind}_package", value=pack["amount"], price=money(int(pack["price"]))),
+                callback_data=Svc(action=f"pack_{kind}", id=service_id, value=index).pack(),
+            )
+        )
     for value in options:
         kb.button(
             text=t(f"extra_{kind}_option", value=value, price=money(value * unit_price)),

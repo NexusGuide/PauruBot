@@ -225,15 +225,18 @@ async def _delivery_photo(
     from paurubot.bot import infocard
     from paurubot.bot.views import qr_png
 
+    if cfg.get("qr_send_enabled") is False:
+        return None
+    tail = f"\n<code>{esc(link)}</code>" if cfg.get("qr_show_link") else ""
     if cfg["info_card_enabled"] and cfg["info_card_qr"]:
         try:
             image = await infocard.make(t, service, link, cfg, await telegram.bot_for(service.shop_id))
             name = esc(service.label or service.panel_username)
-            return BufferedInputFile(image, "card.png"), t("infocard_caption", name=name)
+            return BufferedInputFile(image, "card.png"), t("infocard_caption", name=name) + tail
         except (OSError, ValueError) as exc:
             log.warning("info card for service %s failed: %s", service.id, exc)
     png = qr_png(link)
-    return (BufferedInputFile(png, "qr.png"), t("qr_caption")) if png is not None else None
+    return (BufferedInputFile(png, "qr.png"), t("qr_caption") + tail) if png is not None else None
 
 
 async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
@@ -296,6 +299,14 @@ async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
                 )
         except telegram.Undeliverable:
             pass
+    if fresh and cfg.get("connection_guides"):
+        # Connection guides per device (ClockBot parity): the customer picks theirs.
+        await _to_customer(
+            session,
+            customer,
+            t("guides_choose"),
+            reply_markup=keyboards.guides_kb(t, cfg["connection_guides"]),
+        )
     from paurubot.notifications import log_reports
 
     async def order_report() -> None:
@@ -1273,7 +1284,7 @@ async def panel_alert(session: AsyncSession, job: queue.Claimed) -> None:
         return
     t = await texts_for(session, shop.id, shop.default_locale)
     event = str(job.payload["event"])
-    if event not in {"down", "up", "node_down", "node_up", "quota"}:
+    if event not in {"down", "up", "node_down", "node_up", "quota", "capacity"}:
         raise Permanent(f"unknown panel event {event}")
     text = t(
         f"panel_alert_{event}",

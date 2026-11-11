@@ -160,3 +160,30 @@ async def test_a_missed_hour_sends_the_report_late_and_once(session, monkeypatch
     await jobs.daily_report()
     await jobs.daily_report()  # the next 5-minute run: already sent
     assert sent.count(-100777) == 3  # summary, money, panels: once
+
+
+async def test_test_customers_are_left_out_of_the_sales_figures(session) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.core.reports import daily_details, daily_summary, day_bounds
+    from paurubot.db.models import Order, OrderKind, OrderStatus
+
+    shop = await factories.shop(session)
+    real = await factories.customer(session, shop, telegram_id=77001)
+    test = await factories.customer(session, shop, telegram_id=77002)
+    test.is_test = True
+    start, end = day_bounds(utcnow())
+    for who in (real, test):
+        session.add(
+            Order(
+                shop_id=shop.id,
+                customer_id=who.id,
+                kind=OrderKind.PURCHASE,
+                status=OrderStatus.COMPLETED,
+                base_price=50_000,
+                amount=50_000,
+                completed_at=start + timedelta(hours=1),
+            )
+        )
+    await session.flush()
+    summary = await daily_summary(session, shop.id, start, end)
+    assert (summary.orders, summary.revenue) == (1, 50_000)
+    assert (await daily_details(session, shop.id, start, end)).total == 50_000

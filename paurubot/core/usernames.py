@@ -135,7 +135,17 @@ async def generate(
     name = "_".join(parts)
     if len(name) < 3:
         name = f"u_{name}"
-    return name[:MAX_LEN]
+    return await _with_suffix(session, panel.shop_id, name)
+
+
+async def _with_suffix(session: AsyncSession, shop_id: int, name: str) -> str:
+    """The shop's fixed suffix after the name, the name shortened to keep it within the limit."""
+    from paurubot.core import settings as shop_settings
+
+    suffix = slug(str((await shop_settings.load(session, shop_id)).get("username_suffix") or ""), 8)
+    if not suffix:
+        return name[:MAX_LEN]
+    return f"{name[: MAX_LEN - len(suffix) - 1]}_{suffix}"
 
 
 def wanted(text: str | None) -> str | None:

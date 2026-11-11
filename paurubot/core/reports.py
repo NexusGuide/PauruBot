@@ -66,6 +66,11 @@ def day_bounds(day: datetime) -> tuple[datetime, datetime]:
     return start, start + timedelta(days=1)
 
 
+def real_buyer() -> Any:
+    """Orders of customers staff did not mark as a test account (ClockBot's demo customers)."""
+    return Order.customer_id.not_in(select(Customer.id).where(Customer.is_test.is_(True)))
+
+
 async def daily_summary(session: AsyncSession, shop_id: int, start: datetime, end: datetime) -> DailySummary:
     async def count(stmt) -> int:  # type: ignore[no-untyped-def]
         return int(await session.scalar(stmt) or 0)
@@ -75,6 +80,7 @@ async def daily_summary(session: AsyncSession, shop_id: int, start: datetime, en
         Order.status == OrderStatus.COMPLETED,
         Order.completed_at >= start,
         Order.completed_at < end,
+        real_buyer(),
     )
     return DailySummary(
         orders=await count(select(func.count(Order.id)).where(*sold)),
@@ -191,6 +197,7 @@ async def daily_details(session: AsyncSession, shop_id: int, start: datetime, en
                 Order.completed_at >= start,
                 Order.completed_at < end,
                 Order.kind != OrderKind.TRIAL,
+                real_buyer(),
             )
         )
     )
@@ -202,6 +209,7 @@ async def daily_details(session: AsyncSession, shop_id: int, start: datetime, en
                 Order.completed_at >= start - timedelta(days=1),
                 Order.completed_at < start,
                 Order.kind != OrderKind.TRIAL,
+                real_buyer(),
             )
         )
         or 0
@@ -329,3 +337,46 @@ async def funnel(
         "repeat": sum(1 for _cid, n, _first in buyers if n >= 2),
     }
     return {"steps": [{"key": k, "count": counts[k]} for k in FUNNEL_STEPS], "days_to_first": median}
+
+
+@dataclass(slots=True)
+class ResellerDay:
+    orders: int
+    spent: int
+    balance: int
+    bot_orders: int
+    bot_revenue: int
+
+
+async def reseller_day(session: AsyncSession, profile: Any, start: datetime, end: datetime) -> ResellerDay:
+    """A reseller's own day (ClockBot's reseller daily report): what it bought here, its wallet,
+    and what its own bot sold, if it has one."""
+    from paurubot.db.models import Order, OrderStatus, Shop
+    from paurubot.ledger.accounts import wallet_balance
+
+    bought = (
+        await session.execute(
+            select(func.count(Order.id), func.coalesce(func.sum(Order.amount), 0)).where(
+                Order.customer_id == profile.customer_id,
+                Order.status == OrderStatus.COMPLETED,
+                Order.completed_at >= start,
+                Order.completed_at < end,
+            )
+        )
+    ).one()
+    balance = await wallet_balance(session, profile.shop_id, profile.customer_id)
+    bot = await session.scalar(select(Shop).where(Shop.reseller_profile_id == profile.id))
+    bot_orders, bot_revenue = 0, 0
+    if bot is not None:
+        sold = (
+            await session.execute(
+                select(func.count(Order.id), func.coalesce(func.sum(Order.amount), 0)).where(
+                    Order.shop_id == bot.id,
+                    Order.status == OrderStatus.COMPLETED,
+                    Order.completed_at >= start,
+                    Order.completed_at < end,
+                )
+            )
+        ).one()
+        bot_orders, bot_revenue = int(sold[0] or 0), int(sold[1] or 0)
+    return ResellerDay(int(bought[0] or 0), int(bought[1] or 0), int(balance), bot_orders, bot_revenue)

@@ -285,3 +285,58 @@ async def test_location_pool_picks_least_loaded_panel_with_room(session) -> None
     await session.flush()
     assert await catalog.pick_panel(session, plan) is None
     assert isinstance(a, Panel)
+
+
+async def test_a_shop_wide_username_suffix(session) -> None:  # type: ignore[no-untyped-def]
+    """ClockBot parity: a fixed suffix after every new panel username; off by default."""
+    from paurubot.core import settings as shop_settings
+
+    shop = await factories.shop(session)
+    panel = await factories.panel(session, shop)
+    cust = await factories.customer(session, shop, telegram_id=555667)
+    panel.username_prefix = "pb"
+    before = await usernames.generate(session, panel, cust)
+    assert not before.endswith("_vip")
+    await shop_settings.set_many(session, shop.id, {"username_suffix": "VIP"})
+    name = await usernames.generate(session, panel, cust)
+    assert name.startswith("pb555667_") and name.endswith("_vip") and len(name) <= 32
+    panel.username_method = UsernameMethod.SEQUENTIAL
+    assert (await usernames.generate(session, panel, cust)).endswith("_vip")
+
+
+async def test_ready_made_extra_packages(session) -> None:  # type: ignore[no-untyped-def]
+    """ClockBot parity: fixed-price packages of extra data or days, beside the per-unit price."""
+    from paurubot.core import settings as shop_settings
+
+    shop = await factories.shop(session)
+    panel = await factories.panel(session, shop)
+    plan = await factories.plan(session, shop, panel, price=100_000, days=30)
+    cust = await factories.customer(session, shop)
+    service = Service(
+        shop_id=shop.id,
+        customer_id=cust.id,
+        panel_id=panel.id,
+        plan_id=plan.id,
+        panel_username="pk1",
+        status=ServiceStatus.ACTIVE,
+        expire_at=datetime.now(UTC) + timedelta(days=15),
+    )
+    session.add(service)
+    await session.flush()
+    await session.refresh(service, ["plan"])
+    packs = [{"unit": "gb", "amount": 20, "price": 45_000}, {"unit": "days", "amount": 30, "price": 60_000}]
+    await shop_settings.set_many(session, shop.id, {"extra_packages": packs})
+    vol = await orders.draft(session, cust, OrderKind.EXTRA_VOLUME, service=service, extra_gb=20, package=0)
+    assert vol.base_price == 45_000 and vol.params["extra_gb"] == 20 and vol.params["package"] == 0
+    days = await orders.draft(session, cust, OrderKind.EXTRA_DAYS, service=service, extra_days=30, package=1)
+    assert days.base_price == 60_000 and days.params["extra_days"] == 30
+    with pytest.raises(orders.OrderError):  # a package of the other kind, or a changed amount
+        await orders.draft(session, cust, OrderKind.EXTRA_VOLUME, service=service, extra_gb=30, package=1)
+    with pytest.raises(orders.OrderError):
+        await orders.draft(session, cust, OrderKind.EXTRA_VOLUME, service=service, extra_gb=25, package=0)
+    plain = await orders.draft(session, cust, OrderKind.EXTRA_VOLUME, service=service, extra_gb=10)
+    assert plain.base_price == 10 * 3_000  # the per-GB price as before
+    with pytest.raises(shop_settings.SettingError):
+        await shop_settings.set_many(
+            session, shop.id, {"extra_packages": [{"unit": "gb", "amount": 0, "price": 1}]}
+        )

@@ -60,13 +60,15 @@ def candidates(text: str) -> list[str]:
 
 
 async def _panels(session: AsyncSession, shop_id: int) -> list[Panel]:
-    rows = await session.scalars(
-        select(Panel)
-        .where(Panel.shop_id == shop_id, Panel.is_active.is_(True), Panel.national_mode.is_(False))
-        .order_by(Panel.id)
-        .limit(MAX_PANELS)
+    allowed = [
+        int(p) for p in (await shop_settings.load(session, shop_id)).get("service_import_panel_ids") or []
+    ]
+    stmt = select(Panel).where(
+        Panel.shop_id == shop_id, Panel.is_active.is_(True), Panel.national_mode.is_(False)
     )
-    return list(rows)
+    if allowed:
+        stmt = stmt.where(Panel.id.in_(allowed))
+    return list(await session.scalars(stmt.order_by(Panel.id).limit(MAX_PANELS)))
 
 
 async def find(session: AsyncSession, shop_id: int, text: str) -> tuple[Panel, PanelUser] | None:

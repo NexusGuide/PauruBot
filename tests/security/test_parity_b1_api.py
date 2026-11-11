@@ -135,3 +135,79 @@ async def test_reset_many_texts_at_once(session, http, env) -> None:  # type: ig
     done = await owner.call("POST", "/api/admin/texts/reset", {"keys": ["welcome", "btn_buy"]})
     assert done.status_code == 200 and done.json()["reset"] == 2
     assert await session.scalar(select(BotText.id).where(BotText.shop_id == env.shop.id)) is None
+
+
+async def test_quick_renew_the_most_urgent_service(session, http, env) -> None:  # type: ignore[no-untyped-def]  # noqa: F811
+    from datetime import timedelta
+
+    from paurubot.db.base import utcnow
+
+    await session.execute(update(Job).where(Job.status == JobStatus.QUEUED).values(status=JobStatus.CANCELED))
+    plan = await factories.plan(session, env.shop, env.panel, price=100_000, days=30)
+    soon = Service(
+        shop_id=env.shop.id,
+        customer_id=env.customer_id,
+        panel_id=env.panel.id,
+        plan_id=plan.id,
+        panel_username="q_soon",
+        status=ServiceStatus.ACTIVE,
+        expire_at=utcnow() + timedelta(days=1),
+    )
+    later = Service(
+        shop_id=env.shop.id,
+        customer_id=env.customer_id,
+        panel_id=env.panel.id,
+        plan_id=plan.id,
+        panel_username="q_later",
+        status=ServiceStatus.ACTIVE,
+        expire_at=utcnow() + timedelta(days=20),
+    )
+    session.add_all([soon, later])
+    await session.commit()
+    owner = await login(http, "u_owner")
+    done = await owner.call("POST", f"/api/admin/customers/{env.customer_id}/quick-renew", {})
+    assert done.status_code == 200, done.text
+    order = await session.get(Order, done.json()["order_id"])
+    assert order.service_id == soon.id and order.kind == OrderKind.RENEW and order.amount == 0
+    assert order.status == OrderStatus.PAID and order.source == "staff"
+    picked = await owner.call(
+        "POST", f"/api/admin/customers/{env.customer_id}/quick-renew", {"service_id": later.id}
+    )
+    assert (await session.get(Order, picked.json()["order_id"])).service_id == later.id
+    again = await owner.call("POST", f"/api/admin/customers/{env.customer_id}/quick-renew", {})
+    assert again.status_code == 409 and again.json()["error"] == "renew_in_progress"  # no second free renewal
+    finance = await login(http, "u_finance")
+    assert (
+        await finance.call("POST", f"/api/admin/customers/{env.customer_id}/quick-renew", {})
+    ).status_code == 403
+
+
+async def test_test_customers_stay_out_of_reports(session, http, env) -> None:  # type: ignore[no-untyped-def]  # noqa: F811
+    owner = await login(http, "u_owner")
+    done = await owner.call("PATCH", f"/api/admin/customers/{env.customer_id}", {"is_test": True})
+    assert done.status_code == 200, done.text
+    assert (await session.get(Customer, env.customer_id)).is_test is True
+
+
+async def test_customer_photo_through_the_bot(session, http, env, monkeypatch) -> None:  # type: ignore[no-untyped-def]  # noqa: F811
+    from types import SimpleNamespace
+
+    from paurubot.notifications import telegram
+
+    class FakeBot:
+        async def get_user_profile_photos(self, user_id, limit=1):  # type: ignore[no-untyped-def]
+            return SimpleNamespace(
+                photos=[[SimpleNamespace(file_id="small"), SimpleNamespace(file_id="big")]]
+            )
+
+        async def download(self, file_id, destination):  # type: ignore[no-untyped-def]
+            destination.write(b"\xff\xd8jpeg-" + file_id.encode())
+
+    async def bot_for(shop_id):  # type: ignore[no-untyped-def]
+        return FakeBot()
+
+    monkeypatch.setattr(telegram, "bot_for", bot_for)
+    owner = await login(http, "u_owner")
+    got = await owner.call("GET", f"/api/admin/customers/{env.customer_id}/photo")
+    assert got.status_code == 200 and got.content == b"\xff\xd8jpeg-big"
+    assert got.headers["content-type"] == "image/jpeg"

@@ -316,6 +316,32 @@ async def create_plan(body: PlanBody, ctx: Writer, db: DB) -> dict[str, Any]:
     return plain(row, PLAN_FIELDS)
 
 
+@router.post("/plans/{row_id}/clone")
+async def clone_plan(row_id: int, ctx: Writer, db: DB) -> dict[str, Any]:
+    """A copy of the plan to edit, hidden until staff turn it on (ClockBot parity)."""
+    from sqlalchemy import inspect as sa_inspect
+
+    source = await owned(db, Plan, row_id, ctx)
+    skip = {"id", "created_at", "updated_at"}
+    values = {
+        attr.key: getattr(source, attr.key) for attr in sa_inspect(Plan).column_attrs if attr.key not in skip
+    }
+    values.update(title=f"{source.title} (2)"[:96], is_active=False)
+    row = Plan(**values)
+    db.add(row)
+    await db.flush()
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="plan.clone",
+        entity="plan",
+        entity_id=row.id,
+        after={"from": source.id},
+    )
+    return plain(row, PLAN_FIELDS)
+
+
 @router.put("/plans/{row_id}")
 async def update_plan(row_id: int, body: PlanBody, ctx: Writer, db: DB) -> dict[str, Any]:
     row = await owned(db, Plan, row_id, ctx)

@@ -54,6 +54,7 @@ export const NAV_GROUPS: NavGroup[] = [
         tabs: [
           page("/payments", "nav_payments", "payments", { permission: "payments.read" }),
           page("/orders", "nav_orders", "orders", { permission: "orders.read" }),
+          page("/stuck-orders", "nav_stuck_orders", "orders", { permission: "orders.read", shopWide: true }),
         ],
       },
       single(page("/tickets", "nav_tickets", "tickets", { permission: "tickets.read" })),

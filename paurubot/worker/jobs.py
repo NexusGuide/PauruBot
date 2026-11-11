@@ -733,12 +733,21 @@ async def daily_report() -> None:
     for shop_id in shop_ids:
         async with session_scope() as session:
             cfg = await shop_settings.load(session, shop_id)
-            sections = list(cfg.get("daily_report_sections") or [])
-            if not cfg.get("daily_report_enabled", True) or not sections:
-                continue
             hour = cfg.get("daily_report_hour")
             # Due from its hour on, so a missed hour sends it late instead of never (REF-06).
             start, end = day_bounds(report_day(now, 23 if hour is None else int(hour)))
+        # The resellers' own report has its own marker: it goes out even with the staff report off.
+        if cfg.get("reseller_daily_report") and await kv.get_redis().set(
+            f"report:reseller:{shop_id}:{start.date().isoformat()}", "1", nx=True, ex=3 * 86400
+        ):
+            try:
+                await _reseller_daily_reports(shop_id, start, end)
+            except Exception:  # one shop's resellers must not stop the other shops' reports
+                log.warning("reseller daily reports for shop %s failed", shop_id, exc_info=True)
+        async with session_scope() as session:
+            sections = list(cfg.get("daily_report_sections") or [])
+            if not cfg.get("daily_report_enabled", True) or not sections:
+                continue
             marker = f"report:daily:{shop_id}:{start.date().isoformat()}"
             if not await kv.get_redis().set(marker, "1", nx=True, ex=3 * 86400):
                 continue
@@ -770,6 +779,43 @@ async def daily_report() -> None:
                     break
 
 
+async def _reseller_daily_reports(shop_id: int, start: Any, end: Any) -> None:
+    """Each active reseller's own day, sent to it by the shop's bot (ClockBot parity)."""
+    from paurubot.core.formatting import jdate, money
+    from paurubot.core.reports import reseller_day
+    from paurubot.db.models import Customer, ResellerProfile
+    from paurubot.i18n import texts_for
+    from paurubot.notifications import telegram
+
+    async with session_scope() as session:
+        profiles = list(
+            await session.scalars(
+                select(ResellerProfile).where(
+                    ResellerProfile.shop_id == shop_id, ResellerProfile.is_active.is_(True)
+                )
+            )
+        )
+        for profile in profiles:
+            customer = await session.get(Customer, profile.customer_id)
+            if customer is None or customer.is_banned:
+                continue
+            day = await reseller_day(session, profile, start, end)
+            texts = await texts_for(session, shop_id, customer.locale)
+            text = texts(
+                "reseller_daily_report",
+                date=jdate(start),
+                orders=day.orders,
+                spent=money(day.spent),
+                balance=money(day.balance),
+                bot_orders=day.bot_orders,
+                bot_revenue=money(day.bot_revenue),
+            )
+            try:
+                await telegram.send_text(customer.telegram_id, text, shop_id=shop_id)
+            except telegram.Undeliverable:
+                continue
+
+
 # --- exchange rates and on-chain payments (PAY-11, PAY-13) ----------------------
 
 
@@ -779,16 +825,23 @@ async def refresh_rates() -> None:
     from paurubot.payments import fx
 
     uses_nobitex = False
+    own_apis: dict[str, dict[str, object]] = {}
     async with session_scope() as session:
         for shop_id in list(await session.scalars(select(Shop.id))):
             cfg = await shop_settings.load(session, shop_id)
-            if cfg.get("fx_source") == "nobitex" and (
-                cfg.get("crypto_enabled") or cfg.get("nowpayments_enabled") or cfg.get("plisio_enabled")
-            ):
+            if not (cfg.get("crypto_enabled") or cfg.get("nowpayments_enabled") or cfg.get("plisio_enabled")):
+                continue
+            if cfg.get("fx_source") == "nobitex":
                 uses_nobitex = True
-                break
+            elif cfg.get("fx_source") == "api":  # a shop's own rate API (ClockBot parity)
+                own_apis[fx.api_key(cfg)] = cfg  # one fetch per distinct URL, path and divisor
     if uses_nobitex:
         await fx.refresh()
+    for cfg in own_apis.values():
+        try:
+            await fx.refresh_api(cfg)
+        except Exception:
+            log.warning("own rate API refresh failed", exc_info=True)
 
 
 @every(180, "services.ip_watch")
@@ -878,6 +931,15 @@ async def sync_panel_accounts() -> None:
         synced = await panel_accounts.run(session)
     if synced:
         log.info("synced %s panel admin accounts", synced)
+
+
+@every(1800, "panels.capacity")
+async def capacity_warning() -> None:
+    """A panel filling up past the shop's warning percent (ClockBot parity)."""
+    from paurubot.core import capacity
+
+    async with session_scope() as session:
+        await capacity.check(session)
 
 
 @every(120, "panels.monitor")

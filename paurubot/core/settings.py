@@ -71,6 +71,11 @@ SPECS: dict[str, Spec] = {
     "referral_config_panel_id": Spec(int, None, "growth"),
     "start_gift_amount": Spec(int, 0, "growth"),
     "start_gift_referred_only": Spec(bool, True, "growth"),
+    # A time-limited discount for customers on the whole catalog, or only some categories
+    # (ClockBot parity). 0 is off; an empty end means until turned off.
+    "catalog_discount_percent": Spec(int, 0, "growth"),
+    "catalog_discount_until": Spec(str, "", "growth"),
+    "catalog_discount_category_ids": Spec(list, [], "growth"),
     "loyalty_enabled": Spec(bool, False, "growth"),
     "loyalty_tiers": Spec(list, [], "growth"),
     "wheel_enabled": Spec(bool, False, "growth"),
@@ -197,6 +202,10 @@ SPECS: dict[str, Spec] = {
     "trongrid_api_key": Spec(str, "", "crypto", secret=True),
     "toncenter_api_key": Spec(str, "", "crypto", secret=True),
     "fx_source": Spec(str, "nobitex", "crypto"),
+    # fx_source "api": the shop's own JSON rate API (ClockBot parity); {symbol} is usdt/trx/ton.
+    "fx_api_url": Spec(str, "", "crypto"),
+    "fx_api_path": Spec(str, "", "crypto"),
+    "fx_api_divisor": Spec(int, 1, "crypto"),
     "usdt_rate": Spec(int, 0, "crypto"),
     "trx_rate": Spec(int, 0, "crypto"),
     "ton_rate": Spec(int, 0, "crypto"),
@@ -205,6 +214,8 @@ SPECS: dict[str, Spec] = {
     "renew_resets_usage": Spec(bool, True, "services"),
     "renew_mode": Spec(str, "", "services"),  # "" follows renew_resets_usage (SVC-13)
     "warn_remaining_percent": Spec(int, 10, "services"),
+    # Tell staff when a panel's services reach this percent of its capacity; 0 is off.
+    "capacity_warn_percent": Spec(int, 0, "services"),
     # Local hours (0-23) when customer alerts wait for the morning; off unless both are set.
     "alerts_quiet_start": Spec(int, None, "services"),
     # Hours after purchase to remind a customer whose service was never used; 0 is off.
@@ -214,6 +225,8 @@ SPECS: dict[str, Spec] = {
     "delete_expired_after_days": Spec(int, 7, "services"),
     "usage_sync_minutes": Spec(int, 10, "services"),
     "extras_enabled": Spec(bool, True, "services"),
+    # Ready-made extra packages (ClockBot parity): [{"unit": "gb"|"days", "amount", "price"}].
+    "extra_packages": Spec(list, [], "services"),
     "extra_gb_price": Spec(int, 3_000, "services"),
     "extra_day_price": Spec(int, 2_000, "services"),
     # How much extra data / time one order may buy; 0 is no bound of the shop's own.
@@ -237,10 +250,15 @@ SPECS: dict[str, Spec] = {
     # user's note names them (auto), else after staff approve.
     "service_import_enabled": Spec(bool, False, "services"),
     "service_import_auto": Spec(bool, True, "services"),
+    # Panels a previous service may come from; empty: all of the shop's panels.
+    "service_import_panel_ids": Spec(list, [], "services"),
     "max_daily_purchases": Spec(int, 0, "services"),
     "info_card_enabled": Spec(bool, True, "services"),
     "info_card_theme": Spec(str, "midnight", "services"),
     "info_card_qr": Spec(bool, True, "services"),
+    # ClockBot parity: the QR photo after delivery can be turned off, and can carry the link.
+    "qr_send_enabled": Spec(bool, True, "services"),
+    "qr_show_link": Spec(bool, False, "services"),
     # custom purchase: the customer picks data and days (CAT-03)
     "custom_buy_enabled": Spec(bool, False, "custom"),
     "custom_panel_id": Spec(int, None, "custom"),
@@ -262,17 +280,24 @@ SPECS: dict[str, Spec] = {
     "menu_mode": Spec(str, "reply", "appearance"),  # reply | inline | miniapp (BOT-12)
     # Keep one home menu per chat: a new one deletes the previous (P3, after PGClockBot).
     "menu_cleanup": Spec(bool, True, "appearance"),
+    # Connection guides per device with a picture or video (ClockBot parity):
+    # [{"title", "text", "media_url"?, "media_type": photo|video, "link"?}]
+    "connection_guides": Spec(list, [], "appearance"),
     "help_items": Spec(list, [], "appearance"),
     "download_apps": Spec(list, [], "appearance"),
     "app_cache_chat_id": Spec(int, None, "appearance"),
     "username_method": Spec(str, "telegram_id", "services"),
     "username_prefix": Spec(str, "", "services"),
+    # A fixed suffix after every new panel username (ClockBot parity); empty is none.
+    "username_suffix": Spec(str, "", "services"),
     "custom_username_enabled": Spec(bool, False, "services"),
     # resellers
     "reseller_applications_enabled": Spec(bool, True, "resellers"),
     "bulk_buy_enabled": Spec(bool, True, "resellers"),
     "bulk_buy_max": Spec(int, 20, "resellers"),
     "bulk_buy_resellers_only": Spec(bool, True, "resellers"),
+    # Quantity discounts on a bulk buy (ClockBot's wholesale tiers): [{"min": 5, "percent": 10}].
+    "bulk_buy_tiers": Spec(list, [], "resellers"),
     "reseller_web_access": Spec(bool, True, "resellers"),
     "reseller_membership_price": Spec(int, 0, "resellers"),
     "reseller_membership_group_id": Spec(int, None, "resellers"),
@@ -296,6 +321,8 @@ SPECS: dict[str, Spec] = {
     "auto_replies": Spec(list, [], "general"),
     "daily_report_hour": Spec(int, 23, "reports"),
     "daily_report_enabled": Spec(bool, True, "reports"),
+    # Each reseller gets its own nightly figures in the bot (ClockBot parity).
+    "reseller_daily_report": Spec(bool, False, "reports"),
     # Which parts of the nightly report are sent, in the report's own order.
     "daily_report_sections": Spec(list, ["summary", "money", "panels"], "reports"),
     "log_retention_days": Spec(int, 30, "reports"),
@@ -306,6 +333,9 @@ SPECS: dict[str, Spec] = {
     "backup_hour": Spec(int, None, "backups"),
     "backup_keep": Spec(int, None, "backups"),
     "backup_send_telegram": Spec(bool, None, "backups"),
+    # A separate bot and chats for backups (ClockBot parity); unset: the shop's bot and staff.
+    "backup_bot_token": Spec(str, "", "backups", secret=True),
+    "backup_chat_ids": Spec(list, [], "backups"),
 }
 
 _TTL = 15.0
@@ -346,6 +376,26 @@ ALERT_KEYS = {f"group:{t}" for t in REPORT_TOPICS} | {f"dm:{e}" for e in STAFF_E
 MAX_AUTO_REPLIES, MAX_AUTO_WORDS, MAX_WORD, MAX_REPLY = 30, 12, 40, 2000
 
 
+def _check_guides(value: list[Any]) -> None:
+    if len(value) > 12:
+        raise SettingError("connection_guides_invalid")
+    for guide in value:
+        if not isinstance(guide, dict):
+            raise SettingError("connection_guides_invalid")
+        title, text = guide.get("title"), guide.get("text")
+        media, link = str(guide.get("media_url") or ""), str(guide.get("link") or "")
+        if (
+            not isinstance(title, str)
+            or not 0 < len(title.strip()) <= 40
+            or not isinstance(text, str)
+            or not 0 < len(text.strip()) <= 3000
+            or (media and not media.startswith("https://"))
+            or (link and not link.startswith("https://"))
+            or guide.get("media_type", "photo") not in {"photo", "video", "", None}
+        ):
+            raise SettingError("connection_guides_invalid")
+
+
 def _check_auto_replies(value: list[Any]) -> None:
     if len(value) > MAX_AUTO_REPLIES:
         raise SettingError("auto_replies_invalid")
@@ -366,11 +416,46 @@ def _check(key: str, value: Any) -> None:
     """Values a type alone cannot rule out."""
     if value is None:
         return
+    if key == "bulk_buy_tiers" and not all(
+        isinstance(tier, dict)
+        and isinstance(tier.get("min"), int)
+        and isinstance(tier.get("percent"), int)
+        and 2 <= tier["min"] <= 1000
+        and 1 <= tier["percent"] <= 90
+        for tier in value
+    ):
+        raise SettingError("bulk_buy_tiers_invalid")
+    if key == "catalog_discount_percent" and not 0 <= value <= 90:
+        raise SettingError("catalog_discount_percent_invalid")
+    if key == "catalog_discount_until" and value:
+        from datetime import datetime
+
+        try:
+            datetime.fromisoformat(str(value))
+        except ValueError:
+            raise SettingError("catalog_discount_until_invalid") from None
+    if key == "catalog_discount_category_ids" and not all(isinstance(v, int) for v in value):
+        raise SettingError("catalog_discount_category_ids_invalid")
     if key == "wallet_topup_presets" and (
         len(value) > 8
         or not all(isinstance(v, int) and not isinstance(v, bool) and 0 < v <= 10**10 for v in value)
     ):
         raise SettingError("wallet_topup_presets_invalid")
+    if key == "extra_packages" and (
+        len(value) > 12
+        or not all(
+            isinstance(p, dict)
+            and p.get("unit") in {"gb", "days"}
+            and isinstance(p.get("amount"), int)
+            and isinstance(p.get("price"), int)
+            and 0 < p["amount"] <= 100_000
+            and 0 <= p["price"] <= 10**10
+            for p in value
+        )
+    ):
+        raise SettingError("extra_packages_invalid")
+    if key == "connection_guides":
+        _check_guides(value)
     if key == "auto_replies":
         _check_auto_replies(value)
     if key in {"terms_when", "phone_when"} and value not in {"entry", "purchase"}:

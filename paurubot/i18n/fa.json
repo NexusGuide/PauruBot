@@ -1172,5 +1172,12 @@
   "order_state_refunded": "برگشت داده شد",
   "btn_lookup": "🔎 استعلام اشتراک",
   "lookup_ask": "لینک اشتراک را بفرست تا وضعیت، حجم و اعتبارش را ببینی.",
-  "lookup_not_found": "اشتراکی با این لینک پیدا نشد. دوباره بفرست یا انصراف بزن."
+  "lookup_not_found": "اشتراکی با این لینک پیدا نشد. دوباره بفرست یا انصراف بزن.",
+  "panel_alert_capacity": "⚠️ پنل «{panel}» به {percent}٪ ظرفیتش رسیده است؛ برای فروش بیشتر ظرفیت را بالا ببرید یا پنل تازه اضافه کنید.",
+  "reseller_daily_report": "📊 گزارش روزانهٔ نمایندگی · {date}\n\n🛒 خرید شما: {orders} سفارش · {spent} تومان\n💰 موجودی کیف پول: {balance} تومان\n🤖 فروش ربات شما: {bot_orders} سفارش · {bot_revenue} تومان",
+  "guides_choose": "📚 دستگاهت را انتخاب کن تا آموزش اتصالش را بفرستم:",
+  "guide_open_link": "⬇️ دریافت برنامه",
+  "btn_guides": "📚 آموزش اتصال",
+  "extra_gb_package": "🎁 بسته {value} گیگ · {price} تومان",
+  "extra_days_package": "🎁 بسته {value} روز · {price} تومان"
 }

@@ -74,6 +74,8 @@ class Customer(Base, TimestampMixin):
     terms_accepted_version: Mapped[int | None] = mapped_column(Integer)
     # The version of the separate reseller purchase terms this customer accepted (settings › terms).
     reseller_terms_version: Mapped[int | None] = mapped_column(Integer)
+    # A staff test account (ClockBot's demo customers): left out of the sales reports.
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     referrer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"))
     referral_rewarded: Mapped[bool] = mapped_column(Boolean, default=False)
     # When this customer's first qualifying purchase counted as an invite for their referrer's

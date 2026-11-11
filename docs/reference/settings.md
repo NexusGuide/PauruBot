@@ -56,6 +56,9 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `referral_config_panel_id` | int | — | Free config panel. Used when the source is “Custom size and days”: the config is made on this panel |
 | `start_gift_amount` | int | 0 | Welcome gift for new customers (Toman). Added to the wallet once, on first /start. 0 turns it off; keep it small |
 | `start_gift_referred_only` | bool | true | Welcome gift only for invited customers |
+| `catalog_discount_percent` | int | 0 | Time-limited shop discount (%). On plan prices for customers; resellers keep their own prices. 0 is off |
+| `catalog_discount_until` | str | "" | Discount ends. Empty: until you turn it off |
+| `catalog_discount_category_ids` | list | [] | Only these categories |
 | `loyalty_enabled` | bool | false | Loyalty levels. Customers who spend more get a standing discount. Resellers keep their own discount |
 | `loyalty_tiers` | list | [] | Levels. Total spent on completed orders to reach each level, and its discount (up to 50%) |
 | `wheel_enabled` | bool | false | Lucky wheel. A Lucky wheel button in the bot gives a spin with a prize from the list below |
@@ -147,6 +150,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `buy_banner_file_id` | str | "" | — |
 | `menu_mode` | str | "reply" | — |
 | `menu_cleanup` | bool | true | Keep only the latest menu in the chat. When the bot sends the home menu again it deletes the previous one in that chat, so stale buttons do not pile up. Other messages (orders, payments, configs) are left alone |
+| `connection_guides` | list | [] | — |
 | `help_items` | list | [] | — |
 | `download_apps` | list | [] | — |
 | `app_cache_chat_id` | int | — | — |
@@ -208,6 +212,9 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `trongrid_api_key` | str (secret) | — | TronGrid key. Optional; from trongrid.io for higher limits |
 | `toncenter_api_key` | str (secret) | — | Toncenter key |
 | `fx_source` | str | "nobitex" | Exchange rate source. Nobitex refreshes every 5 minutes; the manual rate is used when it is unavailable |
+| `fx_api_url` | str | "" | Rate API URL. https; {symbol} becomes usdt, trx or ton |
+| `fx_api_path` | str | "" | Path to the number in JSON. E.g. data.price or result.{symbol} |
+| `fx_api_divisor` | int | 1 | Rate divisor. 10 when the API gives Rial |
 | `usdt_rate` | int | 0 | Manual USDT rate (Toman) |
 | `trx_rate` | int | 0 | Manual TRX rate (Toman) |
 | `ton_rate` | int | 0 | Manual TON rate (Toman) |
@@ -220,6 +227,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `renew_resets_usage` | bool | true | Renewal resets usage. When off, leftover data carries over |
 | `renew_mode` | str | "" | When renewing. extend_reset, extend_carry, restart_reset or restart_carry; empty follows "Renewal resets usage". A plan can choose its own |
 | `warn_remaining_percent` | int | 10 | Low data warning (% left) |
+| `capacity_warn_percent` | int | 0 | Panel capacity warning (%). Staff hear once when a panel's services reach this share of its capacity. 0 is off |
 | `alerts_quiet_start` | int | — | Reminders quiet from. Hour 0–23, server time. Data and expiry alerts due in this window go out in the morning. Empty is off |
 | `first_use_nudge_hours` | int | 0 | First-connection reminder (hours after purchase). If the service has no use at all by then, the customer is reminded of the connection guide once. 0 is off |
 | `alerts_quiet_end` | int | — | Reminders quiet until. E.g. 0 to 8: alerts due at midnight go out at 8:00 |
@@ -227,6 +235,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `delete_expired_after_days` | int | 7 | Delete expired after (days). 0 means never |
 | `usage_sync_minutes` | int | 10 | Usage sync interval (minutes) |
 | `extras_enabled` | bool | true | Sell extra data and days |
+| `extra_packages` | list | [] | Ready-made data and time packages. Fixed-price packages shown beside buying any amount |
 | `extra_gb_price` | int | 3000 | Price per extra GB |
 | `extra_day_price` | int | 2000 | Price per extra day |
 | `extra_gb_min` | int | 0 | Least extra GB in one order (0: no bound) |
@@ -246,12 +255,16 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `max_active_services` | int | 0 | Most active services per customer. Active services plus orders on their way. 0 is no cap; resellers have their own |
 | `service_import_enabled` | bool | false | Add a previous service. A button in My services lets a customer add a service they have on these panels by its subscription link or username |
 | `service_import_auto` | bool | true | Approve at once when the panel note has their Telegram id. Otherwise the request waits for staff on the Services page |
+| `service_import_panel_ids` | list | [] | Panels a previous service may come from |
 | `max_daily_purchases` | int | 0 | Most purchases per customer in 24 hours. 0 is no cap. Renewals don't count |
 | `info_card_enabled` | bool | true | Service info card. A Card button on each service sends a picture with usage, days left, end date and the QR. After a purchase the card is sent instead of the bare QR |
 | `info_card_theme` | str | "midnight" | Card colours. The colour set used for every service card |
 | `info_card_qr` | bool | true | QR on the card. Turn off if customers share cards publicly and the link should stay private |
+| `qr_send_enabled` | bool | true | Send the QR after delivery |
+| `qr_show_link` | bool | false | Subscription link under the QR |
 | `username_method` | str | "telegram_id" | Default username style |
 | `username_prefix` | str | "" | Default prefix |
+| `username_suffix` | str | "" | Fixed username suffix. Added after every new panel username (up to 8 letters). Empty is none |
 | `custom_username_enabled` | bool | false | Customers choose the username. When buying in the bot, the customer types the service name or skips. If the panel already has it, a few characters are added at the end |
 
 ## Custom purchase
@@ -277,6 +290,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `bulk_buy_enabled` | bool | true | Bulk buying. A Buy several button at checkout creates many services of one plan in one payment |
 | `bulk_buy_max` | int | 20 | Most services per bulk purchase |
 | `bulk_buy_resellers_only` | bool | true | Bulk buying for resellers only |
+| `bulk_buy_tiers` | list | [] | Bulk buy quantity discounts. E.g. 10% off from 5 items. The highest tier reached counts |
 | `reseller_web_access` | bool | true | Web panel for approved resellers. On approval a reseller gets its own sign-in here (a Telegram code, no password) to sell, renew and see reports |
 | `reseller_membership_price` | int | 0 | Reseller membership price (Toman). 0 turns it off. Customers pay from the wallet and become resellers at once, without an application |
 | `reseller_membership_group_id` | int | — | Group for paid members (group ID) |
@@ -298,6 +312,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `alerts_muted` | list | [] | Admin alerts. For each event, choose whether staff chats and the report group get it. The panel's inbox always has everything |
 | `daily_report_hour` | int | 23 | Daily report hour. Tehran time, 0 to 23 |
 | `daily_report_enabled` | bool | true | Daily report. A summary of each day to the report group (reports topic) or staff chats |
+| `reseller_daily_report` | bool | false | Daily report for resellers. Each reseller gets its purchases, balance and its bot's sales every night |
 | `daily_report_sections` | list | ["summary", "money", "panels"] | Daily report parts. Each part is its own message |
 | `log_retention_days` | int | 30 | Keep logs (days) |
 
@@ -310,3 +325,5 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `backup_hour` | int | — | Hour. Server time ({timezone}) |
 | `backup_keep` | int | — | Copies to keep. Older copies are deleted |
 | `backup_send_telegram` | bool | — | Send to Telegram. To the Backups channel under Channels, or to the owner when none is set |
+| `backup_bot_token` | str (secret) | — | Backup bot token |
+| `backup_chat_ids` | list | [] | Backup bot chats |

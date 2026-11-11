@@ -1172,5 +1172,12 @@
   "order_state_refunded": "Refunded",
   "btn_lookup": "🔎 Look up a subscription",
   "lookup_ask": "Send the subscription link to see its status, data and expiry.",
-  "lookup_not_found": "No subscription with that link was found. Send it again or cancel."
+  "lookup_not_found": "No subscription with that link was found. Send it again or cancel.",
+  "panel_alert_capacity": "⚠️ Panel “{panel}” has reached {percent}% of its capacity; raise the capacity or add a panel to keep selling.",
+  "reseller_daily_report": "📊 Your daily reseller report · {date}\n\n🛒 Your purchases: {orders} orders · {spent}\n💰 Wallet balance: {balance}\n🤖 Your bot's sales: {bot_orders} orders · {bot_revenue}",
+  "guides_choose": "📚 Pick your device for its connection guide:",
+  "guide_open_link": "⬇️ Get the app",
+  "btn_guides": "📚 Connection guide",
+  "extra_gb_package": "🎁 {value} GB package · {price}",
+  "extra_days_package": "🎁 {value}-day package · {price}"
 }

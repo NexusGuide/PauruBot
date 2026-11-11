@@ -72,11 +72,89 @@ async def refresh() -> dict[str, int]:
     return rates
 
 
+def pick(data: Any, path: str) -> float | None:
+    """The number at a dotted path in JSON (`data.prices.0.usdt`); None when it isn't one."""
+    node = data
+    for part in [p for p in path.split(".") if p]:
+        if isinstance(node, list) and part.isdigit() and int(part) < len(node):
+            node = node[int(part)]
+        elif isinstance(node, dict) and part in node:
+            node = node[part]
+        else:
+            return None
+    if isinstance(node, bool):
+        return None
+    try:
+        return float(node)
+    except (TypeError, ValueError):
+        return None
+
+
+def api_key(cfg: dict[str, Any]) -> str:
+    import hashlib
+
+    raw = f"{cfg.get('fx_api_url')}|{cfg.get('fx_api_path')}|{cfg.get('fx_api_divisor')}"
+    return f"fx:api:{hashlib.sha256(raw.encode()).hexdigest()[:24]}"
+
+
+async def fetch_api(cfg: dict[str, Any], transport: httpx.AsyncBaseTransport | None = None) -> dict[str, int]:
+    """Toman per coin from the shop's own JSON API (ClockBot parity): `{symbol}` in the URL or
+    path is each coin; the number found is divided by the divisor (10 for a Rial price)."""
+    import ssl
+
+    from paurubot.security.http import ValidatedTransport
+
+    template = str(cfg.get("fx_api_url") or "")
+    path = str(cfg.get("fx_api_path") or "")
+    divisor = max(1, int(cfg.get("fx_api_divisor") or 1))
+    if not template.startswith("https://") or not path:
+        return {}
+    rates: dict[str, int] = {}
+    for symbol in SYMBOLS:
+        url = template.replace("{symbol}", symbol)
+        client_transport = transport or ValidatedTransport(
+            url, context=ssl.create_default_context(), allow_private=False
+        )
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(10, connect=5), transport=client_transport, follow_redirects=False
+        ) as client:
+            try:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                value = pick(resp.json(), path.replace("{symbol}", symbol))
+            except (httpx.HTTPError, ValueError):
+                continue
+        if value and value > 0:
+            rates[symbol] = int(value // divisor)
+    return rates
+
+
+async def cached_api(cfg: dict[str, Any]) -> dict[str, int]:
+    raw = await kv.get_redis().get(api_key(cfg))
+    if not raw:
+        return {}
+    data = json.loads(raw)
+    if time.time() - float(data.get("at") or 0) > MAX_AGE:
+        return {}
+    return {k: int(v) for k, v in (data.get("rates") or {}).items()}
+
+
+async def refresh_api(cfg: dict[str, Any]) -> dict[str, int]:
+    rates = await fetch_api(cfg)
+    if rates:
+        await kv.get_redis().set(
+            api_key(cfg), json.dumps({"rates": rates, "at": time.time()}), ex=MAX_AGE * 2
+        )
+    return rates
+
+
 async def rate(cfg: dict[str, Any], symbol: str) -> int:
     """Toman per coin for a shop, including its markup. Raises RateUnavailable."""
     value = 0
     if cfg.get("fx_source") == "nobitex":
         value = (await cached()).get(symbol, 0)
+    elif cfg.get("fx_source") == "api":
+        value = (await cached_api(cfg)).get(symbol, 0)
     if not value:
         value = int(cfg.get(f"{symbol}_rate") or 0)
     if value <= 0:

@@ -199,7 +199,9 @@ def _check_crypto(values: dict[str, Any]) -> None:
         address = values.get(key)
         if address and not valid_address(network, str(address).strip()):
             raise HTTPException(status_code=422, detail=f"{key}_invalid")
-    if values.get("fx_source") not in (None, "nobitex", "manual"):
+    if values.get("fx_api_url") and not str(values["fx_api_url"]).startswith("https://"):
+        raise HTTPException(status_code=422, detail="fx_api_url_invalid")
+    if values.get("fx_source") not in (None, "nobitex", "manual", "api"):
         raise HTTPException(status_code=422, detail="fx_source_invalid")
 
 
@@ -918,11 +920,14 @@ def _range(start: date | None, end: date | None) -> tuple[datetime, datetime, da
 
 async def _sales(db: DB, ctx: StaffContext, lo: datetime, hi: datetime) -> dict[str, Any]:
     scope = await reseller_scope(db, ctx)
+    from paurubot.core.reports import real_buyer
+
     base = [
         Order.shop_id == ctx.shop_id,
         Order.status.in_(SOLD),
         Order.completed_at >= lo,
         Order.completed_at < hi,
+        real_buyer(),
     ]
     if scope is not None:
         base.append(Order.customer_id.in_(scope))
@@ -1190,6 +1195,89 @@ async def start_backup(ctx: Backups, db: DB) -> dict[str, Any]:
     return {"queued": job_id is not None}
 
 
+@router.post("/backups/{name}/verify")
+async def verify_backup(name: str, ctx: Backups, db: DB) -> dict[str, Any]:
+    """Check that an archive opens and its database dump is whole (ClockBot's «verify last»)."""
+    from paurubot.config import get_settings
+    from paurubot.ops import backup
+
+    try:
+        path = backup.resolve(name)
+        result = await backup.verify(
+            path, passphrase=get_settings().backup_passphrase.get_secret_value() or None
+        )
+    except (backup.BackupError, OSError, RuntimeError, ValueError) as exc:
+        await record(
+            db,
+            shop_id=ctx.shop_id,
+            actor=ctx.actor,
+            action="backup.verify_failed",
+            entity="backup",
+            after={"name": name},
+        )
+        raise HTTPException(status_code=422, detail="backup_verify_failed") from exc
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="backup.verified",
+        entity="backup",
+        after={"name": name},
+    )
+    return {
+        "ok": True,
+        "objects": int(result.get("objects") or 0),
+        "master_key_included": bool(result.get("master_key_included")),
+    }
+
+
+class BackupBotBody(BaseModel):
+    bot_token: str | None = Field(default=None, max_length=128)  # None keeps the saved one; "" clears it
+    chat_ids: list[int] = Field(default_factory=list, max_length=10)
+
+
+@router.get("/backups/telegram")
+async def backup_bot_state(ctx: Backups, db: DB) -> dict[str, Any]:
+    """Whether a separate backup bot is set (never its token) and its chats."""
+    from paurubot.core.shops import require_root_shop
+
+    shop = await require_root_shop(db)
+    if ctx.shop_id != shop.id:
+        raise HTTPException(status_code=403, detail="backup_root_only")
+    cfg = await shop_settings.load(db, shop.id, fresh=True)
+    return {"bot": bool(cfg.get("backup_bot_token")), "chat_ids": list(cfg.get("backup_chat_ids") or [])}
+
+
+@router.put("/backups/telegram")
+async def backup_bot(body: BackupBotBody, ctx: Backups, db: DB) -> dict[str, Any]:
+    """Send backups with a separate bot to chosen chats (ClockBot parity)."""
+    import re
+
+    from paurubot.core.shops import require_root_shop
+
+    shop = await require_root_shop(db)
+    if ctx.shop_id != shop.id:
+        raise HTTPException(status_code=403, detail="backup_root_only")
+    values: dict[str, Any] = {"backup_chat_ids": body.chat_ids}
+    if body.bot_token is not None:
+        token = body.bot_token.strip()
+        if token and not re.fullmatch(r"\d{5,15}:[A-Za-z0-9_-]{30,64}", token):
+            raise HTTPException(status_code=422, detail="bot_token_invalid")
+        values["backup_bot_token"] = token
+    await shop_settings.set_many(db, shop.id, values)
+    await record(
+        db,
+        shop_id=shop.id,
+        actor=ctx.actor,
+        action="backup.telegram",
+        entity="backup",
+        after={"chat_ids": body.chat_ids},
+    )
+    await db.commit()
+    cfg = await shop_settings.load(db, shop.id, fresh=True)
+    return {"bot": bool(cfg.get("backup_bot_token")), "chat_ids": list(cfg.get("backup_chat_ids") or [])}
+
+
 @router.get("/backups/{name}")
 async def download_backup(name: str, ctx: Backups, db: DB) -> Response:
     from fastapi.responses import FileResponse
@@ -1394,3 +1482,107 @@ async def migration_last(ctx: Owner) -> dict[str, Any]:
 
     raw = await kv.get_redis().get(f"migration:{ctx.shop_id}:last")
     return {"report": _json.loads(raw) if raw else None}
+
+
+# ---------------------------------------------------------------- settings export / import (ClockBot parity)
+
+EXPORT_FORMAT = "paurubot-settings"
+# Server-wide, per-bot or credential settings never travel in a file.
+_NOT_EXPORTED_GROUPS = {"backups", "own", "resale"}
+
+
+def _portable(key: str) -> bool:
+    spec = shop_settings.SPECS.get(key)
+    return (
+        spec is not None
+        and not spec.secret
+        and spec.group not in _NOT_EXPORTED_GROUPS
+        and not key.startswith("tonpay_custom_")
+        and key != "trial_generation"
+    )
+
+
+@router.get("/settings/export")
+async def export_settings(
+    ctx: Annotated[StaffContext, Depends(require("settings.write"))], db: DB
+) -> dict[str, Any]:
+    """The shop's settings and edited bot texts as one file, without any secret."""
+    cfg = await shop_settings.load(db, ctx.shop_id, fresh=True)
+    texts = await db.scalars(
+        select(BotText).where(BotText.shop_id == ctx.shop_id).order_by(BotText.key, BotText.locale)
+    )
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="settings.export",
+        entity="shop",
+        entity_id=ctx.shop_id,
+    )
+    return {
+        "format": EXPORT_FORMAT,
+        "version": 1,
+        "settings": {key: cfg[key] for key in sorted(cfg) if _portable(key)},
+        "texts": [{"locale": row.locale, "key": row.key, "value": row.value} for row in texts],
+    }
+
+
+class ImportedText(BaseModel):
+    locale: str = Field(max_length=8)
+    key: str = Field(max_length=64)
+    value: str = Field(max_length=4096)
+
+
+class SettingsFile(BaseModel):
+    format: str
+    version: int = 1
+    settings: dict[str, Any] = Field(default_factory=dict)
+    texts: list[ImportedText] = Field(default_factory=list, max_length=5000)
+
+
+@router.post("/settings/import")
+async def import_settings(
+    body: SettingsFile, ctx: Annotated[StaffContext, Depends(require("settings.write"))], db: DB
+) -> dict[str, int]:
+    """Apply a settings file: the same checks as saving each setting; secrets and unknown keys are
+    skipped, and texts are imported only with the right to edit them."""
+    if body.format != EXPORT_FORMAT:
+        raise HTTPException(status_code=422, detail="settings_file_invalid")
+    if body.texts and not ctx.can("texts.write"):  # checked first: nothing is written half way
+        raise HTTPException(status_code=403, detail="forbidden")
+    values = {key: value for key, value in body.settings.items() if _portable(key)}
+    skipped = len(body.settings) - len(values)
+    if values:
+        await write_settings(SettingsBody(values=values), ctx, db)
+    imported_texts = 0
+    if body.texts:
+        for item in body.texts:
+            if item.locale not in i18n.LOCALES or item.key not in i18n.catalog(i18n.DEFAULT_LOCALE):
+                skipped += 1
+                continue
+            if i18n.validate_override(item.key, item.value):
+                skipped += 1
+                continue
+            row = await db.scalar(
+                select(BotText).where(
+                    BotText.shop_id == ctx.shop_id, BotText.locale == item.locale, BotText.key == item.key
+                )
+            )
+            if row is None:
+                db.add(BotText(shop_id=ctx.shop_id, locale=item.locale, key=item.key, value=item.value))
+            else:
+                row.value = item.value
+            imported_texts += 1
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="settings.import",
+        entity="shop",
+        entity_id=ctx.shop_id,
+        after={"settings": len(values), "texts": imported_texts, "skipped": skipped},
+    )
+    await db.commit()
+    if imported_texts:
+        i18n.invalidate(ctx.shop_id)
+    return {"settings": len(values), "texts": imported_texts, "skipped": skipped}

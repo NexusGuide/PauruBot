@@ -25,6 +25,7 @@ from paurubot.api.confirmations import ConfirmFields, challenge, guard
 from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record, snapshot
 from paurubot.core import confirm, customers, sub_links
+from paurubot.core import orders as orders_core
 from paurubot.db.models import (
     Customer,
     Order,
@@ -64,6 +65,7 @@ CUSTOMER_FIELDS = [
     "last_seen_at",
     "blocked_bot_at",
     "referrer_id",
+    "is_test",
 ]
 SERVICE_FIELDS = [
     "id",
@@ -203,9 +205,10 @@ class CustomerPatch(BaseModel):
     risk: Literal["none", "low", "medium", "high"] | None = None
     card_trust: Literal["normal", "trusted", "blocked"] | None = None
     hidden_panel_ids: list[int] | None = Field(default=None, max_length=200)
+    is_test: bool | None = None
 
 
-PATCHED = ["note", "tags", "locale", "color", "risk", "card_trust", "hidden_panel_ids"]
+PATCHED = ["note", "tags", "locale", "color", "risk", "card_trust", "hidden_panel_ids", "is_test"]
 
 
 @router.patch("/customers/{customer_id}")
@@ -980,3 +983,119 @@ async def trial_users(
             for c, trial_at, was_buyer in rows
         ],
     }
+
+
+# --- quick renew (ClockBot parity) -------------------------------------------------------
+
+
+class QuickRenewBody(BaseModel):
+    service_id: int | None = None
+
+
+@router.post("/customers/{customer_id}/quick-renew")
+async def quick_renew(
+    customer_id: int,
+    body: QuickRenewBody,
+    ctx: Annotated[StaffContext, Depends(require("services.create"))],
+    db: DB,
+) -> dict[str, Any]:
+    """Renew the customer's most urgent service (or the one named) with its own plan, free, as a
+    staff gift: the same renewal the customer would buy, paid by the shop."""
+    from paurubot.db.base import utcnow
+    from paurubot.db.models import Order, OrderKind, OrderStatus, Plan
+
+    if ctx.scoped:
+        raise HTTPException(status_code=403, detail="forbidden")
+    customer = await owned(db, Customer, customer_id, ctx)
+    live = [ServiceStatus.ACTIVE, ServiceStatus.ON_HOLD, ServiceStatus.LIMITED, ServiceStatus.EXPIRED]
+    stmt = select(Service).where(
+        Service.customer_id == customer.id,
+        Service.status.in_(live),
+        Service.is_trial.is_(False),
+        Service.plan_id.is_not(None),
+    )
+    if body.service_id is not None:
+        stmt = stmt.where(Service.id == body.service_id)
+    services = list(await db.scalars(stmt))
+    if not services:
+        raise HTTPException(status_code=404, detail="no_service_to_renew")
+    far = utcnow().replace(year=9999)
+    service = min(services, key=lambda s: (s.expire_at or far, -s.id))
+    pending = await db.scalar(
+        select(Order.id).where(
+            Order.service_id == service.id,
+            Order.kind == OrderKind.RENEW,
+            Order.status.in_([OrderStatus.PAID, OrderStatus.PROVISIONING]),
+        )
+    )
+    if pending is not None:  # a second press must not give a second free renewal
+        raise HTTPException(status_code=409, detail="renew_in_progress")
+    plan = await db.get(Plan, service.plan_id)
+    if plan is None or not plan.renewable:
+        raise HTTPException(status_code=422, detail="plan_unavailable")
+    draft = await orders_core.draft(db, customer, OrderKind.RENEW, plan=plan, service=service)
+    order = Order(
+        shop_id=customer.shop_id,
+        customer_id=customer.id,
+        kind=OrderKind.RENEW,
+        status=OrderStatus.PAID,
+        plan_id=plan.id,
+        service_id=service.id,
+        params={**draft.params, "staff_renew": f"staff:{ctx.staff.id}"},
+        base_price=0,
+        amount=0,
+        paid_at=utcnow(),
+        source="staff",
+    )
+    db.add(order)
+    await db.flush()
+    await queue.enqueue(
+        db,
+        "provision",
+        "order",
+        {"order_id": order.id},
+        shop_id=customer.shop_id,
+        dedupe_key=f"order:{order.id}:provision",
+    )
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="service.quick_renew",
+        entity="service",
+        entity_id=service.id,
+        after={"order_id": order.id, "plan_id": plan.id},
+    )
+    await db.commit()
+    return {"order_id": order.id, "service_id": service.id}
+
+
+@router.get("/customers/{customer_id}/photo")
+async def customer_photo(
+    customer_id: int, ctx: Annotated[StaffContext, Depends(require("customers.read"))], db: DB
+) -> Any:
+    """The customer's Telegram profile picture, through the shop's bot (ClockBot parity)."""
+    import io
+
+    from fastapi.responses import Response
+
+    from paurubot.notifications import telegram
+
+    customer = await owned(db, Customer, customer_id, ctx)
+    bot = await telegram.bot_for(customer.shop_id)
+    if bot is None or customer.telegram_id <= 0:
+        raise HTTPException(status_code=404, detail="not_found")
+    try:
+        photos = await bot.get_user_profile_photos(customer.telegram_id, limit=1)
+        if not photos.photos:
+            raise HTTPException(status_code=404, detail="not_found")
+        largest = photos.photos[0][-1]
+        buffer = io.BytesIO()
+        await bot.download(largest.file_id, destination=buffer)
+    except HTTPException:
+        raise
+    except Exception as exc:  # the customer hid it, or Telegram is unreachable
+        raise HTTPException(status_code=404, detail="not_found") from exc
+    return Response(
+        buffer.getvalue(), media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"}
+    )
