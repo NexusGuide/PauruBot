@@ -3,6 +3,7 @@ import test from 'node:test';
 process.env.TZ='UTC';
 const load=async name=>import(new URL(`../src/admin/broadcasts/${name}.ts`,import.meta.url));
 const {parseRow,parsePage,parseReachable,emptyDraft,codepoints,validUrl,scheduledIso,buildBody,actions,audienceKey,AUDIENCE_KINDS,audiencePreviewPath,previewReady,submitPath}=await load('model');
+const model=await load('model');
 const now=Date.parse('2026-10-14T00:00:00Z');
 const row=()=>({id:1,text:'<script>x</script>',audience:{},status:'queued',total:0,sent:0,failed:0,blocked:0,deleted:0,skipped:0,scheduled_at:null,created_at:'2026-10-14T00:00:00Z',finished_at:null});
 const draft=()=>({...emptyDraft(),text:'Hello 😀'});
@@ -49,3 +50,21 @@ for(const [path,loading,error,data] of [['b',false,false,8],['a',true,false,8],[
 for(const lang of ['fa','en'])test(`targeted copy ${lang}`,()=>{for(const k of [...AUDIENCE_KINDS,'unknownAudience','selectedEstimate','previewHint','previewUnavailable','skipped','skippedHint'])assert(translator(lang)(k).length>2)});
 
 for(const flags of [{resellers_only:'false'},{buyers_only:1}])test('malformed legacy flags do not imply all '+JSON.stringify(flags),()=>assert.equal(audienceKey(flags),'unknownAudience'));
+test('foxima parity: panel and idle audiences, pin and section buttons only when used',()=>{
+  const {ALL_KINDS,BUTTON_ACTIONS}=model;
+  assert(ALL_KINDS.includes('panel')&&ALL_KINDS.includes('idle'));
+  const plain=buildBody(draft(),now);assert(!('panel_id' in plain)&&!('idle_days' in plain)&&!('pin' in plain));
+  assert.equal(buildBody({...draft(),audience:'panel',panelId:3},now).panel_id,3);
+  assert.throws(()=>buildBody({...draft(),audience:'panel',panelId:null},now),/audience/);
+  assert.equal(buildBody({...draft(),audience:'idle',idleDays:30},now).idle_days,30);
+  for(const idleDays of [0,366,1.5,null])assert.throws(()=>buildBody({...draft(),audience:'idle',idleDays},now),/audience/);
+  const pinned=buildBody({...draft(),pin:true,pinHours:24},now);assert.equal(pinned.pin,true);assert.equal(pinned.pin_hours,24);
+  assert.throws(()=>buildBody({...draft(),pin:true,pinHours:5},now),/audience/);
+  const b=buildBody({...draft(),buttons:[{text:' Buy ',url:'',action:'buy'},{text:'Site',url:'https://x.com'}]},now);
+  assert.deepEqual(b.buttons,[{text:'Buy',action:'buy'},{text:'Site',url:'https://x.com'}]);
+  assert.throws(()=>buildBody({...draft(),buttons:[{text:'x',url:'',action:'admin'}]},now),/buttons/);
+  assert(BUTTON_ACTIONS.every(a=>translator('fa')(`act_${a}`).length>2&&translator('en')(`act_${a}`).length>2));
+  const u=new URL(audiencePreviewPath({audience:'panel',locale:'',panelId:3}),'https://t');assert.equal(u.searchParams.get('panel_id'),'3');
+  assert.equal(new URL(audiencePreviewPath({audience:'idle',locale:'',idleDays:30}),'https://t').searchParams.get('idle_days'),'30');
+  for(const k of ['panel','idle'])assert.equal(audienceKey({kind:k}),k);
+});

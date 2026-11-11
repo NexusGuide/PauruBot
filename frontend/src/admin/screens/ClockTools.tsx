@@ -6,7 +6,7 @@ import { digits } from "@shared/format";
 import { call } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
-import { Async, Badge, Button, Field, Input, NumberInput, Page, Section, Sheet, Table, Textarea, When, useConfirm } from "../ui";
+import { Async, Badge, Button, Checkbox, Field, Input, NumberInput, Page, Section, Sheet, Table, Textarea, When, useConfirm } from "../ui";
 
 export const TELEGRAM_ID_MIN = 10_000;
 
@@ -70,12 +70,13 @@ export function BulkMessageButton({ ids, onDone }: { ids: number[]; onDone: () =
   const { t, can, toast, errorText } = useSession();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
+  const [reply, setReply] = useState(false); // Foxima parity: a reply button under the message
   const [busy, run] = useAction();
   if (!can("customers.write") || ids.length === 0) return null;
   const send = async () => {
     try {
       const done = await run(() =>
-        call<{ queued: number }>("/api/admin/customers/bulk", { method: "POST", body: { action: "message", ids, text } }),
+        call<{ queued: number }>("/api/admin/customers/bulk", { method: "POST", body: { action: "message", ids, text, reply } }),
       );
       toast(t("cb_message_queued", { n: done?.queued ?? 0 }));
       setOpen(false);
@@ -103,6 +104,10 @@ export function BulkMessageButton({ ids, onDone }: { ids: number[]; onDone: () =
         <Field label={t("cb_message_text")} hint={t("cb_message_hint")}>
           {(id) => <Textarea id={id} rows={5} maxLength={3500} value={text} onChange={(e) => setText(e.target.value)} />}
         </Field>
+        <label className="mt-3 flex items-center gap-2 text-[0.88rem]">
+          <Checkbox label={t("cb_message_reply")} checked={reply} onChange={setReply} />
+          {t("cb_message_reply")}
+        </label>
       </Sheet>
     </>
   );

@@ -377,6 +377,17 @@ async def accept_reseller_terms(
         await home(call.message, t, cfg, staff)
 
 
+@router.callback_query(Nav.filter(F.to == "home"))
+async def open_home(
+    call: CallbackQuery, t: Texts, cfg: dict[str, Any], staff: StaffIdentity | None, state: FSMContext
+) -> None:
+    """A broadcast's "main menu" button (Foxima parity): the home menu, as /start shows it."""
+    await call.answer()
+    if isinstance(call.message, Message) and call.message.chat.type == "private":
+        await state.clear()
+        await home(call.message, t, cfg, staff)
+
+
 @router.callback_query(Nav.filter(F.to == "noop"))
 async def noop(call: CallbackQuery) -> None:
     await call.answer()

@@ -2324,5 +2324,6 @@
   "err_renew_in_progress": "A renewal for this service is already under way.",
   "setting_backup_bot_token": "Backup bot token",
   "setting_backup_chat_ids": "Backup bot chats",
-  "col_kind": "Kind"
+  "col_kind": "Kind",
+  "cb_message_reply": "Let the customer answer with a «Reply to support» button"
 }

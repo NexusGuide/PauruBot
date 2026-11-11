@@ -2324,5 +2324,6 @@
   "err_renew_in_progress": "یک تمدید برای این سرویس در جریان است.",
   "setting_backup_bot_token": "توکن ربات بکاپ",
   "setting_backup_chat_ids": "چت‌های ربات بکاپ",
-  "col_kind": "نوع"
+  "col_kind": "نوع",
+  "cb_message_reply": "مشتری بتواند با دکمهٔ «پاسخ به پشتیبانی» جواب بدهد"
 }
