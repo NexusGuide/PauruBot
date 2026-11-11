@@ -1873,9 +1873,9 @@ function TopCustomers({ range }: { range: { start: string; end: string } }) {
                 render: (r) => (
                   <span className="flex items-center gap-2">
                     {can("customers.read") && !r.is_reseller ? (
-                      <Link className="font-semibold text-firouzeh-700" to={`/customers/${r.customer_id}`}>{r.customer}</Link>
+                      <Link className="font-semibold text-firouzeh-700" to={`/customers/${r.customer_id}`}><bdi>{r.customer}</bdi></Link>
                     ) : (
-                      <span className="font-semibold">{r.customer}</span>
+                      <bdi className="font-semibold">{r.customer}</bdi>
                     )}
                     {r.is_reseller && <Badge tone="brand">{t("reseller")}</Badge>}
                   </span>
