@@ -12,9 +12,9 @@ import {
   CopyText,
   Empty,
   Field,
-  FormCard,
   Icon,
   Input,
+  MoreSettings,
   NumberInput,
   Page,
   Section,
@@ -199,6 +199,21 @@ function GroupIds({ value, onChange }: { value: Record<string, unknown>; onChang
   );
 }
 
+const PANEL_KINDS: [string, string][] = [
+  ["pasarguard", "PasarGuard"],
+  ["marzban", "Marzban"],
+  ["marzneshin", "Marzneshin"],
+  ["remnawave", "Remnawave"],
+  ["rebecca", "Rebecca"],
+  ["guard", "Guard"],
+  ["hiddify", "Hiddify"],
+  ["xui", "3x-ui (Sanaei)"],
+  ["wgdashboard", "WGDashboard (WireGuard)"],
+  ["wgmate", "WG-Mate"],
+  ["mikrotik", "MikroTik User Manager"],
+  ["ibsng", "IBSng"],
+];
+
 function PanelSheet({
   panel,
   locations,
@@ -317,7 +332,6 @@ function PanelSheet({
       }
     >
       <div className="flex flex-col gap-4">
-        <FormCard title={t("panel_group_connection")}>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label={t("panel_name")}>
             {(id) => <Input id={id} value={form.name} maxLength={64} onChange={(e) => set("name", e.target.value)} />}
@@ -325,32 +339,32 @@ function PanelSheet({
           <Field label={t("panel_kind")}>
             {(id) => (
               <Select id={id} value={form.kind} onChange={(e) => set("kind", e.target.value)} disabled={Boolean(form.id)}>
-                <option value="pasarguard">PasarGuard</option>
-                <option value="marzban">Marzban</option>
-                <option value="marzneshin">Marzneshin</option>
-                <option value="remnawave">Remnawave</option>
-                <option value="rebecca">Rebecca</option>
-                <option value="guard">Guard</option>
-                <option value="hiddify">Hiddify</option>
-                <option value="xui">3x-ui (Sanaei)</option>
-                <option value="wgdashboard">WGDashboard (WireGuard)</option>
-                <option value="wgmate">WG-Mate</option>
-                <option value="mikrotik">MikroTik User Manager</option>
-                <option value="ibsng">IBSng</option>
+                {PANEL_KINDS.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
               </Select>
             )}
           </Field>
         </div>
-        <Field label={t("panel_url")} hint={t("panel_url_hint")}>
+        <Field label={t("panel_url")}>
           {(id) => (
-            <Input id={id} dir="ltr" value={form.base_url} disabled={!editingSecrets} onChange={(e) => set("base_url", e.target.value)} />
+            <Input
+              id={id}
+              dir="ltr"
+              placeholder="https://panel.example.com"
+              value={form.base_url}
+              disabled={!editingSecrets}
+              onChange={(e) => set("base_url", e.target.value)}
+            />
           )}
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label={t("panel_username")}>
             {(id) => <Input id={id} dir="ltr" autoComplete="off" value={form.username} onChange={(e) => set("username", e.target.value)} />}
           </Field>
-          <Field label={t("password")} hint={form.id ? t("secret_unchanged_hint") : undefined}>
+          <Field label={t("password")}>
             {(id) => (
               <Input
                 id={id}
@@ -366,37 +380,65 @@ function PanelSheet({
           </Field>
         </div>
         {form.kind === "hiddify" && (
-          <Field label={t("panel_sub_base")} hint={t("panel_sub_base_hint_hiddify")}>
+          <Field label={t("panel_sub_base")}>
             {(id) => (
-              <Input id={id} dir="ltr" value={String(form.options.sub_base_url ?? "")} onChange={(e) => setOption("sub_base_url", e.target.value)} />
+              <Input
+                id={id}
+                dir="ltr"
+                value={String(form.options.sub_base_url ?? "")}
+                onChange={(e) => setOption("sub_base_url", e.target.value)}
+              />
             )}
           </Field>
         )}
         {form.kind === "wgdashboard" && (
-          <Field label={t("panel_wg_configuration")} hint={t("panel_wg_configuration_hint")}>
+          <Field label={t("panel_wg_configuration")}>
             {(id) => (
-              <Input id={id} dir="ltr" value={String(form.options.configuration ?? "")} placeholder="wg0" maxLength={32} onChange={(e) => setOption("configuration", e.target.value)} />
+              <Input
+                id={id}
+                dir="ltr"
+                value={String(form.options.configuration ?? "")}
+                placeholder="wg0"
+                maxLength={32}
+                onChange={(e) => setOption("configuration", e.target.value)}
+              />
             )}
           </Field>
         )}
         {form.kind === "ibsng" && (
           <Field label={t("panel_ibsng_group")} hint={t("panel_ibsng_group_hint")}>
             {(id) => (
-              <Input id={id} dir="ltr" value={String(form.options.group ?? "")} maxLength={64} onChange={(e) => setOption("group", e.target.value)} />
+              <Input
+                id={id}
+                dir="ltr"
+                value={String(form.options.group ?? "")}
+                maxLength={64}
+                onChange={(e) => setOption("group", e.target.value)}
+              />
             )}
           </Field>
         )}
         {form.kind === "wgmate" && (
           <Field label={t("panel_wgmate_template")} hint={t("panel_wgmate_template_hint")}>
             {(id) => (
-              <Input id={id} dir="ltr" value={String(form.options.template_user ?? "")} maxLength={64} onChange={(e) => setOption("template_user", e.target.value)} />
+              <Input
+                id={id}
+                dir="ltr"
+                value={String(form.options.template_user ?? "")}
+                maxLength={64}
+                onChange={(e) => setOption("template_user", e.target.value)}
+              />
             )}
           </Field>
         )}
         {form.kind === "guard" && (
           <Field label={t("panel_guard_version")}>
             {(id) => (
-              <Select id={id} value={String(form.options.guard_version ?? "v1")} onChange={(e) => setOption("guard_version", e.target.value)}>
+              <Select
+                id={id}
+                value={String(form.options.guard_version ?? "v1")}
+                onChange={(e) => setOption("guard_version", e.target.value)}
+              >
                 <option value="v1">v1</option>
                 <option value="v2">v2</option>
               </Select>
@@ -447,16 +489,38 @@ function PanelSheet({
             </Field>
           </>
         )}
-        {["marzban", "marzneshin", "xui", "rebecca"].includes(form.kind) && (
-          <Field label={t("panel_flow")} hint={t("panel_flow_hint")}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label={t("location")}>
             {(id) => (
-              <Select id={id} value={String(form.options.flow ?? "")} onChange={(e) => setOption("flow", e.target.value)}>
+              <Select
+                id={id}
+                value={form.location_id ?? ""}
+                onChange={(e) => set("location_id", e.target.value ? Number(e.target.value) : null)}
+              >
                 <option value="">—</option>
-                <option value="xtls-rprx-vision">xtls-rprx-vision</option>
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>
+                    {loc.title}
+                  </option>
+                ))}
               </Select>
             )}
           </Field>
-        )}
+          <Field label={t("panel_capacity")}>
+            {(id) => (
+              <NumberInput
+                id={id}
+                value={form.capacity}
+                placeholder={t("unlimited")}
+                onChange={(v) => set("capacity", v && v > 0 ? v : null)}
+                allowEmpty
+              />
+            )}
+          </Field>
+        </div>
+        <div className="rounded-2xl bg-[var(--bg)] px-4 py-2 ring-1 ring-[var(--line)]">
+          <Toggle checked={form.is_active} onChange={(v) => set("is_active", v)} label={t("panel_active")} />
+        </div>
 
         {test && (
           <div className={`rounded-2xl p-4 ${test.ok ? "bg-pista-100 text-pista-700" : "bg-anar-100 text-anar-700"}`}>
@@ -478,150 +542,141 @@ function PanelSheet({
             {test.options_error}
           </p>
         )}
-        {form.kind === "pasarguard" && (form.id || test) && (!test?.ok || !test.options?.length) && (
-          <GroupIds value={form.options} onChange={(options) => set("options", options)} />
-        )}
 
-        </FormCard>
-        <FormCard title={t("panel_group_sales")}>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label={t("location")}>
-            {(id) => (
-              <Select id={id} value={form.location_id ?? ""} onChange={(e) => set("location_id", e.target.value ? Number(e.target.value) : null)}>
-                <option value="">—</option>
-                {locations.map((loc) => (
-                  <option key={loc.id} value={loc.id}>
-                    {loc.title}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
-          <Field label={t("panel_capacity")} hint={t("panel_capacity_hint")}>
-            {(id) => <NumberInput id={id} value={form.capacity} onChange={(v) => set("capacity", v && v > 0 ? v : null)} allowEmpty />}
-          </Field>
-          <Field label={t("panel_trial_quota")} hint={t("panel_trial_quota_hint")}>
-            {(id) => (
-              <NumberInput
-                id={id}
-                value={typeof form.options.trial_daily_quota === "number" ? form.options.trial_daily_quota : null}
-                onChange={(v) => setOption("trial_daily_quota", v && v > 0 ? Math.min(v, 1_000_000) : null)}
-                allowEmpty
+        <MoreSettings>
+          {form.kind === "pasarguard" && (form.id || test) && (!test?.ok || !test.options?.length) && (
+            <GroupIds value={form.options} onChange={(options) => set("options", options)} />
+          )}
+          {["marzban", "marzneshin", "xui", "rebecca"].includes(form.kind) && (
+            <Field label={t("panel_flow")}>
+              {(id) => (
+                <Select id={id} value={String(form.options.flow ?? "")} onChange={(e) => setOption("flow", e.target.value)}>
+                  <option value="">—</option>
+                  <option value="xtls-rprx-vision">xtls-rprx-vision</option>
+                </Select>
+              )}
+            </Field>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label={t("panel_trial_quota")}>
+              {(id) => (
+                <NumberInput
+                  id={id}
+                  value={typeof form.options.trial_daily_quota === "number" ? form.options.trial_daily_quota : null}
+                  placeholder={t("unlimited")}
+                  onChange={(v) => setOption("trial_daily_quota", v && v > 0 ? Math.min(v, 1_000_000) : null)}
+                  allowEmpty
+                />
+              )}
+            </Field>
+            <Field label={t("panel_renew_mode")}>
+              {(id) => (
+                <Select
+                  id={id}
+                  value={form.options.renew_resets_usage === undefined ? "" : String(form.options.renew_resets_usage)}
+                  onChange={(e) => setOption("renew_resets_usage", e.target.value === "" ? undefined : e.target.value === "true")}
+                >
+                  <option value="">{t("panel_renew_mode_default")}</option>
+                  <option value="true">{t("panel_renew_mode_reset")}</option>
+                  <option value="false">{t("panel_renew_mode_add")}</option>
+                </Select>
+              )}
+            </Field>
+            <Field label={t("username_method")}>
+              {(id) => (
+                <Select id={id} value={form.username_method} onChange={(e) => set("username_method", e.target.value)}>
+                  {USERNAME_METHODS.map((method) => (
+                    <option key={method} value={method}>
+                      {t(`username_method_${method}`)}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <Field label={t("username_prefix")}>
+              {(id) => (
+                <Input
+                  id={id}
+                  dir="ltr"
+                  maxLength={16}
+                  value={form.username_prefix}
+                  onChange={(e) => set("username_prefix", e.target.value.replace(/[^A-Za-z0-9_]/g, ""))}
+                />
+              )}
+            </Field>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Toggle
+              checked={form.options.sell_extra_volume !== false}
+              onChange={(v) => setOption("sell_extra_volume", v ? undefined : false)}
+              label={t("panel_sell_extra_volume")}
+            />
+            <Toggle
+              checked={form.options.sell_extra_days !== false}
+              onChange={(v) => setOption("sell_extra_days", v ? undefined : false)}
+              label={t("panel_sell_extra_days")}
+            />
+            {owner && (
+              <Toggle
+                checked={form.allow_private_address}
+                onChange={(v) => set("allow_private_address", v)}
+                label={t("panel_private")}
+                hint={t("panel_private_hint")}
               />
             )}
-          </Field>
-          <Field label={t("username_method")}>
-            {(id) => (
-              <Select id={id} value={form.username_method} onChange={(e) => set("username_method", e.target.value)}>
-                {USERNAME_METHODS.map((method) => (
-                  <option key={method} value={method}>
-                    {t(`username_method_${method}`)}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
-          <Field label={t("username_prefix")} hint={t("username_prefix_hint")}>
-            {(id) => (
-              <Input
-                id={id}
-                dir="ltr"
-                maxLength={16}
-                value={form.username_prefix}
-                onChange={(e) => set("username_prefix", e.target.value.replace(/[^A-Za-z0-9_]/g, ""))}
-              />
-            )}
-          </Field>
-        </div>
-        <Toggle checked={form.is_active} onChange={(v) => set("is_active", v)} label={t("panel_active")} hint={t("panel_active_hint")} />
-        </FormCard>
-        <section className="flex flex-col gap-3 rounded-2xl bg-[var(--bg)] p-4 ring-1 ring-[var(--line)]">
-          <h3 className="font-bold">{t("panel_sales_title")}</h3>
-          <Toggle
-            checked={form.options.sell_extra_volume !== false}
-            onChange={(v) => setOption("sell_extra_volume", v ? undefined : false)}
-            label={t("panel_sell_extra_volume")}
-          />
-          <Toggle
-            checked={form.options.sell_extra_days !== false}
-            onChange={(v) => setOption("sell_extra_days", v ? undefined : false)}
-            label={t("panel_sell_extra_days")}
-          />
-          <Field label={t("panel_renew_mode")} hint={t("panel_renew_mode_hint")}>
-            {(id) => (
-              <Select
-                id={id}
-                value={form.options.renew_resets_usage === undefined ? "" : String(form.options.renew_resets_usage)}
-                onChange={(e) => setOption("renew_resets_usage", e.target.value === "" ? undefined : e.target.value === "true")}
-              >
-                <option value="">{t("panel_renew_mode_default")}</option>
-                <option value="true">{t("panel_renew_mode_reset")}</option>
-                <option value="false">{t("panel_renew_mode_add")}</option>
-              </Select>
-            )}
-          </Field>
-        </section>
-        {owner && (
-          <Toggle
-            checked={form.allow_private_address}
-            onChange={(v) => set("allow_private_address", v)}
-            label={t("panel_private")}
-            hint={t("panel_private_hint")}
-          />
-        )}
-
-        {form.id && owner && (
-          <section className="flex flex-col gap-3 rounded-2xl bg-[var(--bg)] p-4 ring-1 ring-[var(--line)]">
-            <h3 className="font-bold">{t("tls_title")}</h3>
-            <p className="text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("tls_hint")}</p>
-            <div className="flex flex-wrap gap-2">
-              {panel?.tls_pinned ? (
-                <>
-                  <Badge tone="health">{t("cert_pinned")}</Badge>
-                  <Button small busy={busy} onClick={() => void pin(null)}>
-                    {t("cert_unpin")}
+          </div>
+          {form.id && owner && (
+            <section className="flex flex-col gap-3">
+              <h4 className="text-[0.95rem] font-bold">{t("tls_title")}</h4>
+              <p className="text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("tls_hint")}</p>
+              <div className="flex flex-wrap gap-2">
+                {panel?.tls_pinned ? (
+                  <>
+                    <Badge tone="health">{t("cert_pinned")}</Badge>
+                    <Button small busy={busy} onClick={() => void pin(null)}>
+                      {t("cert_unpin")}
+                    </Button>
+                  </>
+                ) : (
+                  <Button small busy={busy} onClick={() => void inspect()}>
+                    {t("cert_inspect")}
                   </Button>
-                </>
+                )}
+              </div>
+              {cert && (
+                <div className="flex flex-col gap-2 rounded-xl bg-[var(--bg)] p-3">
+                  <p className="text-[0.8rem] text-[var(--hint)]">{t("cert_fingerprint")}</p>
+                  <p className="break-all font-mono text-[0.78rem]" dir="ltr">
+                    {cert.fingerprint}
+                  </p>
+                  <p className="text-[0.8rem] text-[var(--hint)]">{t("cert_compare_hint")}</p>
+                  <Button small tone="primary" busy={busy} onClick={() => void pin(cert.pem)}>
+                    {t("cert_trust")}
+                  </Button>
+                </div>
+              )}
+            </section>
+          )}
+          {form.id && owner && ["pasarguard", "marzban"].includes(form.kind) && (
+            <section className="flex flex-col gap-3">
+              <h4 className="text-[0.95rem] font-bold">{t("webhook_title")}</h4>
+              <p className="text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("webhook_hint")}</p>
+              {webhook ? (
+                <div className="flex flex-col gap-2 rounded-xl bg-saffron-100 p-3 text-saffron-700">
+                  <p className="text-[0.82rem] font-semibold">{t("webhook_shown_once")}</p>
+                  <p className="text-[0.78rem]">{t("webhook_url")}</p>
+                  <CopyText text={webhook.url} />
+                  <p className="text-[0.78rem]">{t("webhook_secret")}</p>
+                  <CopyText text={webhook.secret} />
+                </div>
               ) : (
-                <Button small busy={busy} onClick={() => void inspect()}>
-                  {t("cert_inspect")}
+                <Button small busy={busy} onClick={() => void rotateWebhook()}>
+                  {panel?.webhook_enabled ? t("webhook_rotate") : t("webhook_enable")}
                 </Button>
               )}
-            </div>
-            {cert && (
-              <div className="flex flex-col gap-2 rounded-xl bg-[var(--bg)] p-3">
-                <p className="text-[0.8rem] text-[var(--hint)]">{t("cert_fingerprint")}</p>
-                <p className="break-all font-mono text-[0.78rem]" dir="ltr">
-                  {cert.fingerprint}
-                </p>
-                <p className="text-[0.8rem] text-[var(--hint)]">{t("cert_compare_hint")}</p>
-                <Button small tone="primary" busy={busy} onClick={() => void pin(cert.pem)}>
-                  {t("cert_trust")}
-                </Button>
-              </div>
-            )}
-          </section>
-        )}
-
-        {form.id && owner && ["pasarguard", "marzban"].includes(form.kind) && (
-          <section className="flex flex-col gap-3 rounded-2xl bg-[var(--bg)] p-4 ring-1 ring-[var(--line)]">
-            <h3 className="font-bold">{t("webhook_title")}</h3>
-            <p className="text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("webhook_hint")}</p>
-            {webhook ? (
-              <div className="flex flex-col gap-2 rounded-xl bg-saffron-100 p-3 text-saffron-700">
-                <p className="text-[0.82rem] font-semibold">{t("webhook_shown_once")}</p>
-                <p className="text-[0.78rem]">{t("webhook_url")}</p>
-                <CopyText text={webhook.url} />
-                <p className="text-[0.78rem]">{t("webhook_secret")}</p>
-                <CopyText text={webhook.secret} />
-              </div>
-            ) : (
-              <Button small busy={busy} onClick={() => void rotateWebhook()}>
-                {panel?.webhook_enabled ? t("webhook_rotate") : t("webhook_enable")}
-              </Button>
-            )}
-          </section>
-        )}
+            </section>
+          )}
+        </MoreSettings>
       </div>
     </Sheet>
   );

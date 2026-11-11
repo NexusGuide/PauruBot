@@ -12,11 +12,13 @@ import {
   Field,
   Input,
   Money,
+  MoreSettings,
   NumberInput,
   Page,
   Section,
   Select,
   Sheet,
+  SubHead,
   Textarea,
   Toggle,
   useConfirm,
@@ -256,34 +258,21 @@ function PlanSheet({
       }
     >
       <div className="flex flex-col gap-4">
-        <Group title={t("plan_group_basics")}>
         <Field label={t("plan_title")}>
           {(id) => <Input id={id} value={form.title} maxLength={96} onChange={(e) => set("title", e.target.value)} />}
         </Field>
-        <Field label={t("plan_description")} hint={t("plan_description_hint")}>
-          {(id) => (
-            <Textarea id={id} value={form.description ?? ""} maxLength={1000} onChange={(e) => set("description", e.target.value || null)} />
-          )}
-        </Field>
-        <div className="grid grid-cols-3 gap-3">
-          <Field label={t("price_toman")}>{(id) => <NumberInput id={id} value={form.price} onChange={(v) => set("price", v ?? 0)} />}</Field>
-          <Field label={t("days")} hint={t("zero_unlimited")}>
-            {(id) => <NumberInput id={id} value={form.days} onChange={(v) => set("days", v ?? 0)} />}
-          </Field>
-          <Field label={t("gb")} hint={t("zero_unlimited")}>
-            {(id) => <NumberInput id={id} value={form.data_gb} onChange={(v) => set("data_gb", v ?? 0)} />}
-          </Field>
+        <div className="flex flex-col gap-1.5">
+          <div className="grid grid-cols-3 gap-3">
+            <Field label={t("price_toman")}>
+              {(id) => <NumberInput id={id} value={form.price} onChange={(v) => set("price", v ?? 0)} />}
+            </Field>
+            <Field label={t("days")}>{(id) => <NumberInput id={id} value={form.days} onChange={(v) => set("days", v ?? 0)} />}</Field>
+            <Field label={t("gb")}>{(id) => <NumberInput id={id} value={form.data_gb} onChange={(v) => set("data_gb", v ?? 0)} />}</Field>
+          </div>
+          <p className="text-[0.74rem] text-[var(--hint)]">{t("zero_unlimited")}</p>
         </div>
-        <Field label={t("plan_delivery")} hint={t(`plan_delivery_${form.delivery}_hint`)}>
-          {(id) => (
-            <Select id={id} value={form.delivery} onChange={(e) => set("delivery", e.target.value as PlanDraft["delivery"])}>
-              <option value="panel">{t("plan_delivery_panel")}</option>
-              <option value="stock">{t("plan_delivery_stock")}</option>
-            </Select>
-          )}
-        </Field>
         {form.delivery === "panel" && (
-          <Field label={t("col_panel")} hint={t("plan_panel_hint")}>
+          <Field label={t("col_panel")}>
             {(id) => (
               <Select id={id} value={form.panel_id ?? ""} onChange={(e) => set("panel_id", idOrNull(e.target.value))}>
                 <option value="">{t("by_location")}</option>
@@ -296,7 +285,7 @@ function PlanSheet({
             )}
           </Field>
         )}
-        <div className="grid grid-cols-2 gap-3">
+        {(form.delivery === "stock" || !form.panel_id) && (
           <Field label={t("location")}>
             {(id) => (
               <Select id={id} value={form.location_id ?? ""} onChange={(e) => set("location_id", idOrNull(e.target.value))}>
@@ -310,51 +299,83 @@ function PlanSheet({
               </Select>
             )}
           </Field>
-          <Field label={t("category")}>
-            {(id) => (
-              <Select id={id} value={form.category_id ?? ""} onChange={(e) => set("category_id", idOrNull(e.target.value))}>
-                <option value="">—</option>
-                {catalog.categories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>
-                    {cat.title}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label={t("audience")}>
-            {(id) => (
-              <Select id={id} value={form.audience} onChange={(e) => set("audience", e.target.value)}>
-                <option value="all">{t("audience_all")}</option>
-                <option value="customers">{t("audience_customers")}</option>
-                <option value="resellers">{t("audience_resellers")}</option>
-              </Select>
-            )}
-          </Field>
-          <Field label={t("ip_limit")} hint={t("zero_unlimited")}>
-            {(id) => <NumberInput id={id} value={form.ip_limit} onChange={(v) => set("ip_limit", v ?? 0)} />}
-          </Field>
-        </div>
-        <Field label={t("sort_order")} hint={t("sort_order_hint")}>
-          {(id) => <NumberInput id={id} value={form.sort} onChange={(v) => set("sort", v ?? 0)} />}
-        </Field>
-        <Toggle checked={form.is_active} onChange={(v) => set("is_active", v)} label={t("on_sale")} />
-        {form.delivery === "panel" && (
-          <>
-            <Toggle checked={form.renewable} onChange={(v) => set("renewable", v)} label={t("renewable")} />
-            <Toggle checked={form.on_hold} onChange={(v) => set("on_hold", v)} label={t("plan_on_hold")} />
-            <p className="-mt-2 text-[0.78rem] text-[var(--hint)]">{t("plan_on_hold_hint")}</p>
-          </>
         )}
+        <div className="flex flex-col gap-1 rounded-2xl bg-[var(--bg)] px-4 py-2 ring-1 ring-[var(--line)]">
+          <Toggle checked={form.is_active} onChange={(v) => set("is_active", v)} label={t("on_sale")} />
+          {form.delivery === "panel" && <Toggle checked={form.renewable} onChange={(v) => set("renewable", v)} label={t("renewable")} />}
+        </div>
         {form.delivery === "stock" && form.id && <StockEditor planId={form.id} />}
         {form.delivery === "stock" && !form.id && (
-          <p className="rounded-xl bg-[var(--surface)] px-3 py-2 text-[0.82rem] text-[var(--hint)]">{t("stock_save_first")}</p>
+          <p className="rounded-xl bg-[var(--bg)] px-3 py-2 text-[0.82rem] text-[var(--hint)]">{t("stock_save_first")}</p>
         )}
-        </Group>
 
-        <Group title={t("plan_look")}>
+        <MoreSettings>
+          <Field label={t("plan_description")}>
+            {(id) => (
+              <Textarea
+                id={id}
+                value={form.description ?? ""}
+                maxLength={1000}
+                placeholder={t("plan_description_hint")}
+                onChange={(e) => set("description", e.target.value || null)}
+              />
+            )}
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("plan_delivery")}>
+              {(id) => (
+                <Select id={id} value={form.delivery} onChange={(e) => set("delivery", e.target.value as PlanDraft["delivery"])}>
+                  <option value="panel">{t("plan_delivery_panel")}</option>
+                  <option value="stock">{t("plan_delivery_stock")}</option>
+                </Select>
+              )}
+            </Field>
+            <Field label={t("category")}>
+              {(id) => (
+                <Select id={id} value={form.category_id ?? ""} onChange={(e) => set("category_id", idOrNull(e.target.value))}>
+                  <option value="">—</option>
+                  {catalog.categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.title}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            {form.delivery === "panel" && form.panel_id && (
+              <Field label={t("location")}>
+                {(id) => (
+                  <Select id={id} value={form.location_id ?? ""} onChange={(e) => set("location_id", idOrNull(e.target.value))}>
+                    <option value="">—</option>
+                    {catalog.locations.map((loc) => (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.flag ? `${loc.flag} ` : ""}
+                        {loc.title}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            )}
+            <Field label={t("audience")}>
+              {(id) => (
+                <Select id={id} value={form.audience} onChange={(e) => set("audience", e.target.value)}>
+                  <option value="all">{t("audience_all")}</option>
+                  <option value="customers">{t("audience_customers")}</option>
+                  <option value="resellers">{t("audience_resellers")}</option>
+                </Select>
+              )}
+            </Field>
+            <Field label={t("ip_limit")}>
+              {(id) => <NumberInput id={id} value={form.ip_limit} onChange={(v) => set("ip_limit", v ?? 0)} />}
+            </Field>
+            <Field label={t("sort_order")}>{(id) => <NumberInput id={id} value={form.sort} onChange={(v) => set("sort", v ?? 0)} />}</Field>
+          </div>
+          {form.delivery === "panel" && (
+            <Toggle checked={form.on_hold} onChange={(v) => set("on_hold", v)} label={t("plan_on_hold")} hint={t("plan_on_hold_hint")} />
+          )}
+
+          <SubHead>{t("plan_look")}</SubHead>
           <div className="grid grid-cols-2 gap-3">
             <Field label={t("plan_emoji")}>
               {(id) => (
@@ -362,7 +383,12 @@ function PlanSheet({
                   id={id}
                   maxLength={8}
                   value={form.button_style.emoji ?? ""}
-                  onChange={(e) => set("button_style", { ...form.button_style, emoji: e.target.value })}
+                  onChange={(e) =>
+                    set("button_style", {
+                      ...form.button_style,
+                      emoji: e.target.value,
+                    })
+                  }
                 />
               )}
             </Field>
@@ -371,7 +397,12 @@ function PlanSheet({
                 <Select
                   id={id}
                   value={form.button_style.badge ?? ""}
-                  onChange={(e) => set("button_style", { ...form.button_style, badge: e.target.value })}
+                  onChange={(e) =>
+                    set("button_style", {
+                      ...form.button_style,
+                      badge: e.target.value,
+                    })
+                  }
                 >
                   {BADGES.map((badge) => (
                     <option key={badge} value={badge}>
@@ -381,78 +412,77 @@ function PlanSheet({
                 </Select>
               )}
             </Field>
-          </div>
-          <Field label={t("username_prefix")} hint={t("plan_username_prefix_hint")}>
-            {(id) => (
-              <Input
-                id={id}
-                dir="ltr"
-                maxLength={16}
-                value={form.username_prefix ?? ""}
-                onChange={(e) => set("username_prefix", e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") || null)}
-              />
-            )}
-          </Field>
-          {form.delivery === "panel" && (
-            <Field label={t("plan_renew_mode")} hint={t("plan_renew_mode_hint")}>
+            <Field label={t("username_prefix")}>
               {(id) => (
-                <Select id={id} value={form.renew_mode ?? ""} onChange={(e) => set("renew_mode", e.target.value || null)}>
-                  <option value="">{t("renew_mode_default")}</option>
-                  {["extend_reset", "extend_carry", "restart_reset", "restart_carry"].map((mode) => (
-                    <option key={mode} value={mode}>
-                      {t(`renew_mode_${mode}`)}
-                    </option>
-                  ))}
-                </Select>
+                <Input
+                  id={id}
+                  dir="ltr"
+                  maxLength={16}
+                  value={form.username_prefix ?? ""}
+                  onChange={(e) => set("username_prefix", e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") || null)}
+                />
               )}
             </Field>
-          )}
-        </Group>
-
-        {form.delivery === "panel" && (
-        <Group title={t("plan_addons")}>
-          <Toggle
-            checked={form.addons.extras !== false}
-            onChange={(v) => set("addons", { ...form.addons, extras: v })}
-            label={t("plan_sell_extras")}
-          />
-          {form.addons.extras !== false && (
-            <div className="grid grid-cols-2 gap-3">
-              <Field label={t("plan_extra_gb_price")} hint={t("plan_extra_default_hint")}>
+            {form.delivery === "panel" && (
+              <Field label={t("plan_renew_mode")}>
                 {(id) => (
-                  <NumberInput
-                    id={id}
-                    allowEmpty
-                    value={form.addons.extra_gb_price ?? null}
-                    onChange={(v) => set("addons", { ...form.addons, extra_gb_price: v })}
-                  />
+                  <Select id={id} value={form.renew_mode ?? ""} onChange={(e) => set("renew_mode", e.target.value || null)}>
+                    <option value="">{t("renew_mode_default")}</option>
+                    {["extend_reset", "extend_carry", "restart_reset", "restart_carry"].map((mode) => (
+                      <option key={mode} value={mode}>
+                        {t(`renew_mode_${mode}`)}
+                      </option>
+                    ))}
+                  </Select>
                 )}
               </Field>
-              <Field label={t("plan_extra_day_price")} hint={t("plan_extra_default_hint")}>
-                {(id) => (
-                  <NumberInput
-                    id={id}
-                    allowEmpty
-                    value={form.addons.extra_day_price ?? null}
-                    onChange={(v) => set("addons", { ...form.addons, extra_day_price: v })}
-                  />
-                )}
-              </Field>
-            </div>
-          )}
-        </Group>
-        )}
+            )}
+          </div>
 
-        {form.delivery === "panel" && form.panel_id && (
-          <Group title={t("plan_panel_options")}>
-            <p className="text-[0.78rem] text-[var(--hint)]">{t("plan_panel_options_hint")}</p>
-            <PlanPanelOptions
-              panelId={form.panel_id}
-              value={form.panel_options}
-              onChange={(value) => set("panel_options", value)}
-            />
-          </Group>
-        )}
+          {form.delivery === "panel" && (
+            <>
+              <SubHead>{t("plan_addons")}</SubHead>
+              <Toggle
+                checked={form.addons.extras !== false}
+                onChange={(v) => set("addons", { ...form.addons, extras: v })}
+                label={t("plan_sell_extras")}
+              />
+              {form.addons.extras !== false && (
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label={t("plan_extra_gb_price")}>
+                    {(id) => (
+                      <NumberInput
+                        id={id}
+                        allowEmpty
+                        placeholder={t("renew_mode_default")}
+                        value={form.addons.extra_gb_price ?? null}
+                        onChange={(v) => set("addons", { ...form.addons, extra_gb_price: v })}
+                      />
+                    )}
+                  </Field>
+                  <Field label={t("plan_extra_day_price")}>
+                    {(id) => (
+                      <NumberInput
+                        id={id}
+                        allowEmpty
+                        placeholder={t("renew_mode_default")}
+                        value={form.addons.extra_day_price ?? null}
+                        onChange={(v) => set("addons", { ...form.addons, extra_day_price: v })}
+                      />
+                    )}
+                  </Field>
+                </div>
+              )}
+            </>
+          )}
+
+          {form.delivery === "panel" && form.panel_id && (
+            <>
+              <SubHead>{t("plan_panel_options")}</SubHead>
+              <PlanPanelOptions panelId={form.panel_id} value={form.panel_options} onChange={(value) => set("panel_options", value)} />
+            </>
+          )}
+        </MoreSettings>
       </div>
     </Sheet>
   );
