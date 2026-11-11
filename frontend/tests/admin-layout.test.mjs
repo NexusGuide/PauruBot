@@ -277,3 +277,18 @@ test("staff tools: the same limits and audiences as the server", () => {
   const fa = locale("fa"), en = locale("en");
   for (const a of tools.AUDIENCES) assert.ok(`audience_${a}` in fa && `audience_${a}` in en, a);
 });
+
+test("ClockBot parity tools: inputs the server accepts", () => {
+  const cb = h.compile(src("screens/ClockTools.tsx"), {
+    "react-router-dom": {}, "@shared/format": {}, "../api": {}, "../hooks": {}, "../session": {}, "../ui": {},
+  });
+  assert.equal(cb.validTelegramId(771100223), true);
+  assert.equal(cb.validTelegramId(12), false);
+  assert.equal(cb.validTelegramId(null), false);
+  assert.deepEqual(cb.parseAmounts("50000، 100000 abc 0 -5,200000"), [50000, 100000, 200000]);
+  assert.equal(cb.parseAmounts("1 2 3 4 5 6 7 8 9 10").length, 8);
+  const growth = readFileSync(new URL("../../paurubot/api/routes/admin/growth.py", import.meta.url), "utf8");
+  const finished = [...growth.match(/FINISHED_BROADCAST = \[([^\]]+)\]/)[1].matchAll(/JobStatus\.([A-Z]+)/g)].map((m) => m[1].toLowerCase());
+  assert.deepEqual([...cb.FINISHED_BROADCAST].sort(), finished.sort());
+  assert.ok(nav.allPaths().includes("/trial-users"));
+});

@@ -45,6 +45,7 @@ export const NAV_GROUPS: NavGroup[] = [
         tabs: [
           page("/customers", "nav_customers", "users", { permission: "customers.read", shopWide: true }),
           page("/services", "nav_services", "services", { permission: "services.read" }),
+          page("/trial-users", "nav_trial_users", "users", { permission: "customers.read", shopWide: true }),
         ],
       },
       {

@@ -8,7 +8,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import ColumnElement, Select, cast, or_, select
+from sqlalchemy import ColumnElement, Select, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
 
 from paurubot.api.admin_common import (
@@ -797,10 +797,73 @@ async def bulk_services(
 
 
 class BulkCustomers(BaseModel):
-    action: Literal["ban", "unban", "tag", "untag"]
+    action: Literal["ban", "unban", "tag", "untag", "message"]
     ids: list[int] = Field(min_length=1, max_length=1000)
     reason: str | None = Field(default=None, max_length=255)
     tag: str | None = Field(default=None, min_length=1, max_length=24)
+    text: str | None = Field(default=None, min_length=1, max_length=3500)
+
+
+class NewCustomer(BaseModel):
+    telegram_id: int = Field(ge=10_000, le=10**13)
+    first_name: str | None = Field(default=None, max_length=128)
+    username: str | None = Field(default=None, max_length=64)
+
+
+@router.post("/customers")
+async def create_customer(
+    body: NewCustomer, ctx: Annotated[StaffContext, Depends(require("customers.write"))], db: DB
+) -> dict[str, Any]:
+    """Add a customer by Telegram id before they open the bot (e.g. to give them a service)."""
+    if ctx.scoped:
+        raise HTTPException(status_code=403, detail="forbidden")
+    if await customers.by_telegram(db, ctx.shop_id, body.telegram_id) is not None:
+        raise HTTPException(status_code=409, detail="customer_exists")
+    customer, _ = await customers.upsert_from_telegram(
+        db,
+        ctx.shop_id,
+        body.telegram_id,
+        username=(body.username or "").lstrip("@") or None,
+        first_name=body.first_name,
+    )
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="customer.created",
+        entity="customer",
+        entity_id=customer.id,
+    )
+    await db.commit()
+    return {"id": customer.id}
+
+
+@router.delete("/customers/{customer_id}")
+async def delete_customer(
+    customer_id: int, ctx: Annotated[StaffContext, Depends(require("customers.ban"))], db: DB
+) -> dict[str, Any]:
+    """Remove a customer with no history at all; one with orders, payments, services or a wallet is
+    banned instead, so the books stay right."""
+    from paurubot.db.models import LedgerAccount, Order, Payment
+
+    if ctx.scoped:
+        raise HTTPException(status_code=403, detail="forbidden")
+    customer = await owned(db, Customer, customer_id, ctx)
+    for model in (Order, Payment, Service, LedgerAccount):
+        if await db.scalar(select(model.id).where(model.customer_id == customer.id).limit(1)) is not None:
+            raise HTTPException(status_code=409, detail="customer_has_history")
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="customer.deleted",
+        entity="customer",
+        entity_id=customer.id,
+        before={"telegram_id": customer.telegram_id, "name": customer.display_name},
+    )
+    await db.delete(customer)
+    await db.commit()
+    return {"ok": True}
 
 
 @router.post("/customers/bulk")
@@ -809,11 +872,32 @@ async def bulk_customers(
 ) -> dict[str, Any]:
     if ctx.scoped:
         raise HTTPException(status_code=404, detail="not_found")
-    if body.action in {"tag", "untag"}:
-        if not ctx.can("customers.write"):
-            raise HTTPException(status_code=403, detail="forbidden")
-        if not body.tag:
-            raise HTTPException(status_code=422, detail="tag_required")
+    if body.action in {"tag", "untag", "message"} and not ctx.can("customers.write"):
+        raise HTTPException(status_code=403, detail="forbidden")
+    if body.action in {"tag", "untag"} and not body.tag:
+        raise HTTPException(status_code=422, detail="tag_required")
+    if body.action == "message":
+        if not (body.text or "").strip():
+            raise HTTPException(status_code=422, detail="text_required")
+        ids = sorted(
+            set(
+                await db.scalars(
+                    select(Customer.id).where(Customer.shop_id == ctx.shop_id, Customer.id.in_(body.ids))
+                )
+            )
+        )
+        await queue.enqueue(
+            db, "notify", "staff_message", {"customer_ids": ids, "text": body.text}, shop_id=ctx.shop_id
+        )
+        await record(
+            db,
+            shop_id=ctx.shop_id,
+            actor=ctx.actor,
+            action="customer.bulk_message",
+            entity="customer",
+            after={"ids": ids},
+        )
+        return {"queued": len(ids)}
     rows = list(
         await db.scalars(select(Customer).where(Customer.shop_id == ctx.shop_id, Customer.id.in_(body.ids)))
     )
@@ -835,3 +919,64 @@ async def bulk_customers(
             after={"ids": [c.id for c in rows], "tag": body.tag},
         )
     return {"updated": len(rows)}
+
+
+# --- trial users (ClockBot parity) -------------------------------------------------------
+
+
+@router.get("/trial-users")
+async def trial_users(
+    ctx: Annotated[StaffContext, Depends(require("customers.read"))],
+    db: DB,
+    filter: Literal["all", "bought", "not_bought"] = "all",
+    limit: int = Query(100, ge=1, le=500),
+) -> dict[str, Any]:
+    """Customers who took a free trial, and whether they went on to buy (a completed order)."""
+    from paurubot.db.models import Order, OrderKind, OrderStatus
+
+    if ctx.scoped:
+        raise HTTPException(status_code=403, detail="forbidden")
+    trial = (
+        select(Service.customer_id, func.min(Service.created_at).label("trial_at"))
+        .where(Service.shop_id == ctx.shop_id, Service.is_trial.is_(True))
+        .group_by(Service.customer_id)
+        .subquery()
+    )
+    bought = (
+        select(Order.customer_id)
+        .where(
+            Order.shop_id == ctx.shop_id,
+            Order.status == OrderStatus.COMPLETED,
+            Order.kind.in_([OrderKind.PURCHASE, OrderKind.RENEW]),
+            Order.amount > 0,
+        )
+        .distinct()
+        .subquery()
+    )
+    is_buyer = trial.c.customer_id.in_(select(bought.c.customer_id))
+    stmt = select(Customer, trial.c.trial_at, is_buyer.label("bought")).join(
+        trial, trial.c.customer_id == Customer.id
+    )
+    if filter == "bought":
+        stmt = stmt.where(is_buyer)
+    elif filter == "not_bought":
+        stmt = stmt.where(~is_buyer)
+    rows = (await db.execute(stmt.order_by(trial.c.trial_at.desc()).limit(limit))).all()
+    total = int(await db.scalar(select(func.count()).select_from(trial)) or 0)
+    buyers = int(await db.scalar(select(func.count()).select_from(trial).where(is_buyer)) or 0)
+    return {
+        "summary": {"trials": total, "bought": buyers, "rate": round(buyers * 100 / total) if total else 0},
+        "items": [
+            {
+                "customer": {
+                    "id": c.id,
+                    "name": c.display_name,
+                    "username": c.username,
+                    "banned": c.is_banned,
+                },
+                "trial_at": trial_at.isoformat() if trial_at else None,
+                "bought": bool(was_buyer),
+            }
+            for c, trial_at, was_buyer in rows
+        ],
+    }

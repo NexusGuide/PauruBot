@@ -236,6 +236,15 @@ class Dismiss(BaseModel):
     id: int
 
 
+@router.post("/inbox/reset")
+async def reset_dismissed(ctx: Viewer, db: DB) -> dict[str, int]:
+    """Bring back every inbox item this staff member dismissed."""
+    from sqlalchemy import delete
+
+    result = await db.execute(delete(InboxDismissal).where(InboxDismissal.staff_id == ctx.staff.id))
+    return {"restored": int(getattr(result, "rowcount", 0) or 0)}
+
+
 @router.post("/inbox/dismiss")
 async def dismiss(body: Dismiss, ctx: Viewer, db: DB) -> dict[str, bool]:
     await db.execute(

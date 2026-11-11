@@ -80,9 +80,7 @@ async def list_services(
     has_stock = bool(await stock.for_customer(session, customer.id, limit=1))
     claim = bool((await shop_settings.load(session, customer.shop_id)).get("service_import_enabled"))
     if not total and not has_stock:
-        await show(
-            event, t("no_services"), keyboards.services_kb(t, [], 0, False, claim=True) if claim else None
-        )
+        await show(event, t("no_services"), keyboards.services_kb(t, [], 0, False, claim=claim))
         return
     rows = list(await session.scalars(base.order_by(Service.id.desc()).offset(page * PAGE).limit(PAGE)))
     await show(
@@ -99,6 +97,34 @@ async def list_services(
             claim=claim,
         ),
     )
+
+
+@router.callback_query(Svc.filter(F.action == "lookup"))
+async def lookup_ask(call: CallbackQuery, t: Texts, state: FSMContext) -> None:
+    """Look a subscription up by its link: status, usage and expiry (ClockBot parity)."""
+    await call.answer()
+    await state.set_state(ServiceStates.lookup)
+    if isinstance(call.message, Message):
+        await call.message.answer(t("lookup_ask"), reply_markup=keyboards.cancel(t))
+
+
+@router.message(ServiceStates.lookup, F.text)
+async def lookup_text(
+    message: Message, session: AsyncSession, customer: Customer, t: Texts, state: FSMContext
+) -> None:
+    from paurubot.core import sub_links
+
+    service = await sub_links.find(session, customer.shop_id, message.text)
+    if service is None or service.status == ServiceStatus.DELETED:
+        await message.answer(t("lookup_not_found"))
+        return
+    await state.clear()
+    try:
+        await lifecycle.refresh(session, service)
+    except PanelError as exc:  # the last known figures, as on the service page
+        log.info("lookup refresh failed for service %s: %s", service.id, exc)
+    await session.commit()
+    await message.answer(service_card(t, service))
 
 
 @router.callback_query(Svc.filter(F.action == "claim"))

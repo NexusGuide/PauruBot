@@ -1157,5 +1157,20 @@
   "adm_service_claim": "📥 Request to add a previous service\nCustomer: {customer}\nPanel: {panel}\nUsername: <code>{username}</code>\nReview it on the Services page of the web panel.",
   "reseller_terms_text": "📜 Reseller purchase terms\n\nYou are responsible for selling to and supporting your own customers, and you may not sell below the shop's prices. Press the button below to accept these terms.",
   "reseller_terms_required": "Please accept the reseller purchase terms first.",
-  "alert_first_use": "👋 Your service “{name}” hasn't been connected yet. See the connection guide under “Guide”; if anything is wrong, message support."
+  "alert_first_use": "👋 Your service “{name}” hasn't been connected yet. See the connection guide under “Guide”; if anything is wrong, message support.",
+  "btn_my_orders": "🛍 My orders",
+  "orders_empty": "You have no orders yet.",
+  "orders_header": "🛍 Your recent orders:",
+  "orders_line": "#{id} · {kind} · {amount}\n{status} · {date}",
+  "order_state_pending": "Awaiting payment",
+  "order_state_awaiting_payment": "Payment under review",
+  "order_state_paid": "Paid",
+  "order_state_provisioning": "Being made",
+  "order_state_completed": "Delivered",
+  "order_state_failed": "Failed",
+  "order_state_canceled": "Canceled",
+  "order_state_refunded": "Refunded",
+  "btn_lookup": "🔎 Look up a subscription",
+  "lookup_ask": "Send the subscription link to see its status, data and expiry.",
+  "lookup_not_found": "No subscription with that link was found. Send it again or cancel."
 }

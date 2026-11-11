@@ -425,6 +425,31 @@ async def set_text(
     return {"key": key, "locale": locale, "value": body.value}
 
 
+class ResetTexts(BaseModel):
+    keys: list[str] = Field(min_length=1, max_length=3000)
+
+
+@router.post("/texts/reset")
+async def reset_texts(
+    body: ResetTexts, ctx: Annotated[StaffContext, Depends(require("texts.write"))], db: DB
+) -> dict[str, int]:
+    """Put many texts back to the shipped wording at once, in every language (a whole tab)."""
+    result = await db.execute(
+        delete(BotText).where(BotText.shop_id == ctx.shop_id, BotText.key.in_(sorted(set(body.keys))))
+    )
+    i18n.invalidate(ctx.shop_id)
+    count = int(getattr(result, "rowcount", 0) or 0)
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="text.reset_many",
+        entity="text",
+        after={"count": count},
+    )
+    return {"reset": count}
+
+
 @router.delete("/texts/{locale}/{key}")
 async def reset_text(
     locale: str, key: str, ctx: Annotated[StaffContext, Depends(require("texts.write"))], db: DB

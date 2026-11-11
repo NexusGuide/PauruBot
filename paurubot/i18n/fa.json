@@ -1157,5 +1157,20 @@
   "adm_service_claim": "📥 درخواست افزودن سرویس قبلی\nمشتری: {customer}\nپنل: {panel}\nنام کاربری: <code>{username}</code>\nدر پنل وب، صفحهٔ سرویس‌ها بررسی کنید.",
   "reseller_terms_text": "📜 قوانین خرید نمایندگان\n\nمسئولیت فروش و پشتیبانی مشتری‌هایت با خودت است و فروش به قیمت کمتر از قیمت فروشگاه مجاز نیست. با زدن دکمهٔ پایین این قوانین را می‌پذیری.",
   "reseller_terms_required": "اول قوانین خرید نمایندگان را بپذیر.",
-  "alert_first_use": "👋 سرویس «{name}» هنوز وصل نشده است. از بخش «راهنما» آموزش اتصال را ببین؛ اگر مشکلی بود به پشتیبانی پیام بده."
+  "alert_first_use": "👋 سرویس «{name}» هنوز وصل نشده است. از بخش «راهنما» آموزش اتصال را ببین؛ اگر مشکلی بود به پشتیبانی پیام بده.",
+  "btn_my_orders": "🛍 سفارش‌های من",
+  "orders_empty": "هنوز سفارشی نداری.",
+  "orders_header": "🛍 سفارش‌های اخیرت:",
+  "orders_line": "#{id} · {kind} · {amount} تومان\n{status} · {date}",
+  "order_state_pending": "در انتظار پرداخت",
+  "order_state_awaiting_payment": "در حال بررسی پرداخت",
+  "order_state_paid": "پرداخت شد",
+  "order_state_provisioning": "در حال ساخت",
+  "order_state_completed": "تحویل شد",
+  "order_state_failed": "ناموفق",
+  "order_state_canceled": "لغو شد",
+  "order_state_refunded": "برگشت داده شد",
+  "btn_lookup": "🔎 استعلام اشتراک",
+  "lookup_ask": "لینک اشتراک را بفرست تا وضعیت، حجم و اعتبارش را ببینی.",
+  "lookup_not_found": "اشتراکی با این لینک پیدا نشد. دوباره بفرست یا انصراف بزن."
 }

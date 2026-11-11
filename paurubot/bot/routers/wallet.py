@@ -6,6 +6,7 @@ from typing import Any
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, LabeledPrice, Message, PreCheckoutQuery
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.bot import keyboards
@@ -13,6 +14,7 @@ from paurubot.bot.callbacks import Pay, Receipt, Wallet
 from paurubot.bot.routers.start import menu
 from paurubot.bot.states import WalletStates
 from paurubot.bot.utils import Btn, error_text, show
+from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import esc, jdate, money, parse_int
 from paurubot.db.base import utcnow
 from paurubot.db.models import Customer, Order, OrderStatus, Payment, PaymentStatus
@@ -251,11 +253,41 @@ async def history(
     await show(call, "\n".join(lines), keyboards.history_kb(t, more))
 
 
+@router.callback_query(Wallet.filter(F.action == "orders"))
+async def my_orders(call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts) -> None:
+    """The customer's last orders: what, how much, when and where it stands."""
+    from paurubot.db.models import Order
+
+    await call.answer()
+    rows = list(
+        await session.scalars(
+            select(Order).where(Order.customer_id == customer.id).order_by(Order.id.desc()).limit(10)
+        )
+    )
+    if not rows:
+        await show(call, t("orders_empty"), keyboards.back(t, Wallet(action="home").pack()))
+        return
+    lines = [t("orders_header")]
+    for order in rows:
+        lines.append(
+            t(
+                "orders_line",
+                id=order.id,
+                kind=t(f"order_kind_{order.kind.value}"),
+                amount=money(order.amount),
+                status=t(f"order_state_{order.status.value}"),
+                date=jdate(order.created_at, with_time=True),
+            )
+        )
+    await show(call, "\n".join(lines), keyboards.back(t, Wallet(action="home").pack()))
+
+
 @router.callback_query(Wallet.filter(F.action == "topup"))
 async def topup(call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts) -> None:
     await call.answer()
     low, high = await payments.topup_bounds(session, customer)
-    presets = [p for p in PRESETS if low <= p <= high]
+    own = (await shop_settings.load(session, customer.shop_id)).get("wallet_topup_presets") or []
+    presets = [p for p in (own or PRESETS) if low <= p <= high]
     await show(
         call, t("topup_choose_amount", low=money(low), high=money(high)), keyboards.amounts_kb(t, presets)
     )

@@ -295,6 +295,56 @@ async def send_test_broadcast(
     return {"sent_to": int(chat_id)}
 
 
+# A broadcast still sending (or paused, to be resumed) is never deleted from under its worker.
+FINISHED_BROADCAST = [JobStatus.DONE, JobStatus.CANCELED, JobStatus.FAILED, JobStatus.DEAD]
+
+
+@router.delete("/broadcasts/{broadcast_id}")
+async def delete_broadcast(
+    broadcast_id: int, ctx: Annotated[StaffContext, Depends(require("broadcast.send"))], db: DB
+) -> dict[str, Any]:
+    row = await owned(db, Broadcast, broadcast_id, ctx)
+    if row.status not in FINISHED_BROADCAST:
+        raise HTTPException(status_code=409, detail="broadcast_running")
+    await db.delete(row)
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="broadcast.delete",
+        entity="broadcast",
+        entity_id=broadcast_id,
+    )
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/broadcasts/clear")
+async def clear_broadcasts(
+    ctx: Annotated[StaffContext, Depends(require("broadcast.send"))], db: DB
+) -> dict[str, int]:
+    """Remove every finished broadcast from the history; running and paused ones stay."""
+    rows = list(
+        await db.scalars(
+            select(Broadcast).where(
+                Broadcast.shop_id == ctx.shop_id, Broadcast.status.in_(FINISHED_BROADCAST)
+            )
+        )
+    )
+    for row in rows:
+        await db.delete(row)
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="broadcast.clear",
+        entity="broadcast",
+        after={"deleted": len(rows)},
+    )
+    await db.commit()
+    return {"deleted": len(rows)}
+
+
 @router.post("/broadcasts/{broadcast_id}/cancel")
 async def cancel_broadcast(
     broadcast_id: int, ctx: Annotated[StaffContext, Depends(require("broadcast.send"))], db: DB
