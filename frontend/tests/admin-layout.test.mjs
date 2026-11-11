@@ -240,28 +240,49 @@ test("settings editors match the server's lists and store what is off", () => {
   }
 });
 
-test("settings nav: two levels like the design, every settings group reachable, the right tab lit", () => {
+test("settings nav: two levels, every option on exactly one feature page, the right tab lit", () => {
   const sn = h.compile(src("settings-nav.ts"), {});
-  assert.deepEqual(sn.SETTINGS_NAV.map((g) => g.key), ["look", "sales", "pay", "growth", "alerts", "connect"]);
+  const sf = h.compile(src("settings-features.ts"), {});
+  assert.deepEqual(sn.SETTINGS_NAV.map((g) => g.key), ["look", "sell", "service", "pay", "grow", "shop"]);
   const specs = readFileSync(new URL("../../paurubot/core/settings.py", import.meta.url), "utf8");
-  const serverGroups = new Set([...specs.matchAll(/Spec\([^)]*"([a-z_]+)"\)/g)].map((m) => m[1]));
   const elsewhere = ["appearance", "resale", "backups", "own"]; // own screens, or never shown
-  const missing = [...serverGroups].filter((g) => !elsewhere.includes(g) && !sn.navGroups().includes(g));
-  assert.deepEqual(missing, [], "every settings group has a tab");
+  const options = [...specs.matchAll(/^\s*"([a-z0-9_]+)": Spec\(([\s\S]*?)"([a-z_]+)"\s*(?:,\s*secret=True)?\)/gm)]
+    .map((m) => ({ key: m[1], group: m[3] }))
+    .filter((o) => !elsewhere.includes(o.group) && o.key !== "trust_channel_id");
+  assert.ok(options.length > 150, `found ${options.length} options`);
+  const pages = sn.navGroups();
+  const lost = options.filter((o) => !pages.includes(sf.featureOf(o.key, o.group)));
+  assert.deepEqual(lost.map((o) => o.key), [], "every option sits on a feature page that has a tab");
+  const named = sf.FEATURES.flatMap((f) => f.keys ?? []);
+  assert.equal(new Set(named).size, named.length, "an option is named by one feature only");
+  // The renewal options all live on one page.
+  for (const key of ["renew_mode", "renew_queue_when_active", "renew_resets_usage"]) assert.equal(sf.featureOf(key, "services"), "renewal");
+  assert.equal(sf.featureOf("card_auto_approve", "payments"), "card");
+  assert.equal(sf.featureOf("custom_username_enabled", "services"), "buy", "named beats the custom_ family");
+  assert.equal(sf.featureOf("zarinpal_enabled", "payments"), "gateways");
+  assert.equal(sf.featureOf("brand_new_option", "brand_new_group"), "other", "never lost");
+  const regrouped = sf.byFeature({ services: [{ key: "renew_mode" }, { key: "warn_days" }], x: [{ key: "zzz" }] });
+  assert.deepEqual(Object.keys(regrouped), ["renewal", "notify", "other"]);
   assert.equal(sn.activeSettings("/texts", "").tab.key, "messages", "no kind: message texts");
   assert.equal(sn.activeSettings("/texts", "?kind=buttons").tab.key, "buttons");
   assert.equal(sn.activeSettings("/settings", "?group=crypto").group.key, "pay");
+  assert.equal(sn.activeSettings("/settings", "?group=services").tab.key, "renewal", "old links still land");
   assert.equal(sn.activeSettings("/settings", "").tab.key, "general");
-  assert.equal(sn.activeSettings("/channels", "").group.key, "connect");
+  assert.equal(sn.activeSettings("/channels", "").group.key, "shop");
+  assert.equal(sn.activeSettings("/button-looks", "").group.key, "look");
   assert.equal(sn.activeSettings("/customers", ""), undefined);
+  assert.equal(sn.featureFor("services", ["general", "renewal"]), "renewal");
+  assert.equal(sn.featureFor(null, ["general", "renewal"]), "general");
+  assert.equal(sn.featureFor("nope", ["renewal"]), "renewal");
   const support = sn.visibleSettings((p) => p === "settings.read");
-  assert.deepEqual(support.find((g) => g.key === "look").tabs.map((tab) => tab.key), ["menu", "miniapp", "general"]);
+  assert.deepEqual(support.find((g) => g.key === "look").tabs.map((tab) => tab.key), ["button_looks", "menu", "miniapp"]);
   const fa = locale("fa"), en = locale("en");
   for (const g of sn.SETTINGS_NAV) {
     for (const key of [`settings_nav_${g.key}`, ...g.tabs.map((tab) => `settings_tab_${tab.key}`)]) {
       assert.ok(key in fa && key in en, key);
     }
   }
+  assert.ok("settings_tab_other" in fa && "settings_tab_other" in en);
   // Every page of the nav is a page of the settings hub, so the nav shows on it.
   for (const tab of sn.SETTINGS_NAV.flatMap((g) => g.tabs)) {
     assert.equal(nav.hubFor(nav.visibleGroups(owner), tab.to.split("?")[0]).key, "nav_hub_bot", tab.to);
