@@ -158,6 +158,23 @@ def plans_kb(
     return kb.as_markup()
 
 
+def durations_kb(
+    t: Texts, days: Sequence[int], *, loc: int, cat: int, every: bool, back_cb: str, custom: bool = False
+) -> InlineKeyboardMarkup:
+    """Buying by duration first (Foxima parity): one button per plan length."""
+    kb = InlineKeyboardBuilder()
+    for value in days:
+        kb.button(
+            text=t("duration_option", days=value) if value > 0 else t("duration_unlimited"),
+            callback_data=Shop(step="dur", loc=loc, cat=cat, n=value, kind="all" if every else ""),
+        )
+    kb.adjust(2)
+    if custom:
+        kb.row(InlineKeyboardButton(text=t("btn_custom_plan"), callback_data=Shop(step="custom").pack()))
+    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=back_cb))
+    return kb.as_markup()
+
+
 def checkout_kb(
     t: Texts, *, order_id: int, can_wallet: bool, methods: Sequence[str], discount: bool, bulk_plan: int = 0
 ) -> InlineKeyboardMarkup:

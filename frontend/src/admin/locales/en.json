@@ -2337,5 +2337,13 @@
   "method_rule_max": "Highest amount",
   "method_rule_help": "Help text",
   "method_rule_add": "Add rule",
-  "provider_tonpay": "TonPay"
+  "provider_tonpay": "TonPay",
+  "setting_buy_by_duration": "Buy by duration",
+  "setting_buy_by_duration_hint": "In the bot, the buyer first picks a length (e.g. 30 or 90 days), then sees that length's plans.",
+  "setting_wheel_style": "Wheel style",
+  "setting_wheel_style_hint": "Wheel: your own prizes. Dice: a six wins. Slot: three of a kind wins.",
+  "setting_wheel_dice_prize": "Dice or slot prize",
+  "wheel_style_wheel": "Wheel",
+  "wheel_style_dice": "🎲 Dice",
+  "wheel_style_slot": "🎰 Slot"
 }

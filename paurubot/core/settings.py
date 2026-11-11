@@ -85,6 +85,10 @@ SPECS: dict[str, Spec] = {
     "wheel_enabled": Spec(bool, False, "growth"),
     "wheel_every_hours": Spec(int, 24, "growth"),
     "wheel_buyers_only": Spec(bool, True, "growth"),
+    # Foxima parity: the wheel can instead be Telegram's own dice ("dice": a six wins) or slot
+    # machine ("slot": a jackpot wins), for a set wallet prize. "wheel" is ours, as before.
+    "wheel_style": Spec(str, "wheel", "growth"),
+    "wheel_dice_prize": Spec(int, 10_000, "growth"),
     "wheel_prizes": Spec(
         list,
         [
@@ -298,6 +302,8 @@ SPECS: dict[str, Spec] = {
     # A fixed suffix after every new panel username (ClockBot parity); empty is none.
     "username_suffix": Spec(str, "", "services"),
     "custom_username_enabled": Spec(bool, False, "services"),
+    # Foxima parity: in the bot, the buyer picks a duration (1 month, 3 months...) before a plan.
+    "buy_by_duration": Spec(bool, False, "services"),
     # resellers
     "reseller_applications_enabled": Spec(bool, True, "resellers"),
     "bulk_buy_enabled": Spec(bool, True, "resellers"),
@@ -492,6 +498,10 @@ def _check(key: str, value: Any) -> None:
         _check_method_rules(value)
     if key == "auto_replies":
         _check_auto_replies(value)
+    if key == "wheel_style" and value not in {"wheel", "dice", "slot"}:
+        raise SettingError("wheel_style_invalid")
+    if key == "wheel_dice_prize" and not 0 <= value <= 10**9:
+        raise SettingError("wheel_dice_prize_invalid")
     if key in {"terms_when", "phone_when"} and value not in {"entry", "purchase"}:
         raise SettingError(f"{key}_invalid")
     if key == "alerts_muted" and not set(value) <= ALERT_KEYS:

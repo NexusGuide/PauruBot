@@ -1195,5 +1195,10 @@
   "adm_umsg_reply_ask": "May the customer reply?",
   "adm_umsg_reply_yes": "✍️ Yes, with a reply button",
   "adm_umsg_reply_no": "📤 Without a reply button",
-  "btn_reply_staff": "✍️ Reply to support"
+  "btn_reply_staff": "✍️ Reply to support",
+  "choose_duration": "⏱ For how long?",
+  "duration_option": "{days} days",
+  "duration_unlimited": "♾ No time limit",
+  "luck_dice_intro": "🎲 Roll the dice! A six adds {amount} to your wallet.",
+  "luck_slot_intro": "🎰 Try the slot machine! Three of a kind adds {amount} to your wallet."
 }

@@ -2337,5 +2337,13 @@
   "method_rule_max": "بیشترین مبلغ",
   "method_rule_help": "متن راهنما",
   "method_rule_add": "افزودن قاعده",
-  "provider_tonpay": "تون‌پی"
+  "provider_tonpay": "تون‌پی",
+  "setting_buy_by_duration": "خرید بر اساس مدت",
+  "setting_buy_by_duration_hint": "در ربات، مشتری اول مدت (مثلاً ۳۰ یا ۹۰ روزه) را انتخاب می‌کند و بعد پلن‌های همان مدت را می‌بیند.",
+  "setting_wheel_style": "نوع گردونه",
+  "setting_wheel_style_hint": "گردونه: جایزه‌های خودت. تاس: اگر ۶ بیاید برنده است. اسلات: سه‌تایی جور برنده است.",
+  "setting_wheel_dice_prize": "جایزهٔ تاس یا اسلات (تومان)",
+  "wheel_style_wheel": "گردونه",
+  "wheel_style_dice": "🎲 تاس",
+  "wheel_style_slot": "🎰 اسلات"
 }

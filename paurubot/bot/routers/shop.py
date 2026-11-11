@@ -68,15 +68,85 @@ async def show_categories(
         if not plans and not custom:
             await show(event, t("no_plans"))
             return
-        await show(
+        await plans_or_durations(
             event,
-            t("choose_plan"),
-            keyboards.plans_kb(
-                t, await priced(session, plans, customer), back_cb=Shop(step="start").pack(), custom=custom
-            ),
+            session,
+            shop,
+            customer,
+            t,
+            plans,
+            back_cb=Shop(step="start").pack(),
+            loc=loc,
+            cat=0,
+            every=True,
+            custom=custom,
         )
         return
     await show(event, t("choose_category"), keyboards.categories_kb(t, cats, loc, bool(loose), custom=custom))
+
+
+async def plans_or_durations(
+    event: Message | CallbackQuery,
+    session: AsyncSession,
+    shop: ShopRow,
+    customer: Customer,
+    t: Texts,
+    plans: list[Plan],
+    *,
+    back_cb: str,
+    loc: int,
+    cat: int,
+    every: bool,
+    custom: bool = False,
+) -> None:
+    """The plans, or first their durations when the shop sells by duration (Foxima parity)."""
+    days = sorted({int(p.days) for p in plans})
+    if len(days) > 1 and (await shop_settings.load(session, shop.id)).get("buy_by_duration"):
+        await show(
+            event,
+            t("choose_duration"),
+            keyboards.durations_kb(t, days, loc=loc, cat=cat, every=every, back_cb=back_cb, custom=custom),
+        )
+        return
+    await show(
+        event,
+        t("choose_plan"),
+        keyboards.plans_kb(t, await priced(session, plans, customer), back_cb=back_cb, custom=custom),
+    )
+
+
+@router.callback_query(Shop.filter(F.step == "dur"))
+async def pick_duration(
+    call: CallbackQuery,
+    callback_data: Shop,
+    session: AsyncSession,
+    shop: ShopRow,
+    customer: Customer,
+    t: Texts,
+) -> None:
+    """The plans of one duration (Foxima parity); `kind="all"` is the shop without categories."""
+    await call.answer()
+    every = callback_data.kind == "all"
+    plans = await catalog.plans(
+        session,
+        shop.id,
+        customer,
+        location_id=callback_data.loc or None,
+        category_id=None if every else (callback_data.cat or None),
+        uncategorised=False if every else not callback_data.cat,
+    )
+    plans = [p for p in plans if int(p.days) == callback_data.n]
+    if not plans:
+        await show(call, t("no_plans"))
+        return
+    back = (
+        Shop(step="loc", loc=callback_data.loc).pack()
+        if every
+        else Shop(step="cat", loc=callback_data.loc, cat=callback_data.cat).pack()
+    )
+    await show(
+        call, t("choose_plan"), keyboards.plans_kb(t, await priced(session, plans, customer), back_cb=back)
+    )
 
 
 async def custom_available(session: AsyncSession, shop_id: int) -> bool:
@@ -146,8 +216,17 @@ async def pick_category(
         await show(call, t("no_plans"))
         return
     back = Shop(step="loc", loc=callback_data.loc).pack()
-    await show(
-        call, t("choose_plan"), keyboards.plans_kb(t, await priced(session, plans, customer), back_cb=back)
+    await plans_or_durations(
+        call,
+        session,
+        shop,
+        customer,
+        t,
+        plans,
+        back_cb=back,
+        loc=callback_data.loc,
+        cat=callback_data.cat,
+        every=False,
     )
 
 

@@ -66,6 +66,8 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `wheel_enabled` | bool | false | Lucky wheel. A Lucky wheel button in the bot gives a spin with a prize from the list below |
 | `wheel_every_hours` | int | 24 | Hours between spins |
 | `wheel_buyers_only` | bool | true | Wheel only for buyers |
+| `wheel_style` | str | "wheel" | Wheel style. Wheel: your own prizes. Dice: a six wins. Slot: three of a kind wins |
+| `wheel_dice_prize` | int | 10000 | Dice or slot prize |
 | `wheel_prizes` | list | [{"label": "5,000", "kind": "wallet", "value": 5000, "weight": 30}, {"label": "10%", "kind": "discount", "value": 10, "weight": 20}, {"label": "20,000", "kind": "wallet", "value": 20000, "weight": 5}, {"label": "-", "kind": "nothing", "value": 0, "weight": 45}] | Wheel prizes. The chance of each slice is its weight against the total. Discount prizes become a one-time code valid for 7 days |
 | `lottery_enabled` | bool | false | Lottery button. Shows the Lottery button in the bot. Lotteries themselves are set up on the Lotteries page |
 | `trust_channel_id` | int | — | Trust channel. ID of a public channel where the bot is an admin. Every paid purchase and renewal is posted there as a report with the buyer's id masked (for example 56943******), the plan, category, service and amount, plus a buy button. At most 20 posts go out per hour |
@@ -269,6 +271,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `username_prefix` | str | "" | Default prefix |
 | `username_suffix` | str | "" | Fixed username suffix. Added after every new panel username (up to 8 letters). Empty is none |
 | `custom_username_enabled` | bool | false | Customers choose the username. When buying in the bot, the customer types the service name or skips. If the panel already has it, a few characters are added at the end |
+| `buy_by_duration` | bool | false | Buy by duration. In the bot, the buyer first picks a length (e.g. 30 or 90 days), then sees that length's plans |
 
 ## Custom purchase
 

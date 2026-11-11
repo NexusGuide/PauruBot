@@ -85,3 +85,43 @@ def test_the_panel_lists_exactly_the_servers_payment_methods() -> None:
     source = Path(__file__).parents[2] / "frontend/src/admin/screens/FoximaTools.tsx"
     listed = re.search(r"export const METHODS = \[([^\]]+)\]", source.read_text()).group(1)  # type: ignore[union-attr]
     assert re.findall(r'"([a-z0-9_]+)"', listed) == list(PROVIDERS)
+
+
+async def test_the_lucky_wheel_can_be_a_telegram_dice_or_slot(session) -> None:  # type: ignore[no-untyped-def]
+    """Foxima's wheel is Telegram's own dice: a six (or a slot jackpot) wins a set wallet prize."""
+    import pytest
+
+    from paurubot.core import growth
+    from paurubot.ledger.accounts import wallet_balance
+
+    shop = await factories.shop(session)
+    await shop_settings.set_many(
+        session,
+        shop.id,
+        {
+            "wheel_enabled": True,
+            "wheel_buyers_only": False,
+            "wheel_style": "dice",
+            "wheel_dice_prize": 25_000,
+        },
+    )
+    cfg = await shop_settings.load(session, shop.id, fresh=True)
+    lucky = await factories.customer(session, shop)
+    unlucky = await factories.customer(session, shop)
+
+    async def six() -> int:
+        return 6
+
+    async def three() -> int:
+        return 3
+
+    won = await growth.dice_spin(session, lucky, cfg, roll=six)
+    assert won.prize["kind"] == "wallet" and won.prize["value"] == 25_000
+    assert await wallet_balance(session, shop.id, lucky.id) == 25_000
+    lost = await growth.dice_spin(session, unlucky, cfg, roll=three)
+    assert lost.prize["kind"] == "nothing"
+    with pytest.raises(growth.GrowthError) as exc:  # one try per period, as the wheel
+        await growth.dice_spin(session, lucky, cfg, roll=six)
+    assert exc.value.key == "wheel_wait"
+    assert growth.dice_wins("slot", 64) and growth.dice_wins("slot", 22) and not growth.dice_wins("slot", 5)
+    assert growth.dice_wins("dice", 6) and not growth.dice_wins("dice", 5)
