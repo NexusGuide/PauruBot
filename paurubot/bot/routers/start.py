@@ -54,6 +54,16 @@ def menu(
     return main_menu(t, cfg, is_staff=staff is not None)
 
 
+def bot_off_notice_key(staff: StaffIdentity, cfg: dict[str, Any]) -> str:
+    """The "bot is off for users" note for staff. A customer's own bot is run from the bot and its
+    Mini App, so its manager is never sent to the web panel."""
+    from paurubot.bot.routers.admin_navigation import customer_bot
+
+    if not customer_bot(staff, cfg):
+        return "staff_bot_off_notice"
+    return "staff_bot_off_notice_own" if cfg.get("own_bot") else "staff_bot_off_notice_resale"
+
+
 async def home(
     message: Message,
     t: Texts,
@@ -73,7 +83,7 @@ async def home(
     if staff is not None and not cfg.get("bot_enabled", True):
         # Staff still use a switched-off bot (to work during maintenance); say so, or the switch
         # looks as if it did nothing while customers only get the maintenance message.
-        await message.answer(t("staff_bot_off_notice"))
+        await message.answer(t(bot_off_notice_key(staff, cfg)))
     sent = await message.answer(t(key, **params), reply_markup=menu(t, cfg, staff))
     # Only the plain menu is replaced. One that carries an outcome ("payment received", "added to
     # your account") stays in the chat, or the next menu would take the customer's record (AUD-7).
