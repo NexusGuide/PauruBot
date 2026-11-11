@@ -1179,5 +1179,7 @@
   "guide_open_link": "⬇️ Get the app",
   "btn_guides": "📚 Connection guide",
   "extra_gb_package": "🎁 {value} GB package · {price}",
-  "extra_days_package": "🎁 {value}-day package · {price}"
+  "extra_days_package": "🎁 {value}-day package · {price}",
+  "staff_bot_off_notice_resale": "⚠️ The bot is off for users; they see the «being updated» message. As its manager you see the bot as usual.\nTo switch it on: 🚀 Reseller hub → 🤖 My sales bot → ⏯ On / off.",
+  "staff_bot_off_notice_own": "⚠️ The bot is off for users; they see the «being updated» message. As its manager you see the bot as usual.\nSee the bot's state in the Mini App → «My shop»; message support to have it switched back on."
 }

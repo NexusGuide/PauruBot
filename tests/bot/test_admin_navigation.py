@@ -191,3 +191,38 @@ async def test_unauthorized_reply_and_inline_categories_are_denied(session, env)
     assert not [
         c for c in fake.calls if isinstance(c, SendMessage) and c.text == nav.group_text(FA, "finance")
     ]
+
+
+@pytest.mark.parametrize("cfg, page", [({"own_bot": True}, "shop"), ({}, "manage")])
+def test_a_customer_bots_guide_points_to_the_mini_app_never_the_web_panel(monkeypatch, cfg, page) -> None:  # type: ignore[no-untyped-def]
+    """A customer's own bot (own-panel or reseller bot) is run in the bot and its Mini App."""
+    staff = identity(StaffRole.MERCHANT)
+    monkeypatch.setattr(get_settings(), "public_url", "https://shop.example/")
+    kb = nav.group_kb(FA, staff, "guide", cfg)
+    buttons = [b for row in kb.inline_keyboard for b in row]
+    assert not [b.url for b in buttons if b.url]  # no link to the web panel
+    apps = [b.web_app.url for b in buttons if b.web_app]
+    assert apps == [f"https://shop.example/app/{page}"]
+    text = nav.group_text(FA, "guide", customer_bot=True, own_bot=bool(cfg))
+    for word in ("پنل وب", "فرم وب", "PUBLIC_URL"):
+        assert word not in text
+    assert not nav.allowed("addpanel", staff, cfg) and not nav.allowed("updates", staff, cfg)
+    # The shop's own staff keep the web panel.
+    owner = nav.group_kb(FA, identity(StaffRole.OWNER), "guide", {})
+    assert [b.url for row in owner.inline_keyboard for b in row if b.url] == [
+        "https://shop.example/admin/help"
+    ]
+
+
+def test_a_customer_bots_manager_is_not_sent_to_the_web_panel_when_the_bot_is_off() -> None:
+    from paurubot.bot.routers.start import bot_off_notice_key
+
+    merchant, owner = identity(StaffRole.MERCHANT), identity(StaffRole.OWNER)
+    assert bot_off_notice_key(owner, {}) == "staff_bot_off_notice"  # the main shop keeps its text
+    for cfg in ({}, {"own_bot": True}):
+        key = bot_off_notice_key(merchant, cfg)
+        assert key != "staff_bot_off_notice"
+        for locale in ("fa", "en"):
+            assert "پنل وب" not in Texts(locale)(key) and "web" not in Texts(locale)(key).lower()
+    assert bot_off_notice_key(merchant, {}) == "staff_bot_off_notice_resale"
+    assert FA("rb_btn_toggle") in FA("staff_bot_off_notice_resale")  # says where the switch is

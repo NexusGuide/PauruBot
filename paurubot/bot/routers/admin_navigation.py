@@ -18,6 +18,7 @@ from aiogram.types import (
     KeyboardButton,
     Message,
     ReplyKeyboardMarkup,
+    WebAppInfo,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -148,9 +149,22 @@ def entries(group: str, staff: StaffIdentity) -> list[Entry]:
     return items
 
 
+def customer_bot(staff: StaffIdentity, cfg: dict[str, Any] | None = None) -> bool:
+    """A customer's own bot (a reseller's bot or an own-panel bot): it is run from the bot and its
+    Mini App, so nothing in it points to the web panel."""
+    return staff.role == StaffRole.MERCHANT or bool(cfg and cfg.get("own_bot"))
+
+
+def mini_app_page(cfg: dict[str, Any] | None) -> str:
+    """Where a customer bot's manager lands in the Mini App: the own-panel shop, else the dashboard."""
+    return "shop" if cfg and cfg.get("own_bot") else "manage"
+
+
 def allowed(group: str, staff: StaffIdentity, cfg: dict[str, Any] | None = None) -> bool:
     if group == "resellers" and cfg and cfg.get("own_bot"):
         return False  # a customer's dedicated bot only sells: no resellers to run there (OPB)
+    if group in {"addpanel", "updates"} and customer_bot(staff, cfg):
+        return False  # the main shop's panels and updates; nothing for a customer bot's manager
     if group == "guide":
         return True
     if group == "addpanel":
@@ -226,14 +240,20 @@ def group_kb(t: Texts, staff: StaffIdentity, group: str, cfg: dict[str, Any]) ->
         kb.button(text=t("rb_btn_hub"), callback_data=Rb(action="home"))
     kb.adjust(2)
     url = get_settings().public_url.rstrip("/")
-    web_pages = {"addpanel": "panels", "updates": "updates", "guide": "help"}
-    if url and group in web_pages:
-        kb.row(InlineKeyboardButton(text=t("adm_nav_open_web"), url=f"{url}/admin/{web_pages[group]}"))
+    if customer_bot(staff, cfg):
+        # Run from the bot and its Mini App: the guide opens the Mini App's management page.
+        if group == "guide" and url.startswith("https://"):
+            app = WebAppInfo(url=f"{url}/app/{mini_app_page(cfg)}")
+            kb.row(InlineKeyboardButton(text=t("adm_nav_open_app"), web_app=app))
+    else:
+        web_pages = {"addpanel": "panels", "updates": "updates", "guide": "help"}
+        if url and group in web_pages:
+            kb.row(InlineKeyboardButton(text=t("adm_nav_open_web"), url=f"{url}/admin/{web_pages[group]}"))
     kb.row(InlineKeyboardButton(text=t("adm_nav_home"), callback_data=Admin(section="home").pack()))
     return kb.as_markup()
 
 
-def group_text(t: Texts, group: str) -> str:
+def group_text(t: Texts, group: str, *, customer_bot: bool = False, own_bot: bool = False) -> str:
     if group == "shop":
         return t("adm_s_home")
     if group == "finance":
@@ -244,6 +264,8 @@ def group_text(t: Texts, group: str) -> str:
         return t("adm_gs_home")
     if group == "features":
         return t("adm_feat_title")
+    if group == "guide" and customer_bot:
+        return t("adm_nav_guide_own" if own_bot else "adm_nav_guide_resale")
     if group in {"guide", "addpanel", "updates"}:
         suffix = "text" if get_settings().public_url else "no_web"
         return t(f"adm_nav_{group}_{suffix}")
@@ -267,7 +289,8 @@ async def navigate(
     await state.clear()
     # Restore the persistent admin keyboard if a canceled input had replaced it.
     await message.answer(t("adm_nav_open", title=t(f"adm_nav_{group}")), reply_markup=menu(t, cfg, staff))
-    await message.answer(group_text(t, group), reply_markup=group_kb(t, staff, group, cfg))
+    text = group_text(t, group, customer_bot=customer_bot(staff, cfg), own_bot=bool(cfg.get("own_bot")))
+    await message.answer(text, reply_markup=group_kb(t, staff, group, cfg))
 
 
 @router.callback_query(Admin.filter(F.section == "nav"))
@@ -293,4 +316,5 @@ async def navigate_cb(
         return
     await state.clear()
     await call.answer()
-    await show(call, group_text(t, group), group_kb(t, staff, group, cfg))
+    text = group_text(t, group, customer_bot=customer_bot(staff, cfg), own_bot=bool(cfg.get("own_bot")))
+    await show(call, text, group_kb(t, staff, group, cfg))
