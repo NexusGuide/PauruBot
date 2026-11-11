@@ -1014,6 +1014,15 @@ async def worker_heartbeat() -> None:
     await doctor.heartbeat()
 
 
+@every(3600, "tickets.auto_close")
+async def auto_close_tickets() -> None:
+    """Answered tickets the customer left alone past the shop's set days (off by default)."""
+    from paurubot.core import tickets
+
+    async with session_scope() as session:
+        await tickets.auto_close(session)
+
+
 @every(3600, "ticket_media.cleanup")
 async def cleanup_ticket_media() -> None:
     from paurubot.core import ticket_media

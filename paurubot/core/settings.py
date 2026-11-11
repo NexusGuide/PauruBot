@@ -145,6 +145,8 @@ SPECS: dict[str, Spec] = {
     "business_reply_every_hours": Spec(int, 12, "business"),
     "business_quiet_minutes": Spec(int, 30, "business"),
     "business_rules": Spec(list, [], "business"),
+    # Close answered tickets the customer left alone this many days (0: never).
+    "ticket_auto_close_days": Spec(int, 0, "tickets"),
     # a reseller's own bot (TEN-04); set on that bot's shop
     "resale_markup_percent": Spec(int, 20, "resale"),
     "resale_prices": Spec(dict, {}, "resale"),
@@ -468,6 +470,8 @@ def _check(key: str, value: Any) -> None:
         for tier in value
     ):
         raise SettingError("bulk_buy_tiers_invalid")
+    if key == "ticket_auto_close_days" and not 0 <= value <= 365:
+        raise SettingError("ticket_auto_close_days_invalid")
     if key == "catalog_discount_percent" and not 0 <= value <= 90:
         raise SettingError("catalog_discount_percent_invalid")
     if key == "catalog_discount_until" and value:

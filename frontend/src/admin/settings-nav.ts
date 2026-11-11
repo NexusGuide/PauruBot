@@ -36,6 +36,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
     tabs: [
       group("general"),
       group("signup"),
+      group("tickets"),
       group("reports"),
       group("business"),
       { key: "links", to: "/quick-links", permission: "settings.read" },
