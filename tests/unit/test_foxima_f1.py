@@ -125,3 +125,47 @@ async def test_the_lucky_wheel_can_be_a_telegram_dice_or_slot(session) -> None: 
     assert exc.value.key == "wheel_wait"
     assert growth.dice_wins("slot", 64) and growth.dice_wins("slot", 22) and not growth.dice_wins("slot", 5)
     assert growth.dice_wins("dice", 6) and not growth.dice_wins("dice", 5)
+
+
+async def test_remnawave_users_are_tagged_by_how_many_services_their_buyer_has(session) -> None:  # type: ignore[no-untyped-def]
+    """Foxima's Remnawave loyalty: GOLD from 5 active services, SILVER from 3, BRONZE from 1."""
+    from paurubot.core import remnawave_loyalty
+    from paurubot.db.models import PanelKind, Service, ServiceStatus
+    from paurubot.panels import UserSpec, driver_for, registry
+    from tests.fakes.panels import FakeRemnawavePanel, transport
+
+    shop = await factories.shop(session)
+    panel = await factories.panel(session, shop, PanelKind.REMNAWAVE)
+    fake = FakeRemnawavePanel()
+    registry.test_transports[panel.id] = transport(fake)
+    try:
+        driver = await driver_for(panel)
+        big, small = await factories.customer(session, shop), await factories.customer(session, shop)
+        services = []
+        for owner, count in ((big, 3), (small, 1)):
+            for n in range(count):
+                made = await driver.create_user(UserSpec(username=f"rw_{owner.id}_{n}", data_limit=1024**3))
+                row = Service(
+                    shop_id=shop.id,
+                    customer_id=owner.id,
+                    panel_id=panel.id,
+                    panel_username=made.username,
+                    panel_data=made.data,
+                    status=ServiceStatus.ACTIVE,
+                )
+                session.add(row)
+                services.append(row)
+        await session.commit()
+        assert await remnawave_loyalty.run(session) == 0  # off by default
+        await shop_settings.set_many(session, shop.id, {"remnawave_loyalty_tags": True})
+        await session.commit()
+        assert await remnawave_loyalty.run(session) == 4
+        tags = sorted(str(u.get("tag")) for u in fake.users.values())
+        assert tags == ["BRONZE", "SILVER", "SILVER", "SILVER"]
+        before = getattr(fake, "patches", 0)
+        assert await remnawave_loyalty.run(session) == 0  # nothing changed, nothing sent again
+        assert getattr(fake, "patches", 0) == before
+        assert remnawave_loyalty.tier_for(5) == "GOLD" and remnawave_loyalty.tier_for(0) is None
+    finally:
+        registry.test_transports.clear()
+        registry._cache.clear()

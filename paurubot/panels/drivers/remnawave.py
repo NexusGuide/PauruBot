@@ -236,6 +236,10 @@ class RemnawaveDriver(PanelDriver):
             data = await self.call("GET", f"/api/users/{uuid}")
         return self.parse_user(as_dict(data))
 
+    async def set_tag(self, ref: PanelRef, tag: str | None) -> None:
+        """The user's tag on the panel (Foxima's loyalty tiers); None clears it."""
+        await self.call("PATCH", "/api/users", json={"uuid": await self._uuid(ref), "tag": tag})
+
     async def reset_usage(self, ref: PanelRef) -> None:
         await self.call("POST", f"/api/users/{await self._uuid(ref)}/actions/reset-traffic")
 

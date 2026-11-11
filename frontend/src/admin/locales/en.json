@@ -2345,5 +2345,7 @@
   "setting_wheel_dice_prize": "Dice or slot prize",
   "wheel_style_wheel": "Wheel",
   "wheel_style_dice": "🎲 Dice",
-  "wheel_style_slot": "🎰 Slot"
+  "wheel_style_slot": "🎰 Slot",
+  "setting_remnawave_loyalty_tags": "Remnawave loyalty tags",
+  "setting_remnawave_loyalty_tags_hint": "Each Remnawave user is tagged GOLD (5+), SILVER (3+) or BRONZE (1+) by its buyer's active services."
 }

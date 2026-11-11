@@ -304,6 +304,9 @@ SPECS: dict[str, Spec] = {
     "custom_username_enabled": Spec(bool, False, "services"),
     # Foxima parity: in the bot, the buyer picks a duration (1 month, 3 months...) before a plan.
     "buy_by_duration": Spec(bool, False, "services"),
+    # Foxima parity: tag every Remnawave user GOLD / SILVER / BRONZE by how many active services
+    # its buyer has (5 / 3 / 1), e.g. for routing or a panel-side perk.
+    "remnawave_loyalty_tags": Spec(bool, False, "services"),
     # resellers
     "reseller_applications_enabled": Spec(bool, True, "resellers"),
     "bulk_buy_enabled": Spec(bool, True, "resellers"),

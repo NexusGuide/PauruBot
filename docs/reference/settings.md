@@ -272,6 +272,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `username_suffix` | str | "" | Fixed username suffix. Added after every new panel username (up to 8 letters). Empty is none |
 | `custom_username_enabled` | bool | false | Customers choose the username. When buying in the bot, the customer types the service name or skips. If the panel already has it, a few characters are added at the end |
 | `buy_by_duration` | bool | false | Buy by duration. In the bot, the buyer first picks a length (e.g. 30 or 90 days), then sees that length's plans |
+| `remnawave_loyalty_tags` | bool | false | Remnawave loyalty tags. Each Remnawave user is tagged GOLD (5+), SILVER (3+) or BRONZE (1+) by its buyer's active services |
 
 ## Custom purchase
 

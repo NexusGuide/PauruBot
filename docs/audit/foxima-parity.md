@@ -60,7 +60,7 @@ Foxima has on top. Status: ✅ we have it · 🟡 partly · ❌ missing. The bat
 | Per-panel account limit with reset and "unlimited" | ✅ (panel capacity) | — |
 | Daily status report, uptime of panels and nodes, IP block notice, on-hold reminder | ✅ | — |
 | x-ui inbound sync, Remnawave usage | ✅ | — |
-| Remnawave loyalty | ❌ | F2 |
+| Remnawave loyalty | ✅ (F2: GOLD / SILVER / BRONZE tag by the buyer's active services; off by default) | — |
 
 ## Mini App
 

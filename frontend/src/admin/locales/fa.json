@@ -2345,5 +2345,7 @@
   "setting_wheel_dice_prize": "جایزهٔ تاس یا اسلات (تومان)",
   "wheel_style_wheel": "گردونه",
   "wheel_style_dice": "🎲 تاس",
-  "wheel_style_slot": "🎰 اسلات"
+  "wheel_style_slot": "🎰 اسلات",
+  "setting_remnawave_loyalty_tags": "برچسب وفاداری در Remnawave",
+  "setting_remnawave_loyalty_tags_hint": "هر کاربر Remnawave بر اساس تعداد سرویس‌های فعال خریدارش برچسب GOLD (۵+)، SILVER (۳+) یا BRONZE (۱+) می‌گیرد."
 }
