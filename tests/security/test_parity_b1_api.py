@@ -175,7 +175,7 @@ async def test_quick_renew_the_most_urgent_service(session, http, env) -> None: 
     )
     assert (await session.get(Order, picked.json()["order_id"])).service_id == later.id
     again = await owner.call("POST", f"/api/admin/customers/{env.customer_id}/quick-renew", {})
-    assert again.status_code == 409 and again.json()["detail"] == "renew_in_progress"  # no second free renewal
+    assert again.status_code == 409 and again.json()["error"] == "renew_in_progress"  # no second free renewal
     finance = await login(http, "u_finance")
     assert (
         await finance.call("POST", f"/api/admin/customers/{env.customer_id}/quick-renew", {})

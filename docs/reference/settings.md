@@ -325,5 +325,5 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `backup_hour` | int | — | Hour. Server time ({timezone}) |
 | `backup_keep` | int | — | Copies to keep. Older copies are deleted |
 | `backup_send_telegram` | bool | — | Send to Telegram. To the Backups channel under Channels, or to the owner when none is set |
-| `backup_bot_token` | str (secret) | — | — |
-| `backup_chat_ids` | list | [] | — |
+| `backup_bot_token` | str (secret) | — | Backup bot token |
+| `backup_chat_ids` | list | [] | Backup bot chats |

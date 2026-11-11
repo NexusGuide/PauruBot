@@ -2321,5 +2321,7 @@
   "setting_reseller_daily_report_hint": "Each reseller gets its purchases, balance and its bot's sales every night.",
   "setting_qr_send_enabled": "Send the QR after delivery",
   "setting_qr_show_link": "Subscription link under the QR",
-  "err_renew_in_progress": "A renewal for this service is already under way."
+  "err_renew_in_progress": "A renewal for this service is already under way.",
+  "setting_backup_bot_token": "Backup bot token",
+  "setting_backup_chat_ids": "Backup bot chats"
 }
