@@ -10,6 +10,7 @@ import {
   Badge,
   BulkBar,
   Button,
+  Chips,
   CopyText,
   Facts,
   Field,
@@ -24,7 +25,6 @@ import {
   Status,
   Textarea,
   Table,
-  Toolbar,
   Usage,
   When,
   useTypedConfirm,
@@ -74,9 +74,22 @@ function useServiceColumns(): Column<Service>[] {
       label: t("col_expires"),
       sort: "expire_at",
       mobile: "end",
-      render: (s) => (s.expire_at ? <When iso={s.expire_at} /> : <span className="text-[var(--hint)]">{t("never")}</span>),
+      render: (s) => <Expiry s={s} />,
     },
   ];
+}
+
+/** Days left for a live service (amber in the last three), the date for anything else. */
+function Expiry({ s }: { s: Service }) {
+  const { t, locale } = useSession();
+  if (!s.expire_at) return <span className="text-[0.82rem] text-[var(--hint)]">{t("never")}</span>;
+  if (s.status !== "active") return <When iso={s.expire_at} />;
+  const left = Math.max(0, Math.ceil((new Date(s.expire_at).getTime() - Date.now()) / 86_400_000));
+  return (
+    <span className={`text-[0.82rem] font-bold ${left <= 3 ? "text-saffron-700" : "text-[var(--text)]"}`} title={s.expire_at}>
+      {t("cust_days_left", { n: money(left, locale) })}
+    </span>
+  );
 }
 
 /** Read-only service list used inside other pages (a customer's services). */
@@ -363,22 +376,9 @@ export function Services() {
       }
     >
       <ServiceClaims />
-      <Section flush>
-        <Toolbar>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <SearchBox value={list.get("q")} onChange={(q) => list.set({ q })} placeholder={t("search_services")} />
-          <Select
-            className="w-auto"
-            aria-label={t("filter_status")}
-            value={list.get("status")}
-            onChange={(event) => list.set({ status: event.target.value })}
-          >
-            <option value="">{t("filter_not_deleted")}</option>
-            {SERVICE_STATUSES.map((status) => (
-              <option key={status} value={status}>
-                {t(`status_${status}`)}
-              </option>
-            ))}
-          </Select>
           {panels.data && (
             <Select
               className="w-auto"
@@ -394,12 +394,22 @@ export function Services() {
               ))}
             </Select>
           )}
-          {list.get("customer_id") && (
-            <Button small onClick={() => list.set({ customer_id: null })}>
-              {t("customer_filter", { id: list.get("customer_id") })} ✕
+        </div>
+        <Chips
+          label={t("filter_status")}
+          value={list.get("status") || "all"}
+          onChange={(status) => list.set({ status: status === "all" ? null : status })}
+          options={[{ value: "all", label: t("filter_not_deleted") }, ...SERVICE_STATUSES.map((status) => ({ value: status, label: t(`status_${status}`) }))]}
+        />
+        {list.get("customer_id") && (
+          <div>
+            <Button small icon="close" onClick={() => list.set({ customer_id: null })}>
+              {t("customer_filter", { id: list.get("customer_id") })}
             </Button>
-          )}
-        </Toolbar>
+          </div>
+        )}
+      </div>
+      <Section flush>
         {writable && (
           <BulkBar count={selection.selected.size} onClear={selection.clear}>
             <Button small onClick={() => setBulkOpen({ action: "enable", everything: false })}>

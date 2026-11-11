@@ -106,3 +106,9 @@ html:root[data-theme] {
   --td-accent: var(--accent);
   --td-on-accent: var(--accent-ink);
 }
+
+/* Checkboxes and radios take the accent, in both themes. */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+}
