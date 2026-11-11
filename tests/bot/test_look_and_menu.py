@@ -305,3 +305,55 @@ async def test_customer_adds_a_previous_service_from_the_bot(session, env) -> No
     finally:
         registry.test_transports.clear()
         registry._cache.clear()
+
+
+async def test_my_orders_lookup_and_topup_presets(session, env) -> None:  # type: ignore[no-untyped-def]
+    """ClockBot parity: the customer's orders in the wallet, a subscription lookup in My services,
+    and the shop's own top-up amounts."""
+    from aiogram.methods import EditMessageText
+
+    from paurubot.bot.callbacks import Svc, Wallet
+    from paurubot.db.models import Customer, Order, OrderKind, OrderStatus, Service, ServiceStatus
+
+    send, fake, shop, panel = env["send"], env["fake"], env["shop"], env["panel"]
+    await send(message_update(UID, "/start"))
+    customer = await session.scalar(
+        select(Customer).where(Customer.shop_id == shop.id, Customer.telegram_id == UID)
+    )
+    session.add(
+        Order(
+            shop_id=shop.id,
+            customer_id=customer.id,
+            kind=OrderKind.PURCHASE,
+            status=OrderStatus.COMPLETED,
+            base_price=120_000,
+            amount=120_000,
+        )
+    )
+    service = Service(
+        shop_id=shop.id,
+        customer_id=customer.id,
+        panel_id=panel.id,
+        panel_username="look_me",
+        status=ServiceStatus.ACTIVE,
+        sub_token="tok-lookup-123456",
+    )
+    session.add(service)
+    await shop_settings.set_many(session, shop.id, {"wallet_topup_presets": [70_000, 300_000]})
+    await session.commit()
+
+    await send(callback_update(UID, Wallet(action="orders").pack()))
+    assert "120,000" in fake.last(EditMessageText).text
+    await send(callback_update(UID, Wallet(action="topup").pack()))
+    labels = " ".join(text for text, _ in fake.buttons(fake.last(EditMessageText)))
+    assert "70,000" in labels and "300,000" in labels and "50,000" not in labels
+
+    await send(message_update(UID, FA("btn_services")))
+    assert Svc(action="lookup").pack() in [d for _, d in fake.buttons(fake.last(SendMessage)) if d]
+    await send(callback_update(UID, Svc(action="lookup").pack()))
+    assert fake.last(SendMessage).text == FA("lookup_ask")
+    await send(message_update(UID, "https://bot.example/sub/tok-lookup-123456"))
+    assert "look_me" in fake.last(SendMessage).text
+    await send(callback_update(UID, Svc(action="lookup").pack()))
+    await send(message_update(UID, "https://bot.example/sub/unknown-token-0000"))
+    assert fake.last(SendMessage).text == FA("lookup_not_found")

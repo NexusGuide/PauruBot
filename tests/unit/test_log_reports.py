@@ -367,3 +367,14 @@ async def test_the_shop_mutes_group_topics_and_staff_messages_per_event(session,
     assert "failed" not in [e["text"] for e in sent] and "panel down" in [e["text"] for e in sent]
     with pytest.raises(shop_settings.SettingError):
         await shop_settings.set_many(session, shop.id, {"alerts_muted": ["group:gossip"]})
+
+
+async def test_a_staff_message_reaches_the_picked_customers_once(session, env) -> None:  # type: ignore[no-untyped-def]
+    shop, customer, sent = env["shop"], env["customer"], env["sent"]
+    other = await factories.customer(session, shop, telegram_id=8053694999)
+    other.is_banned = True  # banned customers are skipped
+    await session.commit()
+    await handlers.staff_message(
+        session, job("staff_message", {"customer_ids": [customer.id, other.id], "text": "<b>hi</b>"}, shop.id)
+    )
+    assert [(e["chat"], e["text"]) for e in sent] == [(customer.telegram_id, "&lt;b&gt;hi&lt;/b&gt;")]

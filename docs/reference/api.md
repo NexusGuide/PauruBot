@@ -22,12 +22,14 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/backups` | `backups.manage` | List backups |
 | POST | `/api/admin/backups` | `backups.manage` | Start backup |
 | GET | `/api/admin/broadcasts/audience` | `broadcast.send` | Audience size |
+| POST | `/api/admin/broadcasts/clear` | `broadcast.send` | Remove every finished broadcast from the history; running and paused ones stay. |
 | GET | `/api/admin/broadcasts/targeted/audience` | `broadcast.send` | Targeted audience size |
 | POST | `/api/admin/broadcasts/targeted` | `broadcast.send` | Create targeted broadcast |
 | POST | `/api/admin/broadcasts/test` | `broadcast.send` | Send test broadcast |
 | POST | `/api/admin/broadcasts/{broadcast_id}/cancel` | `broadcast.send` | Cancel broadcast |
 | POST | `/api/admin/broadcasts/{broadcast_id}/pause` | `broadcast.send` | Pause broadcast |
 | POST | `/api/admin/broadcasts/{broadcast_id}/resume` | `broadcast.send` | Resume broadcast |
+| DELETE | `/api/admin/broadcasts/{broadcast_id}` | `broadcast.send` | Delete broadcast |
 | GET | `/api/admin/broadcasts` | `broadcast.send` | List broadcasts |
 | POST | `/api/admin/broadcasts` | `broadcast.send` | Create broadcast |
 | GET | `/api/admin/bundle` | `backups.manage` | The shop's setup (no secrets, no customers) as a JSON file. |
@@ -63,9 +65,11 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/customers/{customer_id}/own-bot` | `resellers.manage` | Own bot |
 | POST | `/api/admin/customers/{customer_id}/own-bot` | `resellers.manage` | Connect own bot |
 | POST | `/api/admin/customers/{customer_id}/trial-again` | `customers.write` | One more trial for this customer (CAT-11). |
+| DELETE | `/api/admin/customers/{customer_id}` | `customers.ban` | Remove a customer with no history at all; one with orders, payments, services or a wallet is |
 | GET | `/api/admin/customers/{customer_id}` | `customers.read` | Customer detail |
 | PATCH | `/api/admin/customers/{customer_id}` | `customers.write` | Update customer |
 | GET | `/api/admin/customers` | `customers.read` | List customers |
+| POST | `/api/admin/customers` | `customers.write` | Add a customer by Telegram id before they open the bot (e.g. to give them a service). |
 | GET | `/api/admin/dashboard` | `dashboard.view` | Dashboard |
 | GET | `/api/admin/desk/expiring` | `services.create` | Expiring |
 | POST | `/api/admin/desk/renew` | `services.create` | Renew |
@@ -81,6 +85,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/gift-codes` | `discounts.write` | List gifts |
 | POST | `/api/admin/gift-codes` | `discounts.write` | Create gift |
 | POST | `/api/admin/inbox/dismiss` | `dashboard.view` | Dismiss |
+| POST | `/api/admin/inbox/reset` | `dashboard.view` | Bring back every inbox item this staff member dismissed. |
 | GET | `/api/admin/inbox` | `dashboard.view` | Inbox |
 | POST | `/api/admin/jobs/retry-dead` | `settings.write` | Put every dead job of this shop (optionally one queue) back in line (JOB-05). |
 | POST | `/api/admin/jobs/{job_id}/retry` | `settings.write` | Retry job |
@@ -187,6 +192,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | PUT | `/api/admin/sub-resellers/{profile_id}` | `resellers.sub` | Update sub reseller |
 | GET | `/api/admin/sub-resellers` | `resellers.sub` | Sub resellers |
 | POST | `/api/admin/sub-resellers` | `resellers.sub` | Add sub reseller |
+| POST | `/api/admin/texts/reset` | `texts.write` | Put many texts back to the shipped wording at once, in every language (a whole tab). |
 | DELETE | `/api/admin/texts/{locale}/{key}` | `texts.write` | Reset text |
 | PUT | `/api/admin/texts/{locale}/{key}` | `texts.write` | Set text |
 | GET | `/api/admin/texts` | `texts.write` | List texts |
@@ -208,6 +214,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/tools/reseller-ranking` | `resellers.manage` | Resellers by sales, revenue and confirmed complaints over the last `days` (0: all time). |
 | POST | `/api/admin/tools/trial-reset` | `settings.write` | Everyone may take a free trial again (a new trial round, CAT-11). |
 | POST | `/api/admin/tools/unpin-all` | `broadcast.send` | Take down every broadcast still pinned in customers' chats (GRW-06). |
+| GET | `/api/admin/trial-users` | `customers.read` | Customers who took a free trial, and whether they went on to buy (a completed order). |
 | DELETE | `/api/admin/updates` | `backups.manage` | Cancel update |
 | GET | `/api/admin/updates` | `backups.manage` | Update status |
 | POST | `/api/admin/updates` | `backups.manage` | Request update |

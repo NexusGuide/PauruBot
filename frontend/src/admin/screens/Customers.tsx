@@ -30,6 +30,7 @@ import {
 } from "../ui";
 import { OwnBotSection } from "./OwnBot";
 import { GiftAllButton } from "./Tools";
+import { BulkMessageButton, DeleteCustomerButton, NewCustomerButton } from "./ClockTools";
 import { HiddenPanels } from "./People";
 import { ServiceTable } from "./Services";
 
@@ -129,7 +130,16 @@ export function Customers() {
   ];
 
   return (
-    <Page title={t("nav_customers")} wide actions={<GiftAllButton />}>
+    <Page
+      title={t("nav_customers")}
+      wide
+      actions={
+        <>
+          <NewCustomerButton />
+          <GiftAllButton />
+        </>
+      }
+    >
       <Section flush>
         <Toolbar>
           <SearchBox value={list.get("q")} onChange={(q) => list.set({ q })} placeholder={t("search_customers")} />
@@ -173,6 +183,7 @@ export function Customers() {
             <Button small busy={busy} onClick={() => void bulk("unban")}>
               {t("unban")}
             </Button>
+            <BulkMessageButton ids={[...selection.selected]} onDone={selection.clear} />
             {can("customers.write") && (
               <>
                 <Button small onClick={() => setTagging("tag")}>
@@ -388,6 +399,7 @@ function GiveAccountSheet({ customerId, onClose, onDone }: { customerId: number;
 export function CustomerPage() {
   const { id } = useParams();
   const { t, can, me, locale, toast, errorText } = useSession();
+  const navigate = useNavigate();
   const { data, error, reload, setData } = useLoad<CustomerDetail>(`/api/admin/customers/${id}`);
   const [adjusting, setAdjusting] = useState(false);
   const [messaging, setMessaging] = useState(false);
@@ -482,6 +494,7 @@ export function CustomerPage() {
                 {can("services.create") && can("catalog.read") && (
                   <Button onClick={() => setGiving(true)}>{t("give_service")}</Button>
                 )}
+                <DeleteCustomerButton customerId={c.id} onDeleted={() => navigate("/customers")} />
                 {can("resellers.manage") && me?.role !== "reseller" && (
                   <Button onClick={() => setGivingAccount(true)}>{t("give_account")}</Button>
                 )}

@@ -36,6 +36,7 @@ import {
 } from "../ui";
 import { AlertMatrix, AutoReplies, ReportSections, type AutoReply } from "../settings-editors";
 import { TrialResetCard } from "./Tools";
+import { AmountList, ResetTextsButton } from "./ClockTools";
 import { compact } from "./Home";
 import { controllers, matchesQuery, shown } from "../settings-layout";
 import { atAnHour, everyLabel, everyOptions, summary, type BackupSchedule } from "../backup-schedule";
@@ -431,6 +432,13 @@ function SettingControl({
     return (
       <Field label={label} hint={hint}>
         {() => <WheelPrizes value={(value as Prize[]) ?? []} onChange={onChange} />}
+      </Field>
+    );
+  }
+  if (item.key === "wallet_topup_presets") {
+    return (
+      <Field label={label} hint={hint}>
+        {() => <AmountList value={Array.isArray(value) ? (value as number[]) : []} onChange={onChange} />}
       </Field>
     );
   }
@@ -977,6 +985,12 @@ export function Texts() {
                 <Button small tone={onlyChanged ? "primary" : "quiet"} aria-pressed={onlyChanged} onClick={() => setOnlyChanged((v) => !v)}>
                   {t("only_changed")} · {changedCount}
                 </Button>
+                <ResetTextsButton
+                  keys={(data?.items ?? [])
+                    .filter((item) => kindOf(item.key) === kind && sectionOf(item.key) === current && Object.keys(item.overrides).length > 0)
+                    .map((item) => item.key)}
+                  onDone={() => void reload()}
+                />
               </div>
               <nav className="flex flex-col gap-0.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-2">
                 {SECTIONS.filter((name) => counts[name] > 0 || name === current).map((name) => {

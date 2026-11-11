@@ -4,6 +4,7 @@ import { ApiError, call } from "../api";
 import { useSession } from "../session";
 import { Sheet } from "../ui";
 import { UnpinAllButton } from "../screens/Tools";
+import { ClearBroadcastsButton, DeleteBroadcastButton } from "../screens/ClockTools";
 import { AUDIENCE_KINDS, audiencePreviewPath, previewReady, submitPath, actions, audienceKey, buildBody, codepoints, emptyDraft, parsePage, parseReachable, parseRow, type Action, type Body, type BroadcastRow, type Draft } from "./model";
 import { translator, type CopyKey } from "./copy";
 import "./broadcasts.css";
@@ -280,7 +281,7 @@ function Manager({ t, locale }: {
         next.set("page", String(value));
     else
         next.delete("page"); return next; }, { replace: true }); };
-    return <main className="bc"><header className="bc-top"><h1>{t("title")}</h1><UnpinAllButton /><button className="bc-primary" onClick={() => { setCompose(true); setNotice(""); }}>{t("new")}</button></header>
+    return <main className="bc"><header className="bc-top"><h1>{t("title")}</h1><ClearBroadcastsButton onDone={refresh} /><UnpinAllButton /><button className="bc-primary" onClick={() => { setCompose(true); setNotice(""); }}>{t("new")}</button></header>
     <section className="bc-card"><h2>{t("estimate")}: {audience.loading ? t("loading") : audience.error || audience.data === null ? t("unknown") : new Intl.NumberFormat(locale).format(audience.data)}</h2><p className="bc-muted">{t("estimateHint")}</p></section>
     <div className="bc-actions"><p className="bc-muted">{t("plain")}</p><button disabled={history.loading || audience.loading} onClick={refresh}>{t("refresh")}</button></div>
     {notice && <Notice text={notice}/>}{history.loading && <p role="status">{t("loading")}</p>}{history.error && <Notice text={t(history.data ? "stale" : "loadError")} error/>}
@@ -290,7 +291,7 @@ function Manager({ t, locale }: {
       <p className="bc-muted">{t(audienceKey(row.audience))} · {typeof row.audience.locale === "string" ? row.audience.locale : t("anyLanguage")}</p>
       <dl className="bc-grid">{(["sent", "failed", "blocked", "deleted", "skipped", "total"] as const).map(key => <div key={key}><dt>{t(key)}</dt><dd>{key === "total" && row.total === 0 && ["queued", "paused"].includes(row.status) ? t("uncounted") : row[key] === null ? t("unknown") : new Intl.NumberFormat(locale).format(row[key])}</dd></div>)}</dl>
       <p className="bc-muted">{t("counterHint")}</p><p className="bc-muted">{t("skippedHint")}</p><p className="bc-muted">{t("created")}: <time>{stamp(row.created_at, locale)}</time>{row.scheduled_at && <><br />{t("scheduled")}: <time>{stamp(row.scheduled_at, locale)}</time></>}{row.finished_at && <><br />{t("finished")}: <time>{stamp(row.finished_at, locale)}</time></>}</p>
-      <div className="bc-actions">{actions(row.status).map(value => <button key={value} disabled={history.loading || history.error} onClick={() => { setAction({ row, action: value }); setNotice(""); }}>{t(value)}</button>)}</div>
+      <div className="bc-actions">{actions(row.status).map(value => <button key={value} disabled={history.loading || history.error} onClick={() => { setAction({ row, action: value }); setNotice(""); }}>{t(value)}</button>)}<DeleteBroadcastButton id={row.id} status={row.status} onDone={refresh} /></div>
     </article>)}</div>
     <nav className="bc-actions" aria-label={t("page")}><button disabled={page === 0 || history.loading} onClick={() => changePage(page - 1)}>{t("previous")}</button><span>{t("page")} {new Intl.NumberFormat(locale).format(page + 1)}</span><button disabled={!history.data || history.error || history.loading || (page + 1) * 25 >= history.data.total} onClick={() => changePage(page + 1)}>{t("next")}</button></nav>
     {compose && <Composer t={t} locale={locale} onClose={closeComposer} onSaved={() => saved("queued")}/>}{action && <ActionModal key={`${action.row.id}-${action.action}`} {...action} t={t} onClose={closeAction} onSaved={() => saved("savedAction")}/>}

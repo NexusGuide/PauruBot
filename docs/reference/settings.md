@@ -69,6 +69,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
+| `wallet_topup_presets` | list | [] | Suggested wallet top-up amounts. Comma separated (up to 8). Empty: the bot's default amounts |
 | `min_topup` | int | 20000 | Minimum top-up |
 | `max_topup` | int | 50000000 | Maximum top-up |
 | `order_expire_minutes` | int | 60 | Order payment window (minutes) |

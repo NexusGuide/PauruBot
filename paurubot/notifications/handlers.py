@@ -953,6 +953,24 @@ async def simple_customer(session: AsyncSession, job: queue.Claimed) -> None:
     await _to_customer(session, customer, text)
 
 
+async def staff_message(session: AsyncSession, job: queue.Claimed) -> None:
+    """A message from staff to the customers they picked; one who blocked the bot is skipped.
+    Progress is kept in the payload, so a retried job never sends anyone the message twice."""
+    data = dict(job.payload)
+    ids = [int(i) for i in data.get("customer_ids") or []]
+    done = int(data.get("done") or 0)
+    text = esc(str(data.get("text") or ""))
+    if not text:
+        return
+    for index in range(done, len(ids)):
+        customer = await session.get(Customer, ids[index])
+        if customer is not None and customer.shop_id == job.shop_id and not customer.is_banned:
+            await _to_customer(session, customer, text)
+        if index % 20 == 19:
+            await queue.update_payload(session, job, {**data, "done": index + 1})
+            await asyncio.sleep(1)  # well inside Telegram's broadcast limits
+
+
 async def service_claim(session: AsyncSession, job: queue.Claimed) -> None:
     """A customer asks to add a previous service: tell the staff who can approve it."""
     from paurubot.db.models import Panel, ServiceClaim
@@ -1571,6 +1589,7 @@ register_queue(
             "card_verify": card_verify,
             "reseller_application": reseller_application,
             "service_claim": service_claim,
+            "staff_message": staff_message,
             "service_claim_decided": service_claim_decided,
             "ticket_new_message": ticket_new_message,
             "ticket_reply": ticket_reply,

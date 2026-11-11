@@ -5,6 +5,7 @@ import { call, type Dashboard, type InboxItem } from "../api";
 import { Columns } from "../chart";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
+import { InboxResetButton } from "./ClockTools";
 import { Async, Badge, Button, Empty, Field, Money, Page, Section, Sheet, Textarea, When } from "../ui";
 
 export function compact(value: number, locale: string): string {
@@ -364,9 +365,12 @@ function Inbox() {
       flush
       title={t("inbox_title")}
       actions={
-        <Button small tone="ghost" icon="refresh" onClick={() => void reload()}>
-          {t("refresh")}
-        </Button>
+        <>
+          <InboxResetButton onDone={() => void reload()} />
+          <Button small tone="ghost" icon="refresh" onClick={() => void reload()}>
+            {t("refresh")}
+          </Button>
+        </>
       }
     >
       <Async data={data} error={error} reload={reload}>

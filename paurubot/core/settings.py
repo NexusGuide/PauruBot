@@ -89,6 +89,8 @@ SPECS: dict[str, Spec] = {
     "lottery_enabled": Spec(bool, False, "growth"),
     "trust_channel_id": Spec(int, None, "growth"),
     # payments
+    # Amounts offered as buttons on a wallet top-up; empty: the built-in list.
+    "wallet_topup_presets": Spec(list, [], "payments"),
     "min_topup": Spec(int, 20_000, "payments"),
     "max_topup": Spec(int, 50_000_000, "payments"),
     "order_expire_minutes": Spec(int, 60, "payments"),
@@ -364,6 +366,11 @@ def _check(key: str, value: Any) -> None:
     """Values a type alone cannot rule out."""
     if value is None:
         return
+    if key == "wallet_topup_presets" and (
+        len(value) > 8
+        or not all(isinstance(v, int) and not isinstance(v, bool) and 0 < v <= 10**10 for v in value)
+    ):
+        raise SettingError("wallet_topup_presets_invalid")
     if key == "auto_replies":
         _check_auto_replies(value)
     if key in {"terms_when", "phone_when"} and value not in {"entry", "purchase"}:

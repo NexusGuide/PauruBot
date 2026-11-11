@@ -206,7 +206,8 @@ def wallet_kb(t: Texts, *, transfer: bool = False) -> InlineKeyboardMarkup:
     if transfer:
         kb.button(text=t("btn_transfer"), callback_data=Wallet(action="transfer"))
     kb.button(text=t("btn_my_codes"), callback_data=Wallet(action="codes"))
-    kb.adjust(2, 2, 1)
+    kb.button(text=t("btn_my_orders"), callback_data=Wallet(action="orders"))
+    kb.adjust(2, 2, 1, 1)  # our rows as they were; «my orders» on its own row below
     return kb.as_markup()
 
 
@@ -269,6 +270,7 @@ def services_kb(
         kb.row(InlineKeyboardButton(text=t("btn_stock"), callback_data=Svc(action="stock").pack()))
     if claim:
         kb.row(InlineKeyboardButton(text=t("btn_import_service"), callback_data=Svc(action="claim").pack()))
+    kb.row(InlineKeyboardButton(text=t("btn_lookup"), callback_data=Svc(action="lookup").pack()))
     if muted is not None:
         kb.row(
             InlineKeyboardButton(
