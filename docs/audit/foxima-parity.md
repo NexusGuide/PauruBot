@@ -53,7 +53,7 @@ Foxima has on top. Status: ✅ we have it · 🟡 partly · ❌ missing. The bat
 | --- | --- | --- |
 | Plans, categories, locations, bulk price, manual sale, stock | ✅ | — |
 | Four renewal modes | ✅ | — |
-| Reserved renewal that starts on the first of: data used up, time ended, **a set date** | 🟡 queued renewal (period end / data out); no date trigger | F2 |
+| Reserved renewal that starts on the first of: data used up, time ended, **a set date** | 🟡 queued renewal (period end / data out); no date trigger | F3 |
 | Buy flow grouped by duration (1 month, 3 months…) | ✅ (F2, bot; off by default) | — |
 | Dice game with a wallet prize | ✅ (F2: the wheel can be Telegram's dice 🎲 or slot 🎰; our wheel stays the default) | — |
 | Banner on the buy screen (set, edit, view, delete, restore) | ✅ | — |
@@ -68,4 +68,4 @@ Foxima has on top. Status: ✅ we have it · 🟡 partly · ❌ missing. The bat
 | --- | --- | --- |
 | Buy, renew (options, preview, confirm), extras, services, configs, QR | ✅ | — |
 | Wallet, transfer, history, gift code, discount check, tickets, phone verify | ✅ | — |
-| Offline crypto: upload a receipt or a transaction hash | 🟡 on-chain payments are watched automatically | F2 |
+| Offline crypto: upload a receipt or a transaction hash | ✅ covered: on-chain payments are watched and confirmed automatically, no hash to paste | — |

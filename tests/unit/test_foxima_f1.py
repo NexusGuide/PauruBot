@@ -127,7 +127,7 @@ async def test_the_lucky_wheel_can_be_a_telegram_dice_or_slot(session) -> None: 
     assert growth.dice_wins("dice", 6) and not growth.dice_wins("dice", 5)
 
 
-async def test_remnawave_users_are_tagged_by_how_many_services_their_buyer_has(session) -> None:  # type: ignore[no-untyped-def]
+async def test_remnawave_users_are_tagged_by_how_many_services_their_buyer_has(session, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """Foxima's Remnawave loyalty: GOLD from 5 active services, SILVER from 3, BRONZE from 1."""
     from paurubot.core import remnawave_loyalty
     from paurubot.db.models import PanelKind, Service, ServiceStatus
@@ -159,6 +159,7 @@ async def test_remnawave_users_are_tagged_by_how_many_services_their_buyer_has(s
         assert await remnawave_loyalty.run(session) == 0  # off by default
         await shop_settings.set_many(session, shop.id, {"remnawave_loyalty_tags": True})
         await session.commit()
+        monkeypatch.setattr(remnawave_loyalty, "BATCH", 3)  # more services than one batch
         assert await remnawave_loyalty.run(session) == 4
         tags = sorted(str(u.get("tag")) for u in fake.users.values())
         assert tags == ["BRONZE", "SILVER", "SILVER", "SILVER"]

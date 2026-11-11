@@ -5,6 +5,7 @@ already right is never sent again."""
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,26 +46,34 @@ async def run(session: AsyncSession) -> int:
                 )
             ).all()
         )
-        rows = list(
-            await session.scalars(
-                select(Service).where(Service.panel_id == panel.id, *live).order_by(Service.id).limit(BATCH)
+        set_tag: Any = None
+        cursor = 0
+        while True:  # every service of the panel, a batch at a time
+            rows = list(
+                await session.scalars(
+                    select(Service)
+                    .where(Service.panel_id == panel.id, Service.id > cursor, *live)
+                    .order_by(Service.id)
+                    .limit(BATCH)
+                )
             )
-        )
-        driver = None
-        for service in rows:
-            tag = tier_for(int(counts.get(service.customer_id, 0)))
-            if (service.panel_data or {}).get("tag") == tag:
-                continue
-            try:
-                driver = driver or await driver_for(panel)
-                set_tag = getattr(driver, "set_tag", None)  # Remnawave only
-                if set_tag is None:
-                    break
-                await set_tag(ref(service), tag)
-            except Exception:  # one panel or user failing must not stop the others
-                log.warning("remnawave tag for service %s failed", service.id, exc_info=True)
-                continue
-            service.panel_data = {**(service.panel_data or {}), "tag": tag}
-            sent += 1
-        await session.commit()
+            if not rows:
+                break
+            cursor = rows[-1].id
+            for service in rows:
+                tag = tier_for(int(counts.get(service.customer_id, 0)))
+                if (service.panel_data or {}).get("tag") == tag:
+                    continue
+                try:
+                    if set_tag is None:
+                        set_tag = getattr(await driver_for(panel), "set_tag", None)  # Remnawave only
+                    if set_tag is None:
+                        break
+                    await set_tag(ref(service), tag)
+                except Exception:  # one user failing must not stop the others
+                    log.warning("remnawave tag for service %s failed", service.id, exc_info=True)
+                    continue
+                service.panel_data = {**(service.panel_data or {}), "tag": tag}
+                sent += 1
+            await session.commit()
     return sent
