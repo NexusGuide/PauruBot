@@ -2347,5 +2347,14 @@
   "wheel_style_dice": "🎲 تاس",
   "wheel_style_slot": "🎰 اسلات",
   "setting_remnawave_loyalty_tags": "برچسب وفاداری در Remnawave",
-  "setting_remnawave_loyalty_tags_hint": "هر کاربر Remnawave بر اساس تعداد سرویس‌های فعال خریدارش برچسب GOLD (۵+)، SILVER (۳+) یا BRONZE (۱+) می‌گیرد."
+  "setting_remnawave_loyalty_tags_hint": "هر کاربر Remnawave بر اساس تعداد سرویس‌های فعال خریدارش برچسب GOLD (۵+)، SILVER (۳+) یا BRONZE (۱+) می‌گیرد.",
+  "nav_button_looks": "رنگ و ایموجی دکمه‌ها",
+  "blooks_intro": "برای هر دکمهٔ ربات (منوی اصلی، منوی مدیریت، پرداخت، بازگشت، تأیید و…) رنگ و ایموجی پرمیوم جدا بگذار. دکمه‌ای که نگاه خودش را دارد (منوی اصلی، پلن، دسته) همان را نگه می‌دارد.",
+  "blooks_search": "جستجوی دکمه",
+  "blooks_color": "رنگ",
+  "blooks_emoji": "شناسهٔ ایموجی پرمیوم",
+  "blooks_tone_default": "پیش‌فرض",
+  "blooks_tone_primary": "آبی",
+  "blooks_tone_success": "سبز",
+  "blooks_tone_danger": "قرمز"
 }

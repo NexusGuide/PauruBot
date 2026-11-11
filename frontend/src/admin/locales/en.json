@@ -2347,5 +2347,14 @@
   "wheel_style_dice": "🎲 Dice",
   "wheel_style_slot": "🎰 Slot",
   "setting_remnawave_loyalty_tags": "Remnawave loyalty tags",
-  "setting_remnawave_loyalty_tags_hint": "Each Remnawave user is tagged GOLD (5+), SILVER (3+) or BRONZE (1+) by its buyer's active services."
+  "setting_remnawave_loyalty_tags_hint": "Each Remnawave user is tagged GOLD (5+), SILVER (3+) or BRONZE (1+) by its buyer's active services.",
+  "nav_button_looks": "Button colors & emoji",
+  "blooks_intro": "Give any button of the bot (main menu, admin menu, payment, back, confirm…) its own color and premium emoji. A button with its own look (main menu, plan, category) keeps it.",
+  "blooks_search": "Find a button",
+  "blooks_color": "Color",
+  "blooks_emoji": "Premium emoji id",
+  "blooks_tone_default": "Default",
+  "blooks_tone_primary": "Blue",
+  "blooks_tone_success": "Green",
+  "blooks_tone_danger": "Red"
 }

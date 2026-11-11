@@ -284,6 +284,8 @@ SPECS: dict[str, Spec] = {
     # bot appearance (BOT-02, BOT-03, BOT-05)
     "menu_layout": Spec(list, [], "appearance"),
     "button_styles": Spec(dict, {}, "appearance"),
+    # ClockBot parity: a color and a premium emoji for any button, by its label key.
+    "button_looks": Spec(dict, {}, "appearance"),
     "premium_emoji_enabled": Spec(bool, False, "appearance"),
     "premium_emojis": Spec(dict, {}, "appearance"),  # emoji -> custom emoji id (BOT-10)
     "start_media": Spec(dict, {}, "appearance"),  # {"type": sticker|animation|photo, "file_id"} (BOT-11)
@@ -497,6 +499,10 @@ def _check(key: str, value: Any) -> None:
         raise SettingError("extra_packages_invalid")
     if key == "connection_guides":
         _check_guides(value)
+    if key == "button_looks":
+        from paurubot.bot.button_looks import clean
+
+        clean(value)
     if key == "payment_method_rules":
         _check_method_rules(value)
     if key == "auto_replies":

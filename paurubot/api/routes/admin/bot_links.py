@@ -47,3 +47,19 @@ async def message_variables(ctx: Reader) -> dict[str, Any]:
             for name, keys in sorted(used.items(), key=lambda pair: (-len(pair[1]), pair[0]))
         ]
     }
+
+
+@router.get("/button-looks")
+async def button_looks(ctx: Reader, db: DB) -> dict[str, Any]:
+    """Every button of the bot with its label (as the shop shows it) and its color / premium emoji
+    (ClockBot parity); saved with the settings call as `button_looks`."""
+    from paurubot.bot.button_looks import label_keys
+    from paurubot.i18n import Texts, load_overrides
+
+    overrides = await load_overrides(db, ctx.shop_id)
+    fa, en = Texts("fa", overrides), Texts("en", overrides)
+    cfg = await shop_settings.load(db, ctx.shop_id)
+    return {
+        "items": [{"key": key, "fa": fa(key), "en": en(key)} for key in label_keys()],
+        "looks": cfg.get("button_looks") or {},
+    }

@@ -335,9 +335,10 @@ async def write_settings(
         await shop_settings.set_many(db, ctx.shop_id, body.values)
     except shop_settings.SettingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    from paurubot.bot import premium_emoji
+    from paurubot.bot import button_looks, premium_emoji
 
     premium_emoji.forget(ctx.shop_id)
+    button_looks.forget(ctx.shop_id)
     after = shop_settings.public_view(await shop_settings.load(db, ctx.shop_id, fresh=True))
     changed = {k: after[k] for k in body.values}
     if {"loyalty_enabled", "loyalty_tiers"} & set(body.values):
