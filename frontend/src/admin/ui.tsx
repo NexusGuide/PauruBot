@@ -1125,11 +1125,11 @@ export function BulkBar({ count, children, onClear }: { count: number; children:
 /** Key/value rows for detail views. */
 export function Facts({ items }: { items: [string, ReactNode][] }) {
   return (
-    <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+    <dl className="grid grid-cols-2 gap-x-4 gap-y-3 md:gap-x-6">
       {items.map(([label, value]) => (
-        <div key={label} className="flex flex-col gap-0.5">
+        <div key={label} className="flex min-w-0 flex-col gap-0.5">
           <dt className="text-[0.78rem] text-[var(--hint)]">{label}</dt>
-          <dd className="text-[0.9rem] font-semibold">{value ?? "—"}</dd>
+          <dd className="min-w-0 break-words text-[0.9rem] font-semibold">{value ?? "—"}</dd>
         </div>
       ))}
     </dl>
