@@ -77,6 +77,20 @@ async def topup_bounds(session: AsyncSession, customer: Customer) -> tuple[int, 
     return low, int(cfg["max_topup"] or 10**12)
 
 
+def method_rule(cfg: dict[str, Any], name: str) -> dict[str, Any]:
+    """The shop's own rule for one payment method (Foxima parity), or an empty one."""
+    for rule in cfg.get("payment_method_rules") or []:
+        if isinstance(rule, dict) and rule.get("provider") == name:
+            return rule
+    return {}
+
+
+async def method_help(session: AsyncSession, shop_id: int, name: str) -> str:
+    """The help text staff wrote for a payment method, shown before paying; "" when none."""
+    cfg = await shop_settings.load(session, shop_id)
+    return str(method_rule(cfg, name).get("help") or "")
+
+
 def amount_due(order: Order, balance: int) -> int:
     """What an order still needs on top of the wallet, rounded up to a whole thousand."""
     due = int(order.amount) - int(balance)
@@ -154,6 +168,14 @@ async def _prepare(
     low, high = await topup_bounds(session, customer)
     if amount <= 0 or amount > high or (order is None and amount < low):
         raise PaymentError("amount_out_of_range", low=low, high=high)
+    rule = method_rule(cfg, prov.name)
+    rule_low, rule_high = int(rule.get("min") or 0), int(rule.get("max") or 0)
+    if (rule_low and amount < rule_low) or (rule_high and amount > rule_high):
+        # This method's own range (Foxima parity), within the shop's; it applies to order
+        # payments too, since it is what the gateway itself accepts.
+        raise PaymentError(
+            "amount_out_of_range", low=max(low, rule_low), high=min(high, rule_high) if rule_high else high
+        )
     if order is not None and (order.customer_id != customer.id or order.status != OrderStatus.PENDING):
         raise PaymentError("order_expired")
     if prov.name == "card":

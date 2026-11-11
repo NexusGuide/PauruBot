@@ -32,7 +32,7 @@ interface WebApp {
    * the app a signed copy in `result.response` (F-12) that the server can check by itself.
    */
   requestContact?(cb?: (sent: boolean, result?: { status?: string; response?: string }) => void): void;
-  showAlert(message: string): void;
+  showAlert(message: string, cb?: () => void): void;
   close(): void;
   MainButton: BottomButton;
   BackButton: BackButton;
@@ -130,6 +130,17 @@ export function haptic(kind: "success" | "error" | "warning" | "select"): void {
   if (!tg?.HapticFeedback) return;
   if (kind === "select") tg.HapticFeedback.selectionChanged();
   else tg.HapticFeedback.notificationOccurred(kind);
+}
+
+/** A note the customer reads and closes before going on (e.g. the shop's help for a payment method). */
+export function showNote(text: string): Promise<void> {
+  return new Promise((resolve) => {
+    if (tg) tg.showAlert(text.slice(0, 4000), () => resolve());
+    else {
+      window.alert(text);
+      resolve();
+    }
+  });
 }
 
 export function openExternal(url: string): void {

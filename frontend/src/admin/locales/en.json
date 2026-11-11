@@ -2325,5 +2325,17 @@
   "setting_backup_bot_token": "Backup bot token",
   "setting_backup_chat_ids": "Backup bot chats",
   "col_kind": "Kind",
-  "cb_message_reply": "Let the customer answer with a «Reply to support» button"
+  "cb_message_reply": "Let the customer answer with a «Reply to support» button",
+  "setting_referral_require_phone": "Count invites only with the friend's verified phone",
+  "setting_referral_require_phone_hint": "Until the friend shares a phone number, their purchases earn the inviter nothing.",
+  "setting_referral_min_account_hours": "Friend's minimum account age (hours)",
+  "setting_referral_min_account_hours_hint": "Purchases from a newer account do not count for the inviter yet. 0 is no wait.",
+  "setting_payment_method_rules": "Rules per payment method",
+  "setting_payment_method_rules_hint": "Per method: the lowest and highest amount (0: the shop's own limit) and a help text shown before paying.",
+  "method_rule_provider": "Method",
+  "method_rule_min": "Lowest amount",
+  "method_rule_max": "Highest amount",
+  "method_rule_help": "Help text",
+  "method_rule_add": "Add rule",
+  "provider_tonpay": "TonPay"
 }

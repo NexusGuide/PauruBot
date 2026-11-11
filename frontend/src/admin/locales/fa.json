@@ -2325,5 +2325,17 @@
   "setting_backup_bot_token": "توکن ربات بکاپ",
   "setting_backup_chat_ids": "چت‌های ربات بکاپ",
   "col_kind": "نوع",
-  "cb_message_reply": "مشتری بتواند با دکمهٔ «پاسخ به پشتیبانی» جواب بدهد"
+  "cb_message_reply": "مشتری بتواند با دکمهٔ «پاسخ به پشتیبانی» جواب بدهد",
+  "setting_referral_require_phone": "زیرمجموعه فقط با شمارهٔ تأییدشدهٔ دوست حساب شود",
+  "setting_referral_require_phone_hint": "تا دوست شماره‌اش را نفرستد، خریدش پورسانت یا امتیازی برای دعوت‌کننده ندارد.",
+  "setting_referral_min_account_hours": "حداقل عمر حساب دوست (ساعت)",
+  "setting_referral_min_account_hours_hint": "خرید حساب تازه‌ساخته تا این مدت برای دعوت‌کننده حساب نمی‌شود. ۰ یعنی بدون صبر.",
+  "setting_payment_method_rules": "قواعد هر روش پرداخت",
+  "setting_payment_method_rules_hint": "برای هر روش: کمترین و بیشترین مبلغ (۰ یعنی همان حد کلی فروشگاه) و متن راهنمایی که قبل از پرداخت به مشتری نشان داده می‌شود.",
+  "method_rule_provider": "روش",
+  "method_rule_min": "کمترین مبلغ",
+  "method_rule_max": "بیشترین مبلغ",
+  "method_rule_help": "متن راهنما",
+  "method_rule_add": "افزودن قاعده",
+  "provider_tonpay": "تون‌پی"
 }

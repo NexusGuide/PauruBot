@@ -29,6 +29,17 @@ async def rewards_today(session: AsyncSession, shop_id: int, referrer_id: int, d
     return int(count or 0)
 
 
+def invite_counts(customer: Customer, cfg: dict[str, object]) -> bool:
+    """Foxima's referral anti-abuse: a verified phone and a minimum account age, when the shop
+    asks for them (both off by default)."""
+    if cfg.get("referral_require_phone") and not customer.phone:
+        return False
+    hours = int(cfg.get("referral_min_account_hours") or 0)  # type: ignore[call-overload]
+    if hours and customer.created_at and customer.created_at > utcnow() - timedelta(hours=hours):
+        return False
+    return True
+
+
 async def reward_referrer(session: AsyncSession, order: Order) -> int:
     """The inviter's share of a referred customer's paid order: the first one, or every one when the
     shop pays commission on all purchases (GRW-09)."""
@@ -40,6 +51,8 @@ async def reward_referrer(session: AsyncSession, order: Order) -> int:
     cfg = await shop_settings.load(session, order.shop_id)
     if not cfg["referral_enabled"]:
         return 0
+    if not invite_counts(customer, cfg):
+        return 0  # not yet: a later purchase still counts once the friend qualifies
     from paurubot.core import referral_rewards
 
     # Toward the referrer's reward config, whatever the cash rules say below.

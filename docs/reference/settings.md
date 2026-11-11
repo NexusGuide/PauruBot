@@ -44,6 +44,8 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `referral_min_order` | int | 0 | Smallest first order that earns a referral reward (Toman) |
 | `referral_daily_max` | int | 0 | Referral rewards per inviter per day. Stops reward farming with fake accounts; 0 means no limit |
 | `referral_monthly_max` | int | 0 | Referral rewards per inviter per 30 days. 0 means no limit |
+| `referral_require_phone` | bool | false | Count invites only with the friend's verified phone. Until the friend shares a phone number, their purchases earn the inviter nothing |
+| `referral_min_account_hours` | int | 0 | Friend's minimum account age (hours). Purchases from a newer account do not count for the inviter yet. 0 is no wait |
 | `referral_every_purchase` | bool | false | Referral reward on every purchase. Off: only the invited customer's first purchase pays the inviter |
 | `referral_repeat_percent` | int | — | Referral percent on later purchases. Empty uses the same percent as the first purchase |
 | `referral_reward_mode` | str | "cash" | Invite reward. What the inviter gets: a share of the friend's purchase in the wallet, a free config for every few invites, or both |
@@ -74,6 +76,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 |---|---|---|---|
 | `wallet_topup_presets` | list | [] | Suggested wallet top-up amounts. Comma separated (up to 8). Empty: the bot's default amounts |
 | `min_topup` | int | 20000 | Minimum top-up |
+| `payment_method_rules` | list | [] | Rules per payment method. Per method: the lowest and highest amount (0: the shop's own limit) and a help text shown before paying |
 | `max_topup` | int | 50000000 | Maximum top-up |
 | `order_expire_minutes` | int | 60 | Order payment window (minutes) |
 | `payment_expire_minutes` | int | 60 | Receipt window (minutes) |

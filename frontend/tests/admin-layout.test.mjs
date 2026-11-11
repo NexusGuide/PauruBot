@@ -314,3 +314,21 @@ test("ClockBot parity batch 2: editor inputs the server accepts", () => {
   assert.ok(used.size > 30);
   for (const key of used) assert.ok(key in fa && key in en, key);
 });
+
+test("Foxima parity F1: payment method rules editor matches the server", () => {
+  const fx = h.compile(src("screens/FoximaTools.tsx"), { "../session": {}, "../ui": {} });
+  const engine = readFileSync(new URL("../../paurubot/payments/engine.py", import.meta.url), "utf8");
+  assert.ok(engine.includes("def method_rule"));
+  assert.deepEqual(
+    fx.cleanRules([
+      { provider: "zarinpal", min: 100, max: 50, help: "" },
+      { provider: "card", min: 0, max: 0, help: "ok" },
+      { provider: "card", min: 1, max: 2, help: "" },
+      { provider: "nope", min: 0, max: 0, help: "" },
+    ]),
+    [{ provider: "card", min: 0, max: 0, help: "ok" }],
+  );
+  const fa = locale("fa"), en = locale("en");
+  for (const m of fx.METHODS) assert.ok(`provider_${m}` in fa && `provider_${m}` in en, m);
+  for (const k of ["setting_payment_method_rules", "setting_referral_require_phone", "setting_referral_min_account_hours", "method_rule_add"]) assert.ok(k in fa && k in en, k);
+});
