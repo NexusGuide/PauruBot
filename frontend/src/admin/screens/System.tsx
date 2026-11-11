@@ -37,6 +37,7 @@ import {
 import { AlertMatrix, AutoReplies, ReportSections, type AutoReply } from "../settings-editors";
 import { TrialResetCard } from "./Tools";
 import { AmountList, ResetTextsButton } from "./ClockTools";
+import { BackupBotForm, DateTimeInput, IdPicker, PackagesEditor, SettingsFileButtons, TierEditor, VerifyBackupButton, type ExtraPackage, type Tier as BulkTier } from "./ClockTools2";
 import { compact } from "./Home";
 import { controllers, matchesQuery, shown } from "../settings-layout";
 import { atAnHour, everyLabel, everyOptions, summary, type BackupSchedule } from "../backup-schedule";
@@ -364,6 +365,7 @@ function SettingControl({
           <Select id={id} value={String(value ?? "nobitex")} onChange={(e) => onChange(e.target.value)}>
             <option value="nobitex">{t("fx_nobitex")}</option>
             <option value="manual">{t("fx_manual")}</option>
+            <option value="api">{t("fx_api")}</option>
           </Select>
         )}
       </Field>
@@ -434,6 +436,19 @@ function SettingControl({
         {() => <WheelPrizes value={(value as Prize[]) ?? []} onChange={onChange} />}
       </Field>
     );
+  }
+  if (item.key === "bulk_buy_tiers") {
+    return <Field label={label} hint={hint}>{() => <TierEditor value={Array.isArray(value) ? (value as BulkTier[]) : []} onChange={onChange} />}</Field>;
+  }
+  if (item.key === "extra_packages") {
+    return <Field label={label} hint={hint}>{() => <PackagesEditor value={Array.isArray(value) ? (value as ExtraPackage[]) : []} onChange={onChange} />}</Field>;
+  }
+  if (item.key === "catalog_discount_until") {
+    return <Field label={label} hint={hint}>{() => <DateTimeInput value={String(value ?? "")} onChange={onChange} />}</Field>;
+  }
+  if (item.key === "catalog_discount_category_ids" || item.key === "service_import_panel_ids") {
+    const source = item.key === "service_import_panel_ids" ? "panels" : "categories";
+    return <Field label={label} hint={hint}>{() => <IdPicker source={source} value={Array.isArray(value) ? (value as number[]) : []} onChange={onChange} />}</Field>;
   }
   if (item.key === "wallet_topup_presets") {
     return (
@@ -556,7 +571,7 @@ function SettingControl({
   );
 }
 
-const WIDE_SETTINGS = ["alerts_muted", "auto_replies", "card_accounts", "topup_bonus_rules", "app_links", "loyalty_tiers", "wheel_prizes", "business_rules", "business_reply", "guest_plan_ids"];
+const WIDE_SETTINGS = ["bulk_buy_tiers", "extra_packages", "catalog_discount_category_ids", "service_import_panel_ids", "alerts_muted", "auto_replies", "card_accounts", "topup_bonus_rules", "app_links", "loyalty_tiers", "wheel_prizes", "business_rules", "business_reply", "guest_plan_ids"];
 // Edited elsewhere: the trust channel on the channels screen; appearance and resale on their own screens.
 const HIDDEN_GROUPS = ["appearance", "resale"];
 const HIDDEN_SETTINGS = ["trust_channel_id"];
@@ -605,8 +620,11 @@ export function Settings() {
           return (
             <div className="flex flex-col gap-6">
               <div className="flex flex-col gap-5">
-                <div className="md:w-96">
-                  <SearchBox value={query} onChange={setQuery} placeholder={t("settings_search")} />
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="w-full md:w-96">
+                    <SearchBox value={query} onChange={setQuery} placeholder={t("settings_search")} />
+                  </div>
+                  <SettingsFileButtons onImported={() => void reload()} />
                 </div>
                 <div className="flex min-w-0 flex-1 flex-col gap-5">
                   {shownGroups.map((group) => {
@@ -2277,18 +2295,22 @@ export function Backups() {
                           <When iso={item.created_at} time /> — <Bytes value={item.size} />
                         </span>
                       </span>
-                      <a
-                        className="inline-flex min-h-8 items-center rounded-lg px-2.5 text-[0.8rem] font-semibold ring-1 ring-[var(--line)] hover:bg-[var(--bg)]"
-                        href={`/api/admin/backups/${encodeURIComponent(item.name)}`}
-                        download
-                      >
-                        {t("download")}
-                      </a>
+                      <span className="flex items-center gap-2">
+                        <VerifyBackupButton name={item.name} />
+                        <a
+                          className="inline-flex min-h-8 items-center rounded-lg px-2.5 text-[0.8rem] font-semibold ring-1 ring-[var(--line)] hover:bg-[var(--bg)]"
+                          href={`/api/admin/backups/${encodeURIComponent(item.name)}`}
+                          download
+                        >
+                          {t("download")}
+                        </a>
+                      </span>
                     </li>
                   ))}
                 </ul>
               )}
             </Section>
+            <BackupBotForm />
             <BundleSection />
           </>
         )}

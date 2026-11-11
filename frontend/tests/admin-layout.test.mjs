@@ -292,3 +292,23 @@ test("ClockBot parity tools: inputs the server accepts", () => {
   assert.deepEqual([...cb.FINISHED_BROADCAST].sort(), finished.sort());
   assert.ok(nav.allPaths().includes("/trial-users"));
 });
+
+test("ClockBot parity batch 2: editor inputs the server accepts", () => {
+  const cb = h.compile(src("screens/ClockTools2.tsx"), {
+    react: { useState: () => [null, () => {}] }, "../api": {}, "../hooks": {}, "../session": {}, "../ui": {},
+  });
+  assert.deepEqual(
+    cb.cleanTiers([{ min: 10, percent: 15 }, { min: 1, percent: 5 }, { min: 5, percent: 10 }, { min: 3, percent: 95 }]),
+    [{ min: 5, percent: 10 }, { min: 10, percent: 15 }],
+  );
+  assert.equal(cb.toIso(""), "");
+  assert.equal(cb.toIso("not a date"), "");
+  assert.equal(cb.toLocal(cb.toIso("2026-11-12T20:00")), "2026-11-12T20:00");
+  assert.deepEqual(cb.parseChatIds("-100123، 456 abc 0 7.5"), [-100123, 456]);
+  assert.equal(cb.parseChatIds(Array.from({ length: 12 }, (_, i) => i + 1).join(",")).length, 10);
+  assert.ok(nav.allPaths().includes("/stuck-orders"));
+  const fa = locale("fa"), en = locale("en");
+  for (const key of ["nav_stuck_orders", "quick_renew", "settings_export", "backup_verify", "connection_guides_title", "plan_clone"]) {
+    assert.ok(key in fa && key in en, key);
+  }
+});

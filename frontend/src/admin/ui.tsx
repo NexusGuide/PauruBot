@@ -112,11 +112,14 @@ export function Page({
   actions,
   children,
   wide,
+  icon,
 }: {
   title: string;
   actions?: ReactNode;
   children: ReactNode;
   wide?: boolean;
+  /** Shown before the title, e.g. a customer's photo. */
+  icon?: ReactNode;
 }) {
   const { t, locale } = useSession();
   const { pathname } = useLocation();
@@ -125,6 +128,7 @@ export function Page({
     <div className={`mx-auto w-full px-4 pb-28 pt-5 md:px-8 md:pb-12 md:pt-8 ${wide ? "max-w-7xl" : "max-w-5xl"}`}>
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
+          {icon}
           <h1 className="text-2xl font-extrabold tracking-tight md:text-[1.75rem]">{title}</h1>
           {help && (
             <Link

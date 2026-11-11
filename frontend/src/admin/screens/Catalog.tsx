@@ -22,6 +22,7 @@ import {
   useConfirm,
 } from "../ui";
 import { PlanPricesButton } from "./Tools";
+import { ClonePlanButton } from "./ClockTools2";
 
 type PlanDraft = Omit<Plan, "id" | "services" | "stock"> & { id?: number };
 
@@ -628,6 +629,7 @@ export function Catalog() {
                         </span>
                       </button>
                       <Money amount={row.price} className="font-bold" />
+                      {writable && <ClonePlanButton planId={row.id} onDone={() => void catalog.reload()} />}
                       {writable && row.is_active && (
                         <Button small tone="ghost" onClick={() => void archive(row)}>
                           {t("archive")}

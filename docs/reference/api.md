@@ -18,6 +18,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/announcements` | `broadcast.send` | Staff publish |
 | GET | `/api/admin/audit` | `audit.read` | Audit log |
 | PUT | `/api/admin/backups/schedule` | `backups.manage` | Save backup schedule |
+| PUT | `/api/admin/backups/telegram` | `backups.manage` | Send backups with a separate bot to chosen chats (ClockBot parity). |
+| POST | `/api/admin/backups/{name}/verify` | `backups.manage` | Check that an archive opens and its database dump is whole (ClockBot's «verify last»). |
 | GET | `/api/admin/backups/{name}` | `backups.manage` | Download backup |
 | GET | `/api/admin/backups` | `backups.manage` | List backups |
 | POST | `/api/admin/backups` | `backups.manage` | Start backup |
@@ -64,6 +66,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | DELETE | `/api/admin/customers/{customer_id}/own-bot` | `resellers.manage` | Disconnect own bot |
 | GET | `/api/admin/customers/{customer_id}/own-bot` | `resellers.manage` | Own bot |
 | POST | `/api/admin/customers/{customer_id}/own-bot` | `resellers.manage` | Connect own bot |
+| GET | `/api/admin/customers/{customer_id}/photo` | `customers.read` | The customer's Telegram profile picture, through the shop's bot (ClockBot parity). |
+| POST | `/api/admin/customers/{customer_id}/quick-renew` | `services.create` | Renew the customer's most urgent service (or the one named) with its own plan, free, as a |
 | POST | `/api/admin/customers/{customer_id}/trial-again` | `customers.write` | One more trial for this customer (CAT-11). |
 | DELETE | `/api/admin/customers/{customer_id}` | `customers.ban` | Remove a customer with no history at all; one with orders, payments, services or a wallet is |
 | GET | `/api/admin/customers/{customer_id}` | `customers.read` | Customer detail |
@@ -114,7 +118,9 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/my/billing` | `dashboard.view` | My billing |
 | GET | `/api/admin/my/hub` | `dashboard.view` | My hub |
 | POST | `/api/admin/orders/{order_id}/confirm-refund` | `payments.refund` | Step one of a large refund (F-22): type the amount to confirm. |
+| POST | `/api/admin/orders/{order_id}/mark-delivered` | `services.write` | Staff delivered this order by hand: it is closed as delivered, no money moves. |
 | POST | `/api/admin/orders/{order_id}/refund` | `payments.refund` | Return a completed or failed order's money to the wallet (NEW-04). The service is not touched. |
+| POST | `/api/admin/orders/{order_id}/retry` | `services.write` | Run a stuck order's delivery again; the same job, so it can never deliver twice. |
 | GET | `/api/admin/orders` | `orders.read` | List orders |
 | POST | `/api/admin/panel-accounts/bulk/gift` | `resellers.manage` | Free days and traffic for many accounts at once (an outage, a festival). |
 | POST | `/api/admin/panel-accounts/{row_id}/change` | `resellers.manage` | Change panel account |
@@ -148,6 +154,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/plans/panel-options/{panel_id}` | `catalog.write` | Groups or inbounds a plan can pick from on one panel (PNL-14). |
 | GET | `/api/admin/plans/{plan_id}/stock` | `catalog.write` | List stock |
 | POST | `/api/admin/plans/{plan_id}/stock` | `catalog.write` | Add stock |
+| POST | `/api/admin/plans/{row_id}/clone` | `catalog.write` | A copy of the plan to edit, hidden until staff turn it on (ClockBot parity). |
 | DELETE | `/api/admin/plans/{row_id}` | `catalog.write` | Plans are archived, never deleted: services and orders keep pointing at them. |
 | PUT | `/api/admin/plans/{row_id}` | `catalog.write` | Update plan |
 | POST | `/api/admin/plans` | `catalog.write` | Create plan |
@@ -180,6 +187,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/services/{service_id}` | `services.read` | Service detail |
 | GET | `/api/admin/services` | `services.read` | List services |
 | POST | `/api/admin/services` | `services.create` | Free service created by staff (CAT-06); goes through the normal provisioning queue. |
+| GET | `/api/admin/settings/export` | `settings.write` | The shop's settings and edited bot texts as one file, without any secret. |
+| POST | `/api/admin/settings/import` | `settings.write` | Apply a settings file: the same checks as saving each setting; secrets and unknown keys are |
 | GET | `/api/admin/settings` | `settings.read` | Read settings |
 | PUT | `/api/admin/settings` | `settings.write` | Write settings |
 | GET | `/api/admin/settlements` | `reports.read` | Settlements view |
@@ -189,6 +198,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/staff` | `staff.manage` | Create staff |
 | DELETE | `/api/admin/stock/{item_id}` | `catalog.write` | Delete stock item |
 | GET | `/api/admin/stock/{item_id}` | `catalog.write` | The full config, for support. Every look is audited. |
+| GET | `/api/admin/stuck-orders` | `orders.read` | Paid orders still not delivered after a while, and failed ones not yet refunded. |
 | PUT | `/api/admin/sub-resellers/{profile_id}` | `resellers.sub` | Update sub reseller |
 | GET | `/api/admin/sub-resellers` | `resellers.sub` | Sub resellers |
 | POST | `/api/admin/sub-resellers` | `resellers.sub` | Add sub reseller |

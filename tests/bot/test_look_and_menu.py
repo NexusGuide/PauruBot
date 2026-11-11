@@ -357,3 +357,36 @@ async def test_my_orders_lookup_and_topup_presets(session, env) -> None:  # type
     await send(callback_update(UID, Svc(action="lookup").pack()))
     await send(message_update(UID, "https://bot.example/sub/unknown-token-0000"))
     assert fake.last(SendMessage).text == FA("lookup_not_found")
+
+
+async def test_connection_guides_per_device(session, env) -> None:  # type: ignore[no-untyped-def]
+    """ClockBot parity: guides per device with a picture or video; the customer picks one."""
+    from aiogram.methods import SendPhoto
+
+    from paurubot.bot.callbacks import Svc
+
+    send, fake, shop = env["send"], env["fake"], env["shop"]
+    guides = [
+        {
+            "title": "اندروید",
+            "text": "v2rayNG را نصب کن.",
+            "media_url": "https://cdn.example.com/a.jpg",
+            "media_type": "photo",
+        },
+        {"title": "آیفون", "text": "Streisand را نصب کن.", "link": "https://apps.apple.com/app/x"},
+    ]
+    await shop_settings.set_many(session, shop.id, {"connection_guides": guides})
+    await session.commit()
+    await send(message_update(UID, "/start"))
+    await send(callback_update(UID, Svc(action="guides").pack()))
+    labels = [text for text, _ in fake.buttons(fake.last(SendMessage))]
+    assert "اندروید" in labels and "آیفون" in labels
+    await send(callback_update(UID, Svc(action="guide", id=0).pack()))
+    photo = fake.last(SendPhoto)
+    assert photo.photo == "https://cdn.example.com/a.jpg" and "v2rayNG" in (photo.caption or "")
+    await send(callback_update(UID, Svc(action="guide", id=1).pack()))
+    assert "Streisand" in fake.last(SendMessage).text
+    with pytest.raises(shop_settings.SettingError):
+        await shop_settings.set_many(
+            session, shop.id, {"connection_guides": [{"title": "x", "text": "y", "media_url": "http://bad"}]}
+        )

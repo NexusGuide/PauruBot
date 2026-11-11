@@ -116,6 +116,8 @@ export interface Customer {
   phone: string | null;
   locale: string;
   is_banned: boolean;
+  /** A staff test account, left out of sales reports (ClockBot parity). */
+  is_test?: boolean;
   ban_reason: string | null;
   tags: string[];
   note: string | null;

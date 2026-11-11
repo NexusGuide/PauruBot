@@ -3,6 +3,7 @@ import { call, type SettingItem } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
 import { Async, Button, Empty, Field, Input, Page, Section, Select, Textarea } from "../ui";
+import { GuidesEditor, type Guide } from "./ClockTools2";
 
 const BUTTONS = [
   "miniapp",
@@ -269,6 +270,7 @@ export function BotMenu() {
   const [styles, setStyles] = useState<Styles>({});
   const [help, setHelp] = useState<HelpItem[]>([]);
   const [apps, setApps] = useState<AppItem[]>([]);
+  const [guides, setGuides] = useState<Guide[]>([]);
   const [cacheChat, setCacheChat] = useState<number | null>(null);
   const [menuMode, setMenuMode] = useState("reply");
   const [busy, run] = useAction();
@@ -282,6 +284,7 @@ export function BotMenu() {
     setHelp(((values.help_items as HelpItem[]) ?? []).map((h) => ({ title: h.title, text: h.text ?? "", url: h.url ?? "" })));
     setApps(((values.download_apps as AppItem[]) ?? []).map((a) => ({ ...a, repo: a.repo ?? "", pattern: a.pattern ?? "", store_url: a.store_url ?? "" })));
     setCacheChat((values.app_cache_chat_id as number | null) ?? null);
+    setGuides((values.connection_guides as Guide[]) ?? []);
     setMenuMode((values.menu_mode as string) || "reply");
   }, [data, values]);
 
@@ -296,6 +299,9 @@ export function BotMenu() {
               button_styles: styles,
               help_items: help.filter((h) => h.title.trim()),
               download_apps: apps.filter((a) => a.name.trim()),
+              connection_guides: guides
+                .filter((g) => g.title.trim() && g.text.trim())
+                .map((g) => ({ ...g, media_url: g.media_url || undefined, link: g.link || undefined })),
               app_cache_chat_id: cacheChat,
               menu_mode: menuMode,
             },
@@ -349,6 +355,10 @@ export function BotMenu() {
             <Section title={t("help_topics")}>
               <p className="mb-3 text-[0.82rem] text-[var(--hint)]">{t("help_topics_hint")}</p>
               <HelpEditor items={help} onChange={setHelp} />
+            </Section>
+            <Section title={t("connection_guides_title")}>
+              <p className="mb-3 text-[0.82rem] text-[var(--hint)]">{t("connection_guides_hint")}</p>
+              <GuidesEditor items={guides} onChange={setGuides} />
             </Section>
             <Section title={t("app_downloads")}>
               <p className="mb-3 text-[0.82rem] text-[var(--hint)]">{t("app_downloads_hint")}</p>

@@ -34,10 +34,20 @@ def allowed(cfg: dict[str, Any], customer: Customer) -> int:
     return limit
 
 
+def tier_percent(cfg: dict[str, Any], count: int) -> int:
+    """The quantity discount for buying `count` at once: the best tier reached, 0 when none."""
+    tiers = cfg.get("bulk_buy_tiers") or []
+    reached = [int(t["percent"]) for t in tiers if isinstance(t, dict) and count >= int(t.get("min") or 0)]
+    return max(reached, default=0)
+
+
 async def quote(session: AsyncSession, customer: Customer, plan: Plan, count: int) -> tuple[int, int]:
-    """(price of one, total) after the customer's own discounts."""
+    """(price of one, total) after the customer's own discounts and the shop's quantity tier."""
     draft = await orders.draft(session, customer, OrderKind.PURCHASE, plan=plan)
     one = (await pricing.plan_quote(session, customer, plan.id, draft.base_price)).amount
+    percent = tier_percent(await shop_settings.load(session, customer.shop_id), count)
+    if percent:
+        one = pricing.round_price(one * (100 - percent) / 100)
     if resellers.metered(customer):
         one = 0
     return one, one * count
@@ -89,11 +99,15 @@ async def buy_many(
         raise orders.OrderError("insufficient_balance", balance=balance, required=total)
     batch = secrets.token_hex(6)
     base = (label or plan.title)[:40]
+    percent = tier_percent(cfg, count)
     made: list[Order] = []
     for number in range(1, count + 1):
         draft = await orders.draft(session, customer, OrderKind.PURCHASE, plan=plan, label=f"{base} {number}")
         draft.params = {**draft.params, "batch": batch, "batch_size": count}
         order = await orders.create(session, customer, draft, source="bulk")
+        if percent and order.amount:
+            order.amount = pricing.round_price(order.amount * (100 - percent) / 100)
+            order.params = {**order.params, "bulk_percent": percent}
         made.append(await orders.settle_from_wallet(session, order.id))
     return batch, made
 

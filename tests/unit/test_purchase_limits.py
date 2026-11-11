@@ -140,3 +140,30 @@ async def test_resellers_accept_their_own_purchase_terms(session, env) -> None: 
     await shop_settings.set_many(session, env["shop"].id, {"reseller_terms_version": 3})  # a new version
     with pytest.raises(orders.OrderError):
         await _buy(session, env)
+
+
+async def test_bulk_buy_tier_discounts(session, env) -> None:  # type: ignore[no-untyped-def]
+    """ClockBot parity: buying many at once gets the shop's quantity discount; none by default."""
+    from paurubot.core import bulk
+    from paurubot.ledger import wallet
+
+    await shop_settings.set_many(
+        session,
+        env["shop"].id,
+        {"bulk_buy_enabled": True, "bulk_buy_resellers_only": False, "bulk_buy_max": 10},
+    )
+    plan = env["plan"]
+    plan.price = 100_000
+    await session.flush()
+    assert await bulk.quote(session, env["customer"], plan, 5) == (100_000, 500_000)
+    await shop_settings.set_many(
+        session, env["shop"].id, {"bulk_buy_tiers": [{"min": 3, "percent": 5}, {"min": 5, "percent": 10}]}
+    )
+    assert await bulk.quote(session, env["customer"], plan, 2) == (100_000, 200_000)
+    assert await bulk.quote(session, env["customer"], plan, 4) == (95_000, 380_000)
+    assert await bulk.quote(session, env["customer"], plan, 5) == (90_000, 450_000)
+    await wallet.topup(session, env["shop"].id, env["customer"].id, 450_000, provider="card", payment_id=1)
+    _batch, made = await bulk.buy_many(session, env["customer"], plan, 5)
+    assert [o.amount for o in made] == [90_000] * 5
+    with pytest.raises(shop_settings.SettingError):
+        await shop_settings.set_many(session, env["shop"].id, {"bulk_buy_tiers": [{"min": 1, "percent": 5}]})

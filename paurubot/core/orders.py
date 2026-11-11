@@ -245,6 +245,7 @@ async def draft(
     custom_days: int = 0,
     move_to: Panel | None = None,
     wanted_username: str | None = None,
+    package: int | None = None,
 ) -> Draft:
     from paurubot.core import own_panel, resale, usernames
 
@@ -301,6 +302,8 @@ async def draft(
         move_to=move_to,
         # Extras and upgrades in a reseller bot follow the parent shop's own rules and prices.
         settings_shop_id=shop_resale.parent_id if shop_resale is not None else None,
+        # Ready-made packages are the shop's own prices: not in a reseller bot, priced per unit.
+        package=package if shop_resale is None else None,
     )
     name = usernames.wanted(wanted_username) if kind == OrderKind.PURCHASE else None
     if name:
@@ -342,6 +345,7 @@ async def _draft(
     custom_days: int = 0,
     move_to: Panel | None = None,
     settings_shop_id: int | None = None,
+    package: int | None = None,
 ) -> Draft:
     cfg = await shop_settings.load(session, settings_shop_id or customer.shop_id)
     params: dict[str, Any] = {}
@@ -405,6 +409,24 @@ async def _draft(
         if plan.panel_id and plan.panel_id != service.panel_id:
             raise OrderError("plan_wrong_panel")
         return Draft(kind, plan, service, params, plan.price)
+    if kind in {OrderKind.EXTRA_VOLUME, OrderKind.EXTRA_DAYS} and package is not None:
+        # A ready-made package (ClockBot parity): its own amount and price, when extras are on.
+        assert service is not None
+        unit = "gb" if kind == OrderKind.EXTRA_VOLUME else "days"
+        packs = cfg.get("extra_packages") or []
+        pack = packs[package] if 0 <= package < len(packs) else None
+        amount = extra_gb if unit == "gb" else extra_days
+        gb_price, day_price = service_extras(cfg, service)
+        if (
+            pack is None
+            or pack.get("unit") != unit
+            or int(pack.get("amount") or 0) != amount
+            or (gb_price if unit == "gb" else day_price) is None
+        ):
+            raise OrderError("extras_unavailable")
+        params["extra_gb" if unit == "gb" else "extra_days"] = amount
+        params["package"] = package
+        return Draft(kind, None, service, params, int(pack["price"]))
     if kind == OrderKind.EXTRA_VOLUME:
         assert service is not None
         gb_price, _ = service_extras(cfg, service)

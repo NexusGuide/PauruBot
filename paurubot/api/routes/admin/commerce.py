@@ -407,3 +407,84 @@ async def record_settlement(
         after=body.model_dump(),
     )
     return {"id": row.id}
+
+
+# --- stuck orders (ClockBot parity) -------------------------------------------------
+
+
+STUCK_AFTER_MINUTES = 15
+_STUCK = [OrderStatus.PAID, OrderStatus.PROVISIONING]
+
+
+@router.get("/stuck-orders")
+async def stuck_orders(
+    ctx: Annotated[StaffContext, Depends(require("orders.read"))], db: DB
+) -> dict[str, Any]:
+    """Paid orders still not delivered after a while, and failed ones not yet refunded."""
+    from datetime import timedelta
+
+    from paurubot.db.base import utcnow
+
+    if ctx.scoped:
+        raise HTTPException(status_code=403, detail="forbidden")
+    since = utcnow() - timedelta(minutes=STUCK_AFTER_MINUTES)
+    rows = await db.scalars(
+        select(Order)
+        .where(
+            Order.shop_id == ctx.shop_id,
+            ((Order.status.in_(_STUCK)) & (Order.updated_at < since)) | (Order.status == OrderStatus.FAILED),
+        )
+        .order_by(Order.id.desc())
+        .limit(200)
+    )
+    return {"items": [plain(order, ORDER_FIELDS) for order in rows]}
+
+
+@router.post("/orders/{order_id}/retry")
+async def retry_order(
+    order_id: int, ctx: Annotated[StaffContext, Depends(require("services.write"))], db: DB
+) -> dict[str, Any]:
+    """Run a stuck order's delivery again; the same job, so it can never deliver twice."""
+    from paurubot.provisioning.lifecycle import _resume
+
+    order = await owned(db, Order, order_id, ctx)
+    if order.status not in _STUCK:
+        raise HTTPException(status_code=409, detail="not_stuck")
+    await _resume(db, order)
+    await record(
+        db, shop_id=ctx.shop_id, actor=ctx.actor, action="order.retry", entity="order", entity_id=order.id
+    )
+    await db.commit()
+    return {"order": plain(order, ORDER_FIELDS)}
+
+
+class DeliveredBody(BaseModel):
+    note: str = Field(min_length=1, max_length=255)
+
+
+@router.post("/orders/{order_id}/mark-delivered")
+async def mark_delivered(
+    order_id: int,
+    body: DeliveredBody,
+    ctx: Annotated[StaffContext, Depends(require("services.write"))],
+    db: DB,
+) -> dict[str, Any]:
+    """Staff delivered this order by hand: it is closed as delivered, no money moves."""
+    order = await owned(db, Order, order_id, ctx)
+    if order.status not in {*_STUCK, OrderStatus.FAILED}:
+        raise HTTPException(status_code=409, detail="not_stuck")
+    before = order.status.value
+    order.status = OrderStatus.COMPLETED
+    order.params = {**(order.params or {}), "manual_delivery": body.note}
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="order.mark_delivered",
+        entity="order",
+        entity_id=order.id,
+        before={"status": before},
+        after={"note": body.note},
+    )
+    await db.commit()
+    return {"order": plain(order, ORDER_FIELDS)}

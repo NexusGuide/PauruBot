@@ -31,6 +31,7 @@ import {
 import { OwnBotSection } from "./OwnBot";
 import { GiftAllButton } from "./Tools";
 import { BulkMessageButton, DeleteCustomerButton, NewCustomerButton } from "./ClockTools";
+import { CustomerPhoto, QuickRenewButton, TestCustomerToggle } from "./ClockTools2";
 import { HiddenPanels } from "./People";
 import { ServiceTable } from "./Services";
 
@@ -484,6 +485,7 @@ export function CustomerPage() {
         return (
           <Page
             title={customerName(c)}
+            icon={<CustomerPhoto customerId={c.id} name={customerName(c)} />}
             actions={
               <>
                 {can("wallet.adjust") && (
@@ -494,6 +496,8 @@ export function CustomerPage() {
                 {can("services.create") && can("catalog.read") && (
                   <Button onClick={() => setGiving(true)}>{t("give_service")}</Button>
                 )}
+                <QuickRenewButton customerId={c.id} onDone={() => void reload()} />
+                <TestCustomerToggle customerId={c.id} value={Boolean(c.is_test)} onDone={() => void reload()} />
                 <DeleteCustomerButton customerId={c.id} onDeleted={() => navigate("/customers")} />
                 {can("resellers.manage") && me?.role !== "reseller" && (
                   <Button onClick={() => setGivingAccount(true)}>{t("give_account")}</Button>

@@ -78,9 +78,13 @@ async def list_services(
     base = select(Service).where(Service.customer_id == customer.id, Service.status != ServiceStatus.DELETED)
     total = int(await session.scalar(select(func.count()).select_from(base.subquery())) or 0)
     has_stock = bool(await stock.for_customer(session, customer.id, limit=1))
-    claim = bool((await shop_settings.load(session, customer.shop_id)).get("service_import_enabled"))
+    shop_cfg = await shop_settings.load(session, customer.shop_id)
+    claim = bool(shop_cfg.get("service_import_enabled"))
+    guides = bool(shop_cfg.get("connection_guides"))
     if not total and not has_stock:
-        await show(event, t("no_services"), keyboards.services_kb(t, [], 0, False, claim=claim))
+        await show(
+            event, t("no_services"), keyboards.services_kb(t, [], 0, False, claim=claim, guides=guides)
+        )
         return
     rows = list(await session.scalars(base.order_by(Service.id.desc()).offset(page * PAGE).limit(PAGE)))
     await show(
@@ -95,8 +99,44 @@ async def list_services(
             muted=customer.alerts_muted,
             all_links=total > 1,
             claim=claim,
+            guides=guides,
         ),
     )
+
+
+@router.callback_query(Svc.filter(F.action == "guides"))
+async def guides(call: CallbackQuery, t: Texts, cfg: dict[str, Any]) -> None:
+    """Connection guides per device (ClockBot parity): pick one."""
+    await call.answer()
+    items = cfg.get("connection_guides") or []
+    if not items or not isinstance(call.message, Message):
+        return
+    await call.message.answer(t("guides_choose"), reply_markup=keyboards.guides_kb(t, items))
+
+
+@router.callback_query(Svc.filter(F.action == "guide"))
+async def guide(call: CallbackQuery, callback_data: Svc, t: Texts, cfg: dict[str, Any]) -> None:
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+    await call.answer()
+    items = cfg.get("connection_guides") or []
+    if not 0 <= callback_data.id < len(items) or not isinstance(call.message, Message):
+        return
+    item = items[callback_data.id]
+    text = f"<b>{esc(str(item.get('title') or ''))}</b>\n\n{esc(str(item.get('text') or ''))}"
+    markup = None
+    if item.get("link"):
+        markup = InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text=t("guide_open_link"), url=str(item["link"]))]]
+        )
+    media, kind = str(item.get("media_url") or ""), str(item.get("media_type") or "photo")
+    if media and len(text) <= 1024:
+        if kind == "video":
+            await call.message.answer_video(media, caption=text, reply_markup=markup)
+        else:
+            await call.message.answer_photo(media, caption=text, reply_markup=markup)
+        return
+    await call.message.answer(text, reply_markup=markup)
 
 
 @router.callback_query(Svc.filter(F.action == "lookup"))

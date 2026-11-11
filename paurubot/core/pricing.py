@@ -108,6 +108,8 @@ async def plan_quote(
     """`quote` for a plan, with fixed reseller prices. A level-2 reseller never pays less than its
     level-1 reseller does, so the level-1 margin can't turn negative."""
     profile = customer.reseller_profile if customer is not None else None
+    if customer is not None and not customer.is_reseller:
+        base_price = await catalog_discounted(session, customer.shop_id, plan_id, base_price)
     fixed = await fixed_reseller_price(session, profile, plan_id)
     standard = quote(base_price, customer, None)
     after = fixed if fixed is not None else standard.amount
@@ -120,6 +122,33 @@ async def plan_quote(
     base = max(int(base_price), after)
     off = code_discount_amount(code, after) if code else 0
     return Quote(base, base - after, off, max(0, after - off), code)
+
+
+async def catalog_discounted(session: AsyncSession, shop_id: int, plan_id: int | None, price: int) -> int:
+    """The price after the shop's time-limited catalog discount, when one is running for this plan."""
+    from datetime import UTC, datetime
+
+    from paurubot.core import settings as shop_settings
+    from paurubot.db.base import utcnow
+    from paurubot.db.models import Plan
+
+    cfg = await shop_settings.load(session, shop_id)
+    percent = int(cfg.get("catalog_discount_percent") or 0)
+    if percent <= 0 or plan_id is None:
+        return price
+    until = str(cfg.get("catalog_discount_until") or "")
+    if until:
+        end = datetime.fromisoformat(until)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=UTC)
+        if end <= utcnow():
+            return price
+    categories = [int(c) for c in cfg.get("catalog_discount_category_ids") or []]
+    if categories:
+        plan = await session.get(Plan, plan_id)
+        if plan is None or plan.category_id not in categories:
+            return price
+    return round_price(price * (100 - percent) / 100)
 
 
 CODE_TRIES_PER_HOUR = 20

@@ -353,6 +353,7 @@ async def checkout(
             wanted_username=data.get("wanted_username"),
             custom_gb=int(data.get("custom_gb") or 0),
             custom_days=int(data.get("custom_days") or 0),
+            package=int(data["package"]) if data.get("package") is not None else None,
             move_to=(
                 await catalog.pick_panel_for(session, customer.shop_id, None, int(data["move_loc"]))
                 if data.get("move_loc")
@@ -536,11 +537,46 @@ async def extras_menu(
     await call.answer()
     from paurubot.core.orders import extra_choices
 
+    unit = "gb" if callback_data.action == "extra_gb" else "days"
+    # The shop's own packages; a reseller's bot sells per unit only.
+    packs = [] if await resale.for_shop(session, customer.shop_id) else list(cfg.get("extra_packages") or [])
+    mine = [(i, p) for i, p in enumerate(packs) if isinstance(p, dict) and p.get("unit") == unit]
     if callback_data.action == "extra_gb":
-        kb = keyboards.extra_kb(t, service.id, "gb", extra_choices(cfg, "gb"), price)
+        kb = keyboards.extra_kb(t, service.id, "gb", extra_choices(cfg, "gb"), price, mine)
     else:
-        kb = keyboards.extra_kb(t, service.id, "days", extra_choices(cfg, "day"), price)
+        kb = keyboards.extra_kb(t, service.id, "days", extra_choices(cfg, "day"), price, mine)
     await show(call, t(f"choose_{callback_data.action}"), kb)
+
+
+@router.callback_query(Svc.filter(F.action.in_({"pack_gb", "pack_days"})))
+async def package_checkout(
+    call: CallbackQuery,
+    callback_data: Svc,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    """A ready-made extra package (ClockBot parity): its amount and price come from the shop."""
+    await call.answer()
+    packs = cfg.get("extra_packages") or []
+    if not 0 <= callback_data.value < len(packs):
+        await show(call, t("extras_unavailable"))
+        return
+    pack = packs[callback_data.value]
+    is_gb = callback_data.action == "pack_gb"
+    await state.set_data(
+        {
+            "kind": (OrderKind.EXTRA_VOLUME if is_gb else OrderKind.EXTRA_DAYS).value,
+            "svc_id": callback_data.id,
+            "extra_gb": int(pack.get("amount") or 0) if is_gb else 0,
+            "extra_days": 0 if is_gb else int(pack.get("amount") or 0),
+            "package": callback_data.value,
+            "code_id": 0,
+        }
+    )
+    await checkout(call, session, customer, t, cfg, state)
 
 
 @router.callback_query(Svc.filter(F.action.in_({"buy_gb", "buy_days"})))
