@@ -24,6 +24,8 @@ function DeskList({ t, locale }: {
 }) {
     const { can } = useSession();
     const [params, setParams] = useSearchParams(), [settings, setSettings] = useState(false);
+    const moreActive = Boolean(params.get('priority') || params.get('department_id') || params.get('assigned'));
+    const [more, setMore] = useState(moreActive);
     const { path, page } = listPath(params);
     const list = useRead(path, parseList), departments = useRead('/api/admin/ticket-departments', parseDepartments);
     const filter = (key: string, value: string) => setParams(prev => { const next = new URLSearchParams(prev); if (value)
@@ -36,16 +38,24 @@ function DeskList({ t, locale }: {
         next.delete('page'); return next; }, { replace: true });
     return <main className="td"><header className="td-top"><h1>{t('title')}</h1><div className="td-actions"><button disabled={list.loading} onClick={() => { void list.reload(); void departments.reload(); }}>{t('refresh')}</button>{can('settings.write') && <button onClick={() => setSettings(!settings)} aria-expanded={settings}>{t('settings')}</button>}</div></header>
  {settings && <DeskSettings t={t} onChanged={() => void departments.reload()}/>}
- <section className="td-card td-grid" aria-label={t('title')}>
- <label>{t('status')}<select aria-label={t('status')} value={params.get('status') || ''} onChange={e => filter('status', e.target.value)}><option value="">{t('all')}</option>{['open', 'answered', 'closed'].map(s => <option key={s} value={s}>{stateLabel(s, t)}</option>)}</select></label>
+ <div className="td-chips" role="group" aria-label={t('status')}>
+ {([['', t('allStatuses')], ['open', stateLabel('open', t)], ['answered', stateLabel('answered', t)], ['closed', stateLabel('closed', t)]] as const).map(([value, label]) => <button key={value || 'all'} type="button" aria-pressed={(params.get('status') || '') === value} className={(params.get('status') || '') === value ? 'td-chip-on' : ''} onClick={() => filter('status', value)}>{label}</button>)}
+ <button type="button" aria-pressed={params.get('awaiting') === 'true'} className={params.get('awaiting') === 'true' ? 'td-chip-on' : ''} onClick={() => filter('awaiting', params.get('awaiting') === 'true' ? '' : 'true')}>{t('waitingChip')}</button>
+ <button type="button" aria-expanded={more} className={moreActive ? 'td-chip-on' : ''} onClick={() => setMore(!more)}>{t('moreFilters')}</button>
+ </div>
+ {more && <section className="td-card td-grid" aria-label={t('moreFilters')}>
  <label>{t('priority')}<select aria-label={t('priority')} value={params.get('priority') || ''} onChange={e => filter('priority', e.target.value)}><option value="">{t('all')}</option>{PRIORITIES.map(p => <option key={p} value={p}>{t(p)}</option>)}</select></label>
  <label>{t('department')}<select aria-label={t('department')} value={params.get('department_id') || ''} onChange={e => filter('department_id', e.target.value)}><option value="">{t('all')}</option><option value="0">{t('unassignedDepartment')}</option>{departments.data?.map(d => <option key={d.id} value={d.id}>{d.title}{!d.is_active ? ` (${t('inactive')})` : ''}</option>)}</select></label>
  <label>{t('assigned')}<select aria-label={t('assigned')} value={params.get('assigned') || ''} onChange={e => filter('assigned', e.target.value)}><option value="">{t('all')}</option><option value="me">{t('me')}</option><option value="none">{t('none')}</option></select></label>
  <label>{t('waiting')}<select aria-label={t('waiting')} value={params.get('awaiting') || ''} onChange={e => filter('awaiting', e.target.value)}><option value="">{t('all')}</option><option value="true">{t('waiting')}</option><option value="false">{t('notWaiting')}</option></select></label>
- </section>
+ </section>}
  {departments.error && <p className="td-muted">{t('department')}: {t('error')}</p>}{list.loading && <p role="status">{t('loading')}</p>}{list.error && <Notice error>{t(list.data ? 'stale' : 'error')}</Notice>}
  {!list.loading && !list.error && list.data?.items.length === 0 && <p className="td-card">{t('empty')}</p>}
- <div className="td-list">{list.data?.items.map(row => <article key={row.id} className="td-card"><h2><Link className="td-link" to={`/tickets/${row.id}`}>#{row.id} — <bdi>{row.subject}</bdi></Link></h2><div className="td-actions"><span className="td-badge">{stateLabel(row.status, t)}</span><span>{t(row.priority)}</span></div><p>{t('customer')}: <bdi>{row.customer ?? `#${row.customer_id}`}</bdi></p><p>{deptName(row.department_id, departments.data, t)} · {t('assigned')}: {row.assigned_staff_id === null ? t('none') : `#${row.assigned_staff_id}`}</p><p className="td-muted">{t('updated')}: {stamp(row.updated_at, locale)}</p>{row.awaiting && <p className="td-note">{t('waitingSince')}: {stamp(row.last_customer_at, locale)}</p>}</article>)}</div>
+ {(list.data?.items.length ?? 0) > 0 && <ul className="td-rows">{list.data?.items.map(row => <li key={row.id}><Link className="td-row" to={`/tickets/${row.id}`}>
+ <span className={`td-dot td-dot-${row.awaiting ? 'wait' : row.status}`} aria-hidden="true"/>
+ <span className="td-row-main"><span className="td-row-title"><bdi>{row.subject}</bdi></span><span className="td-muted"><bdi>{row.customer ?? `#${row.customer_id}`}</bdi> · #{row.id} · {deptName(row.department_id, departments.data, t)}</span><span className={row.awaiting ? 'td-row-wait' : 'td-muted'}>{row.awaiting ? `${t('waitingSince')}: ${stamp(row.last_customer_at, locale)}` : stamp(row.updated_at, locale)}</span></span>
+ <span className="td-row-end">{row.priority !== 'normal' && <span className={`td-badge td-pri-${row.priority}`}>{t(row.priority)}</span>}<span className={`td-badge td-badge-${row.status}`}>{stateLabel(row.status, t)}</span></span>
+ </Link></li>)}</ul>}
  <nav className="td-actions" aria-label={t('page')}><button disabled={page === 0 || list.loading} onClick={() => changePage(page - 1)}>{t('previous')}</button><span>{t('page')} {page + 1}</span><button disabled={list.loading || list.error || !list.data || (page + 1) * 25 >= list.data.total} onClick={() => changePage(page + 1)}>{t('next')}</button></nav>
  </main>;
 }
@@ -100,7 +110,6 @@ function ThreadBody({ detail, t, locale, departments, stale, onSaved }: {
     return <>{requiresCheck && <section className="td-note"><p>{t('checkAgain')}</p><button disabled={stale || requiresCheck === detail} onClick={() => setRequiresCheck(null)}>{t('checked')}</button></section>}<header className="td-top"><h1>#{row.id} — <bdi>{row.subject}</bdi></h1>{writable && known && row.status !== 'closed' && <button disabled={blocked} onClick={close}>{t('closeTicket')}</button>}</header>
  <section className="td-card"><div className="td-actions"><span className="td-badge">{stateLabel(row.status, t)}</span><span>{t(row.priority)}</span></div><p>{t('customer')}: <bdi>{detail.customer ?? `#${row.customer_id}`}</bdi></p><p>{t('department')}: {deptName(row.department_id, departments, t)}</p><p>{t('assigned')}: {row.assigned_staff_id === null ? t('none') : `#${row.assigned_staff_id}`}</p><p>{t('complaint')}: {row.is_complaint ? t('yes') : t('no')}</p>{row.awaiting && <p>{t('waitingSince')}: {stamp(row.last_customer_at, locale)}</p>}</section>
  {!known && <Notice error>{t('unknownStatus')}</Notice>}
- {writable && known && <Routing key={`${row.id}-${row.updated_at}-${row.department_id}-${row.assigned_staff_id}-${row.priority}-${row.is_complaint}`} row={row} departments={departments} t={t} staffId={me?.id ?? 0} disabled={blocked} propose={setProposal}/>}
  <section aria-labelledby="td-conversation"><h2 id="td-conversation">{t('conversation')}</h2>{detail.ticket.service_context && <ServiceLine context={detail.ticket.service_context} t={t} locale={locale} />}<p className="td-muted">{t('historyHint')}</p><ol>{detail.messages.map(m => <li key={m.id} className={`td-message ${m.is_internal ? 'td-internal' : ''}`}><h3>{m.is_internal ? t('internal') : m.author_type === 'staff' ? t('staff') : m.author_type === 'customer' ? t('customer') : m.author_type}</h3>{m.text && <pre dir="auto">{m.text}</pre>}{m.has_attachment && <div className="td-muted">{m.attachment_expired ? t('attachmentExpired') : <TicketAttachment key={`${detail.ticket.id}-${m.id}`} path={`/api/admin/tickets/${detail.ticket.id}/messages/${m.id}/attachment`} label={t('attachmentOpen')} failure={t('attachmentFailed')} loading={t('loading')} />}</div>}<p className="td-muted">{stamp(m.created_at, locale)}{m.reaction && <> · <span>{t(m.reaction === 'up' ? 'reactedUp' : 'reactedDown')}</span></>}</p></li>)}</ol></section>
  {!writable && <p className="td-note">{t('writeDenied')}</p>}
  {writable && known && <section className="td-card"><h2>{t('message')}</h2><p className="td-muted">{t('unsaved')}</p>{row.status === 'closed' && <p>{t('closedHint')}</p>}
@@ -114,7 +123,7 @@ function ThreadBody({ detail, t, locale, departments, stale, onSaved }: {
  {proposal && <Confirmation proposal={proposal} t={t} onClose={failed => { setProposal(null); if (failed)
         setRequiresCheck(detail); }} onSaved={message => { if (proposal.path.endsWith('/reply') || proposal.path.endsWith('/note'))
         setDraft(''); setProposal(null); onSaved(message); }}/>}
- </>;
+ {writable && known && <Routing key={`${row.id}-${row.updated_at}-${row.department_id}-${row.assigned_staff_id}-${row.priority}-${row.is_complaint}`} row={row} departments={departments} t={t} staffId={me?.id ?? 0} disabled={blocked} propose={setProposal}/>}</>;
 }
 function Routing({ row, departments, t, staffId, disabled, propose }: {
     row: Detail['ticket'];

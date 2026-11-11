@@ -38,3 +38,24 @@
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .td button.td-danger,:root:not([data-theme="light"]) .td-modal button.td-danger{background:#432633;color:#ffabc0;border-color:#ffabc0}}
 :root[data-theme="dark"] .td button.td-danger,:root[data-theme="dark"] .td-modal button.td-danger{background:#432633;color:#ffabc0;border-color:#ffabc0}
 .td-warning { color: var(--color-anar-700, #b42318); font-weight: 600; }
+
+/* 2026 redesign: status chips, compact rows. */
+.td-chips{display:flex;gap:.5rem;overflow-x:auto;scrollbar-width:none;margin:.5rem 0 1rem;padding-bottom:2px}
+.td-chips::-webkit-scrollbar{display:none}
+.td .td-chips button{flex:none;min-height:38px;border-radius:999px;padding:.3rem 1rem;font-weight:600;font-size:.88rem;white-space:nowrap}
+.td .td-chips button.td-chip-on{background:var(--td-accent);color:var(--td-on-accent);border-color:var(--td-accent);font-weight:800}
+.td-rows{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:20px;background:var(--surface);overflow:hidden}
+.td-rows>li+li{border-top:1px solid var(--line)}
+.td a.td-row{display:flex;align-items:center;gap:.85rem;padding:.85rem 1rem;color:var(--text);text-decoration:none;font-weight:400}
+.td a.td-row:hover{background:var(--surface-2,var(--bg))}
+.td-dot{width:10px;height:10px;border-radius:50%;flex:none;background:var(--hint)}
+.td-dot-wait{background:#f2b84b}.td-dot-open{background:var(--td-accent)}.td-dot-answered{background:#5bd69a}.td-dot-closed{background:var(--line)}
+.td-row-main{display:flex;flex-direction:column;gap:.15rem;flex:1;min-width:0}
+.td-row-title{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.td-row-main .td-muted{font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.td-row-end{display:flex;align-items:center;gap:.35rem;flex:none;font-size:.78rem}
+.td-row-wait{font-size:.78rem;color:#f2b84b}
+.td-badge-open{background:color-mix(in srgb,var(--td-accent) 18%,transparent)!important;color:var(--td-accent)}
+.td-badge-answered{background:color-mix(in srgb,#5bd69a 18%,transparent)!important;color:#7fe3b2}
+.td-pri-high,.td-pri-urgent{background:color-mix(in srgb,#ff8a7a 18%,transparent)!important;color:#ff9c8f}
+.td-pri-low{opacity:.8}
