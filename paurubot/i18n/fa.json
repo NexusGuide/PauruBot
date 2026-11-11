@@ -1195,5 +1195,10 @@
   "adm_umsg_reply_ask": "مشتری بتواند پاسخ بدهد؟",
   "adm_umsg_reply_yes": "✍️ بله، با دکمهٔ پاسخ",
   "adm_umsg_reply_no": "📤 بدون دکمهٔ پاسخ",
-  "btn_reply_staff": "✍️ پاسخ به پشتیبانی"
+  "btn_reply_staff": "✍️ پاسخ به پشتیبانی",
+  "choose_duration": "⏱ چه مدتی می‌خواهی؟",
+  "duration_option": "{days} روزه",
+  "duration_unlimited": "♾ بدون محدودیت زمان",
+  "luck_dice_intro": "🎲 تاس بینداز! اگر ۶ بیاید {amount} تومان به کیف پولت اضافه می‌شود.",
+  "luck_slot_intro": "🎰 دستگاه شانس! اگر سه‌تایی جور شود {amount} تومان به کیف پولت اضافه می‌شود."
 }

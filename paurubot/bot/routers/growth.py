@@ -20,6 +20,7 @@ from paurubot.i18n import Texts
 from paurubot.notifications import log_reports
 
 router = Router(name="growth")
+DICE_ANIMATION = 3.5  # seconds Telegram's dice and slot machine take to settle
 
 
 class Fun(CallbackData, prefix="g"):
@@ -54,12 +55,17 @@ async def wheel(
     if not cfg.get("wheel_enabled"):
         await message.answer(t("wheel_off"))
         return
-    try:
-        prizes = growth.validate_prizes(cfg.get("wheel_prizes") or [])
-    except growth.GrowthError:
-        await message.answer(t("wheel_off"))
-        return
-    lines = [t("wheel_intro")] + [f"• {esc(p['label'])}" for p in prizes]
+    style = str(cfg.get("wheel_style") or "wheel")
+    if style in growth.DICE_EMOJI:
+        # Foxima parity: Telegram's dice or slot machine, for one set prize.
+        lines = [t(f"luck_{style}_intro", amount=money(int(cfg.get("wheel_dice_prize") or 0)))]
+    else:
+        try:
+            prizes = growth.validate_prizes(cfg.get("wheel_prizes") or [])
+        except growth.GrowthError:
+            await message.answer(t("wheel_off"))
+            return
+        lines = [t("wheel_intro")] + [f"• {esc(p['label'])}" for p in prizes]
     when = await growth.next_spin_at(session, customer, cfg)
     from paurubot.db.base import utcnow
 
@@ -74,8 +80,18 @@ async def wheel(
 async def do_spin(
     call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts, cfg: dict[str, Any]
 ) -> None:
+    style = str(cfg.get("wheel_style") or "wheel")
     try:
-        result = await growth.spin(session, customer, cfg)
+        if style in growth.DICE_EMOJI and isinstance(call.message, Message):
+            chat = call.message
+
+            async def roll() -> int:
+                thrown = await chat.answer_dice(emoji=growth.DICE_EMOJI[style])
+                return int(thrown.dice.value) if thrown.dice else 0
+
+            result = await growth.dice_spin(session, customer, cfg, roll=roll)
+        else:
+            result = await growth.spin(session, customer, cfg)
     except growth.GrowthError as exc:
         await session.rollback()
         if exc.key == "wheel_wait":
@@ -85,6 +101,10 @@ async def do_spin(
         return
     await session.commit()
     await call.answer()
+    if style in growth.DICE_EMOJI:
+        import asyncio
+
+        await asyncio.sleep(DICE_ANIMATION)  # the result after Telegram's animation stops
     text = t("wheel_result", label=esc(result.prize["label"])) + "\n" + _prize_text(t, result.prize)
     if result.code:
         text += "\n" + t("wheel_code", code=esc(result.code))

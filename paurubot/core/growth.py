@@ -146,6 +146,64 @@ class Spin:
     code: str | None
 
 
+# Telegram's own dice (Foxima parity): the values that win. A slot machine shows 1-64; these four
+# are its jackpots (three bars, three grapes, three lemons, 777).
+DICE_EMOJI = {"dice": "\U0001f3b2", "slot": "\U0001f3b0"}
+SLOT_JACKPOTS = frozenset({1, 22, 43, 64})
+
+
+def dice_wins(style: str, value: int) -> bool:
+    return value == 6 if style == "dice" else value in SLOT_JACKPOTS
+
+
+async def dice_spin(session: AsyncSession, customer: Customer, cfg: dict[str, Any], *, roll: Any) -> Spin:
+    """One throw of Telegram's dice or slot machine instead of the wheel (Foxima parity): the same
+    eligibility and waiting time; `roll` throws it in the chat and returns Telegram's value."""
+    if not cfg.get("wheel_enabled"):
+        raise GrowthError("wheel_off")
+    await _check_spin(session, customer, cfg)
+    style = str(cfg.get("wheel_style") or "dice")
+    value = int(await roll())
+    win = dice_wins(style, value)
+    amount = int(cfg.get("wheel_dice_prize") or 0) if win else 0
+    prize: dict[str, Any] = {
+        "label": f"{DICE_EMOJI.get(style, '')} {value}",
+        "kind": "wallet" if amount > 0 else "nothing",
+        "value": amount,
+        "weight": 1,
+    }
+    row = WheelSpin(
+        shop_id=customer.shop_id,
+        customer_id=customer.id,
+        label=prize["label"],
+        kind=prize["kind"],
+        value=amount,
+    )
+    session.add(row)
+    await session.flush()
+    if amount > 0:
+        await wallet.reward(
+            session, customer.shop_id, customer.id, amount, key=f"wheel:{row.id}", memo="lucky dice"
+        )
+    return Spin(0, prize, None)
+
+
+async def _check_spin(session: AsyncSession, customer: Customer, cfg: dict[str, Any]) -> None:
+    """Who may spin now: buyers only when the shop says so, once per period (row-locked)."""
+    if cfg.get("wheel_buyers_only"):
+        bought = await session.scalar(
+            select(func.count(Order.id)).where(
+                Order.customer_id == customer.id, Order.status == OrderStatus.COMPLETED, Order.amount > 0
+            )
+        )
+        if not bought:
+            raise GrowthError("wheel_buyers_only")
+    await session.execute(select(Customer.id).where(Customer.id == customer.id).with_for_update())
+    when = await next_spin_at(session, customer, cfg)
+    if when is not None and when > utcnow():
+        raise GrowthError("wheel_wait", at=when)
+
+
 async def spin(session: AsyncSession, customer: Customer, cfg: dict[str, Any]) -> Spin:
     """One spin: pick a slice by weight, pay the prize, remember when the next spin is allowed."""
     if not cfg.get("wheel_enabled"):

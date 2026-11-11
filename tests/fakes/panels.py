@@ -515,9 +515,10 @@ class FakeRemnawavePanel:
             user = self.users.get(body.get("uuid", ""))
             if user is None:
                 return httpx.Response(404, json={"message": "not found"})
-            for key in ("expireAt", "trafficLimitBytes", "status"):
+            for key in ("expireAt", "trafficLimitBytes", "status", "tag"):
                 if key in body:
                     user[key] = body[key]
+            self.patches = getattr(self, "patches", 0) + 1
             return self._ok(self._out(user))
         if path.startswith("/api/users/by-username/"):
             user = self._by_name(path.rsplit("/", 1)[1])

@@ -933,6 +933,15 @@ async def sync_panel_accounts() -> None:
         log.info("synced %s panel admin accounts", synced)
 
 
+@every(3600, "panels.remnawave_loyalty")
+async def remnawave_loyalty() -> None:
+    """Remnawave users tagged by their buyer's active services (Foxima parity; off by default)."""
+    from paurubot.core import remnawave_loyalty as loyalty
+
+    async with session_scope() as session:
+        await loyalty.run(session)
+
+
 @every(1800, "panels.capacity")
 async def capacity_warning() -> None:
     """A panel filling up past the shop's warning percent (ClockBot parity)."""

@@ -363,6 +363,17 @@ function SettingControl({
       </Field>
     );
   }
+  if (item.key === "wheel_style") {
+    return (
+      <Field label={label} hint={hint}>
+        {(id) => (
+          <Select id={id} value={String(value ?? "wheel")} onChange={(e) => onChange(e.target.value)}>
+            {["wheel", "dice", "slot"].map((s) => <option key={s} value={s}>{t(`wheel_style_${s}`)}</option>)}
+          </Select>
+        )}
+      </Field>
+    );
+  }
   if (item.key === "fx_source") {
     return (
       <Field label={label} hint={hint}>
