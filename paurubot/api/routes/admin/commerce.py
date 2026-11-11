@@ -416,6 +416,22 @@ STUCK_AFTER_MINUTES = 15
 _STUCK = [OrderStatus.PAID, OrderStatus.PROVISIONING]
 
 
+def _waiting(order: Order) -> bool:
+    """A renewal paid during an active period that waits for its end date (SVC-02): not stuck."""
+    from datetime import datetime
+
+    from paurubot.db.base import utcnow
+
+    params = order.params or {}
+    if order.status != OrderStatus.PAID or not params.get("queued") or not params.get("queued_until"):
+        return False
+    try:
+        until = datetime.fromisoformat(str(params["queued_until"]))
+    except ValueError:
+        return False
+    return until > utcnow()
+
+
 @router.get("/stuck-orders")
 async def stuck_orders(
     ctx: Annotated[StaffContext, Depends(require("orders.read"))], db: DB
@@ -435,9 +451,10 @@ async def stuck_orders(
             ((Order.status.in_(_STUCK)) & (Order.updated_at < since)) | (Order.status == OrderStatus.FAILED),
         )
         .order_by(Order.id.desc())
-        .limit(200)
+        .limit(400)
     )
-    return {"items": [plain(order, ORDER_FIELDS) for order in rows]}
+    items = [plain(order, ORDER_FIELDS) for order in rows if not _waiting(order)]
+    return {"items": items[:200]}
 
 
 @router.post("/orders/{order_id}/retry")
@@ -448,7 +465,7 @@ async def retry_order(
     from paurubot.provisioning.lifecycle import _resume
 
     order = await owned(db, Order, order_id, ctx)
-    if order.status not in _STUCK:
+    if order.status not in _STUCK or _waiting(order):
         raise HTTPException(status_code=409, detail="not_stuck")
     await _resume(db, order)
     await record(
@@ -471,7 +488,7 @@ async def mark_delivered(
 ) -> dict[str, Any]:
     """Staff delivered this order by hand: it is closed as delivered, no money moves."""
     order = await owned(db, Order, order_id, ctx)
-    if order.status not in {*_STUCK, OrderStatus.FAILED}:
+    if order.status not in {*_STUCK, OrderStatus.FAILED} or _waiting(order):
         raise HTTPException(status_code=409, detail="not_stuck")
     before = order.status.value
     order.status = OrderStatus.COMPLETED

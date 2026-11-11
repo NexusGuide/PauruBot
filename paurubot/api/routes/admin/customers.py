@@ -1049,14 +1049,9 @@ async def quick_renew(
     )
     db.add(order)
     await db.flush()
-    await queue.enqueue(
-        db,
-        "provision",
-        "order",
-        {"order_id": order.id},
-        shop_id=customer.shop_id,
-        dedupe_key=f"order:{order.id}:provision",
-    )
+    # The same provisioning as a bought renewal: it waits for the period to end when the shop
+    # queues renewals (SVC-02), with the same retries.
+    await orders_core.enqueue_provision(db, order)
     await record(
         db,
         shop_id=ctx.shop_id,

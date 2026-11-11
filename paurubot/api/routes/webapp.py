@@ -501,7 +501,7 @@ def account_view(account: PanelAccount) -> dict[str, Any]:
         "login_url": panel_accounts.login_url(account),
         # How a renewal is sold: the plan itself, ready-made packages, and/or a custom size.
         "renew": {
-            "allowed": plan.renewable and plan.is_active,
+            "allowed": plan.renewable,  # an archived plan only stops new sales
             "plain": panel_accounts.plain_renewal(plan),
             "packages": panel_accounts.renew_packages(plan),
             "custom": panel_accounts.custom_renewal(plan),

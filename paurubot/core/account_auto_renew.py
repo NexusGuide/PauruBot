@@ -43,7 +43,7 @@ def choices(account: PanelAccount) -> list[dict[str, int]]:
     """What auto-renewal may repeat: the plan's own renewal and its packages (a custom size is
     chosen by hand each time)."""
     plan = account.plan
-    if plan is None or not plan.is_active or not plan.renewable:
+    if plan is None or not plan.renewable:  # an archived plan only stops new sales
         return []
     out: list[dict[str, int]] = [{}] if panel_accounts.plain_renewal(plan) else []
     out += [{"package": i} for i in range(len(panel_accounts.renew_packages(plan)))]

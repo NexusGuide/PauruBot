@@ -174,6 +174,8 @@ async def test_quick_renew_the_most_urgent_service(session, http, env) -> None: 
         "POST", f"/api/admin/customers/{env.customer_id}/quick-renew", {"service_id": later.id}
     )
     assert (await session.get(Order, picked.json()["order_id"])).service_id == later.id
+    job = await session.scalar(select(Job).where(Job.dedupe_key == f"order:{order.id}:provision"))
+    assert job is not None and job.max_attempts == 6  # the same provisioning as a bought renewal
     again = await owner.call("POST", f"/api/admin/customers/{env.customer_id}/quick-renew", {})
     assert again.status_code == 409 and again.json()["error"] == "renew_in_progress"  # no second free renewal
     finance = await login(http, "u_finance")
@@ -211,3 +213,34 @@ async def test_customer_photo_through_the_bot(session, http, env, monkeypatch) -
     got = await owner.call("GET", f"/api/admin/customers/{env.customer_id}/photo")
     assert got.status_code == 200 and got.content == b"\xff\xd8jpeg-big"
     assert got.headers["content-type"] == "image/jpeg"
+
+
+async def test_quick_renew_waits_like_a_bought_renewal(session, http, env) -> None:  # type: ignore[no-untyped-def]  # noqa: F811
+    """With "renewals wait for the period to end" on, a staff quick renewal waits too (SVC-02)."""
+    from datetime import timedelta
+
+    from paurubot.core import settings as shop_settings
+    from paurubot.db.base import utcnow
+
+    plan = await factories.plan(session, env.shop, env.panel, price=100_000, days=30)
+    service = Service(
+        shop_id=env.shop.id,
+        customer_id=env.customer_id,
+        panel_id=env.panel.id,
+        plan_id=plan.id,
+        panel_username="q_wait",
+        status=ServiceStatus.ACTIVE,
+        expire_at=utcnow() + timedelta(days=10),
+    )
+    session.add(service)
+    await shop_settings.set_many(session, env.shop.id, {"renew_queue_when_active": True})
+    await session.commit()
+    owner = await login(http, "u_owner")
+    done = await owner.call(
+        "POST", f"/api/admin/customers/{env.customer_id}/quick-renew", {"service_id": service.id}
+    )
+    assert done.status_code == 200, done.text
+    order = await session.get(Order, done.json()["order_id"])
+    assert order.params.get("queued") is True
+    job = await session.scalar(select(Job).where(Job.dedupe_key == f"order:{order.id}:provision"))
+    assert job is not None and job.run_at > utcnow() + timedelta(days=9)

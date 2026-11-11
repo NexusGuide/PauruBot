@@ -580,3 +580,30 @@ def test_generated_passwords_pass_pasarguard_rules() -> None:
         assert len(p) >= 12 and '"' not in p
         assert sum(c.isupper() for c in p) >= 2 and sum(c.islower() for c in p) >= 2
         assert sum(c.isdigit() for c in p) >= 2 and any(not c.isalnum() for c in p)
+
+
+async def test_an_archived_plan_stops_new_sales_but_its_buyers_keep_renewing(session, env) -> None:  # type: ignore[no-untyped-def]
+    """Archiving a plan stops selling it; accounts already sold keep their renewals and add-ons,
+    as config services of an archived plan do. Only "renewable: off" stops renewals."""
+    cust = await _buyer(session, env["shop"])
+    _order, account = await _bought(session, env, cust)
+    before = account.expire_at
+    plan = env["plan"]
+    plan.is_active = False  # archived
+    await session.commit()
+    with pytest.raises(orders.OrderError) as exc:
+        await panel_accounts.draft(session, cust, OrderKind.ACCOUNT_PURCHASE, plan=plan)
+    assert exc.value.key == "plan_unavailable"  # no new sales
+    await _pay(session, cust, OrderKind.ACCOUNT_RENEW, account=account)
+    await session.refresh(account)
+    assert account.expire_at is not None and before is not None and account.expire_at > before
+    await _pay(session, cust, OrderKind.ACCOUNT_GB, account=account, amount=10)
+    from paurubot.core import account_auto_renew
+
+    await session.refresh(account, ["plan"])
+    assert account_auto_renew.choices(account)  # auto-renewal stays available too
+    plan.renewable = False
+    await session.commit()
+    with pytest.raises(orders.OrderError) as exc:
+        await panel_accounts.draft(session, cust, OrderKind.ACCOUNT_RENEW, account=account)
+    assert exc.value.key == "account_not_renewable"
