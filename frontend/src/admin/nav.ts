@@ -157,8 +157,27 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-/** The hubs on the phone's bottom bar, before "more". */
-export const MOBILE_HUBS = ["nav_inbox", "nav_hub_customers", "nav_hub_sales", "nav_tickets"];
+/** The phone's bottom bar, before "more": a hub and the short word under its icon. */
+export const MOBILE_TABS: { hub: string; label: string; icon: string }[] = [
+  { hub: "nav_inbox", label: "nav_tab_home", icon: "home" },
+  { hub: "nav_hub_customers", label: "nav_tab_customers", icon: "users" },
+  { hub: "nav_hub_sales", label: "nav_tab_sales", icon: "orders" },
+  { hub: "nav_hub_marketing", label: "nav_tab_messages", icon: "broadcast" },
+];
+
+/** Pages with a count beside their name: the figure from the dashboard that says what waits there. */
+export const NAV_COUNTS: Record<string, "pending_receipts" | "open_tickets"> = {
+  "/payments": "pending_receipts",
+  "/tickets": "open_tickets",
+};
+
+/** The count shown beside a hub: the sum of its pages' counts. */
+export function hubCount(hub: Hub, counts: Partial<Record<"pending_receipts" | "open_tickets", number>>): number {
+  return hub.tabs.reduce((sum, item) => {
+    const field = NAV_COUNTS[item.to];
+    return sum + (field ? (counts[field] ?? 0) : 0);
+  }, 0);
+}
 
 export type VisibleFn = (item: NavItem) => boolean;
 
@@ -217,4 +236,12 @@ export function hubLabel(hub: Hub): string {
 
 export function allPaths(): string[] {
   return NAV_GROUPS.flatMap((group) => group.hubs.flatMap((hub) => hub.tabs.map((item) => item.to)));
+}
+
+/**
+ * The sidebar keeps one folder open at a time: opening a folder closes the one that was open, and
+ * clicking the open one closes it. (Moving to a page opens that page's folder.)
+ */
+export function nextOpen(open: string | null, clicked: string): string | null {
+  return open === clicked ? null : clicked;
 }

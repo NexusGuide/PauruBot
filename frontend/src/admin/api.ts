@@ -129,6 +129,10 @@ export interface Customer {
   last_seen_at: string | null;
   blocked_bot_at: string | null;
   referrer_id: number | null;
+  /** List rows only: active services, the nearest end among them, the wallet balance. */
+  active_services?: number;
+  next_expiry?: string | null;
+  balance?: number;
 }
 
 export interface Service {

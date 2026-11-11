@@ -61,6 +61,15 @@ const ICONS: Record<string, string> = {
   link: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1",
   variable: "M8 4c-2 0-3 1-3 3v2c0 1.5-1 3-2 3 1 0 2 1.5 2 3v2c0 2 1 3 3 3M16 4c2 0 3 1 3 3v2c0 1.5 1 3 2 3-1 0-2 1.5-2 3v2c0 2-1 3-3 3",
   chevron: "M9 6l6 6-6 6",
+  sidebar: "M4 5h16v14H4zM9.5 5v14M6.5 9h.01",
+  sun: "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4",
+  moon: "M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5",
+  grid: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
+  wallet: "M3 6h18v13H3zM3 10h18M16 14.5h.01",
+  send: "M21 3 10 14M21 3l-7 18-4-7-7-4z",
+  alert: "M12 3 2 20h20zM12 10v4M12 17h.01",
+  trend: "M3 17l6-6 4 4 8-8M15 7h6v6",
+  clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18M12 7v5l3 2",
   help: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01",
 };
 
@@ -125,11 +134,11 @@ export function Page({
   const { pathname } = useLocation();
   const help = useHelpFor(locale, pathname);
   return (
-    <div className={`mx-auto w-full px-4 pb-28 pt-5 md:px-8 md:pb-12 md:pt-8 ${wide ? "max-w-7xl" : "max-w-5xl"}`}>
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <div className={`mx-auto w-full px-4 pb-28 pt-4 md:px-8 md:pb-12 md:pt-7 ${wide ? "max-w-7xl" : "max-w-5xl"}`}>
+      <header className="mb-5 flex flex-wrap items-center justify-between gap-3 md:mb-6">
         <div className="flex min-w-0 items-center gap-2">
           {icon}
-          <h1 className="text-2xl font-extrabold tracking-tight md:text-[1.75rem]">{title}</h1>
+          <h1 className="text-[1.35rem] font-extrabold tracking-tight md:text-[1.6rem]">{title}</h1>
           {help && (
             <Link
               to={`/help/${help.slug}`}
@@ -160,14 +169,14 @@ export function Section({
   flush?: boolean;
 }) {
   return (
-    <section className="rounded-2xl bg-[var(--surface)] ring-1 ring-[var(--line)]">
+    <section className="rounded-[20px] bg-[var(--surface)] ring-1 ring-[var(--line)]">
       {(title || actions) && (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-3">
-          {title && <h2 className="text-[0.95rem] font-bold">{title}</h2>}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-3 md:px-5">
+          {title && <h2 className="text-[0.98rem] font-bold">{title}</h2>}
           {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
         </div>
       )}
-      <div className={flush ? "" : "p-4"}>{children}</div>
+      <div className={flush ? "" : "p-4 md:p-5"}>{children}</div>
     </section>
   );
 }
@@ -177,11 +186,11 @@ export function Section({
 type ButtonTone = "primary" | "quiet" | "danger" | "ghost" | "approve";
 
 const BUTTON_TONES: Record<ButtonTone, string> = {
-  primary: "bg-firouzeh-600 text-white hover:bg-firouzeh-700",
-  quiet: "bg-[var(--surface)] text-[var(--text)] ring-1 ring-[var(--line)] hover:bg-[var(--bg)]",
+  primary: "bg-[var(--accent)] text-[var(--accent-ink)] font-bold hover:brightness-110",
+  quiet: "bg-[var(--surface-2)] text-[var(--text)] ring-1 ring-[var(--line)] hover:brightness-125",
   danger: "bg-anar-100 text-anar-700 hover:bg-anar-500 hover:text-white",
-  ghost: "text-[var(--hint)] hover:bg-[var(--line)] hover:text-[var(--text)]",
-  approve: "bg-pista-500 text-white hover:bg-pista-700",
+  ghost: "text-[var(--hint)] hover:bg-[var(--surface-2)] hover:text-[var(--text)]",
+  approve: "bg-pista-500 text-white font-bold hover:brightness-110",
 };
 
 export function Button({
@@ -198,7 +207,7 @@ export function Button({
   icon?: string;
   small?: boolean;
 }) {
-  const sizing = small ? "min-h-8 px-2.5 text-[0.8rem] rounded-lg" : "min-h-10 px-3.5 text-[0.88rem] rounded-xl";
+  const sizing = small ? "min-h-9 px-3 text-[0.8rem] rounded-[10px]" : "min-h-11 px-4 text-[0.88rem] rounded-xl md:min-h-10";
   return (
     <button
       type="button"
@@ -236,7 +245,7 @@ export function Field({
 }
 
 const CONTROL =
-  "rounded-xl bg-[var(--bg)] px-3 py-2 text-[0.9rem] ring-1 ring-[var(--line)] outline-none transition-shadow focus:ring-2 focus:ring-firouzeh-500 disabled:opacity-60";
+  "rounded-xl bg-[var(--bg)] px-3.5 py-2 text-[0.92rem] ring-1 ring-[var(--line)] outline-none transition-shadow focus:ring-2 focus:ring-firouzeh-500 disabled:opacity-60";
 
 /** Controls fill their container unless the caller gives them a width. */
 function width(className: string): string {
@@ -244,7 +253,7 @@ function width(className: string): string {
 }
 
 export function Input({ className = "", ...rest }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={`${CONTROL} ${width(className)} min-h-10 ${className}`} {...rest} />;
+  return <input className={`${CONTROL} ${width(className)} min-h-11 ${className}`} {...rest} />;
 }
 
 export function Textarea({ className = "", ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
@@ -253,7 +262,7 @@ export function Textarea({ className = "", ...rest }: TextareaHTMLAttributes<HTM
 
 export function Select({ className = "", children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select className={`${CONTROL} ${width(className)} min-h-10 ${className}`} {...rest}>
+    <select className={`${CONTROL} ${width(className)} min-h-11 ${className}`} {...rest}>
       {children}
     </select>
   );
@@ -332,13 +341,13 @@ export function Toggle({
         aria-checked={checked}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
-          checked ? "bg-firouzeh-600" : "bg-[var(--line)]"
+        className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
+          checked ? "bg-[var(--accent)]" : "bg-[var(--surface-2)] ring-1 ring-[var(--line)]"
         }`}
       >
         <span
-          className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
-            checked ? "translate-x-[1.375rem] rtl:-translate-x-[1.375rem]" : "translate-x-0.5 rtl:-translate-x-0.5"
+          className={`inline-block h-5 w-5 rounded-full shadow transition-transform ${checked ? "bg-[var(--accent-ink)]" : "bg-[var(--hint)]"} ${
+            checked ? "translate-x-6 rtl:-translate-x-6" : "translate-x-1 rtl:-translate-x-1"
           }`}
         />
       </button>
@@ -446,7 +455,7 @@ export function Toasts() {
         <p
           key={item.id}
           className={`rounded-xl px-4 py-2.5 text-[0.88rem] font-semibold shadow-lg ${
-            item.tone === "ok" ? "bg-ink text-white" : "bg-anar-500 text-white"
+            item.tone === "ok" ? "bg-[var(--text)] text-[var(--bg)]" : "bg-anar-500 text-white"
           }`}
         >
           {item.text}
@@ -461,7 +470,7 @@ export function Toasts() {
 type BadgeTone = "neutral" | "brand" | "wait" | "loss" | "health";
 
 const BADGE_TONES: Record<BadgeTone, string> = {
-  neutral: "bg-[var(--line)] text-[var(--text)]",
+  neutral: "bg-[var(--surface-2)] text-[var(--text)] ring-1 ring-[var(--line)]",
   brand: "bg-firouzeh-100 text-firouzeh-700",
   wait: "bg-saffron-100 text-saffron-700",
   loss: "bg-anar-100 text-anar-700",
@@ -470,7 +479,7 @@ const BADGE_TONES: Record<BadgeTone, string> = {
 
 export function Badge({ tone = "neutral", children }: { tone?: BadgeTone; children: ReactNode }) {
   return (
-    <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[0.75rem] font-bold ${BADGE_TONES[tone]}`}>
+    <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[0.73rem] font-bold ${BADGE_TONES[tone]}`}>
       {children}
     </span>
   );
@@ -535,7 +544,7 @@ export function When({ iso, time }: { iso: string | null; time?: boolean }) {
 
 export function Usage({ used, limit }: { used: number; limit: number }) {
   const ratio = limit > 0 ? Math.min(1, used / limit) : 0;
-  const colour = ratio >= 1 ? "bg-anar-500" : ratio >= 0.85 ? "bg-saffron-500" : "bg-firouzeh-500";
+  const colour = ratio >= 1 ? "bg-anar-500" : ratio >= 0.85 ? "bg-saffron-500" : "bg-[var(--accent)]";
   return (
     <div className="flex min-w-28 flex-col gap-1">
       <span className="text-[0.8rem]">
@@ -548,7 +557,7 @@ export function Usage({ used, limit }: { used: number; limit: number }) {
         )}
       </span>
       {limit > 0 && (
-        <span className="h-1 w-full overflow-hidden rounded-full bg-[var(--line)]">
+        <span className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
           <span className={`block h-full ${colour}`} style={{ width: `${ratio * 100}%` }} />
         </span>
       )}
@@ -643,7 +652,7 @@ export function Sheet({
       <button
         type="button"
         aria-label={t("close")}
-        className="absolute inset-0 bg-ink/40"
+        className="absolute inset-0 bg-black/55 backdrop-blur-[2px]"
         onClick={onClose}
         tabIndex={-1}
       />
@@ -653,7 +662,7 @@ export function Sheet({
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        className={`relative flex max-h-[92dvh] w-full flex-col rounded-t-3xl bg-[var(--surface)] shadow-2xl outline-none md:max-h-none md:rounded-none ${
+        className={`relative flex max-h-[92dvh] w-full flex-col rounded-t-3xl bg-[var(--surface)] shadow-2xl ring-1 ring-[var(--line)] outline-none md:max-h-none md:rounded-none ${
           wide ? "md:max-w-3xl" : "md:max-w-lg"
         }`}
       >
@@ -920,7 +929,7 @@ export function Table<T extends { id: number }>({
       <div className="hidden overflow-x-auto md:block">
         <table className="w-full border-collapse text-[0.86rem]">
           <thead>
-            <tr className="border-b border-[var(--line)] text-start text-[0.78rem] text-[var(--hint)]">
+            <tr className="border-b border-[var(--line)] text-start text-[0.76rem] text-[var(--hint)]">
               {selection && (
                 <th className="w-10 px-3 py-2.5">
                   <Checkbox
@@ -955,7 +964,7 @@ export function Table<T extends { id: number }>({
                 key={row.id}
                 onClick={onRow ? () => onRow(row) : undefined}
                 className={`border-b border-[var(--line)] last:border-0 ${
-                  onRow ? "cursor-pointer hover:bg-[var(--bg)]" : ""
+                  onRow ? "cursor-pointer hover:bg-[var(--surface-2)]" : ""
                 } ${selection?.selected.has(row.id) ? "bg-firouzeh-50/60 dark:bg-firouzeh-700/10" : ""}`}
               >
                 {selection && (
@@ -968,7 +977,7 @@ export function Table<T extends { id: number }>({
                   </td>
                 )}
                 {columns.map((column) => (
-                  <td key={column.key} className={`px-3 py-2.5 align-middle ${column.className ?? ""}`}>
+                  <td key={column.key} className={`px-3 py-3 align-middle ${column.className ?? ""}`}>
                     {column.render(row)}
                   </td>
                 ))}
@@ -980,7 +989,7 @@ export function Table<T extends { id: number }>({
 
       <ul className="divide-y divide-[var(--line)] md:hidden">
         {rows.map((row) => (
-          <li key={row.id} className="flex items-start gap-3 px-4 py-3">
+          <li key={row.id} className="flex items-start gap-3 px-4 py-3.5">
             {selection && (
               <span className="pt-1">
                 <Checkbox
@@ -1124,5 +1133,105 @@ export function Facts({ items }: { items: [string, ReactNode][] }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+// ---------------------------------------------------------------- redesign building blocks
+
+const AVATAR_TONES = [
+  "bg-[#2b3a55] text-[#b7d0ff]",
+  "bg-[#16302a] text-[#7fe3b2]",
+  "bg-[#2a2344] text-[#cdbbff]",
+  "bg-[#3a2a14] text-[#f7ce7a]",
+  "bg-[#2e2433] text-[#f0b3d6]",
+  "bg-[#1f3138] text-[#8fd8e8]",
+];
+
+/** A round initial for a person, its colour fixed by their id so the same person looks the same. */
+export function Avatar({ id, name, size = 42 }: { id: number; name: string; size?: number }) {
+  const letter = (name.replace(/^@/, "").trim()[0] ?? "?").toUpperCase();
+  return (
+    <span
+      aria-hidden="true"
+      className={`flex shrink-0 items-center justify-center rounded-full font-extrabold ${AVATAR_TONES[Math.abs(id) % AVATAR_TONES.length]}`}
+      style={{ width: size, height: size, fontSize: size * 0.4 }}
+    >
+      {letter}
+    </span>
+  );
+}
+
+/** One-tap filters in a row that scrolls sideways on a phone. */
+export function Chips<T extends string>({
+  options,
+  value,
+  onChange,
+  label,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+  label: string;
+}) {
+  return (
+    <div role="group" aria-label={label} className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 md:mx-0 md:flex-wrap md:px-0">
+      {options.map((option) => {
+        const on = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onChange(option.value)}
+            className={`h-9 shrink-0 whitespace-nowrap rounded-full px-4 text-[0.82rem] transition-colors ${
+              on
+                ? "bg-[var(--accent)] font-bold text-[var(--accent-ink)]"
+                : "bg-[var(--surface)] font-semibold text-[var(--text)] ring-1 ring-[var(--line)] hover:bg-[var(--surface-2)]"
+            }`}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A segmented switch between a few views of one page (e.g. the tabs of a customer). */
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+  label,
+}: {
+  options: { value: T; label: ReactNode }[];
+  value: T;
+  onChange: (value: T) => void;
+  label: string;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label={label}
+      className="no-scrollbar flex gap-1 overflow-x-auto rounded-2xl bg-[var(--surface)] p-1 ring-1 ring-[var(--line)]"
+    >
+      {options.map((option) => {
+        const on = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="tab"
+            aria-selected={on}
+            onClick={() => onChange(option.value)}
+            className={`flex min-h-10 flex-1 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 text-[0.86rem] transition-colors ${
+              on ? "bg-[var(--surface-2)] font-bold text-[var(--text)] ring-1 ring-[var(--line)]" : "font-semibold text-[var(--hint)] hover:text-[var(--text)]"
+            }`}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }

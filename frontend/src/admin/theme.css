@@ -1,0 +1,108 @@
+/*
+ * The admin panel's own look (the 2026 redesign): a calm midnight theme by default and a light
+ * one on request. The palette names stay (firouzeh is the brand, saffron waits, anar is loss,
+ * pista is health) so every screen picks the new colours up; only their values change here.
+ * Loaded by the admin entry only, so the Mini App keeps its own look.
+ */
+
+/* Same weight as the shared sheet's dark-mode rules, and later, so these win in either OS mode. */
+:root:not([data-theme="light"]) {
+  --bg: #0b0e13;
+  --surface: #12161d;
+  --surface-2: #1a2029;
+  --text: #eceff4;
+  --hint: #9aa3b2;
+  --line: #222934;
+  --side: #0f131a;
+  --accent: #8ab4ff;
+  --accent-ink: #0b0e13;
+  --color-firouzeh-50: #16203a;
+  --color-firouzeh-100: #1c2a44;
+  --color-firouzeh-500: #6e9bff;
+  --color-firouzeh-600: #3566db;
+  --color-firouzeh-700: #a9c7ff;
+  --color-saffron-100: #3a2a14;
+  --color-saffron-500: #f2b84b;
+  --color-saffron-700: #f7ce7a;
+  --color-anar-100: #3a1b1b;
+  --color-anar-500: #d63b45;
+  --color-anar-700: #ff9c8f;
+  --color-pista-100: #14291f;
+  --color-pista-500: #23854f;
+  --color-pista-700: #7fe3b2;
+  --color-ink: #05070a;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #f4f6fa;
+  --surface: #ffffff;
+  --surface-2: #eef1f6;
+  --text: #121826;
+  --hint: #5b6576;
+  --line: #e1e6ee;
+  --side: #ffffff;
+  --accent: #2f5fd6;
+  --accent-ink: #ffffff;
+  --color-firouzeh-50: #eef3ff;
+  --color-firouzeh-100: #dce6ff;
+  --color-firouzeh-500: #3d73f0;
+  --color-firouzeh-600: #2f5fd6;
+  --color-firouzeh-700: #2149b0;
+  --color-saffron-100: #fbefd9;
+  --color-saffron-500: #e8a33d;
+  --color-saffron-700: #94590f;
+  --color-anar-100: #f9e1e5;
+  --color-anar-500: #c8344c;
+  --color-anar-700: #96203a;
+  --color-pista-100: #e3f1e1;
+  --color-pista-500: #3c8a4a;
+  --color-pista-700: #2f6b38;
+  --color-ink: #121826;
+  color-scheme: light;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Native form controls follow the theme. */
+input,
+select,
+textarea {
+  color: var(--text);
+}
+
+select option {
+  background: var(--surface);
+  color: var(--text);
+}
+
+::placeholder {
+  color: color-mix(in srgb, var(--hint) 80%, transparent);
+}
+
+/* Thin, quiet scrollbars on desktop. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--hint) 35%, transparent) transparent;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* The broadcast and ticket screens keep their own sheets; they take the panel's accent here.
+   html:root outweighs their :root[data-theme] rules whatever order the sheets load in. */
+html:root[data-theme] {
+  --bc-accent: var(--accent);
+  --bc-on-accent: var(--accent-ink);
+  --td-accent: var(--accent);
+  --td-on-accent: var(--accent-ink);
+}

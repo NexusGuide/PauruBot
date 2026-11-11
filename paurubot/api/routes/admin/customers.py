@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -28,6 +28,8 @@ from paurubot.core import confirm, customers, sub_links
 from paurubot.core import orders as orders_core
 from paurubot.db.models import (
     Customer,
+    LedgerAccount,
+    LedgerAccountKind,
     Order,
     OrderKind,
     OrderStatus,
@@ -123,10 +125,13 @@ async def list_customers(
     risk: Literal["none", "low", "medium", "high"] | None = None,
     color: str | None = Query(None, max_length=12),
     sort: str | None = Depends(sort_params),
+    segment: Literal["active", "ending", "buyers", "none"] | None = None,
 ) -> dict[str, Any]:
     if ctx.scoped:
         return {"items": [], "total": 0}
     stmt = select(Customer).where(Customer.shop_id == ctx.shop_id)
+    if segment:
+        stmt = stmt.where(_segment(ctx.shop_id, segment))
     query = q.strip().lstrip("@")
     if query:
         conditions: list[ColumnElement[bool]] = [
@@ -147,7 +152,60 @@ async def list_customers(
         stmt = stmt.where(Customer.color == color)
     stmt = apply_sort(stmt, sort, CUSTOMER_SORT, Customer.id)
     rows, total = await paginate(db, stmt, page)
-    return {"items": [plain(c, CUSTOMER_FIELDS) for c in rows], "total": total}
+    summary = await _summaries(db, ctx.shop_id, [c.id for c in rows])
+    return {"items": [{**plain(c, CUSTOMER_FIELDS), **summary[c.id]} for c in rows], "total": total}
+
+
+ENDING_DAYS = 3
+
+
+def _segment(shop_id: int, segment: str) -> ColumnElement[bool]:
+    """Quick picks on the customer list: by active services, services about to end, or purchases."""
+    active = select(Service.id).where(
+        Service.shop_id == shop_id, Service.customer_id == Customer.id, Service.status == ServiceStatus.ACTIVE
+    )
+    if segment == "active":
+        return active.exists()
+    if segment == "ending":
+        soon = datetime.now(UTC) + timedelta(days=ENDING_DAYS)
+        return active.where(Service.expire_at.is_not(None), Service.expire_at <= soon).exists()
+    bought = (
+        select(Order.id)
+        .where(
+            Order.shop_id == shop_id, Order.customer_id == Customer.id, Order.status == OrderStatus.COMPLETED
+        )
+        .exists()
+    )
+    return bought if segment == "buyers" else ~bought
+
+
+async def _summaries(db: Any, shop_id: int, ids: list[int]) -> dict[int, dict[str, Any]]:
+    """Per row of the list: active services, the nearest end among them, and the wallet balance."""
+    out: dict[int, dict[str, Any]] = {
+        i: {"active_services": 0, "next_expiry": None, "balance": 0} for i in ids
+    }
+    if not ids:
+        return out
+    services = await db.execute(
+        select(Service.customer_id, func.count(Service.id), func.min(Service.expire_at))
+        .where(
+            Service.shop_id == shop_id, Service.customer_id.in_(ids), Service.status == ServiceStatus.ACTIVE
+        )
+        .group_by(Service.customer_id)
+    )
+    for customer_id, count, nearest in services:
+        out[customer_id]["active_services"] = int(count)
+        out[customer_id]["next_expiry"] = nearest.isoformat() if nearest else None
+    balances = await db.execute(
+        select(LedgerAccount.customer_id, LedgerAccount.balance).where(
+            LedgerAccount.shop_id == shop_id,
+            LedgerAccount.kind == LedgerAccountKind.WALLET,
+            LedgerAccount.customer_id.in_(ids),
+        )
+    )
+    for customer_id, balance in balances:
+        out[customer_id]["balance"] = int(balance or 0)
+    return out
 
 
 @router.get("/customers/{customer_id}")

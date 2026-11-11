@@ -17,7 +17,7 @@ test("every page of the panel is reachable from a hub", () => {
   const app = readFileSync(src("App.tsx"), "utf8");
   const routes = [...app.matchAll(/path="([^"]+)"/g)]
     .map((m) => m[1])
-    .filter((path) => !path.includes(":") && path !== "*" && path !== "/account");
+    .filter((path) => !path.includes(":") && path !== "*" && path !== "/account" && path !== "/more");
   const inHubs = new Set(nav.allPaths());
   assert.deepEqual(routes.filter((path) => !inHubs.has(path)), []);
   assert.equal(new Set(nav.allPaths()).size, nav.allPaths().length, "a page sits in one hub only");
@@ -31,6 +31,22 @@ test("the sidebar is short: a few folders, each with a few entries", () => {
   assert.equal(nav.groupFor(groups, "/customer-bots").key, "nav_group_resellers");
   assert.equal(nav.groupFor(groups, "/variables").key, "nav_group_settings");
   assert.equal(nav.groupFor(groups, "/nowhere"), undefined);
+});
+
+test("the phone bar names real hubs, and waiting counts add up per hub", () => {
+  const groups = nav.visibleGroups(owner);
+  const hubs = groups.flatMap((group) => group.hubs);
+  for (const tab of nav.MOBILE_TABS) assert.ok(hubs.some((hub) => hub.key === tab.hub), tab.hub);
+  const sales = nav.hubFor(groups, "/payments");
+  assert.equal(nav.hubCount(sales, { pending_receipts: 3, open_tickets: 5 }), 3);
+  assert.equal(nav.hubCount(nav.hubFor(groups, "/tickets"), { pending_receipts: 3, open_tickets: 5 }), 5);
+  assert.equal(nav.hubCount(nav.hubFor(groups, "/catalog"), { pending_receipts: 3 }), 0);
+});
+
+test("the sidebar opens one folder at a time", () => {
+  assert.equal(nav.nextOpen(null, "nav_group_shop"), "nav_group_shop");
+  assert.equal(nav.nextOpen("nav_group_shop", "nav_group_marketing"), "nav_group_marketing", "the other one closes");
+  assert.equal(nav.nextOpen("nav_group_shop", "nav_group_shop"), null, "clicking the open one closes it");
 });
 
 test("a page and its detail pages light up their hub", () => {

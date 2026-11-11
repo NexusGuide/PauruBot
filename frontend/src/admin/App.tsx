@@ -11,6 +11,7 @@ import { Home } from "./screens/Home";
 import { Panels } from "./screens/Panels";
 import { BotMenu } from "./screens/BotMenu";
 import { Migration } from "./screens/Migration";
+import { More } from "./screens/More";
 import { Updates } from "./screens/Updates";
 import { AdminAccounts } from "./screens/AdminAccounts";
 import { CustomerBots } from "./screens/CustomerBots";
@@ -94,6 +95,7 @@ function Routed() {
         <Route path="/jobs" element={g("settings.write", <Jobs />)} />
         <Route path="/backups" element={g("backups.manage", <Backups />)} />
         <Route path="/account" element={<Account />} />
+        <Route path="/more" element={<More />} />
         <Route path="/help" element={<Suspense fallback={<Loading />}><HelpIndex /></Suspense>} />
         <Route path="/help/:slug" element={<Suspense fallback={<Loading />}><HelpArticle /></Suspense>} />
         <Route path="*" element={<Navigate to="/" replace />} />

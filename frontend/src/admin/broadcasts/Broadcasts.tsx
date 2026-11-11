@@ -37,8 +37,9 @@ function useRead<TData>(path: string, parse: (v: unknown) => TData) {
     useEffect(() => { setData(null); void reload(); return () => { seq.current++; }; }, [reload]);
     return { data, dataPath, error, loading, reload };
 }
-function Modal({ title, onClose, children }: {
+function Modal({ title, onClose, children, wide }: {
     title: string;
+    wide?: boolean;
     onClose: () => void;
     children: ReactNode;
 }) {
@@ -64,7 +65,7 @@ function Modal({ title, onClose, children }: {
         document.addEventListener('keydown', trap);
         return () => document.removeEventListener('keydown', trap);
     }, []);
-    return <div className="bc-layer"><Sheet open title={title} onClose={onClose}><div className="bc-modal" ref={root}>{children}</div></Sheet></div>;
+    return <div className="bc-layer"><Sheet open wide={wide} title={title} onClose={onClose}><div className="bc-modal" ref={root}>{children}</div></Sheet></div>;
 }
 function Notice({ text, error = false }: {
     text: string;
@@ -209,7 +210,7 @@ function Composer({ t, locale, onClose, onSaved }: {
         }
     };
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    return <Modal title={t("new")} onClose={close}>
+    return <Modal title={t("new")} onClose={close} wide>
     <p className="bc-muted">{t("plain")}</p>
     {discard && <div className="bc-note"><p>{t("discard")}</p><div className="bc-actions"><button disabled={busy} onClick={() => closeRef.current()}>{t("discardYes")}</button><button onClick={() => setDiscard(false)}>{t("keep")}</button></div></div>}
     {busy && <Notice text={t("busy")}/>}
@@ -218,7 +219,7 @@ function Composer({ t, locale, onClose, onSaved }: {
     {!review ? <fieldset disabled={busy} style={{ border: 0, padding: 0 }}>
       <label htmlFor="bc-text">{t("text")}</label><textarea id="bc-text" value={draft.text} onChange={e => change({ ...draft, text: e.target.value })} aria-describedby="bc-count"/>
       <p id="bc-count" className="bc-muted" aria-live="polite"><bdi dir="ltr">{codepoints(draft.text)} / 4000</bdi></p>
-      <label htmlFor="bc-audience">{t("audience")}</label><select id="bc-audience" value={draft.audience} onChange={e => change({ ...draft, audience: e.target.value as Draft["audience"] })}>{ALL_KINDS.map(k => <option key={k} value={k}>{t(k)}</option>)}</select>
+      <p id="bc-audience" className="bc-label">{t("audience")}</p><div role="radiogroup" aria-labelledby="bc-audience" className="bc-aud">{ALL_KINDS.map(k => <button key={k} type="button" role="radio" aria-checked={draft.audience === k} className={draft.audience === k ? "bc-aud-on" : ""} onClick={() => change({ ...draft, audience: k as Draft["audience"] })}>{t(k)}</button>)}</div>
       {draft.audience === "panel" && <><label htmlFor="bc-panel">{t("pickPanel")}</label><select id="bc-panel" value={draft.panelId ?? ""} onChange={e => change({ ...draft, panelId: e.target.value ? Number(e.target.value) : null })}><option value="">—</option>{(panels.data ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></>}
       {draft.audience === "idle" && <><label htmlFor="bc-idle">{t("idleDays")}</label><input id="bc-idle" type="number" min={1} max={IDLE_DAYS_MAX} dir="ltr" value={draft.idleDays ?? ""} onChange={e => change({ ...draft, idleDays: e.target.value ? Number(e.target.value) : null })}/></>}
       <label className="bc-check"><input type="checkbox" checked={Boolean(draft.pin)} onChange={e => change({ ...draft, pin: e.target.checked, pinHours: draft.pinHours ?? 0 })}/>{t("pinLabel")}</label>
@@ -233,6 +234,7 @@ function Composer({ t, locale, onClose, onSaved }: {
         <button onClick={() => change({ ...draft, buttons: draft.buttons.filter((_, j) => j !== i) })} aria-label={`${t("remove")} ${i + 1}`}>{t("remove")}</button>
       </div>)}<button disabled={busy || draft.buttons.length >= 6} onClick={() => change({ ...draft, buttons: [...draft.buttons, { text: "", url: "" }] })}>{t("add")}</button>
         <button disabled={busy || draft.buttons.length >= 6} onClick={() => change({ ...draft, buttons: [...draft.buttons, { text: t("act_buy"), url: "", action: "buy" }] })}>{t("addAction")}</button></fieldset>
+      <p className="bc-label">{t("previewTitle")}</p><div className="bc-chat" aria-hidden="true"><div className="bc-bubble" dir="auto">{draft.text || <span className="bc-muted">{t("text")}</span>}</div>{draft.buttons.filter(b => b.text.trim()).map((b, i) => <div key={i} className="bc-kb">{b.text}</div>)}</div>
       <label htmlFor="bc-schedule">{t("schedule")}</label><input id="bc-schedule" type="datetime-local" value={draft.schedule} onChange={e => change({ ...draft, schedule: e.target.value })}/><p className="bc-muted"><bdi>{zone}</bdi> · {t("scheduleHint")}</p>
       {testOK && <p className="bc-note">{t("testOK")}</p>}
       <div className="bc-actions"><button disabled={busy || blocked} onClick={() => prepare("test")}>{t("test")}</button><button className="bc-primary" disabled={busy || blocked || !canQueue} onClick={() => prepare("create")}>{t("review")}</button></div>
@@ -299,8 +301,8 @@ function Manager({ t, locale }: {
         next.set("page", String(value));
     else
         next.delete("page"); return next; }, { replace: true }); };
-    return <main className="bc"><header className="bc-top"><h1>{t("title")}</h1><ClearBroadcastsButton onDone={refresh} /><UnpinAllButton /><button className="bc-primary" onClick={() => { setCompose(true); setNotice(""); }}>{t("new")}</button></header>
-    <section className="bc-card"><h2>{t("estimate")}: {audience.loading ? t("loading") : audience.error || audience.data === null ? t("unknown") : new Intl.NumberFormat(locale).format(audience.data)}</h2><p className="bc-muted">{t("estimateHint")}</p></section>
+    return <main className="bc"><header className="bc-top"><h1>{t("title")}</h1><div className="bc-tools"><button className="bc-primary" onClick={() => { setCompose(true); setNotice(""); }}>{t("new")}</button><ClearBroadcastsButton onDone={refresh} /><UnpinAllButton /></div></header>
+    <section className="bc-card bc-stat"><p className="bc-muted">{t("estimate")}</p><p className="bc-big">{audience.loading ? t("loading") : audience.error || audience.data === null ? t("unknown") : new Intl.NumberFormat(locale).format(audience.data)}</p><p className="bc-muted">{t("estimateHint")}</p></section>
     <div className="bc-actions"><p className="bc-muted">{t("plain")}</p><button disabled={history.loading || audience.loading} onClick={refresh}>{t("refresh")}</button></div>
     {notice && <Notice text={notice}/>}{history.loading && <p role="status">{t("loading")}</p>}{history.error && <Notice text={t(history.data ? "stale" : "loadError")} error/>}
     {!history.loading && !history.error && history.data?.items.length === 0 && <p className="bc-card">{t("empty")}</p>}

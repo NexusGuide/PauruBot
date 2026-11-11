@@ -6,11 +6,14 @@ import { PAGE_SIZE, useAction, useList, useLoad, useSelection } from "../hooks";
 import { useSession } from "../session";
 import {
   Async,
+  Avatar,
   Badge,
   BulkBar,
   Button,
+  Chips,
   Field,
   Facts,
+  Icon,
   Input,
   Money,
   NumberInput,
@@ -18,13 +21,13 @@ import {
   Pager,
   SearchBox,
   Section,
+  Segmented,
   Select,
   Sheet,
   Status,
   Table,
   Textarea,
   Toggle,
-  Toolbar,
   When,
   type Column,
 } from "../ui";
@@ -56,14 +59,44 @@ export function customerName(c: Pick<Customer, "username" | "first_name" | "tele
   return c.first_name || String(c.telegram_id);
 }
 
+/** The name a person goes by: their first name, else their username, else their Telegram id. */
+export function displayName(c: Pick<Customer, "username" | "first_name" | "telegram_id">): string {
+  return c.first_name?.trim() || (c.username ? `@${c.username}` : String(c.telegram_id));
+}
+
+/** Whole days until an end date, never below zero. */
+export function daysLeft(iso: string, now = Date.now()): number {
+  return Math.max(0, Math.ceil((new Date(iso).getTime() - now) / 86_400_000));
+}
+
+type Segment = "all" | "active" | "ending" | "buyers" | "none" | "banned";
+
+function ServicesCell({ c }: { c: Customer }) {
+  const { t, locale } = useSession();
+  const n = c.active_services ?? 0;
+  if (n === 0) return <span className="text-[0.82rem] font-semibold text-[var(--hint)]">{t("cust_no_service")}</span>;
+  const left = c.next_expiry ? daysLeft(c.next_expiry) : null;
+  const soon = left !== null && left <= 3;
+  return (
+    <span className="flex flex-col items-end gap-0.5 md:items-start">
+      <span className={`text-[0.84rem] font-bold ${soon ? "text-saffron-700" : "text-pista-700"}`}>
+        {soon ? t("cust_days_left", { n: money(left, locale) }) : t("cust_services_n", { n: money(n, locale) })}
+      </span>
+      {soon && n > 1 && <span className="text-[0.74rem] text-[var(--hint)]">{t("cust_services_n", { n: money(n, locale) })}</span>}
+    </span>
+  );
+}
+
 export function Customers() {
-  const { t, can, toast, errorText } = useSession();
+  const { t, can, toast, errorText, locale } = useSession();
   const navigate = useNavigate();
-  const list = useList<Customer>("/api/admin/customers", ["q", "banned", "tag", "risk", "color"]);
+  const list = useList<Customer>("/api/admin/customers", ["q", "banned", "tag", "risk", "color", "segment"]);
   const selection = useSelection(`${list.page}:${list.params.toString()}:${list.data?.total ?? 0}`);
   const [busy, run] = useAction();
   const [tagging, setTagging] = useState<"tag" | "untag" | null>(null);
   const [tag, setTag] = useState("");
+  const [moreFilters, setMoreFilters] = useState(Boolean(list.get("risk") || list.get("color")));
+  const segment: Segment = list.get("banned") === "true" ? "banned" : ((list.get("segment") || "all") as Segment);
 
   const bulk = async (action: "ban" | "unban" | "tag" | "untag", tagValue?: string) => {
     try {
@@ -89,46 +122,64 @@ export function Customers() {
       label: t("col_customer"),
       mobile: "title",
       render: (c) => (
-        <span className="flex flex-wrap items-center gap-2">
-          {c.color && <ColorDot color={c.color} />}
-          <span className="font-semibold">{customerName(c)}</span>
-          {c.risk !== "none" && <Badge tone={c.risk === "low" ? "wait" : "loss"}>{t(`risk_${c.risk}`)}</Badge>}
-          {c.is_banned && <Badge tone="loss">{t("banned")}</Badge>}
-          {c.blocked_bot_at && <Badge>{t("blocked_bot")}</Badge>}
-          {c.tags.map((tagName) => (
-            <Badge key={tagName} tone="brand">
-              {tagName}
-            </Badge>
-          ))}
+        <span className="flex min-w-0 items-center gap-3">
+          <Avatar id={c.id} name={displayName(c)} />
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+              {c.color && <ColorDot color={c.color} />}
+              <span className="truncate text-[0.92rem] font-bold">{displayName(c)}</span>
+              {c.is_banned && <Badge tone="loss">{t("banned")}</Badge>}
+              {c.risk !== "none" && <Badge tone={c.risk === "low" ? "wait" : "loss"}>{t(`risk_${c.risk}`)}</Badge>}
+              {c.blocked_bot_at && <Badge>{t("blocked_bot")}</Badge>}
+              {c.tags.map((tagName) => (
+                <Badge key={tagName} tone="brand">
+                  {tagName}
+                </Badge>
+              ))}
+            </span>
+            <span className="truncate text-start text-[0.78rem] font-normal text-[var(--hint)]" dir="ltr">
+              {c.username ? `@${c.username}` : c.telegram_id}
+            </span>
+          </span>
         </span>
       ),
     },
+    { key: "services", label: t("col_services"), mobile: "end", render: (c) => <ServicesCell c={c} /> },
     {
-      key: "telegram",
-      label: t("col_telegram_id"),
-      mobile: "meta",
+      key: "wallet",
+      label: t("col_wallet"),
+      mobile: "end",
       render: (c) => (
-        <span className="num" dir="ltr">
-          {c.telegram_id}
+        <span className="text-[0.8rem] text-[var(--hint)] md:text-[0.86rem] md:text-[var(--text)]">
+          <Money amount={c.balance ?? 0} />
         </span>
       ),
     },
     { key: "phone", label: t("col_phone"), mobile: "hide", render: (c) => <span dir="ltr">{c.phone ?? "—"}</span> },
-    {
-      key: "joined",
-      label: t("col_joined"),
-      sort: "created_at",
-      mobile: "meta",
-      render: (c) => <When iso={c.created_at} />,
-    },
+    { key: "joined", label: t("col_joined"), sort: "created_at", mobile: "hide", render: (c) => <When iso={c.created_at} /> },
     {
       key: "seen",
       label: t("col_last_seen"),
       sort: "last_seen_at",
-      mobile: "end",
+      mobile: "hide",
       render: (c) => <When iso={c.last_seen_at} time />,
     },
   ];
+
+  const segments: { value: Segment; label: string }[] = [
+    { value: "all", label: t("seg_all") },
+    { value: "active", label: t("seg_active") },
+    { value: "ending", label: t("seg_ending") },
+    { value: "buyers", label: t("seg_buyers") },
+    { value: "none", label: t("seg_none") },
+    { value: "banned", label: t("seg_banned") },
+  ];
+  const pick = (value: Segment) =>
+    list.set(
+      value === "banned"
+        ? { banned: "true", segment: null }
+        : { banned: null, segment: value === "all" ? null : value },
+    );
 
   return (
     <Page
@@ -141,41 +192,48 @@ export function Customers() {
         </>
       }
     >
-      <Section flush>
-        <Toolbar>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <SearchBox value={list.get("q")} onChange={(q) => list.set({ q })} placeholder={t("search_customers")} />
-          <Select
-            className="w-auto"
-            aria-label={t("filter_status")}
-            value={list.get("banned")}
-            onChange={(event) => list.set({ banned: event.target.value })}
+          <Button
+            icon="sort"
+            aria-expanded={moreFilters}
+            onClick={() => setMoreFilters((v) => !v)}
+            tone={list.get("risk") || list.get("color") ? "primary" : "quiet"}
           >
-            <option value="">{t("filter_everyone")}</option>
-            <option value="false">{t("filter_not_banned")}</option>
-            <option value="true">{t("filter_banned")}</option>
-          </Select>
-          <Select className="w-auto" aria-label={t("filter_risk")} value={list.get("risk")} onChange={(event) => list.set({ risk: event.target.value })}>
-            <option value="">{t("filter_any_risk")}</option>
-            {RISKS.map((risk) => (
-              <option key={risk} value={risk}>
-                {t(`risk_${risk}`)}
-              </option>
-            ))}
-          </Select>
-          <Select className="w-auto" aria-label={t("filter_color")} value={list.get("color")} onChange={(event) => list.set({ color: event.target.value })}>
-            <option value="">{t("filter_any_color")}</option>
-            {COLORS.map((color) => (
-              <option key={color} value={color}>
-                {t(`color_${color}`)}
-              </option>
-            ))}
-          </Select>
-          {list.get("tag") && (
-            <Button small tone="quiet" onClick={() => list.set({ tag: null })}>
-              {t("tag_filter", { tag: list.get("tag") })} ✕
+            {t("filters_more")}
+          </Button>
+        </div>
+        <Chips label={t("filter_status")} options={segments} value={segment} onChange={pick} />
+        {moreFilters && (
+          <div className="flex flex-wrap gap-2">
+            <Select className="w-auto" aria-label={t("filter_risk")} value={list.get("risk")} onChange={(event) => list.set({ risk: event.target.value })}>
+              <option value="">{t("filter_any_risk")}</option>
+              {RISKS.map((risk) => (
+                <option key={risk} value={risk}>
+                  {t(`risk_${risk}`)}
+                </option>
+              ))}
+            </Select>
+            <Select className="w-auto" aria-label={t("filter_color")} value={list.get("color")} onChange={(event) => list.set({ color: event.target.value })}>
+              <option value="">{t("filter_any_color")}</option>
+              {COLORS.map((color) => (
+                <option key={color} value={color}>
+                  {t(`color_${color}`)}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
+        {list.get("tag") && (
+          <div>
+            <Button small tone="quiet" icon="close" onClick={() => list.set({ tag: null })}>
+              {t("tag_filter", { tag: list.get("tag") })}
             </Button>
-          )}
-        </Toolbar>
+          </div>
+        )}
+      </div>
+      <Section flush>
         {can("customers.ban") && (
           <BulkBar count={selection.selected.size} onClear={selection.clear}>
             <Button small busy={busy} onClick={() => void bulk("ban")}>
@@ -200,6 +258,9 @@ export function Customers() {
         <Async data={list.data} error={list.error} reload={list.reload}>
           {(data) => (
             <>
+              <p className="border-b border-[var(--line)] px-4 py-2.5 text-[0.8rem] text-[var(--hint)] md:px-5">
+                {t("cust_count", { n: money(data.total, locale) })}
+              </p>
               <Table
                 columns={columns}
                 rows={data.items}
@@ -397,6 +458,19 @@ function GiveAccountSheet({ customerId, onClose, onDone }: { customerId: number;
   );
 }
 
+function ActionTile({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex min-h-[4.5rem] flex-col items-center justify-center gap-1.5 rounded-2xl bg-[var(--surface)] px-1 text-[0.76rem] font-semibold ring-1 ring-[var(--line)] transition-colors hover:bg-[var(--surface-2)]"
+    >
+      <Icon name={icon} size={20} className="text-[var(--accent)]" />
+      {label}
+    </button>
+  );
+}
+
 export function CustomerPage() {
   const { id } = useParams();
   const { t, can, me, locale, toast, errorText } = useSession();
@@ -410,6 +484,8 @@ export function CustomerPage() {
   const [note, setNote] = useState<string | null>(null);
   const [giving, setGiving] = useState(false);
   const [givingAccount, setGivingAccount] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [tab, setTab] = useState<"services" | "orders" | "wallet" | "profile">("services");
   const [busy, run] = useAction();
 
   const ban = async (banned: boolean) => {
@@ -483,44 +559,129 @@ export function CustomerPage() {
       {(detail) => {
         const c = detail.customer;
         return (
-          <Page
-            title={customerName(c)}
-            icon={<CustomerPhoto customerId={c.id} name={customerName(c)} />}
-            actions={
-              <>
-                {can("wallet.adjust") && (
-                  <Button tone="primary" onClick={() => setAdjusting(true)}>
-                    {t("adjust_balance")}
-                  </Button>
-                )}
-                {can("services.create") && can("catalog.read") && (
-                  <Button onClick={() => setGiving(true)}>{t("give_service")}</Button>
-                )}
-                <QuickRenewButton customerId={c.id} onDone={() => void reload()} />
-                <TestCustomerToggle customerId={c.id} value={Boolean(c.is_test)} onDone={() => void reload()} />
-                <DeleteCustomerButton customerId={c.id} onDeleted={() => navigate("/customers")} />
-                {can("resellers.manage") && me?.role !== "reseller" && (
-                  <Button onClick={() => setGivingAccount(true)}>{t("give_account")}</Button>
-                )}
-                {can("customers.write") && <Button onClick={() => setMessaging(true)}>{t("send_message")}</Button>}
-                {can("customers.write") && (
-                  <Button busy={busy} onClick={() => void trialAgain()}>
-                    {t("trial_again")}
-                  </Button>
-                )}
-                {can("customers.ban") &&
-                  (c.is_banned ? (
-                    <Button busy={busy} onClick={() => void ban(false)}>
-                      {t("unban")}
-                    </Button>
-                  ) : (
-                    <Button tone="danger" onClick={() => setBanOpen(true)}>
-                      {t("ban")}
-                    </Button>
+          <Page title={t("customer_title")}>
+            <section className="flex items-center gap-4">
+              <CustomerPhoto customerId={c.id} name={displayName(c)} />
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <h2 className="truncate text-[1.25rem] font-extrabold">{displayName(c)}</h2>
+                <p className="flex flex-wrap items-center gap-x-2 text-[0.82rem] text-[var(--hint)]">
+                  {c.username && <span dir="ltr">@{c.username}</span>}
+                  <span className="num" dir="ltr">
+                    {c.telegram_id}
+                  </span>
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {c.is_banned && <Badge tone="loss">{t("banned")}</Badge>}
+                  {c.is_test && <Badge tone="wait">{t("cust_test")}</Badge>}
+                  {c.phone && <Badge tone="health">{t("cust_phone_ok")}</Badge>}
+                  {detail.reseller && <Badge tone="brand">{t("reseller")}</Badge>}
+                  <Badge>
+                    {t("cust_member_since")}&nbsp;<When iso={c.created_at} />
+                  </Badge>
+                </div>
+              </div>
+            </section>
+
+            <section className="grid grid-cols-3 rounded-[18px] bg-[var(--surface)] ring-1 ring-[var(--line)] [&>div+div]:border-s [&>div+div]:border-[var(--line)]">
+              <div className="flex flex-col items-center gap-0.5 px-2 py-3">
+                <span className="text-[1rem] font-extrabold">
+                  <Money amount={detail.balance} />
+                </span>
+                <span className="text-[0.75rem] text-[var(--hint)]">{t("wallet_balance")}</span>
+              </div>
+              <div className="flex flex-col items-center gap-0.5 px-2 py-3">
+                <span className="num text-[1rem] font-extrabold">
+                  {money(detail.services.filter((svc) => svc.status === "active").length, locale)}
+                </span>
+                <span className="text-[0.75rem] text-[var(--hint)]">{t("dash_active_services")}</span>
+              </div>
+              <div className="flex flex-col items-center gap-0.5 px-2 py-3">
+                <span className="num text-[1rem] font-extrabold">{money(detail.referrals, locale)}</span>
+                <span className="text-[0.75rem] text-[var(--hint)]">{t("referrals")}</span>
+              </div>
+            </section>
+
+            <section aria-label={t("cust_actions")} className="grid grid-cols-4 gap-2 md:max-w-xl">
+              {can("wallet.adjust") && <ActionTile icon="wallet" label={t("cust_wallet")} onClick={() => setAdjusting(true)} />}
+              {can("customers.write") && <ActionTile icon="send" label={t("cust_message")} onClick={() => setMessaging(true)} />}
+              {can("services.create") && can("catalog.read") && (
+                <ActionTile icon="plus" label={t("cust_new_service")} onClick={() => setGiving(true)} />
+              )}
+              <ActionTile icon="more" label={t("cust_more_actions")} onClick={() => setMoreOpen(true)} />
+            </section>
+
+            <Segmented
+              label={t("customer_title")}
+              value={tab}
+              onChange={setTab}
+              options={[
+                { value: "services", label: t("nav_services") },
+                { value: "orders", label: t("nav_orders") },
+                { value: "wallet", label: t("cust_wallet") },
+                { value: "profile", label: t("cust_profile") },
+              ]}
+            />
+
+            {tab === "services" && (
+              <Section flush>
+                <ServiceTable rows={detail.services} />
+              </Section>
+            )}
+
+            {tab === "orders" && (
+              <Section flush>
+                <ul className="divide-y divide-[var(--line)]">
+                  {detail.orders.length === 0 && <li className="px-4 py-6 text-center text-[var(--hint)]">{t("empty_list")}</li>}
+                  {detail.orders.map((o) => (
+                    <li key={o.id} className="flex items-center justify-between gap-3 px-4 py-3 text-[0.88rem] md:px-5">
+                      <span className="flex flex-col gap-0.5">
+                        <Link className="font-semibold text-[var(--text)] hover:text-firouzeh-700" to={`/orders?id=${o.id}`}>
+                          {t(`order_kind_${o.kind}`)}
+                        </Link>
+                        <span className="text-[0.78rem] text-[var(--hint)]">
+                          #{money(o.id, locale)} · <When iso={o.created_at} time />
+                        </span>
+                      </span>
+                      <span className="flex flex-col items-end gap-1">
+                        <span className="font-bold">
+                          <Money amount={o.amount} />
+                        </span>
+                        <Status value={o.status} />
+                      </span>
+                    </li>
                   ))}
-              </>
-            }
-          >
+                </ul>
+              </Section>
+            )}
+
+            {tab === "wallet" && (
+              <Section flush>
+                <ul className="divide-y divide-[var(--line)]">
+                  {detail.ledger.length === 0 && <li className="px-4 py-6 text-center text-[var(--hint)]">{t("empty_list")}</li>}
+                  {detail.ledger.map((entry) => (
+                    <li key={entry.id} className="flex items-center justify-between gap-3 px-4 py-3 text-[0.88rem] md:px-5">
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="font-semibold">{t(`journal_${entry.kind}`)}</span>
+                        <span className="truncate text-[0.78rem] text-[var(--hint)]">
+                          {entry.memo ? `${entry.memo} — ` : ""}
+                          <When iso={entry.at} time />
+                        </span>
+                      </span>
+                      <span className="flex flex-col items-end">
+                        <span className={`num font-bold ${entry.amount < 0 ? "text-[var(--text)]" : "text-pista-700"}`} dir="ltr">
+                          {entry.amount > 0 ? "+" : ""}
+                          {money(entry.amount, locale)}
+                        </span>
+                        <span className="num text-[0.75rem] text-[var(--hint)]">{money(entry.balance_after, locale)}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </Section>
+            )}
+
+            {tab === "profile" && (
+              <>
             <Section>
               <Facts
                 items={[
@@ -611,57 +772,48 @@ export function CustomerPage() {
             </Section>
 
             {can("resellers.manage") && me?.role !== "reseller" && <OwnBotSection customerId={c.id} />}
+              </>
+            )}
 
-            <Section flush title={t("nav_services")}>
-              <ServiceTable rows={detail.services} />
-            </Section>
-
-            <div className="grid gap-6 lg:grid-cols-2">
-              <Section flush title={t("nav_orders")}>
-                <ul className="divide-y divide-[var(--line)]">
-                  {detail.orders.length === 0 && <li className="px-4 py-6 text-center text-[var(--hint)]">{t("empty_list")}</li>}
-                  {detail.orders.map((o) => (
-                    <li key={o.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-[0.86rem]">
-                      <span className="flex flex-col gap-0.5">
-                        <Link className="font-semibold text-firouzeh-700" to={`/orders?id=${o.id}`}>
-                          {t(`order_kind_${o.kind}`)} #{o.id}
-                        </Link>
-                        <span className="text-[0.78rem] text-[var(--hint)]">
-                          <When iso={o.created_at} time />
-                        </span>
-                      </span>
-                      <span className="flex flex-col items-end gap-1">
-                        <Money amount={o.amount} />
-                        <Status value={o.status} />
-                      </span>
-                    </li>
+            <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} title={t("cust_more_actions")}>
+              <div className="flex flex-col items-stretch gap-2 [&>button]:w-full [&>button]:justify-start">
+                <QuickRenewButton customerId={c.id} onDone={() => void reload()} />
+                {can("resellers.manage") && me?.role !== "reseller" && (
+                  <Button
+                    icon="panels"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      setGivingAccount(true);
+                    }}
+                  >
+                    {t("give_account")}
+                  </Button>
+                )}
+                {can("customers.write") && (
+                  <Button icon="refresh" busy={busy} onClick={() => void trialAgain()}>
+                    {t("trial_again")}
+                  </Button>
+                )}
+                <TestCustomerToggle customerId={c.id} value={Boolean(c.is_test)} onDone={() => void reload()} />
+                {can("customers.ban") &&
+                  (c.is_banned ? (
+                    <Button busy={busy} onClick={() => void ban(false)}>
+                      {t("unban")}
+                    </Button>
+                  ) : (
+                    <Button
+                      tone="danger"
+                      onClick={() => {
+                        setMoreOpen(false);
+                        setBanOpen(true);
+                      }}
+                    >
+                      {t("ban")}
+                    </Button>
                   ))}
-                </ul>
-              </Section>
-              <Section flush title={t("wallet_history")}>
-                <ul className="divide-y divide-[var(--line)]">
-                  {detail.ledger.length === 0 && <li className="px-4 py-6 text-center text-[var(--hint)]">{t("empty_list")}</li>}
-                  {detail.ledger.map((entry) => (
-                    <li key={entry.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-[0.86rem]">
-                      <span className="flex min-w-0 flex-col gap-0.5">
-                        <span className="font-semibold">{t(`journal_${entry.kind}`)}</span>
-                        <span className="truncate text-[0.78rem] text-[var(--hint)]">
-                          {entry.memo ? `${entry.memo} — ` : ""}
-                          <When iso={entry.at} time />
-                        </span>
-                      </span>
-                      <span className="flex flex-col items-end">
-                        <span className={`num font-bold ${entry.amount < 0 ? "text-anar-700" : "text-pista-700"}`} dir="ltr">
-                          {entry.amount > 0 ? "+" : ""}
-                          {money(entry.amount, locale)}
-                        </span>
-                        <span className="num text-[0.75rem] text-[var(--hint)]">{money(entry.balance_after, locale)}</span>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </Section>
-            </div>
+                <DeleteCustomerButton customerId={c.id} onDeleted={() => navigate("/customers")} />
+              </div>
+            </Sheet>
 
             {givingAccount && (
               <GiveAccountSheet
