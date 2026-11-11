@@ -2424,5 +2424,7 @@
   "err_ticket_auto_close_days_invalid": "Ticket auto-close days must be between 0 and 365.",
   "settings_group_tickets": "Tickets",
   "intro_more": "More",
-  "intro_less": "Less"
+  "intro_less": "Less",
+  "cust_info": "Details",
+  "cust_markers": "Markers and access"
 }

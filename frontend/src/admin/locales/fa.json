@@ -2424,5 +2424,7 @@
   "err_ticket_auto_close_days_invalid": "روزهای بستن خودکار تیکت باید بین ۰ و ۳۶۵ باشد.",
   "settings_group_tickets": "تیکت‌ها",
   "intro_more": "بیشتر",
-  "intro_less": "کمتر"
+  "intro_less": "کمتر",
+  "cust_info": "اطلاعات",
+  "cust_markers": "نشانه‌ها و دسترسی"
 }

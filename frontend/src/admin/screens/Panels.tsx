@@ -11,8 +11,8 @@ import {
   Checkbox,
   CopyText,
   Empty,
-  Facts,
   Field,
+  Icon,
   Input,
   NumberInput,
   Page,
@@ -909,7 +909,7 @@ function PanelGauges({ panel }: { panel: PanelRow }) {
   const online = nodes.filter((n) => ["connected", "online", "healthy"].includes(n.status.toLowerCase())).length;
   if (!panel.stats_at) return null;
   return (
-    <div className="mb-3 flex flex-col gap-2.5 rounded-xl bg-[var(--bg)] p-3">
+    <div className="flex flex-col gap-2.5 rounded-xl bg-[var(--bg)] p-3">
       {s.cpu_percent != null && (
         <Meter label={t("gauge_cpu")} value={s.cpu_percent} max={100} text={s.cpu_cores ? t("gauge_cpu_value", { percent: money(s.cpu_percent, locale), cores: money(s.cpu_cores, locale) }) : `${money(s.cpu_percent, locale)}٪`} />
       )}
@@ -934,8 +934,119 @@ function PanelGauges({ panel }: { panel: PanelRow }) {
   );
 }
 
+
+function host(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+/** One panel: health and name on top, three figures, its gauges, and edit / check / more. */
+function PanelCard({
+  panel,
+  writable,
+  checking,
+  onEdit,
+  onCheck,
+  onMore,
+}: {
+  panel: PanelRow;
+  writable: boolean;
+  checking: number | null;
+  onEdit: () => void;
+  onCheck: () => void;
+  onMore: () => void;
+}) {
+  const { t, locale } = useSession();
+  const state = !panel.is_active ? "off" : panel.is_healthy ? "ok" : "down";
+  const tint = { off: "bg-[var(--surface-2)] text-[var(--hint)]", ok: "bg-pista-100 text-pista-700", down: "bg-anar-100 text-anar-700" }[state];
+  const load = panel.load ?? 0;
+  const ratio = panel.capacity ? Math.min(1, load / panel.capacity) : 0;
+  return (
+    <article className="flex flex-col overflow-hidden rounded-[20px] bg-[var(--surface)] ring-1 ring-[var(--line)]">
+      <header className="flex items-center gap-3 p-4">
+        <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${tint}`}>
+          <Icon name="panels" size={21} />
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <h2 className="truncate text-[1rem] font-extrabold">{panel.name}</h2>
+          <p className="flex min-w-0 items-center gap-1.5 text-[0.76rem] text-[var(--hint)]">
+            <span className="shrink-0">{t(`panel_kind_${panel.kind}`)}</span>
+            <span>·</span>
+            <span className="truncate" dir="ltr">
+              {host(panel.base_url)}
+            </span>
+          </p>
+        </div>
+        <Badge tone={state === "off" ? "neutral" : state === "ok" ? "health" : "loss"}>
+          {state === "off" ? t("panel_off") : state === "ok" ? t("panel_ok") : t("panel_down")}
+        </Badge>
+      </header>
+
+      <dl className="grid grid-cols-3 border-t border-[var(--line)] [&>div+div]:border-s [&>div+div]:border-[var(--line)]">
+        <div className="flex flex-col items-center gap-0.5 px-2 py-3">
+          <dd className="num text-[1.05rem] font-extrabold">
+            {money(load, locale)}
+            {panel.capacity ? <span className="text-[0.75rem] font-semibold text-[var(--hint)]"> / {money(panel.capacity, locale)}</span> : null}
+          </dd>
+          <dt className="text-[0.72rem] text-[var(--hint)]">{t("panel_load")}</dt>
+        </div>
+        <div className="flex flex-col items-center gap-0.5 px-2 py-3">
+          <dd className="num text-[1.05rem] font-extrabold">{panel.uptime?.day == null ? "—" : `${money(panel.uptime.day, locale)}٪`}</dd>
+          <dt className="text-[0.72rem] text-[var(--hint)]">{t("uptime")}</dt>
+        </div>
+        <div className="flex flex-col items-center gap-0.5 px-2 py-3">
+          <dd className="text-[0.86rem] font-bold">
+            <When iso={panel.health_checked_at} time />
+          </dd>
+          <dt className="text-[0.72rem] text-[var(--hint)]">{t("health_checked")}</dt>
+        </div>
+      </dl>
+
+      {(panel.capacity || panel.stats_at || panel.tls_pinned || panel.webhook_enabled || panel.health_error) && (
+      <div className="flex flex-col gap-3 border-t border-[var(--line)] p-4">
+        {panel.capacity ? (
+          <div className="h-1.5 overflow-hidden rounded-full bg-[var(--surface-2)]" role="meter" aria-label={t("panel_load")} aria-valuenow={Math.round(ratio * 100)} aria-valuemin={0} aria-valuemax={100}>
+            <div className={`h-full rounded-full ${ratio >= 0.9 ? "bg-anar-500" : ratio >= 0.75 ? "bg-saffron-500" : "bg-pista-500"}`} style={{ width: `${Math.round(ratio * 100)}%` }} />
+          </div>
+        ) : null}
+        <PanelGauges panel={panel} />
+        {(panel.tls_pinned || panel.webhook_enabled) && (
+          <div className="flex flex-wrap gap-1.5">
+            {panel.tls_pinned && <Badge tone="brand">{t("cert_pinned")}</Badge>}
+            {panel.webhook_enabled && <Badge tone="brand">{t("webhook_on")}</Badge>}
+          </div>
+        )}
+        {panel.health_error && (
+          <p className="rounded-xl bg-anar-100 px-3 py-2 text-[0.8rem] text-anar-700" dir="auto">
+            {panel.health_error}
+          </p>
+        )}
+      </div>
+      )}
+
+      <footer className="mt-auto flex gap-2 border-t border-[var(--line)] p-3">
+        {writable && (
+          <Button small tone="primary" icon="settings" onClick={onEdit}>
+            {t("edit")}
+          </Button>
+        )}
+        <Button small icon="refresh" busy={checking === panel.id} onClick={onCheck}>
+          {t("check_now")}
+        </Button>
+        <span className="flex-1" />
+        <Button small tone="ghost" icon="more" aria-label={t("cust_more_actions")} onClick={onMore}>
+          {t("cust_more_actions")}
+        </Button>
+      </footer>
+    </article>
+  );
+}
+
 export function Panels() {
-  const { t, can, locale, toast, errorText } = useSession();
+  const { t, can, toast, errorText } = useSession();
   const panels = useLoad<{ items: PanelRow[] }>("/api/admin/panels");
   const catalog = useLoad<CatalogData>(can("catalog.read") ? "/api/admin/catalog" : null);
   const [capabilities, setCapabilities] = useState<PanelRow | null>(null);
@@ -944,6 +1055,7 @@ export function Panels() {
   const [importing, setImporting] = useState<PanelRow | null>(null);
   const [transferring, setTransferring] = useState<PanelRow | null>(null);
   const [checking, setChecking] = useState<number | null>(null);
+  const [actions, setActions] = useState<PanelRow | null>(null);
   const confirm = useConfirm();
   const checkNow = async (panel: PanelRow) => {
     setChecking(panel.id);
@@ -1004,85 +1116,53 @@ export function Panels() {
               <Empty title={t("no_panels")} hint={t("no_panels_hint")} />
             </Section>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 [&_h2]:min-w-0 [&_h2]:[overflow-wrap:anywhere]">
+            <div className="grid gap-4 lg:grid-cols-2">
               {data.items.map((panel) => (
-                <Section
+                <PanelCard
                   key={panel.id}
-                  title={panel.name}
-                  actions={
-                    <>
-                      {panel.kind === "pasarguard" && (
-                        <Button small tone="ghost" onClick={() => setNodes(panel)}>
-                          {t("nodes")}
-                        </Button>
-                      )}
-                      {writable && (
-                        <Button small tone="ghost" onClick={() => setImporting(panel)}>
-                          {t("import_users")}
-                        </Button>
-                      )}
-                      {writable && ["pasarguard", "marzban", "marzneshin"].includes(panel.kind) && (
-                        <Button small tone="ghost" onClick={() => setTransferring(panel)}>
-                          {t("transfer_users")}
-                        </Button>
-                      )}
-                      {writable && (
-                        <Button small onClick={() => setEditing(panel)}>
-                          {t("edit")}
-                        </Button>
-                      )}
-                    </>
-                  }
-                >
-                  <div className="mb-3 flex flex-wrap gap-2">
-                    <Badge tone={!panel.is_active ? "neutral" : panel.is_healthy ? "health" : "loss"}>
-                      {!panel.is_active ? t("panel_off") : panel.is_healthy ? t("panel_ok") : t("panel_down")}
-                    </Badge>
-                    <Badge>{t(`panel_kind_${panel.kind}`)}</Badge>
-                    {panel.tls_pinned && <Badge tone="brand">{t("cert_pinned")}</Badge>}
-                    {panel.webhook_enabled && <Badge tone="brand">{t("webhook_on")}</Badge>}
-                  </div>
-                  <PanelGauges panel={panel} />
-                  <Facts
-                    items={[
-                      [t("panel_url"), <span key="u" className="break-all text-[0.8rem]" dir="ltr">{panel.base_url}</span>],
-                      [
-                        t("panel_load"),
-                        panel.capacity
-                          ? `${money(panel.load ?? 0, locale)} / ${money(panel.capacity, locale)}`
-                          : money(panel.load ?? 0, locale),
-                      ],
-                      [t("health_checked"), <When key="h" iso={panel.health_checked_at} time />],
-                      [
-                        t("uptime"),
-                        panel.uptime?.day == null
-                          ? "—"
-                          : t("uptime_value", { day: money(panel.uptime.day, locale), week: money(panel.uptime.week ?? 0, locale) }),
-                      ],
-                    ]}
-                  />
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {writable && <Button small tone="ghost" onClick={() => setCapabilities(panel)}>{t("cap_open")}</Button>}
-                    <Button small tone="ghost" icon="refresh" busy={checking === panel.id} onClick={() => void checkNow(panel)}>
-                      {t("check_now")}
-                    </Button>
-                    {writable && (panel.kind === "marzban" || panel.kind === "pasarguard") && (
-                      <Button small tone="ghost" busy={checking === -panel.id} onClick={() => void restart(panel)}>
-                        {panel.kind === "pasarguard" ? t("reconnect_nodes") : t("restart_core")}
-                      </Button>
-                    )}
-                  </div>
-                  {panel.health_error && (
-                    <p className="mt-3 rounded-xl bg-anar-100 px-3 py-2 text-[0.8rem] text-anar-700" dir="auto">
-                      {panel.health_error}
-                    </p>
-                  )}
-                </Section>
+                  panel={panel}
+                  writable={writable}
+                  checking={checking}
+                  onEdit={() => setEditing(panel)}
+                  onCheck={() => void checkNow(panel)}
+                  onMore={() => setActions(panel)}
+                />
               ))}
             </div>
           )
         }
       </Async>
+      {actions && (
+        <Sheet open onClose={() => setActions(null)} title={actions.name}>
+          <div className="flex flex-col gap-2 [&>button]:w-full [&>button]:justify-start">
+            {actions.kind === "pasarguard" && (
+              <Button icon="panels" onClick={() => { setNodes(actions); setActions(null); }}>
+                {t("nodes")}
+              </Button>
+            )}
+            {writable && (
+              <Button icon="users" onClick={() => { setImporting(actions); setActions(null); }}>
+                {t("import_users")}
+              </Button>
+            )}
+            {writable && ["pasarguard", "marzban", "marzneshin"].includes(actions.kind) && (
+              <Button icon="sort" onClick={() => { setTransferring(actions); setActions(null); }}>
+                {t("transfer_users")}
+              </Button>
+            )}
+            {writable && (
+              <Button icon="reports" onClick={() => { setCapabilities(actions); setActions(null); }}>
+                {t("cap_open")}
+              </Button>
+            )}
+            {writable && (actions.kind === "marzban" || actions.kind === "pasarguard") && (
+              <Button icon="refresh" busy={checking === -actions.id} onClick={() => void restart(actions)}>
+                {actions.kind === "pasarguard" ? t("reconnect_nodes") : t("restart_core")}
+              </Button>
+            )}
+          </div>
+        </Sheet>
+      )}
       {editing && (
         <PanelSheet
           panel={editing === "new" ? undefined : editing}
