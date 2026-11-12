@@ -54,6 +54,27 @@ class ShopSetting(Base):
     value: Mapped[Any] = mapped_column(JSON)
 
 
+class ShopDomain(Base, TimestampMixin):
+    """A domain the shop's subscription links may use (ClockBot parity B4).
+
+    Caddy gets a certificate for a host only when it is registered here (on-demand TLS asks first);
+    a periodic check fills in the status. A host belongs to one shop only.
+    """
+
+    __tablename__ = "shop_domains"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"), index=True)
+    host: Mapped[str] = mapped_column(String(253), unique=True)
+    for_links: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # pending, ok, dns, tls, unreachable, not_ours
+    status: Mapped[str] = mapped_column(String(16), default="pending", server_default="pending")
+    error: Mapped[str | None] = mapped_column(String(255))
+    checked_at: Mapped[datetime | None] = mapped_column()
+    cert_expires_at: Mapped[datetime | None] = mapped_column()
+    cert_issuer: Mapped[str | None] = mapped_column(String(128))
+
+
 class Customer(Base, TimestampMixin):
     __tablename__ = "customers"
     __table_args__ = (

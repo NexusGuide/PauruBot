@@ -78,6 +78,8 @@ Status: `todo` · `wip` · `done` (done means implemented **and** covered by tes
 | PNL-12 | Panel and node uptime monitoring with alerts | v1.1 | done |
 | PNL-13 | Node traffic and host resource gauges | v1.1 | done |
 | PNL-14 | Per-panel inbound / protocol settings | v1.1 | done |
+| PNL-15 | Live connection status page: panels, nodes, response time and recent checks | v2 | done |
+| PNL-16 | Subscription-link domains with automatic SSL (on-demand certificates, health checks) | v2 | done |
 
 ## Catalog & Sales
 

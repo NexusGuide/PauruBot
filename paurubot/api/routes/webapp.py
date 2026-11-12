@@ -99,7 +99,7 @@ def service_view(service: Service, cfg: dict[str, Any] | None = None) -> dict[st
         view.update(national_mode=True, subscription_url=None, download_url=None, delivery="stock")
         return view
     view["delivery"] = delivery
-    view["sub_formats"] = _sub_formats(service, view.get("subscription_url"))
+    view["sub_formats"] = _sub_formats(service, view.get("subscription_url"), cfg)
     if delivery == "account":
         view["subscription_url"] = None
         view["account"] = {
@@ -107,13 +107,15 @@ def service_view(service: Service, cfg: dict[str, Any] | None = None) -> dict[st
             "password": (service.panel_data or {}).get("password") or None,
         }
     elif delivery == "wireguard":
-        branded = branded_url(service)
+        branded = branded_url(service, cfg)
         view["subscription_url"] = None
         view["download_url"] = f"{branded}?download=1" if branded else None
     return view
 
 
-def _sub_formats(service: Service, link: str | None) -> list[dict[str, str]]:
+def _sub_formats(
+    service: Service, link: str | None, cfg: dict[str, Any] | None = None
+) -> list[dict[str, str]]:
     """The customer's link in each client format this panel serves (F-32).
 
     Only the shop's branded link takes a format: the panel's own address is never built here.
@@ -121,7 +123,7 @@ def _sub_formats(service: Service, link: str | None) -> list[dict[str, str]]:
     from paurubot.panels.registry import formats_of
     from paurubot.provisioning.subscription import branded_url
 
-    if not link or service.panel is None or link != branded_url(service):
+    if not link or service.panel is None or link != branded_url(service, cfg):
         return []
     return [{"format": fmt, "url": f"{link}?format={fmt}"} for fmt in formats_of(service.panel.kind)]
 

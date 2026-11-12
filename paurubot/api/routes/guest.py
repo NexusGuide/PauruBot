@@ -343,7 +343,7 @@ async def purchase(token: str, request: Request, db: DB) -> Response:
     if service is not None and order is not None and order.status == OrderStatus.COMPLETED:
         cfg = await shop_settings.load(db, shop.id)
         link = subscription.customer_link(service, cfg) or ""
-        page = subscription.branded_url(service)
+        page = subscription.branded_url(service, cfg)
         volume = size(service.data_limit) if service.data_limit else t("unlimited")
         ends = jdate(service.expire_at) if service.expire_at else t("unlimited")
         remaining = days_left(service.expire_at) if service.expire_at else None

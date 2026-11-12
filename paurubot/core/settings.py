@@ -558,6 +558,10 @@ async def load(session: AsyncSession, shop_id: int, *, fresh: bool = False) -> d
         else:
             data[key] = value
     await _inherit(session, shop_id, data, fresh)
+    from paurubot.core import domains
+
+    # Not a setting: the healthy domain the shop chose for its links (ClockBot parity B4).
+    data["link_domain"] = await domains.link_domain(session, shop_id)
     _cache[shop_id] = (time.monotonic() + _TTL, data)
     return data
 
@@ -686,6 +690,8 @@ def public_view(data: dict[str, Any]) -> dict[str, Any]:
     """Settings safe to send to a browser: secret values are replaced by a set/unset flag."""
     view: dict[str, Any] = {}
     for key, value in data.items():
-        spec = SPECS[key]
+        spec = SPECS.get(key)
+        if spec is None:
+            continue  # derived values (own_bot, link_domain) are not settings
         view[key] = {"set": bool(value)} if spec.secret else value
     return view
