@@ -1631,10 +1631,14 @@ async def broadcast_options(
             await call.message.answer(t("adm_bc_idle_ask"), reply_markup=keyboards.cancel(t))
         return
     elif action == "act_menu":
+        from paurubot.bot.routers.start import item_shown
         from paurubot.core.broadcasts import ACTIONS
 
+        cfg = await shop_settings.load(session, shop.id)
         kb = InlineKeyboardBuilder()
         for index, item in enumerate(ACTIONS):
+            if item != "home" and not item_shown(item, cfg):
+                continue  # switched off or not in the menu: its button would open nothing
             kb.button(
                 text=action_label(t, item),
                 callback_data=Admin(section="bc", action="act", id=row.id, page=index),

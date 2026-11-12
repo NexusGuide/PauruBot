@@ -24,7 +24,7 @@ export function AlertMatrix({ value, onChange }: { value: string[]; onChange: (v
     </div>
   );
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <div className="rounded-xl bg-[var(--bg)] p-3">
         <p className="mb-1 text-[0.82rem] font-bold">{t("alerts_dm_title")}</p>
         <p className="mb-2 text-[0.78rem] text-[var(--hint)]">{t("alerts_dm_hint")}</p>

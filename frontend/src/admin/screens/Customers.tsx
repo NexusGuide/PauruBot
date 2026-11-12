@@ -698,7 +698,7 @@ export function CustomerPage() {
             </Section>
               {can("customers.write") && (
               <Section title={t("cust_markers")}>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label={t("customer_color")} hint={t("customer_color_hint")}>
                     {(fid) => (
                       <Select id={fid} value={c.color ?? ""} onChange={(e) => void saveMarkers({ color: e.target.value || null })}>

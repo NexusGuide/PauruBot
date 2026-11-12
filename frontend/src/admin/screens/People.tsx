@@ -289,7 +289,7 @@ function ProfileSheet({
             [t("col_status"), profile.suspended_at ? t(`suspend_reason_${profile.suspend_reason ?? "staff"}`) : profile.is_current ? t("active") : t("inactive")],
           ]}
         />
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label={t("reseller_group")}>
             {(id) => (
               <Select id={id} value={form.group_id ?? ""} onChange={(e) => set("group_id", e.target.value ? Number(e.target.value) : null)}>
@@ -331,7 +331,7 @@ function ProfileSheet({
 
         <fieldset className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
           <legend className="text-[0.88rem] font-bold">{t("reseller_billing")}</legend>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label={t("billing_mode")} hint={t(`billing_mode_${form.billing_mode}_hint`)}>
               {(id) => (
                 <Select id={id} value={form.billing_mode} onChange={(e) => set("billing_mode", e.target.value as ResellerProfile["billing_mode"])}>
@@ -364,7 +364,7 @@ function ProfileSheet({
 
         <fieldset className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
           <legend className="text-[0.88rem] font-bold">{t("reseller_limits")}</legend>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             {optional("max_purchases_per_day", t("max_purchases_per_day"))}
             {optional("max_active_services", t("max_active_services"))}
             {optional("max_total_gb", t("max_total_gb"))}

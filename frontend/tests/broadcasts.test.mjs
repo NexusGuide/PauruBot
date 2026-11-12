@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from "node:fs";
 import test from 'node:test';
 process.env.TZ='UTC';
 const load=async name=>import(new URL(`../src/admin/broadcasts/${name}.ts`,import.meta.url));
@@ -67,4 +68,13 @@ test('foxima parity: panel and idle audiences, pin and section buttons only when
   const u=new URL(audiencePreviewPath({audience:'panel',locale:'',panelId:3}),'https://t');assert.equal(u.searchParams.get('panel_id'),'3');
   assert.equal(new URL(audiencePreviewPath({audience:'idle',locale:'',idleDays:30}),'https://t').searchParams.get('idle_days'),'30');
   for(const k of ['panel','idle'])assert.equal(audienceKey({kind:k}),k);
+});
+
+test('section buttons: the panel offers every section the server accepts, each with a label',()=>{
+  const {BUTTON_ACTIONS}=model;
+  const py=readFileSync(new URL('../../paurubot/core/broadcasts.py',import.meta.url),'utf8');
+  const server=[...py.match(/ACTIONS = \(([\s\S]*?)\)/)[1].matchAll(/"([a-z_]+)"/g)].map(m=>m[1]);
+  assert.deepEqual([...BUTTON_ACTIONS],server,'same sections, same order as the server');
+  for(const a of ['accounts','reseller','miniapp','wheel','lottery'])assert(BUTTON_ACTIONS.includes(a));
+  assert(BUTTON_ACTIONS.every(a=>translator('fa')(`act_${a}`).length>2&&translator('en')(`act_${a}`).length>2));
 });

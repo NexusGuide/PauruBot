@@ -103,7 +103,7 @@ export function MyBot() {
               </Section>
             )}
             <Section title={data.connected ? t("my_bot_change_token") : t("my_bot_connect")}>
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <Field label={t("my_bot_token")} hint={t("my_bot_token_hint")}>
                   {(id) => <Input id={id} type="password" dir="ltr" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} />}
                 </Field>

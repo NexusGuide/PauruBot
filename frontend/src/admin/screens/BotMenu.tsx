@@ -163,7 +163,7 @@ function LayoutEditor({
               <Button small tone="danger" onClick={hide}>{t("hide_button")}</Button>
             )}
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={t("button_colour")} hint={t("button_colour_hint")}>
               {(id) => (
                 <Select id={id} value={style.style ?? ""} onChange={(e) => setStyle({ style: e.target.value })}>
@@ -237,7 +237,7 @@ function AppsEditor({ items, onChange }: { items: AppItem[]; onChange: (items: A
   return (
     <div className="flex flex-col gap-3">
       {items.map((app, i) => (
-        <div key={i} className="grid gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-2">
+        <div key={i} className="grid grid-cols-1 gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-2">
           <Input aria-label={t("app_name")} placeholder={t("app_name")} maxLength={32} value={app.name} onChange={(e) => update(i, { name: e.target.value })} />
           <Select aria-label={t("app_platform")} value={app.platform} onChange={(e) => update(i, { platform: e.target.value })}>
             {PLATFORMS.map((p) => (

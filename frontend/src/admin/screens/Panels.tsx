@@ -332,7 +332,7 @@ function PanelSheet({
       }
     >
       <div className="flex flex-col gap-4">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label={t("panel_name")}>
             {(id) => <Input id={id} value={form.name} maxLength={64} onChange={(e) => set("name", e.target.value)} />}
           </Field>
@@ -360,7 +360,7 @@ function PanelSheet({
             />
           )}
         </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label={t("panel_username")}>
             {(id) => <Input id={id} dir="ltr" autoComplete="off" value={form.username} onChange={(e) => set("username", e.target.value)} />}
           </Field>
@@ -489,7 +489,7 @@ function PanelSheet({
             </Field>
           </>
         )}
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label={t("location")}>
             {(id) => (
               <Select
@@ -557,7 +557,7 @@ function PanelSheet({
               )}
             </Field>
           )}
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label={t("panel_trial_quota")}>
               {(id) => (
                 <NumberInput
@@ -1176,7 +1176,7 @@ export function Panels() {
               <Empty title={t("no_panels")} hint={t("no_panels_hint")} />
             </Section>
           ) : (
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               {data.items.map((panel) => (
                 <PanelCard
                   key={panel.id}

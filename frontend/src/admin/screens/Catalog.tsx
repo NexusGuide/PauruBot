@@ -673,7 +673,7 @@ export function Catalog() {
               </Section>
             ))}
 
-            <div className="grid gap-6 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
               {(["locations", "categories"] as const).map((kind) => (
                 <Section
                   key={kind}

@@ -111,3 +111,43 @@ async def test_a_direct_message_with_a_photo_and_a_reply_button(session, env) ->
     await send(callback_update(OWNER, Admin(section="umsgs", action="plain", id=buyer.id).pack()))
     sent = [c for c in fake.calls if isinstance(c, SendMessage) and c.chat_id == BUYER]
     assert len(sent) == 1 and "Hello" in sent[0].text and sent[0].reply_markup is None
+
+
+def test_every_main_menu_section_can_be_a_broadcast_button() -> None:
+    """Panel sale, reseller, Mini App, games and the rest: whatever the main menu holds."""
+    from paurubot.bot.menu import BUTTONS
+    from paurubot.core.broadcasts import ACTIONS
+
+    assert set(ACTIONS) == {"home", *BUTTONS}
+    assert ACTIONS[:8] == ("home", "buy", "services", "wallet", "trial", "referral", "tickets", "guide"), (
+        "drafts and buttons made before keep their index"
+    )
+
+
+async def test_the_bot_offers_the_sections_this_shop_has_on(session, env) -> None:  # type: ignore[no-untyped-def]  # noqa: F811
+    from paurubot.core import settings as shop_settings
+    from paurubot.core.broadcasts import ACTIONS
+
+    send, fake = env["send"], env["fake"]
+    await shop_settings.set_many(
+        session,
+        env["shop"].id,
+        {"panel_accounts_enabled": True, "lottery_enabled": False, "wheel_enabled": False},
+    )
+    await session.commit()
+    shop_settings.invalidate()
+    await send(message_update(OWNER, "/start"))
+    row = await _draft(send, session)
+    await send(callback_update(OWNER, Admin(section="bc", action="act_menu", id=row.id).pack()))
+    labels = [text for text, _ in fake.buttons(fake.last(EditMessageText))]
+    assert FA("btn_accounts") in labels and FA("btn_reseller") in labels, (
+        "panel sale and reseller are offered"
+    )
+    assert FA("btn_lottery") not in labels and FA("btn_wheel") not in labels, "sections switched off are not"
+    await send(
+        callback_update(
+            OWNER, Admin(section="bc", action="act", id=row.id, page=ACTIONS.index("accounts")).pack()
+        )
+    )
+    await session.refresh(row)
+    assert row.buttons == [{"text": FA("btn_accounts"), "action": "accounts"}]

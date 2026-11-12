@@ -63,7 +63,7 @@ export function CardAccounts({ value, onChange }: { value: CardAccount[]; onChan
   return (
     <div className="flex flex-col gap-3">
       {value.map((row, index) => (
-        <div key={index} className="grid gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-[1.4fr_1fr_1fr_auto]">
+        <div key={index} className="grid grid-cols-1 gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-[1.4fr_1fr_1fr_auto]">
           <Input aria-label={t("card_number")} placeholder={t("card_number")} dir="ltr" value={row.number} onChange={(e) => update(index, "number", e.target.value)} />
           <Input aria-label={t("card_holder")} placeholder={t("card_holder")} value={row.holder} onChange={(e) => update(index, "holder", e.target.value)} />
           <Input aria-label={t("card_bank")} placeholder={t("card_bank")} value={row.bank} onChange={(e) => update(index, "bank", e.target.value)} />
@@ -92,7 +92,7 @@ function BonusRules({ value, onChange }: { value: BonusRule[]; onChange: (value:
   return (
     <div className="flex flex-col gap-3">
       {value.map((rule, index) => (
-        <div key={index} className="grid gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-[1.2fr_1fr_0.7fr_1fr_auto]">
+        <div key={index} className="grid grid-cols-1 gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-[1.2fr_1fr_0.7fr_1fr_auto]">
           <Select aria-label={t("col_method")} value={rule.provider} onChange={(e) => update(index, { provider: e.target.value })}>
             {BONUS_PROVIDERS.map((p) => (
               <option key={p} value={p}>
@@ -125,7 +125,7 @@ function LoyaltyTiers({ value, onChange }: { value: Tier[]; onChange: (value: Ti
   return (
     <div className="flex flex-col gap-3">
       {value.map((tier, index) => (
-        <div key={index} className="grid gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-[1.2fr_1.2fr_0.6fr_auto]">
+        <div key={index} className="grid grid-cols-1 gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-[1.2fr_1.2fr_0.6fr_auto]">
           <Input aria-label={t("tier_title")} placeholder={t("tier_title")} maxLength={32} value={tier.title}
             onChange={(e) => update(index, { title: e.target.value })} />
           <NumberInput aria-label={t("tier_min_spent")} placeholder={t("tier_min_spent")} value={tier.min_spent}
@@ -157,7 +157,7 @@ function WheelPrizes({ value, onChange }: { value: Prize[]; onChange: (value: Pr
   return (
     <div className="flex flex-col gap-3">
       {value.map((prize, index) => (
-        <div key={index} className="grid gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-[1.2fr_1fr_1fr_0.7fr_auto]">
+        <div key={index} className="grid grid-cols-1 gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-[1.2fr_1fr_1fr_0.7fr_auto]">
           <Input aria-label={t("prize_label")} placeholder={t("prize_label")} maxLength={64} value={prize.label}
             onChange={(e) => update(index, { label: e.target.value })} />
           <Select aria-label={t("prize_kind")} value={prize.kind} onChange={(e) => update(index, { kind: e.target.value as Prize["kind"] })}>
@@ -196,7 +196,7 @@ function BusinessRules({ value, onChange }: { value: BusinessRule[]; onChange: (
   return (
     <div className="flex flex-col gap-3">
       {value.map((rule, index) => (
-        <div key={index} className="grid gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-[1fr_2fr_auto]">
+        <div key={index} className="grid grid-cols-1 gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-[1fr_2fr_auto]">
           <Input aria-label={t("business_keywords")} placeholder={t("business_keywords")} maxLength={300}
             value={Array.isArray(rule.keywords) ? rule.keywords.join(", ") : rule.keywords}
             onChange={(e) => update(index, { keywords: e.target.value })} />
@@ -225,7 +225,7 @@ function AppLinks({ value, onChange }: { value: AppLink[]; onChange: (value: App
     <div className="flex flex-col gap-3">
       {value.length === 0 && <p className="text-[0.82rem] text-[var(--hint)]">{t("app_links_default")}</p>}
       {value.map((app, index) => (
-        <div key={index} className="grid gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-[0.8fr_2fr_auto]">
+        <div key={index} className="grid grid-cols-1 gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-[0.8fr_2fr_auto]">
           <Input aria-label={t("app_name")} placeholder={t("app_name")} maxLength={32} value={app.name}
             onChange={(e) => update(index, { name: e.target.value })} />
           <Input aria-label={t("app_url")} placeholder="hiddify://import/{url}" dir="ltr" maxLength={300} value={app.url}
@@ -676,7 +676,7 @@ export function Settings() {
                     if (query.trim() && visible.length === 0) return null;
                     return (
                       <Section key={group} title={t(`settings_tab_${group}`)}>
-                        <div className="grid gap-5 md:grid-cols-2">
+                        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
                           {visible.map((item) => {
                             const nested = !query.trim() && (deps[item.key]?.length ?? 0) > 0;
                             const wide = WIDE_SETTINGS.includes(item.key) || item.type === "bool";
@@ -1247,7 +1247,7 @@ export function Channels() {
               </ul>
               {writable && (
                 <div className="flex flex-col gap-2">
-                  <div className="grid gap-2 sm:grid-cols-[1.1fr_auto_1fr_1.3fr_auto]">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1.1fr_auto_1fr_1.3fr_auto]">
                     <Input aria-label={t("channel_id")} placeholder="@channel / -100…" dir="ltr" value={forced.chat_id} onChange={(e) => setForced({ ...forced, chat_id: e.target.value })} />
                     <Button
                       busy={busy}
@@ -1314,7 +1314,7 @@ export function Channels() {
               </ul>
               {writable && (
                 <div className="flex flex-col gap-3">
-                  <div className="grid gap-2 sm:grid-cols-[1.5fr_auto_auto]">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1.5fr_auto_auto]">
                     <Input aria-label={t("channel_id")} placeholder="@channel / -100…" dir="ltr" value={trust.chat_id} onChange={(e) => setTrust({ ...trust, chat_id: e.target.value })} />
                     <Button busy={busy} disabled={!trust.chat_id.trim()} onClick={() => void check(trust.chat_id, setTrustChecked)}>
                       {t("check_channel")}
@@ -1397,7 +1397,7 @@ export function Channels() {
                 ))}
               </ul>
               {writable && (
-                <div className="grid gap-2 sm:grid-cols-[1fr_1.5fr_auto]">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1.5fr_auto]">
                   <Input aria-label={t("title")} placeholder={t("title")} value={contact.title} onChange={(e) => setContact({ ...contact, title: e.target.value })} />
                   <Input aria-label={t("link")} dir="ltr" value={contact.url} onChange={(e) => setContact({ ...contact, url: e.target.value })} />
                   <Button
@@ -1769,7 +1769,7 @@ export function Reports() {
                 axisFormat={(v) => compact(v, locale)}
               />
             </Section>
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <Section title={t("report_by_plan")} flush>
                 <ReportRows rows={report.plans.map((p, i) => ({ id: i, label: `${p.plan ?? "—"} (${t(`order_kind_${p.kind}`)})`, count: p.orders, amount: p.amount }))} />
               </Section>
@@ -2235,7 +2235,7 @@ function BackupScheduleSection({ saved, timezone, onSaved }: { saved: BackupSche
       <div className="flex flex-col gap-5">
         <Toggle checked={draft.enabled} onChange={(enabled) => set({ enabled })} label={t("setting_backup_auto_enabled")} />
         {draft.enabled && (
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Field label={t("setting_backup_every_hours")}>
               {(id) => (
                 <Select id={id} value={String(draft.every_hours)} onChange={(e) => set({ every_hours: Number(e.target.value) })}>

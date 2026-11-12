@@ -359,7 +359,7 @@ export function ServiceCards({ rows }: { rows: Service[] }) {
   if (rows.length === 0) return <Empty title={t("cust_no_service")} />;
   return (
     <>
-      <ul className="grid gap-3 md:grid-cols-2">
+      <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {rows.map((s) => {
           const left = s.expire_at ? Math.max(0, Math.ceil((new Date(s.expire_at).getTime() - Date.now()) / 86_400_000)) : null;
           const ratio = s.data_limit > 0 ? Math.min(1, s.used_bytes / s.data_limit) : 0;

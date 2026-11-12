@@ -95,7 +95,7 @@ export function CustomerBots() {
               {shown.length === 0 ? (
                 <Empty title={items.length === 0 ? t("cbots_none") : t("empty_list")} hint={items.length === 0 ? t("cbots_none_hint") : undefined} />
               ) : (
-                <div className="grid gap-4 lg:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   {shown.map((bot) => (
                     <BotCard key={bot.shop_id} bot={bot} onChanged={() => void reload()} />
                   ))}

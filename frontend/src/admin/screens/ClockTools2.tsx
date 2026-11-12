@@ -119,7 +119,7 @@ export function GuidesEditor({ items, onChange }: { items: Guide[]; onChange: (i
   return (
     <div className="flex flex-col gap-3">
       {items.map((guide, i) => (
-        <div key={i} className="grid gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-2">
+        <div key={i} className="grid grid-cols-1 gap-2 rounded-xl bg-[var(--bg)] p-3 sm:grid-cols-2">
           <Input aria-label={t("guide_title")} placeholder={t("guide_title")} maxLength={40} value={guide.title} onChange={(e) => update(i, { title: e.target.value })} />
           <div className="flex gap-2">
             <Select aria-label={t("guide_media_type")} value={guide.media_type ?? "photo"} onChange={(e) => update(i, { media_type: e.target.value as Guide["media_type"] })}>
@@ -259,7 +259,7 @@ export function BackupBotForm() {
   return (
     <Section title={t("backup_bot_title")}>
       <p className="mb-3 text-[0.82rem] text-[var(--hint)]">{t("backup_bot_hint")}</p>
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <Field label={t("backup_bot_token")}>{(id) => <Input id={id} type="password" dir="ltr" autoComplete="off" placeholder={current.data?.bot ? "••••••••" : "123456:ABC…"} value={token} onChange={(e) => setToken(e.target.value)} />}</Field>
         <Field label={t("backup_bot_chats")}>{(id) => <Input id={id} dir="ltr" placeholder="-1001234567890" value={shownChats} onChange={(e) => setChats(e.target.value)} />}</Field>
       </div>

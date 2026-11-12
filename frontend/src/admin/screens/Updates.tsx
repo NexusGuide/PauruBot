@@ -153,7 +153,7 @@ export function Updates() {
 
             <Section title={t("updates_update")}>
               <p className="mb-4 text-[0.85rem] leading-relaxed text-[var(--hint)]">{t("updates_update_hint")}</p>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label={t("updates_channel")}>
                   {(id) => (
                     <Select id={id} value={channel} onChange={(e) => setChannel(e.target.value)}>
