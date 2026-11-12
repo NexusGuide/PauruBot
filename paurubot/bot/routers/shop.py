@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,6 +62,10 @@ async def show_categories(
     loc: int,
 ) -> None:
     custom = await custom_available(session, shop.id)
+    # One step up is the locations when there is a choice of them; otherwise this is the first
+    # screen and back leaves the shop (pointing it at itself made the button do nothing).
+    several = len(await catalog.locations(session, shop.id, customer)) > 1
+    up = Shop(step="start").pack() if several else Shop(step="exit").pack()
     cats = await catalog.categories(session, shop.id, customer, loc or None)
     loose = await catalog.plans(session, shop.id, customer, location_id=loc or None, uncategorised=True)
     if not cats:
@@ -75,14 +80,18 @@ async def show_categories(
             customer,
             t,
             plans,
-            back_cb=Shop(step="start").pack(),
+            back_cb=up,
             loc=loc,
             cat=0,
             every=True,
             custom=custom,
         )
         return
-    await show(event, t("choose_category"), keyboards.categories_kb(t, cats, loc, bool(loose), custom=custom))
+    await show(
+        event,
+        t("choose_category"),
+        keyboards.categories_kb(t, cats, loc, bool(loose), custom=custom, back_cb=up),
+    )
 
 
 async def plans_or_durations(
@@ -179,6 +188,29 @@ async def back_start(
 ) -> None:
     await call.answer()
     await show_start(call, session, shop, customer, t)
+
+
+@router.callback_query(Shop.filter(F.step == "exit"))
+async def leave_shop(
+    call: CallbackQuery,
+    t: Texts,
+    cfg: dict[str, Any],
+    staff: Any,
+    state: FSMContext,
+) -> None:
+    """Back from the shop's first screen: the browsing message goes away and the main menu returns."""
+    from paurubot.bot.routers.start import home
+
+    await call.answer()
+    await state.clear()
+    message = call.message
+    if not isinstance(message, Message):
+        return
+    try:
+        await message.delete()
+    except TelegramBadRequest:
+        pass  # too old to delete: the menu still comes back below
+    await home(message, t, cfg, staff)
 
 
 @router.callback_query(Shop.filter(F.step == "loc"))
@@ -530,7 +562,9 @@ async def cancel_checkout(
     await _cancel_previous(session, state, customer)
     await state.clear()
     await call.answer(t("canceled_short"))
-    await show(call, t("checkout_canceled"))
+    await show(
+        call, t("checkout_canceled"), keyboards.back(t, Shop(step="start").pack(), label="btn_see_plans")
+    )
 
 
 @router.callback_query(Pay.filter(F.method == "wallet"))
