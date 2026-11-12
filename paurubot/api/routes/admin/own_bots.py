@@ -64,6 +64,8 @@ async def _bot(db: DB, shop: Shop | None) -> dict[str, Any] | None:
         "expires_at": cfg.get(own_panel.EXPIRES) or None,
         "customers": int(customers or 0),
         "active_services": int(active or 0),
+        "admins": await own_panel.admins(db, shop),
+        "max_admins": own_panel.MAX_ADMINS,
     }
 
 
@@ -265,6 +267,64 @@ async def disconnect_own_bot(customer_id: int, ctx: Manager, db: DB) -> dict[str
         entity="customer",
         entity_id=customer.id,
         after={"shop_id": shop.id},
+    )
+    await db.commit()
+    return {"bot": await _bot(db, shop)}
+
+
+class AdminBody(BaseModel):
+    telegram_id: int = Field(gt=0, le=10**13)
+
+
+_ADMIN_STATUS = {"own_admin_exists": 409, "own_admin_not_found": 404}
+
+
+async def _bot_shop(db: DB, ctx: StaffContext, customer_id: int) -> tuple[Customer, Shop]:
+    customer = await _customer(db, ctx, customer_id)
+    shop = await own_panel.shop_for_customer(db, customer)
+    if shop is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    return customer, shop
+
+
+@router.post("/customers/{customer_id}/own-bot/admins")
+async def add_own_bot_admin(customer_id: int, body: AdminBody, ctx: Manager, db: DB) -> dict[str, Any]:
+    """Let one more Telegram account run the customer's bot, besides its owner."""
+    customer, shop = await _bot_shop(db, ctx, customer_id)
+    try:
+        await own_panel.add_admin(db, shop, body.telegram_id)
+    except own_panel.OwnPanelError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=_ADMIN_STATUS.get(exc.key, 422), detail=exc.key) from None
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="own_bot.admin_add",
+        entity="customer",
+        entity_id=customer.id,
+        after={"shop_id": shop.id, "telegram_id": body.telegram_id},
+    )
+    await db.commit()
+    return {"bot": await _bot(db, shop)}
+
+
+@router.delete("/customers/{customer_id}/own-bot/admins/{telegram_id}")
+async def remove_own_bot_admin(customer_id: int, telegram_id: int, ctx: Manager, db: DB) -> dict[str, Any]:
+    customer, shop = await _bot_shop(db, ctx, customer_id)
+    try:
+        await own_panel.remove_admin(db, shop, telegram_id)
+    except own_panel.OwnPanelError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=_ADMIN_STATUS.get(exc.key, 422), detail=exc.key) from None
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="own_bot.admin_remove",
+        entity="customer",
+        entity_id=customer.id,
+        after={"shop_id": shop.id, "telegram_id": telegram_id},
     )
     await db.commit()
     return {"bot": await _bot(db, shop)}

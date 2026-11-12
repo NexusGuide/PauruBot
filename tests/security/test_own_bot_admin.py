@@ -160,3 +160,53 @@ async def test_all_customer_bots_in_one_list(session, http, env, sold) -> None: 
         assert (await staff.call("GET", "/api/admin/customer-bots")).status_code == 403, username
     other = await login(http, "other_owner")  # another shop sees none of them
     assert (await other.call("GET", "/api/admin/customer-bots")).json()["items"] == []
+
+
+async def test_staff_give_a_customers_bot_extra_admins(session, http, env, sold) -> None:  # type: ignore[no-untyped-def]  # noqa: F811
+    """The buyer may want someone else to run their bot (another account of theirs, a partner).
+    Staff add up to MAX_ADMINS Telegram ids as its admins and remove them; the buyer, its owner,
+    always stays."""
+    from paurubot.db.models import Staff, StaffRole
+
+    owner = await login(http, "u_owner")
+    base = f"/api/admin/customers/{env.customer_id}/own-bot"
+    assert (await owner.call("POST", f"{base}/admins", {"telegram_id": 8697735343})).status_code == 404
+    await owner.call("POST", base, {"account_id": sold["account"].id, "token": TOKEN})
+    buyer = await session.get(Customer, env.customer_id)
+    assert buyer is not None
+
+    added = await owner.call("POST", f"{base}/admins", {"telegram_id": 8697735343})
+    assert added.status_code == 200, added.text
+    admins = added.json()["bot"]["admins"]
+    assert [(a["telegram_id"], a["owner"]) for a in admins] == [
+        (buyer.telegram_id, True),
+        (8697735343, False),
+    ]
+    child = added.json()["bot"]["shop_id"]
+    row = await session.scalar(select(Staff).where(Staff.shop_id == child, Staff.telegram_id == 8697735343))
+    assert row is not None and row.role == StaffRole.MERCHANT and row.is_active
+
+    again = await owner.call("POST", f"{base}/admins", {"telegram_id": 8697735343})
+    assert again.status_code == 409 and again.json()["error"] == "own_admin_exists"
+    for bad in (0, -5):
+        assert (await owner.call("POST", f"{base}/admins", {"telegram_id": bad})).status_code == 422
+    for n in range(own_panel.MAX_ADMINS - 1):
+        await owner.call("POST", f"{base}/admins", {"telegram_id": 9100000 + n})
+    full = await owner.call("POST", f"{base}/admins", {"telegram_id": 9200000})
+    assert full.status_code == 422 and full.json()["error"] == "own_admin_limit"
+
+    kept = await owner.call("DELETE", f"{base}/admins/{buyer.telegram_id}")
+    assert kept.status_code == 422 and kept.json()["error"] == "own_admin_is_owner"
+    gone = await owner.call("DELETE", f"{base}/admins/8697735343")
+    assert 8697735343 not in [a["telegram_id"] for a in gone.json()["bot"]["admins"]]
+    await session.refresh(row)
+    assert row.is_active is False
+    back = await owner.call("POST", f"{base}/admins", {"telegram_id": 8697735343})
+    assert back.status_code == 200, "a removed admin can be added again"
+
+    support = await login(http, "u_support")
+    assert (await support.call("POST", f"{base}/admins", {"telegram_id": 9300000})).status_code in (403, 404)
+    actions = set(
+        await session.scalars(select(AuditLog.action).where(AuditLog.action.like("own_bot.admin%")))
+    )
+    assert actions == {"own_bot.admin_add", "own_bot.admin_remove"}

@@ -2495,5 +2495,18 @@
   "err_domain_not_found": "این دامنه پیدا نشد.",
   "err_domain_check_too_soon": "همین الان بررسی شد؛ چند ثانیه دیگر دوباره امتحان کن.",
   "domain_main_missing": "تنظیم نشده",
-  "domain_main_missing_hint": "PUBLIC_URL سرور خالی است؛ در نصب، دامنه اصلی را بده تا پنل و لینک‌ها HTTPS داشته باشند."
+  "domain_main_missing_hint": "PUBLIC_URL سرور خالی است؛ در نصب، دامنه اصلی را بده تا پنل و لینک‌ها HTTPS داشته باشند.",
+  "own_bot_admins": "ادمین‌های ربات",
+  "own_bot_admin_owner": "مالک",
+  "own_bot_admin_remove": "حذف",
+  "own_bot_admin_id": "آیدی عددی تلگرام",
+  "own_bot_admin_add": "افزودن ادمین",
+  "own_bot_admin_added": "ادمین اضافه شد.",
+  "own_bot_admin_removed": "ادمین حذف شد.",
+  "own_bot_admins_hint": "تا {max} نفر دیگر جز مالک می‌توانند این ربات را مدیریت کنند؛ در خود ربات و مینی‌اپ آن، درست مثل مالک. فقط آیدی‌ای را اضافه کنید که خود مشتری داده است.",
+  "err_own_admin_exists": "این آیدی از قبل ادمین ربات است.",
+  "err_own_admin_limit": "تعداد ادمین‌های این ربات به حداکثر رسیده است.",
+  "err_own_admin_is_owner": "مالک ربات را نمی‌شود حذف کرد.",
+  "err_own_admin_not_found": "این آیدی ادمین ربات نیست.",
+  "err_own_admin_invalid": "یک آیدی عددی تلگرام درست وارد کنید."
 }

@@ -65,6 +65,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/customers/{customer_id}/adjust` | `wallet.adjust` | Adjust |
 | POST | `/api/admin/customers/{customer_id}/ban` | `customers.ban` | Ban |
 | POST | `/api/admin/customers/{customer_id}/message` | `customers.write` | Message |
+| DELETE | `/api/admin/customers/{customer_id}/own-bot/admins/{telegram_id}` | `resellers.manage` | Remove own bot admin |
+| POST | `/api/admin/customers/{customer_id}/own-bot/admins` | `resellers.manage` | Let one more Telegram account run the customer's bot, besides its owner. |
 | POST | `/api/admin/customers/{customer_id}/own-bot/expiry` | `resellers.manage` | How long the main shop lets this bot sell; at the end it stops selling, as on a pause. |
 | POST | `/api/admin/customers/{customer_id}/own-bot/hold` | `resellers.manage` | Hold own bot |
 | DELETE | `/api/admin/customers/{customer_id}/own-bot` | `resellers.manage` | Disconnect own bot |

@@ -226,6 +226,89 @@ PAUSED = "own_sales_paused"
 HOLD = "own_sales_hold"  # a manual pause by the main shop's staff
 
 
+# --- who runs the bot ----------------------------------------------------------------------
+# The buyer of the admin account owns the bot. Staff may add a few more Telegram ids as its
+# admins (another account of the buyer's, a partner): they manage the bot in Telegram and in its
+# Mini App exactly like the owner. The owner can't be removed from here.
+MAX_ADMINS = 3  # besides the owner
+
+
+async def owner_telegram_id(session: AsyncSession, shop: Shop) -> int | None:
+    account = await session.get(PanelAccount, shop.own_account_id) if shop.own_account_id else None
+    owner = await session.get(Customer, account.customer_id) if account else None
+    return owner.telegram_id if owner else None
+
+
+async def admins(session: AsyncSession, shop: Shop) -> list[dict[str, Any]]:
+    """The bot's active admins, the owner first."""
+    owner_tg = await owner_telegram_id(session, shop)
+    rows = list(
+        await session.scalars(
+            select(Staff)
+            .where(Staff.shop_id == shop.id, Staff.role == StaffRole.MERCHANT, Staff.is_active.is_(True))
+            .order_by(Staff.id)
+        )
+    )
+    rows.sort(key=lambda row: row.telegram_id != owner_tg)
+    return [
+        {"telegram_id": row.telegram_id, "owner": row.telegram_id == owner_tg, "name": row.display_name or ""}
+        for row in rows
+    ]
+
+
+async def add_admin(session: AsyncSession, shop: Shop, telegram_id: int) -> Staff:
+    from paurubot.auth.staff import create_staff
+    from paurubot.core.shops import lock_shop
+
+    if telegram_id <= 0:
+        raise OwnPanelError("own_admin_invalid")
+    await lock_shop(session, shop.id)  # two adds at once can't both take the last place
+    row = await session.scalar(
+        select(Staff).where(Staff.shop_id == shop.id, Staff.telegram_id == telegram_id)
+    )
+    if row is not None and row.is_active:
+        raise OwnPanelError("own_admin_exists")
+    owner_tg = await owner_telegram_id(session, shop)
+    extra = [a for a in await admins(session, shop) if a["telegram_id"] != owner_tg]
+    if len(extra) >= MAX_ADMINS:
+        raise OwnPanelError("own_admin_limit")
+    if row is not None:
+        row.role, row.is_active = StaffRole.MERCHANT, True
+        await session.flush()
+        return row
+    known = await session.scalar(
+        select(Customer).where(
+            Customer.shop_id.in_([shop.id, shop.parent_id or 0]), Customer.telegram_id == telegram_id
+        )
+    )
+    return await create_staff(
+        session,
+        shop.id,
+        role=StaffRole.MERCHANT,
+        username=None,
+        password=None,
+        telegram_id=telegram_id,
+        display_name=(known.display_name if known else "")[:96],
+    )
+
+
+async def remove_admin(session: AsyncSession, shop: Shop, telegram_id: int) -> None:
+    if telegram_id == await owner_telegram_id(session, shop):
+        raise OwnPanelError("own_admin_is_owner")
+    row = await session.scalar(
+        select(Staff).where(
+            Staff.shop_id == shop.id,
+            Staff.telegram_id == telegram_id,
+            Staff.role == StaffRole.MERCHANT,
+            Staff.is_active.is_(True),
+        )
+    )
+    if row is None:
+        raise OwnPanelError("own_admin_not_found")
+    row.is_active = False
+    await session.flush()
+
+
 def blocking_reason(account: PanelAccount | None) -> str:
     from paurubot.db.base import utcnow
 
