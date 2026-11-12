@@ -4,7 +4,10 @@ export const EXTRA_KINDS = ["panel", "idle"] as const;
 export const ALL_KINDS = [...AUDIENCE_KINDS, ...EXTRA_KINDS] as const;
 export type AudienceKind = typeof ALL_KINDS[number];
 /** Buttons that open a section of the bot instead of a link (same list as the server). */
-export const BUTTON_ACTIONS = ["home", "buy", "services", "wallet", "trial", "referral", "tickets", "guide"] as const;
+export const BUTTON_ACTIONS = [
+  "home", "buy", "services", "wallet", "trial", "referral", "tickets", "guide",
+  "accounts", "reseller", "miniapp", "wheel", "lottery", "apps", "language",
+] as const;
 export type ButtonAction = typeof BUTTON_ACTIONS[number];
 export const IDLE_DAYS_MAX = 365;
 export const PIN_HOURS = [0, 24, 48, 72, 168] as const;

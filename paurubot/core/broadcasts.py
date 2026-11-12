@@ -18,8 +18,25 @@ from paurubot.db.models import Broadcast, JobStatus
 from paurubot.worker import queue
 
 # Buttons that open a section of the bot instead of a link (Foxima parity): the main-menu item
-# each one opens. "home" brings back the main menu.
-ACTIONS = ("home", "buy", "services", "wallet", "trial", "referral", "tickets", "guide")
+# each one opens, any of them (bot.menu.BUTTONS). "home" brings back the main menu. New items go
+# at the end: the bot's picker refers to them by position.
+ACTIONS = (
+    "home",
+    "buy",
+    "services",
+    "wallet",
+    "trial",
+    "referral",
+    "tickets",
+    "guide",
+    "accounts",
+    "reseller",
+    "miniapp",
+    "wheel",
+    "lottery",
+    "apps",
+    "language",
+)
 IDLE_DAYS_MAX = 365
 
 
