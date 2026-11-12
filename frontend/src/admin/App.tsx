@@ -9,6 +9,7 @@ import { CustomerPage, Customers } from "./screens/Customers";
 import { Broadcasts, Discounts, Lotteries } from "./screens/Growth";
 import { Home } from "./screens/Home";
 import { Panels } from "./screens/Panels";
+import { Connection } from "./screens/Connection";
 import { BotMenu } from "./screens/BotMenu";
 import { Migration } from "./screens/Migration";
 import { More } from "./screens/More";
@@ -67,6 +68,7 @@ function Routed() {
         <Route path="/manual-sales" element={g("catalog.read", <Suspense fallback={<Loading />}><ManualSales /></Suspense>)} />
         <Route path="/catalog" element={g("catalog.read", <Catalog />)} />
         <Route path="/panels" element={g("panels.read", <Panels />)} />
+        <Route path="/connection" element={g("panels.read", <Connection />)} />
         <Route path="/discounts" element={g("discounts.write", <Discounts />)} />
         <Route path="/announcements" element={g("broadcast.send", <Announcements />)} />
         <Route path="/broadcasts" element={g("broadcast.send", <Broadcasts />)} />

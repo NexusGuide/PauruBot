@@ -56,6 +56,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | PUT | `/api/admin/channels/trust/{row_id}` | `settings.write` | Set trust |
 | POST | `/api/admin/channels/trust` | `settings.write` | Add trust |
 | GET | `/api/admin/channels` | `settings.read` | List channels |
+| POST | `/api/admin/connection/check` | `panels.read` | Probe every active panel of the shop now, at most once per CHECK_ALL_EVERY seconds. |
+| GET | `/api/admin/connection` | `panels.read` | Connection |
 | DELETE | `/api/admin/contacts/{row_id}` | `settings.write` | Remove contact |
 | POST | `/api/admin/contacts` | `settings.write` | Add contact |
 | GET | `/api/admin/customer-bots` | `resellers.manage` | Every bot the shop's customers run: resellers' bots selling the shop's plans (TEN-04) and |

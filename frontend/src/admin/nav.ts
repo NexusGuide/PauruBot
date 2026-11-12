@@ -74,7 +74,14 @@ export const NAV_GROUPS: NavGroup[] = [
         ],
       },
       single(page("/admin-accounts", "nav_admin_accounts", "panels", { permission: "resellers.manage", shopWide: true })),
-      single(page("/panels", "nav_panels", "panels", { permission: "panels.read" })),
+      {
+        key: "nav_hub_panels",
+        icon: "panels",
+        tabs: [
+          page("/panels", "nav_panels", "panels", { permission: "panels.read" }),
+          page("/connection", "nav_connection", "trend", { permission: "panels.read" }),
+        ],
+      },
     ],
   },
   {
