@@ -109,6 +109,7 @@
   "card_instructions": "💳 <b>Card transfer</b>\n\nTransfer <b>{amount} Toman</b> to one of these cards:\n\n{cards}\n\nPayment number: <code>{payment_id}</code>",
   "card_line": "💳 <code>{number}</code>\n👤 {holder} — {bank}",
   "checkout_balance": "💰 Wallet balance: {balance} Toman",
+  "btn_see_plans": "🛒 See the plans",
   "checkout_canceled": "Order canceled.",
   "checkout_code_discount": "🎟 Code {code}: {amount} Toman",
   "checkout_credit": "↩️ Credit from your current plan: {amount} Toman",

@@ -87,9 +87,9 @@ def url_button(text: str, url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=text, url=url)]])
 
 
-def back(t: Texts, callback: str) -> InlineKeyboardMarkup:
+def back(t: Texts, callback: str, label: str = "btn_back") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text=t("btn_back"), callback_data=callback)]]
+        inline_keyboard=[[InlineKeyboardButton(text=t(label), callback_data=callback)]]
     )
 
 
@@ -99,11 +99,17 @@ def locations_kb(t: Texts, items: Sequence[Location]) -> InlineKeyboardMarkup:
         label = f"{loc.flag} {loc.title}" if loc.flag else loc.title
         kb.button(text=label, callback_data=Shop(step="loc", loc=loc.id))
     kb.adjust(2)
+    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Shop(step="exit").pack()))
     return kb.as_markup()
 
 
 def categories_kb(
-    t: Texts, items: Sequence[Category], loc: int, other: bool, custom: bool = False
+    t: Texts,
+    items: Sequence[Category],
+    loc: int,
+    other: bool,
+    custom: bool = False,
+    back_cb: str | None = None,
 ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for cat in items:
@@ -113,7 +119,7 @@ def categories_kb(
     kb.adjust(2)
     if custom:
         kb.row(InlineKeyboardButton(text=t("btn_custom_plan"), callback_data=Shop(step="custom").pack()))
-    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Shop(step="start").pack()))
+    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=back_cb or Shop(step="exit").pack()))
     return kb.as_markup()
 
 

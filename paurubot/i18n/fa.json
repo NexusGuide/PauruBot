@@ -109,6 +109,7 @@
   "card_instructions": "💳 <b>کارت به کارت</b>\n\nمبلغ <b>{amount} تومان</b> رو به یکی از کارت‌های زیر واریز کن:\n\n{cards}\n\nشماره پرداخت: <code>{payment_id}</code>",
   "card_line": "💳 <code>{number}</code>\n👤 {holder} — {bank}",
   "checkout_balance": "💰 موجودی کیف پول: {balance} تومان",
+  "btn_see_plans": "🛒 دیدن پلن‌ها",
   "checkout_canceled": "سفارش لغو شد.",
   "checkout_code_discount": "🎟 تخفیف کد {code}: {amount} تومان",
   "checkout_credit": "↩️ اعتبار باقی‌مانده پلن فعلی: {amount} تومان",
