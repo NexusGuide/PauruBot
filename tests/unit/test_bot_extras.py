@@ -61,7 +61,8 @@ def test_menu_layout_and_styles(monkeypatch) -> None:  # type: ignore[no-untyped
     inline = menu.miniapp_button(t).inline_keyboard[0][0]
     assert inline.web_app is not None and inline.web_app.url == "https://bot.example.com/app/"
     default = menu.main_menu(t, {**cfg, "menu_layout": []}, is_staff=False)
-    assert [b.text for b in default.keyboard[1]] == [t("btn_buy"), t("btn_services")]
+    assert [b.text for b in default.keyboard[1]] == [t("btn_buy")]  # its partner, the trial, is off here
+    assert [b.text for b in default.keyboard[2]] == [t("btn_wallet"), t("btn_services")]
 
     for bad in (
         [["buy", "buy"]],
@@ -209,3 +210,38 @@ async def test_excel_export_and_top_customers(session, fakes) -> None:  # type: 
         session, shop.id, start=utcnow() - timedelta(days=1), end=utcnow() + timedelta(minutes=1)
     )
     assert top[0]["customer_id"] == cust.id and top[0]["orders"] == 2 and top[0]["spent"] == 2 * plan.price
+
+
+def test_the_default_menu_puts_the_free_trial_beside_buy_and_services_beside_the_wallet(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """The shop asked for trial next to «buy», and «my services» next to the wallet. A shop with its
+    own arrangement keeps it; a hidden trial just leaves «buy» on its own."""
+    monkeypatch.setattr(get_settings(), "public_url", "https://bot.example.com")
+    t = Texts("en")
+    cfg = {"trial_enabled": True, "referral_enabled": False, "download_apps": [], "menu_layout": []}
+    rows = [[b.text for b in row] for row in menu.main_menu(t, cfg, is_staff=False).keyboard]
+    assert [t("btn_buy"), t("btn_trial")] in rows
+    assert [t("btn_wallet"), t("btn_services")] in rows
+    assert rows.index([t("btn_buy"), t("btn_trial")]) < rows.index([t("btn_wallet"), t("btn_services")])
+
+    no_trial = [
+        [b.text for b in row]
+        for row in menu.main_menu(t, {**cfg, "trial_enabled": False}, is_staff=False).keyboard
+    ]
+    assert [t("btn_buy")] in no_trial and [t("btn_wallet"), t("btn_services")] in no_trial
+
+    own = [
+        [b.text for b in row] for row in menu.main_menu(t, {**cfg, "own_bot": True}, is_staff=False).keyboard
+    ]
+    assert own[0] == [t("btn_buy"), t("btn_trial")] and own[-1] == [t("btn_miniapp")]
+
+
+def test_the_panels_menu_editor_starts_from_the_bots_default() -> None:
+    """The admin panel's «default layout» button rebuilds the same menu the bot uses by default."""
+    import json
+    import re
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[2] / "frontend/src/admin/screens/BotMenu.tsx").read_text()
+    found = re.search(r"^const DEFAULT_LAYOUT = (\[.*\]);$", source, re.M)
+    assert found, "BotMenu.tsx keeps its DEFAULT_LAYOUT on one line"
+    assert json.loads(found.group(1)) == menu.DEFAULT_LAYOUT
