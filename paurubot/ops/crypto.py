@@ -24,6 +24,8 @@ CHUNK = 1 << 20
 HEADER = struct.Struct(">4sBBBB16s7s")
 LENGTH = struct.Struct(">I")
 MAX_CHUNK = CHUNK + 16
+SCRYPT_R = 8
+SCRYPT_P = 1
 
 
 class CryptoError(Exception):
@@ -52,8 +54,8 @@ def _chunks(stream: BinaryIO) -> Iterator[tuple[bytes, bool]]:
 
 def encrypt_stream(source: BinaryIO, target: BinaryIO, passphrase: str, *, n_log2: int = 15) -> None:
     salt, prefix = os.urandom(16), os.urandom(7)
-    header = HEADER.pack(MAGIC, VERSION, n_log2, 8, 1, salt, prefix)
-    aead = AESGCM(_key(passphrase, salt, n_log2, 8, 1))
+    header = HEADER.pack(MAGIC, VERSION, n_log2, SCRYPT_R, SCRYPT_P, salt, prefix)
+    aead = AESGCM(_key(passphrase, salt, n_log2, SCRYPT_R, SCRYPT_P))
     target.write(header)
     for index, (plain, final) in enumerate(_chunks(source)):
         sealed = aead.encrypt(_nonce(prefix, index, final), plain, header)
@@ -70,6 +72,9 @@ def decrypt_stream(source: BinaryIO, target: BinaryIO, passphrase: str) -> None:
         raise CryptoError("not a PauruBot backup")
     if version != VERSION or not 10 <= n_log2 <= 20:
         raise CryptoError(f"unsupported backup format version {version}")
+    # Only the cost encrypt_stream writes: a crafted r or p could make scrypt take gigabytes.
+    if (r, p) != (SCRYPT_R, SCRYPT_P):
+        raise CryptoError("unsupported backup key parameters")
     aead = AESGCM(_key(passphrase, salt, n_log2, r, p))
     index, finished = 0, False
     while True:

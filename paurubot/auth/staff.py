@@ -171,9 +171,7 @@ async def request_code(session: AsyncSession, username: str, ip: str) -> Staff |
 
     username = username.strip()
     await login_guard.check(username, ip)
-    allowed, _ = await kv.hit(f"otp:send:{username.lower()}", 3, 600)
-    if not allowed:
-        raise login_guard.LoginLocked(600)
+    await login_guard.allow_send("otp", username, ip, per_address=3)
     staff = await session.scalar(select(Staff).where(func.lower(Staff.username) == username.lower()))
     if staff is None or not staff.is_active or not staff.telegram_id:
         return None

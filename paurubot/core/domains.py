@@ -27,6 +27,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.config import get_settings
+from paurubot.core.shops import lock_shop
 from paurubot.db.base import utcnow
 from paurubot.db.models import ShopDomain
 from paurubot.security import ssrf
@@ -135,6 +136,7 @@ async def add(session: AsyncSession, shop_id: int, raw: str) -> ShopDomain:
     host = normalize_host(raw)
     if host == main_host():
         raise DomainError("domain_is_main")
+    await lock_shop(session, shop_id)  # two adds at once can't both take the last slot
     count = await session.scalar(select(func.count(ShopDomain.id)).where(ShopDomain.shop_id == shop_id))
     if (count or 0) >= MAX_PER_SHOP:
         raise DomainError("domain_limit")

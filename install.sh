@@ -230,22 +230,30 @@ fetch_source() {
   git -C "$DIR" remote set-url origin "https://github.com/$REPO.git"
 }
 
+# Refuse an image that this repository's release workflow did not sign.
+verify_signature() {
+  local digest=$1 identity_repo=${REPO//./\\.}
+  cosign verify "$digest" \
+    --certificate-identity-regexp "^https://github\.com/$identity_repo/\.github/workflows/release\.yml@refs/(heads/main|tags/v[^/]+)$" \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null ||
+    die "the signature of $digest does not verify; refusing to run it"
+}
+
+# The immutable name@sha256:... of an image already pulled, so .env keeps running exactly it.
+pinned_digest() {
+  docker image inspect --format '{{index .RepoDigests 0}}' "$1" 2>/dev/null || true
+}
+
 # Pull, verify and pin the release image. Never silently build an unverified substitute.
 fetch_image() {
-  local image=$1 digest identity_repo
+  local image=$1 digest
   registry_login
   if docker pull -q "$image" >/dev/null 2>&1; then
     digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image" 2>/dev/null || true)
     command -v cosign >/dev/null || install_cosign  # an update on a server installed without it
     [[ -n $digest ]] || die "image has no immutable digest; refusing unverified release"
-    identity_repo=${REPO//./\\.}
-    if [[ -n $digest ]]; then
-      cosign verify "$digest" \
-        --certificate-identity-regexp "^https://github\.com/$identity_repo/\.github/workflows/release\.yml@refs/(heads/main|tags/v[^/]+)$" \
-        --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null ||
-        die "the image signature does not verify; refusing to run it"
-      ok "image signature verified"
-    fi
+    verify_signature "$digest"
+    ok "image signature verified"
     PINNED_IMAGE=${digest:-$image}
   else
     die "cannot pull verified release image $image; refusing silent local-build fallback"
@@ -253,16 +261,22 @@ fetch_image() {
 }
 
 # Docker Hub refuses many Iranian addresses; fall back to the copies published next to our image.
+# Both are pinned by digest in .env, and a GHCR copy must carry our release signature (SEC-04).
 pick_base_images() {
-  local mirror="ghcr.io/nexusguide/paurubot-mirror" pair key image
+  local mirror="ghcr.io/nexusguide/paurubot-mirror" pair key image copy digest
   for pair in POSTGRES_IMAGE=postgres:16-alpine REDIS_IMAGE=redis:7-alpine CADDY_IMAGE=caddy:2-alpine; do
     key=${pair%%=*}
     image=${pair#*=}
     if docker pull -q "$image" >/dev/null 2>&1; then
-      env_set "$key" "$image"
-    elif docker pull -q "$mirror:${image/:/-}" >/dev/null 2>&1; then
-      env_set "$key" "$mirror:${image/:/-}"
-      ok "using the GHCR copy of $image"
+      digest=$(pinned_digest "$image")
+      env_set "$key" "${digest:-$image}"
+    elif copy="$mirror:${image/:/-}" && docker pull -q "$copy" >/dev/null 2>&1; then
+      digest=$(pinned_digest "$copy")
+      [[ -n $digest ]] || die "the GHCR copy of $image has no digest; refusing to run it"
+      command -v cosign >/dev/null || install_cosign
+      verify_signature "$digest"
+      env_set "$key" "$digest"
+      ok "using the signed GHCR copy of $image"
     else
       die "cannot download $image from Docker Hub or GHCR; set a registry mirror in /etc/docker/daemon.json"
     fi

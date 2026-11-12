@@ -6,6 +6,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.db.models import Location, Panel, Service, ServiceStatus
+from paurubot.db.search import ESCAPE, contains
 
 NO_LOCATION = 0  # the group of services whose panel has no location
 
@@ -28,10 +29,12 @@ async def read(
     )
     if query and (text := query.strip()):
         # Contains search is literal, not a user-controlled SQL LIKE pattern.
-        text = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        pattern = f"%{text}%"
+        pattern = contains(text)
         stmt = stmt.where(
-            or_(Service.label.ilike(pattern, escape="\\"), Service.panel_username.ilike(pattern, escape="\\"))
+            or_(
+                Service.label.ilike(pattern, escape=ESCAPE),
+                Service.panel_username.ilike(pattern, escape=ESCAPE),
+            )
         )
     if status is not None:
         stmt = stmt.where(Service.status == status)

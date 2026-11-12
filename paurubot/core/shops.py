@@ -6,6 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from paurubot.db.models import Shop, Staff, StaffRole
 
 
+async def lock_shop(session: AsyncSession, shop_id: int) -> None:
+    """Hold the shop row until commit, so a per-shop limit's count and insert can't interleave
+    with another request's (audit BE-01)."""
+    await session.execute(select(Shop.id).where(Shop.id == shop_id).with_for_update())
+
+
 async def root_shop(session: AsyncSession) -> Shop | None:
     return await session.scalar(select(Shop).where(Shop.parent_id.is_(None)).order_by(Shop.id).limit(1))
 

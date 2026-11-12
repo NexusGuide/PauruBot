@@ -64,10 +64,25 @@ def check_static(url: str, *, allow_private: bool = False) -> None:
     classify(address, allow_private=allow_private)
 
 
+# IPv6 prefixes that carry an IPv4 address in their low 32 bits (NAT64, RFC 6052 / 8215).
+NAT64 = [ipaddress.ip_network(net) for net in ("64:ff9b::/96", "64:ff9b:1::/48")]
+
+
+def _embedded_ipv4(ip: ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
+    """The IPv4 address an IPv6 one stands for: mapped, 6to4 or NAT64 (audit SEC-08)."""
+    if ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    if ip.sixtofour is not None:
+        return ip.sixtofour
+    if any(ip in net for net in NAT64):
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    return None
+
+
 def classify(address: str, *, allow_private: bool) -> None:
-    ip = ipaddress.ip_address(address)
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address = ipaddress.ip_address(address)
+    if isinstance(ip, ipaddress.IPv6Address):
+        ip = _embedded_ipv4(ip) or ip
     for net in ALWAYS_BLOCKED:
         if ip in net:
             raise UnsafeUrl(f"address {ip} is in a blocked range")

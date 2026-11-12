@@ -143,3 +143,13 @@ async def test_phone_before_purchase_and_invite_required_in_the_app(session, app
     ] == "phone_required"
     await _require(session, shop, require_phone=False, referral_required=True)
     assert (await client.get("/api/webapp/me", headers=h(9602))).json()["error"] == "referral_required"
+
+
+async def test_terms_before_purchase_also_cover_a_resellers_bulk_renewal(session, app_env) -> None:  # type: ignore[no-untyped-def]
+    """Renewing many services from the reseller desk spends the wallet like a purchase does, so terms
+    asked «before purchase» are asked there too (audit follow-up to SEC-F11)."""
+    client, shop = app_env["client"], app_env["shop"]
+    await _require(session, shop, terms_required=True, terms_version=2, terms_when="purchase")
+    assert (await client.get("/api/webapp/me", headers=h(9701))).status_code == 200
+    renew = await client.post("/api/webapp/reseller/renew", headers=h(9701), json={"service_ids": [1]})
+    assert renew.status_code == 403 and renew.json()["error"] == "terms_required"

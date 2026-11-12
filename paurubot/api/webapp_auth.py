@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot import kv
-from paurubot.api.deps import DB
+from paurubot.api.deps import DB, request_ip
 from paurubot.config import get_settings
 from paurubot.core import channels as channel_rules
 from paurubot.core import customers
@@ -26,17 +26,22 @@ from paurubot.core.shops import root_shop
 from paurubot.db.models import Customer, ForcedChannel, Shop, ShopStatus
 from paurubot.i18n import LOCALES
 from paurubot.notifications import telegram
-from paurubot.security.tokens import InitDataError, WebAppUser, validate_init_data
+from paurubot.security.tokens import InitDataError, WebAppUser, sha256_hex, validate_init_data
 
 HEADER = "x-telegram-init-data"
 RATE_LIMIT = 120
 RATE_WINDOW = 60
+# initData that no bot signed, per address: past this, the reseller-token scan is skipped (SEC-02).
+BAD_INIT_LIMIT = 200  # generous: mobile carriers put many customers behind one address
+BAD_INIT_WINDOW = 600
 RESELLER_TOKENS_TTL = 60.0
 JOIN_CACHE_TTL = 300
 # The join screen calls these two; they must work before the customer has joined (GRW-07).
 JOIN_PATHS = {"/api/webapp/join", "/api/webapp/join/check"}
 # The phone/terms screen calls these; they must work before the customer passes that gate (SEC-F11).
 GATE_PATHS = {"/api/webapp/gate", "/api/webapp/gate/terms", "/api/webapp/gate/phone"}
+# Requests that spend money: phone and terms asked «before purchase» are asked here.
+PURCHASE_PATHS = {"/api/webapp/orders", "/api/webapp/reseller/renew"}
 
 _reseller_tokens_cache: tuple[float, list[tuple[int, str]]] | None = None
 
@@ -159,16 +164,22 @@ async def webapp_context(request: Request, db: DB) -> WebAppContext:
     settings = get_settings()
     raw = request.headers.get(HEADER, "")
     main_token = settings.bot_token.get_secret_value()
+    bad_key = f"webapp:bad:{sha256_hex(request_ip(request))[:32]}"
     try:
         try:
             user, shop_id = validate_init_data(raw, main_token, max_age=settings.webapp_auth_max_age), None
         except InitDataError:
             if not raw:
                 raise
+            # Every reseller bot's token is tried next: an address that keeps failing stops here.
+            failures = await kv.get_redis().get(f"rl:{bad_key}")
+            if failures is not None and int(failures) >= BAD_INIT_LIMIT:
+                raise HTTPException(status_code=429, detail="rate_limited") from None
             user, shop_id = match_init_data(
                 raw, main_token, await reseller_tokens(db), max_age=settings.webapp_auth_max_age
             )
     except InitDataError as exc:
+        await kv.hit(bad_key, BAD_INIT_LIMIT, BAD_INIT_WINDOW)
         raise HTTPException(status_code=401, detail="invalid_init_data") from exc
     allowed, _ = await kv.hit(f"webapp:{user.id}", RATE_LIMIT, RATE_WINDOW)
     if not allowed:
@@ -204,7 +215,7 @@ async def webapp_context(request: Request, db: DB) -> WebAppContext:
         if path not in GATE_PATHS:
             # The bot refuses everything until phone and terms are done; so does every Mini App
             # route, so a purchase can never skip what the shop requires (SEC-F11).
-            purchase = request.method == "POST" and path == "/api/webapp/orders"
+            purchase = request.method == "POST" and path in PURCHASE_PATHS
             need = await account_gate(db, shop, customer, cfg, purchase=purchase)
             if need is not None:
                 raise HTTPException(status_code=403, detail=need)

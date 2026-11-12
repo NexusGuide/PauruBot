@@ -53,3 +53,20 @@ def test_third_party_actions_are_pinned_to_commits() -> None:
             ref = match.group(1)
             assert re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", ref), f"{path.name}: {ref}"
             assert re.search(r"#\s*v\d", line), f"{path.name}: say which version {ref} is"
+
+
+def test_app_containers_drop_every_capability() -> None:
+    """The api, bot, worker and migrate processes run as an unprivileged user and need no Linux
+    capability, so they hold none and can't gain one through a setuid binary (audit OPS-02)."""
+    services = _compose()["services"]
+    for name in ("api", "bot", "worker", "migrate"):
+        service = services[name]
+        assert service["cap_drop"] == ["ALL"], name
+        assert "no-new-privileges:true" in service["security_opt"], name
+
+
+def test_ci_validates_the_caddyfile() -> None:
+    """The proxy file changed with on-demand TLS; CI checks it with the real Caddy (audit SEC-08)."""
+    workflow = yaml.safe_load((ROOT / ".github/workflows/docker-frontend.yml").read_text())
+    runs = " ".join(step.get("run", "") for step in workflow["jobs"]["docker-frontend"]["steps"])
+    assert "caddy validate --config /etc/caddy/Caddyfile" in runs and "deploy/Caddyfile" in runs

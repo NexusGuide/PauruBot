@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core.channels import is_admin
+from paurubot.core.shops import lock_shop
 from paurubot.db.models import ForcedChannel
 
 MAX_CHANNELS = 5
@@ -87,6 +88,7 @@ async def add(session: AsyncSession, shop_id: int, raw: str, *, title: str = "")
     channel, link = split_input(raw)
     if not channel:
         raise ForcedJoinError("channel_not_found")
+    await lock_shop(session, shop_id)  # two adds at once can't both take the last slot
     count = await session.scalar(select(func.count(ForcedChannel.id)).where(ForcedChannel.shop_id == shop_id))
     if (count or 0) >= MAX_CHANNELS:
         raise ForcedJoinError("channel_limit")

@@ -23,6 +23,7 @@ from paurubot.db.models import (
     Service,
     ServiceStatus,
 )
+from paurubot.db.search import ESCAPE, contains
 from paurubot.panels import GB
 
 SEARCH_LIMIT = 20
@@ -66,13 +67,13 @@ async def search(session: AsyncSession, customer: Customer, text: str) -> list[S
     query = text.strip().lstrip("@")[:48]
     if not query:
         return []
-    like = f"%{query}%"
+    like = contains(query)
     rows = await session.scalars(
         select(Service)
         .where(
             Service.customer_id == customer.id,
             Service.status != ServiceStatus.DELETED,
-            or_(Service.label.ilike(like), Service.panel_username.ilike(like)),
+            or_(Service.label.ilike(like, escape=ESCAPE), Service.panel_username.ilike(like, escape=ESCAPE)),
         )
         .order_by(Service.id.desc())
         .limit(SEARCH_LIMIT)

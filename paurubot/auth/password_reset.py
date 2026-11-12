@@ -66,14 +66,11 @@ def _message(username: str, token: str) -> str:
 async def request(session: AsyncSession, username: str, ip: str) -> None:
     username = username.strip().lower()
     await login_guard.check(username, ip)
-    # Keys contain digests, never user-controlled raw names or IP addresses.
-    for key, limit in (
-        ("user:" + sha256_hex(username), 3),
-        ("ip:" + sha256_hex(ip), 10),
-    ):
-        allowed, _ = await kv.hit(PREFIX + "send:" + key, limit, 600)
-        if not allowed:
-            raise login_guard.LoginLocked(600)
+    # Per requesting address first, so one requester's flood can't block the owner (SEC-01).
+    await login_guard.allow_send("reset", username, ip, per_address=3)
+    allowed, _ = await kv.hit(PREFIX + "send:ip:" + sha256_hex(ip), 10, 600)
+    if not allowed:
+        raise login_guard.LoginLocked(600)
     staff = await session.scalar(select(Staff).where(func.lower(Staff.username) == username))
     if staff is None or not staff.is_active or not staff.telegram_id:
         return  # same public response for unknown, disabled and unlinked accounts
