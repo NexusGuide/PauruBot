@@ -28,14 +28,14 @@ export function QuickLinks() {
             <Intro>{t("qlinks_intro")}</Intro>
             {!bot_username && <p className="rounded-xl bg-saffron-100 p-3 text-[0.86rem] text-saffron-700">{t("qlinks_no_username")}</p>}
             <Section title={t("qlinks_sections")}>
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {items.map((link) => (
                   <div key={link.item} className="flex flex-col gap-1.5 rounded-xl p-3 ring-1 ring-[var(--line)]">
                     <div className="flex items-center gap-2">
                       <b className="flex-1 text-[0.9rem]">{t(`menu_btn_${link.item}`)}</b>
                       {!link.on && <Badge tone="wait">{t("qlinks_off")}</Badge>}
                     </div>
-                    <CopyText text={linkFor(bot_username, link.start)} short />
+                    <CopyText text={linkFor(bot_username, link.start)} />
                   </div>
                 ))}
               </div>
@@ -103,7 +103,7 @@ export function Variables() {
               {groups.length === 0 && <Empty title={t("empty_list")} />}
               {groups.map(({ section, vars }) => (
                 <Section key={section} title={`${t(`texts_section_${section}`)} · ${digits(vars.length, locale)}`}>
-                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
                     {vars.map((v) => (
                       <div key={v.name} className="flex flex-col gap-1 rounded-xl p-3 ring-1 ring-[var(--line)]">
                         <div className="flex items-center gap-2">

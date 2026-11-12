@@ -35,7 +35,7 @@ export function MethodRules({ value, onChange }: { value: MethodRule[]; onChange
   return (
     <div className="flex flex-col gap-2">
       {value.map((row, i) => (
-        <div key={i} className="grid gap-2 rounded-xl bg-[var(--bg)] p-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
+        <div key={i} className="grid grid-cols-1 gap-2 rounded-xl bg-[var(--bg)] p-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
           <Select aria-label={t("method_rule_provider")} value={row.provider} onChange={(e) => update(i, { provider: e.target.value })}>
             {METHODS.map((m) => <option key={m} value={m}>{t(`provider_${m}`)}</option>)}
           </Select>
