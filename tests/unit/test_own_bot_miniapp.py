@@ -295,3 +295,52 @@ async def test_an_extra_admin_manages_the_bot_like_its_owner(session, own) -> No
     await own_panel.remove_admin(session, child, helper)
     await session.commit()
     assert (await client.get("/api/webapp/own", headers=signed(helper))).status_code == 403
+
+
+async def test_the_owner_manages_the_bots_admins_from_its_mini_app(session, own) -> None:  # type: ignore[no-untyped-def]
+    """The bot's owner adds and removes its admins without asking the main shop; an admin they
+    add runs the bot but can't change who else does, and no one can remove the owner."""
+    from paurubot.db.models import AuditLog
+
+    client, child = own["client"], own["child"]
+    helper, partner = 71777, 71888
+    view = (await client.get("/api/webapp/own/admins", headers=signed(OWNER_TG))).json()
+    assert view["can_edit"] is True and view["max"] == own_panel.MAX_ADMINS
+    assert [(a["telegram_id"], a["owner"]) for a in view["admins"]] == [(OWNER_TG, True)]
+
+    added = await client.post(
+        "/api/webapp/own/admins", headers=signed(OWNER_TG), json={"telegram_id": helper}
+    )
+    assert added.status_code == 200, added.text
+    assert [a["telegram_id"] for a in added.json()["admins"]] == [OWNER_TG, helper]
+    assert (await client.get("/api/webapp/own", headers=signed(helper))).status_code == 200, (
+        "the admin runs the bot"
+    )
+
+    again = await client.post(
+        "/api/webapp/own/admins", headers=signed(OWNER_TG), json={"telegram_id": helper}
+    )
+    assert again.status_code == 409 and again.json()["error"] == "own_admin_exists"
+    bad = await client.post("/api/webapp/own/admins", headers=signed(OWNER_TG), json={"telegram_id": 0})
+    assert bad.status_code == 422
+
+    # an added admin sees the list but can't change it
+    theirs = (await client.get("/api/webapp/own/admins", headers=signed(helper))).json()
+    assert theirs["can_edit"] is False
+    for method, path, body in (
+        ("POST", "/api/webapp/own/admins", {"telegram_id": partner}),
+        ("DELETE", f"/api/webapp/own/admins/{OWNER_TG}", None),
+    ):
+        resp = await client.request(method, path, headers=signed(helper), json=body)
+        assert resp.status_code == 403 and resp.json()["error"] == "own_admin_owner_only", path
+    # a buyer of the bot gets nothing
+    assert (await client.get("/api/webapp/own/admins", headers=signed(BUYER_TG))).status_code == 403
+
+    kept = await client.delete(f"/api/webapp/own/admins/{OWNER_TG}", headers=signed(OWNER_TG))
+    assert kept.status_code == 422 and kept.json()["error"] == "own_admin_is_owner"
+    gone = await client.delete(f"/api/webapp/own/admins/{helper}", headers=signed(OWNER_TG))
+    assert gone.status_code == 200 and [a["telegram_id"] for a in gone.json()["admins"]] == [OWNER_TG]
+    assert (await client.get("/api/webapp/own", headers=signed(helper))).status_code == 403
+
+    actions = set(await session.scalars(select(AuditLog.action).where(AuditLog.shop_id == child.id)))
+    assert {"own.admin.add", "own.admin.remove"} <= actions

@@ -533,3 +533,74 @@ async def own_remove_channel(row_id: int, ctx: WebApp) -> dict[str, bool]:
         entity_id=row_id,
     )
     return {"deleted": True}
+
+
+# --- who runs the bot -----------------------------------------------------------------------
+# The owner (the buyer of the admin account) adds and removes the bot's admins here, without
+# asking the main shop. An admin they add runs the bot like them but can't change this list.
+
+
+class OwnAdminBody(BaseModel):
+    telegram_id: int = Field(gt=0, le=10**13)
+
+
+_ADMIN_STATUS = {"own_admin_exists": 409, "own_admin_not_found": 404}
+
+
+async def _admins_view(ctx: WebAppContext, staff: StaffContext) -> dict[str, Any]:
+    owner_tg = await own_panel.owner_telegram_id(ctx.session, ctx.shop)
+    return {
+        "admins": await own_panel.admins(ctx.session, ctx.shop),
+        "max": own_panel.MAX_ADMINS,
+        "can_edit": staff.staff.telegram_id == owner_tg,
+    }
+
+
+async def _owner(ctx: WebAppContext) -> StaffContext:
+    staff = await _merchant(ctx)
+    if staff.staff.telegram_id != await own_panel.owner_telegram_id(ctx.session, ctx.shop):
+        raise HTTPException(status_code=403, detail="own_admin_owner_only")
+    return staff
+
+
+@router.get("/admins")
+async def own_admins(ctx: WebApp) -> dict[str, Any]:
+    return await _admins_view(ctx, await _merchant(ctx))
+
+
+@router.post("/admins")
+async def own_add_admin(body: OwnAdminBody, ctx: WebApp) -> dict[str, Any]:
+    staff = await _owner(ctx)
+    try:
+        await own_panel.add_admin(ctx.session, ctx.shop, body.telegram_id)
+    except own_panel.OwnPanelError as exc:
+        raise HTTPException(status_code=_ADMIN_STATUS.get(exc.key, 422), detail=exc.key) from None
+    await record(
+        ctx.session,
+        shop_id=ctx.shop.id,
+        actor=staff.actor,
+        action="own.admin.add",
+        entity="staff",
+        entity_id=None,
+        after={"telegram_id": body.telegram_id},
+    )
+    return await _admins_view(ctx, staff)
+
+
+@router.delete("/admins/{telegram_id}")
+async def own_remove_admin(telegram_id: int, ctx: WebApp) -> dict[str, Any]:
+    staff = await _owner(ctx)
+    try:
+        await own_panel.remove_admin(ctx.session, ctx.shop, telegram_id)
+    except own_panel.OwnPanelError as exc:
+        raise HTTPException(status_code=_ADMIN_STATUS.get(exc.key, 422), detail=exc.key) from None
+    await record(
+        ctx.session,
+        shop_id=ctx.shop.id,
+        actor=staff.actor,
+        action="own.admin.remove",
+        entity="staff",
+        entity_id=None,
+        after={"telegram_id": telegram_id},
+    )
+    return await _admins_view(ctx, staff)

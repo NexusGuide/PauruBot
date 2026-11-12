@@ -36,8 +36,8 @@ BUTTONS: dict[str, str] = {
 
 DEFAULT_LAYOUT: list[list[str]] = [
     ["miniapp"],
-    ["buy", "services"],
-    ["wallet", "trial"],
+    ["buy", "trial"],  # the free trial sits beside «buy»
+    ["wallet", "services"],  # «my services» beside the wallet
     ["referral", "reseller", "accounts"],
     ["tickets", "guide"],
     ["wheel", "lottery"],
