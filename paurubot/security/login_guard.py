@@ -6,6 +6,7 @@ import ipaddress
 
 from paurubot import kv
 from paurubot.config import get_settings
+from paurubot.security.tokens import sha256_hex
 
 
 def client_ip(peer: str | None, forwarded_for: str | None, trusted_hops: int | None = None) -> str:
@@ -33,13 +34,29 @@ class LoginLocked(Exception):
         self.retry_after = retry_after
 
 
-def _keys(username: str, ip: str) -> tuple[str, str]:
-    return f"login:user:{username.lower()}", f"login:ip:{ip}"
+# A failed sign-in counts against the address it came from, the address alone and the account
+# (audit SEC-01). The pair locks first, so a guesser locks out only itself; the account locks only
+# when many addresses guess it together. Keys hold digests, never a raw name or address.
+IP_FACTOR = 4  # offices and CGNAT share addresses
+ACCOUNT_FACTOR = 10
+
+
+def _name(username: str) -> str:
+    return sha256_hex(username.strip().lower())[:32]
+
+
+def _keys(username: str, ip: str) -> tuple[tuple[str, int], ...]:
+    name, addr = _name(username), sha256_hex(ip)[:32]
+    return (
+        (f"login:pair:{name}:{addr}", 1),
+        (f"login:ip:{addr}", IP_FACTOR),
+        (f"login:user:{name}", ACCOUNT_FACTOR),
+    )
 
 
 async def check(username: str, ip: str) -> None:
     redis = kv.get_redis()
-    for key in _keys(username, ip):
+    for key, _ in _keys(username, ip):
         ttl = await redis.ttl(f"loginlock:{key}")
         if ttl and ttl > 0:
             raise LoginLocked(ttl)
@@ -48,14 +65,28 @@ async def check(username: str, ip: str) -> None:
 async def failed(username: str, ip: str) -> None:
     settings = get_settings()
     redis = kv.get_redis()
-    for index, key in enumerate(_keys(username, ip)):
-        # IPs get a wider budget because offices and CGNAT share addresses.
-        limit = settings.login_max_attempts * (4 if index else 1)
+    for key, factor in _keys(username, ip):
+        limit = settings.login_max_attempts * factor
         _, count = await kv.hit(key, limit, settings.login_lock_seconds)
         if count >= limit:
             await redis.set(f"loginlock:{key}", "1", ex=settings.login_lock_seconds)
 
 
 async def succeeded(username: str, ip: str) -> None:
-    user_key, _ = _keys(username, ip)
-    await kv.reset(user_key)
+    pair, _, account = (key for key, _ in _keys(username, ip))
+    await kv.reset(pair)
+    await kv.reset(account)
+
+
+async def allow_send(kind: str, username: str, ip: str, *, per_address: int, window: int = 600) -> None:
+    """Throttle codes and reset links sent to an account's Telegram, without one requester's
+    flood blocking the account's owner: the budget is per requesting address, and the account
+    as a whole takes a few times more before it stops answering."""
+    name, addr = _name(username), sha256_hex(ip)[:32]
+    for key, limit in (
+        (f"send:{kind}:pair:{name}:{addr}", per_address),
+        (f"send:{kind}:user:{name}", per_address * 4),
+    ):
+        allowed, _ = await kv.hit(key, limit, window)
+        if not allowed:
+            raise LoginLocked(window)

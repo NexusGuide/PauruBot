@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from paurubot.audit.log import Actor, record
 from paurubot.db.base import utcnow
 from paurubot.db.models import Customer, Service, ServiceStatus
+from paurubot.db.search import ESCAPE, contains
 
 
 async def upsert_from_telegram(
@@ -131,9 +132,9 @@ async def search(
     query = query.strip().lstrip("@")
     if query:
         conditions: list[ColumnElement[bool]] = [
-            Customer.username.ilike(f"%{query}%"),
-            Customer.first_name.ilike(f"%{query}%"),
-            Customer.phone.ilike(f"%{query}%"),
+            Customer.username.ilike(contains(query), escape=ESCAPE),
+            Customer.first_name.ilike(contains(query), escape=ESCAPE),
+            Customer.phone.ilike(contains(query), escape=ESCAPE),
         ]
         if query.isdigit():
             conditions.append(Customer.telegram_id == int(query))

@@ -556,6 +556,17 @@ async def migrate_bot(session: AsyncSession, job: queue.Claimed) -> None:
         _json.dumps({**report.as_dict(), "job_id": job.id}),
         ex=30 * 86_400,
     )
+    if not report.dry_run:
+        await asyncio.to_thread(runner.discard_upload, str(data["token"]))
+
+
+@every(3600, "migration_uploads.cleanup")
+async def cleanup_migration_uploads() -> None:
+    from paurubot.migration import runner
+
+    removed = await asyncio.to_thread(runner.prune_uploads)
+    if removed:
+        log.info("removed %d old migration uploads", removed)
 
 
 async def loyalty_recount(session: AsyncSession, job: queue.Claimed) -> None:

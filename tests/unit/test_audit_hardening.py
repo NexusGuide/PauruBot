@@ -461,6 +461,8 @@ install_cosign() { die "cosign could not be installed"; }
     script = (
         stub
         + f"\nMODE={mode}\n"
+        + installer_function("verify_signature")
+        + "\n"
         + installer_function("fetch_image")
         + '\nfetch_image ghcr.io/nexusguide/paurubot:edge\nprintf "%s" "$PINNED_IMAGE"\n'
     )

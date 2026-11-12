@@ -17,6 +17,9 @@ x-app: &app
   environment: *env
   read_only: true
   tmpfs: [/tmp]
+  # Runs as an unprivileged user that needs no Linux capability (audit OPS-02).
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
   volumes:
     - backups:/var/lib/paurubot/backups
   depends_on:

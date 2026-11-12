@@ -13,6 +13,7 @@ from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record, snapshot
 from paurubot.core import panel_accounts
 from paurubot.db.models import AccountPlan, Category, Customer, Panel, PanelAccount, PanelKind, PlanAudience
+from paurubot.db.search import ESCAPE, contains
 from paurubot.panels import PanelError, registry
 from paurubot.panels.drivers.pasarguard import PasarGuardDriver
 
@@ -242,10 +243,10 @@ async def list_panel_accounts(
     if status:
         query = query.where(PanelAccount.status == status)
     if q and q.strip():
-        like = f"%{q.strip()}%"
+        like = contains(q.strip())
         filters: list[ColumnElement[bool]] = [
-            PanelAccount.username.ilike(like),
-            Customer.username.ilike(like),
+            PanelAccount.username.ilike(like, escape=ESCAPE),
+            Customer.username.ilike(like, escape=ESCAPE),
         ]
         if q.strip().isdigit():
             filters.append(Customer.telegram_id == int(q.strip()))

@@ -39,6 +39,7 @@ from paurubot.db.models import (
     Service,
     ServiceStatus,
 )
+from paurubot.db.search import ESCAPE, contains
 from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.panels import PanelError
@@ -135,9 +136,9 @@ async def list_customers(
     query = q.strip().lstrip("@")
     if query:
         conditions: list[ColumnElement[bool]] = [
-            Customer.username.ilike(f"%{query}%"),
-            Customer.first_name.ilike(f"%{query}%"),
-            Customer.phone.ilike(f"%{query}%"),
+            Customer.username.ilike(contains(query), escape=ESCAPE),
+            Customer.first_name.ilike(contains(query), escape=ESCAPE),
+            Customer.phone.ilike(contains(query), escape=ESCAPE),
         ]
         if query.isdigit():
             conditions += [Customer.telegram_id == int(query), Customer.id == int(query)]
@@ -468,7 +469,10 @@ async def _filtered_services(db: DB, ctx: StaffContext, f: ServiceFilter) -> Sel
             stmt = stmt.where(sub_links.condition(token))  # a pasted subscription link (REF-07)
         else:
             stmt = stmt.where(
-                or_(Service.panel_username.ilike(f"%{text}%"), Service.label.ilike(f"%{text}%"))
+                or_(
+                    Service.panel_username.ilike(contains(text), escape=ESCAPE),
+                    Service.label.ilike(contains(text), escape=ESCAPE),
+                )
             )
     if f.status is not None:
         stmt = stmt.where(Service.status == f.status)

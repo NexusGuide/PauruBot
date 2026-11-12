@@ -21,10 +21,9 @@ concurrency:
   group: release-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
 
+# Read-only by default; only the jobs that push and sign get write access (audit OPS-03).
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/paurubot
@@ -36,6 +35,10 @@ jobs:
   image:
     needs: checks
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
     env:
       # vX.Y.Z when this run is a release, empty for an edge build.
       RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || (github.event_name == 'workflow_dispatch' && inputs.version != '' && format('v{0}', inputs.version) || '') }}
@@ -108,11 +111,17 @@ jobs:
           gh release create "${RELEASE}" release.json --generate-notes --verify-tag
 
   # Docker Hub refuses many Iranian addresses; keep copies of the base images next to ours on GHCR.
+  # Each copy is signed like our image, so the installer can refuse a swapped one (audit SEC-04).
   mirror:
     needs: checks
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     steps:
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           registry: ghcr.io
@@ -123,4 +132,6 @@ jobs:
           target="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/paurubot-mirror"
           for source in postgres:16-alpine redis:7-alpine caddy:2-alpine; do
             docker buildx imagetools create --tag "${target}:${source/:/-}" "docker.io/library/${source}"
+            digest=$(docker buildx imagetools inspect "${target}:${source/:/-}" --format '{{.Manifest.Digest}}')
+            cosign sign --yes "${target}@${digest}"
           done

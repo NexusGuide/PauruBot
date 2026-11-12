@@ -194,6 +194,32 @@ def upload_path(token: str) -> Path:
     return imports_dir() / f"{token}.dump"
 
 
+# An upload holds the old bot's customers in plain form: it goes after the real import, and
+# anything left behind (an import never run) after a few days (audit SEC-03).
+UPLOAD_TTL = 3 * 86_400
+_UPLOAD_NAME = re.compile(r"^[a-f0-9]{24}\.dump$")
+
+
+def discard_upload(token: str) -> None:
+    upload_path(token).unlink(missing_ok=True)
+
+
+def prune_uploads(max_age: int = UPLOAD_TTL) -> int:
+    """Delete uploads older than `max_age` seconds; returns how many went."""
+    import time
+
+    root = imports_dir()
+    if not root.is_dir():
+        return 0
+    cutoff = time.time() - max_age
+    removed = 0
+    for path in root.iterdir():
+        if _UPLOAD_NAME.match(path.name) and path.is_file() and path.stat().st_mtime < cutoff:
+            path.unlink(missing_ok=True)
+            removed += 1
+    return removed
+
+
 async def load(token: str, source: str | None) -> Extract:
     import asyncio
 
