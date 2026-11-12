@@ -112,7 +112,7 @@ async def list_orders(
     items = []
     for order in rows:
         data = plain(order, ORDER_FIELDS)
-        data["customer"] = order.customer.display_name
+        data["customer"] = order.customer.staff_label
         data["plan"] = order.plan.title if order.plan else None
         items.append(data)
     return {"items": items, "total": total}
@@ -142,7 +142,7 @@ async def list_payments(
     items = []
     for payment in rows:
         data = payment_view(payment)
-        data["customer"] = payment.customer.display_name
+        data["customer"] = payment.customer.staff_label
         data["has_receipt"] = bool(payment.receipt_file_id)
         items.append(data)
     return {"items": items, "total": total}

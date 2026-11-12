@@ -135,6 +135,17 @@ class Customer(Base, TimestampMixin):
         return self.first_name or str(self.telegram_id)
 
     @property
+    def staff_label(self) -> str:
+        """How staff screens name a customer: the @username, else the name with the Telegram id, so
+        a customer whose name is only an emoji or blank is still told apart (a web guest has no
+        Telegram id: their record number stands in)."""
+        if self.username:
+            return f"@{self.username}"
+        ref = str(self.telegram_id) if self.telegram_id > 0 else f"#{self.id}"
+        name = (self.first_name or "").strip()
+        return f"{name} · {ref}" if name else ref
+
+    @property
     def is_guest(self) -> bool:
         """Web guests have no Telegram account; their placeholder id is negative (CAT-08)."""
         return self.telegram_id < 0

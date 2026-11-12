@@ -133,7 +133,7 @@ async def customer_bots(ctx: Manager, db: DB) -> dict[str, Any]:
                 "state": _state(shop, cfg),
                 "paused": str(cfg.get(own_panel.PAUSED) or ""),
                 "expires_at": cfg.get(own_panel.EXPIRES) or None,
-                "owner": {"id": owner.id, "name": owner.display_name, "username": owner.username}
+                "owner": {"id": owner.id, "name": owner.staff_label, "username": owner.username}
                 if owner
                 else None,
                 "profile_id": profile.id if profile else None,
