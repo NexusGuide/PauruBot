@@ -2495,5 +2495,18 @@
   "err_domain_not_found": "Domain not found.",
   "err_domain_check_too_soon": "Just checked; try again in a few seconds.",
   "domain_main_missing": "Not set",
-  "domain_main_missing_hint": "The server's PUBLIC_URL is empty; set the main domain at install so the panel and links get HTTPS."
+  "domain_main_missing_hint": "The server's PUBLIC_URL is empty; set the main domain at install so the panel and links get HTTPS.",
+  "own_bot_admins": "Bot admins",
+  "own_bot_admin_owner": "Owner",
+  "own_bot_admin_remove": "Remove",
+  "own_bot_admin_id": "Numeric Telegram ID",
+  "own_bot_admin_add": "Add admin",
+  "own_bot_admin_added": "Admin added.",
+  "own_bot_admin_removed": "Admin removed.",
+  "own_bot_admins_hint": "Up to {max} more people can run this bot besides its owner: in the bot and in its Mini App, exactly like the owner. Only add IDs the customer gave you.",
+  "err_own_admin_exists": "This ID is already an admin of the bot.",
+  "err_own_admin_limit": "This bot already has the most admins it can have.",
+  "err_own_admin_is_owner": "The bot's owner can't be removed.",
+  "err_own_admin_not_found": "This ID isn't an admin of the bot.",
+  "err_own_admin_invalid": "Enter a valid numeric Telegram ID."
 }

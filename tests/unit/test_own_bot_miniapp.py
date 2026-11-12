@@ -283,3 +283,15 @@ async def test_an_extra_outside_the_range_is_refused(session) -> None:  # type: 
             await orders.draft(session, customer, OrderKind.EXTRA_VOLUME, service=service, extra_gb=amount)
     made = await orders.draft(session, customer, OrderKind.EXTRA_VOLUME, service=service, extra_gb=40)
     assert made.params["extra_gb"] == 40
+
+
+async def test_an_extra_admin_manages_the_bot_like_its_owner(session, own) -> None:  # type: ignore[no-untyped-def]
+    client, child = own["client"], own["child"]
+    helper = 71777
+    assert (await client.get("/api/webapp/own", headers=signed(helper))).status_code == 403
+    await own_panel.add_admin(session, child, helper)
+    await session.commit()
+    assert (await client.get("/api/webapp/own", headers=signed(helper))).status_code == 200
+    await own_panel.remove_admin(session, child, helper)
+    await session.commit()
+    assert (await client.get("/api/webapp/own", headers=signed(helper))).status_code == 403

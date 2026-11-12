@@ -33,6 +33,9 @@ export interface OwnBotState {
   expires_at?: string | null;
   customers: number;
   active_services: number;
+  /** Who runs the bot: its owner (the buyer) first, then the admins staff added. */
+  admins?: { telegram_id: number; owner: boolean; name: string }[];
+  max_admins?: number;
 }
 
 interface OwnBotView {
@@ -51,6 +54,7 @@ export function OwnBotSection({ customerId }: { customerId: number | string }) {
   const [token, setToken] = useState("");
   const [picked, setPicked] = useState<number | null>(null);
   const [days, setDays] = useState<number | null>(30);
+  const [adminId, setAdminId] = useState("");
   const [busy, run] = useAction();
   if (!data) return null;
   const { bot, accounts } = data;
@@ -77,6 +81,12 @@ export function OwnBotSection({ customerId }: { customerId: number | string }) {
   const stop = () => apply(() => call(path, { method: "DELETE" }), "own_bot_stopped");
   const extend = (value: number | null) =>
     apply(() => call(`${path}/expiry`, { method: "POST", body: { days: value } }), "own_bot_expiry_saved");
+  const addAdmin = async () => {
+    await apply(() => call(`${path}/admins`, { method: "POST", body: { telegram_id: Number(adminId) } }), "own_bot_admin_added");
+    setAdminId("");
+  };
+  const removeAdmin = (telegramId: number) =>
+    apply(() => call(`${path}/admins/${telegramId}`, { method: "DELETE" }), "own_bot_admin_removed");
 
   if (accounts.length === 0 && bot === null) {
     return (
@@ -192,6 +202,49 @@ export function OwnBotSection({ customerId }: { customerId: number | string }) {
               )}
             </div>
             <p className="text-[0.78rem] leading-relaxed text-[var(--hint)]">{t("own_bot_expiry_hint")}</p>
+          </div>
+        )}
+
+        {bot && (
+          <div className="flex flex-col gap-2 rounded-xl bg-[var(--bg)] px-3 py-3">
+            <span className="text-[0.88rem] font-semibold">{t("own_bot_admins")}</span>
+            <ul className="flex flex-col gap-1.5">
+              {(bot.admins ?? []).map((admin) => (
+                <li key={admin.telegram_id} className="flex flex-wrap items-center gap-2 text-[0.85rem]">
+                  <b dir="ltr" className="num">{admin.telegram_id}</b>
+                  {admin.name && <bdi className="text-[var(--hint)]">{admin.name}</bdi>}
+                  {admin.owner ? (
+                    <Badge tone="neutral">{t("own_bot_admin_owner")}</Badge>
+                  ) : (
+                    <Button small tone="ghost" className="ms-auto" disabled={busy} onClick={() => void removeAdmin(admin.telegram_id)}>
+                      {t("own_bot_admin_remove")}
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+            {(bot.admins ?? []).filter((a) => !a.owner).length < (bot.max_admins ?? 3) && (
+              <div className="flex flex-wrap items-end gap-2">
+                <Field label={t("own_bot_admin_id")} className="w-48">
+                  {(id) => (
+                    <input
+                      id={id}
+                      dir="ltr"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={adminId}
+                      onChange={(e) => setAdminId(e.target.value.replace(/[^0-9]/g, ""))}
+                      placeholder="8697735343"
+                      className="num min-h-10 w-full rounded-xl bg-[var(--surface)] px-3 text-[0.88rem] ring-1 ring-[var(--line)]"
+                    />
+                  )}
+                </Field>
+                <Button busy={busy} disabled={!/^[1-9][0-9]{4,12}$/.test(adminId)} onClick={() => void addAdmin()}>
+                  {t("own_bot_admin_add")}
+                </Button>
+              </div>
+            )}
+            <p className="text-[0.78rem] leading-relaxed text-[var(--hint)]">{t("own_bot_admins_hint", { max: digits(bot.max_admins ?? 3, locale) })}</p>
           </div>
         )}
 
