@@ -90,11 +90,12 @@ test("a new service period makes the same kind of alert unread again", () => {
 });
 test("read state is stored per customer, never in the shared legacy key", () => {
  const store = new Map([["pauru.alerts.read", JSON.stringify(["s7-data"])]]);
- globalThis.localStorage = {
+ // Newer Node has a built-in, read-only Web Storage global: replace it, don't assign over it.
+ Object.defineProperty(globalThis, "localStorage", { configurable: true, writable: true, value: {
   getItem: (k) => (store.has(k) ? store.get(k) : null),
   setItem: (k, v) => store.set(k, String(v)),
   removeItem: (k) => store.delete(k),
- };
+ } });
  try {
   assert.equal(alerts.readAlertIds(11).size, 0, "the old shared list is not inherited");
   alerts.markAlertsRead(11, ["s7-data@x"]);
