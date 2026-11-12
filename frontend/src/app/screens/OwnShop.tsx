@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { date, daysLeft, digits, gb, money } from "@shared/format";
-import { api, type OwnExtra, type OwnFeatures, type OwnPlan, type OwnPlanInput, type OwnShop } from "../api";
+import { api, type OwnChannel, type OwnExtra, type OwnFeatures, type OwnPlan, type OwnPlanInput, type OwnShop } from "../api";
 import { Icon } from "../icons";
 import { errorText, useApp } from "../state";
 import { haptic, tg } from "../telegram";
@@ -124,6 +124,7 @@ export function OwnHome() {
           sub={extrasOn.every(Boolean) ? t("own_features_all") : extrasOn.some(Boolean) ? t("own_features_some") : t("own_features_none")}
           to="/shop/features"
         />
+        <Item icon={<Icon name="send" />} title={t("own_channels")} sub={t("own_channels_sub")} to="/shop/channels" />
         <Item icon={<Icon name="gauge" />} title={t("own_status")} sub={t("own_status_sub")} to="/shop/status" />
         <Item
           icon={<Icon name="check" />}
@@ -522,6 +523,101 @@ export function OwnStatus() {
         </div>
         <p className="text-xs leading-6 text-[var(--hint)]">{t("own_alerts_hint")}</p>
       </Panel>
+    </Screen>
+  );
+}
+
+/** Channels the bot's buyers must join first (GRW-07); the bot must be an admin in each. */
+export function OwnChannels() {
+  const { t, locale, toast } = useApp();
+  const load = useCallback(() => api.ownChannels(), []);
+  const { data, error, loading, retry } = useResource(load);
+  const [rows, setRows] = useState<OwnChannel[] | null>(null);
+  const [channel, setChannel] = useState("");
+  const [busy, setBusy] = useState<number | "add" | null>(null);
+
+  useEffect(() => {
+    if (data) setRows(data.channels);
+  }, [data]);
+
+  if (error) return <Screen title={t("own_channels")} backTo="/shop"><ReadFailure error={error} retry={retry} /></Screen>;
+  if (loading || !data || rows === null) return <Loading />;
+  const full = rows.length >= data.limit;
+
+  const run = async (key: number | "add", fn: () => Promise<void>) => {
+    setBusy(key);
+    try {
+      await fn();
+      haptic("success");
+    } catch (err) {
+      haptic("error");
+      toast(errorText(t, err), "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+  const add = () =>
+    run("add", async () => {
+      const { channel: made } = await api.ownAddChannel(channel.trim());
+      setRows((prev) => [...(prev ?? []), made]);
+      setChannel("");
+      toast(t("own_channel_added"));
+    });
+  const toggle = (row: OwnChannel) =>
+    run(row.id, async () => {
+      const { channel: saved } = await api.ownSetChannel(row.id, !row.is_active);
+      setRows((prev) => (prev ?? []).map((r) => (r.id === saved.id ? saved : r)));
+    });
+  const remove = (row: OwnChannel) =>
+    run(row.id, async () => {
+      await api.ownDeleteChannel(row.id);
+      setRows((prev) => (prev ?? []).filter((r) => r.id !== row.id));
+    });
+
+  return (
+    <Screen title={t("own_channels")} backTo="/shop">
+      <p className="mb-4 text-sm leading-7 text-[var(--hint)]">{t("own_channels_intro")}</p>
+      {rows.length === 0 ? (
+        <Empty title={t("own_channels_empty")} />
+      ) : (
+        <div className="app-card mb-4">
+          {rows.map((row) => (
+            <div key={row.id} className="flex items-center gap-3 px-4 py-3">
+              <span className="min-w-0 flex-1">
+                <b className="block truncate text-[0.95rem]">{row.title}</b>
+                <small dir="ltr" className="block truncate text-start text-xs text-[var(--hint)]">{row.url}</small>
+              </span>
+              <Switch checked={row.is_active} busy={busy === row.id} onChange={() => void toggle(row)} label={t("own_channel_on")} />
+              <button
+                type="button"
+                aria-label={t("own_channel_remove")}
+                disabled={busy === row.id}
+                onClick={() => {
+                  if (window.confirm(t("own_channel_remove_confirm", { title: row.title }))) void remove(row);
+                }}
+                className="grid size-9 place-items-center rounded-full text-anar-700"
+              >
+                <Icon name="trash" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {full ? (
+        <Note>{t("own_channels_full", { max: digits(data.limit, locale) })}</Note>
+      ) : (
+        <Panel className="mb-4">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm font-semibold">{t("own_channel_new")}</span>
+            <input dir="ltr" value={channel} placeholder="@my_channel" maxLength={300} onChange={(e) => setChannel(e.target.value)} className="w-full" />
+          </label>
+          <small className="mt-2 block text-xs leading-6 text-[var(--hint)]">{t("own_channel_new_hint")}</small>
+          <code dir="ltr" className="mt-1 block text-start text-xs text-[var(--hint)]">-1001234567890 | https://t.me/+invite</code>
+        </Panel>
+      )}
+      {!full && (
+        <Button busy={busy === "add"} disabled={channel.trim().length < 2} onClick={() => void add()}>{t("own_channel_add")}</Button>
+      )}
     </Screen>
   );
 }

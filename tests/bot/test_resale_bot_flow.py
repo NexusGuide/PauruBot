@@ -272,3 +272,57 @@ async def test_staff_allow_features_and_the_reseller_switches_them(session, env)
     await session.refresh(profile)
     assert resale.allowed_features(profile) == set()
     assert (await shop_settings.load(session, child.id, fresh=True))["trial_enabled"] is False
+
+
+async def test_reseller_sets_several_forced_channels_its_bot_can_check(session, env) -> None:  # type: ignore[no-untyped-def]
+    """A channel the reseller's bot is not an admin of is refused (it could never hold anyone);
+    channels add up instead of replacing each other, and each can be removed on its own."""
+    from aiogram.types import Chat
+    from sqlalchemy import select
+
+    from paurubot.db.models import ForcedChannel
+    from tests.fakes.telegram import BOT_USER, chat_key
+
+    send, fake = env["send"], env["fake"]
+    main_shop_id = env["shop"].id
+    profile = await _reseller(session, env, {"resellers.bot"})
+    await send(callback_update(RESELLER, Rb(action="token").pack()))
+    await send(message_update(RESELLER, TOKEN))
+    child = await resale.shop_of(session, profile)
+    child_id = child.id
+    for name, chat_id, admin in (("sara_news", -1008000001, True), ("sara_chat", -1008000002, False)):
+        chat = Chat(id=chat_id, type="channel", title=name, username=name)
+        fake.chats[chat_key(f"@{name}")] = chat
+        fake.chats[str(chat_id)] = chat
+        if admin:
+            fake.admins.add((str(chat_id), BOT_USER.id))
+    fake.chats[chat_key("@sara_vip")] = Chat(id=-1008000003, type="channel", title="VIP", username="sara_vip")
+    fake.chats["-1008000003"] = fake.chats[chat_key("@sara_vip")]
+    fake.admins.add(("-1008000003", BOT_USER.id))
+
+    await send(callback_update(RESELLER, Rb(action="customize_channel").pack()))
+    assert FA("rb_channel_add") in labels(fake), "an empty list offers to add one"
+    await send(callback_update(RESELLER, Rb(action="channel_add").pack()))
+    await send(message_update(RESELLER, "@sara_chat"))
+    assert FA("rb_channel_err_bot_not_admin") in fake.texts(RESELLER)
+    await send(message_update(RESELLER, "https://t.me/sara_news"))
+    assert FA("rb_channel_added") in fake.texts(RESELLER)
+    await send(callback_update(RESELLER, Rb(action="channel_add").pack()))
+    await send(message_update(RESELLER, "sara_vip"))
+
+    rows = list(await session.scalars(select(ForcedChannel).where(ForcedChannel.shop_id == child_id)))
+    assert sorted(r.chat_id for r in rows) == ["-1008000001", "-1008000003"], "added, not replaced"
+    news = next(r for r in rows if r.chat_id == "-1008000001")
+    await send(callback_update(RESELLER, Rb(action="customize_channel").pack()))
+    assert any("sara_news" in text for text in labels(fake))
+    await send(callback_update(RESELLER, Rb(action="channel_del", id=news.id).pack()))
+    session.expire_all()
+    left = list(await session.scalars(select(ForcedChannel.chat_id).where(ForcedChannel.shop_id == child_id)))
+    assert left == ["-1008000003"]
+    # another shop's channel id cannot be removed from here
+    main_row = ForcedChannel(shop_id=main_shop_id, chat_id="-1009", title="Main", url="https://t.me/main")
+    session.add(main_row)
+    await session.commit()
+    main_id = main_row.id
+    await send(callback_update(RESELLER, Rb(action="channel_del", id=main_id).pack()))
+    assert await session.scalar(select(ForcedChannel.id).where(ForcedChannel.id == main_id)) == main_id

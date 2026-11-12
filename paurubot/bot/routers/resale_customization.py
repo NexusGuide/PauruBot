@@ -181,7 +181,52 @@ async def logo_got(
     await show_home(message, session, shop, profile, t)
 
 
+def channels_kb(t: Texts, rows: list[ForcedChannel]) -> InlineKeyboardMarkup:
+    from paurubot.core import forced_join
+
+    kb = InlineKeyboardBuilder()
+    for row in rows:
+        kb.button(
+            text=t("rb_channel_remove", title=row.title), callback_data=Rb(action="channel_del", id=row.id)
+        )
+    if len(rows) < forced_join.MAX_CHANNELS:
+        kb.button(text=t("rb_channel_add"), callback_data=Rb(action="channel_add"))
+    kb.button(text=t("btn_back"), callback_data=Rb(action="customize"))
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+async def _show_channels(
+    event: CallbackQuery | Message, session: AsyncSession, child: ShopRow, t: Texts
+) -> None:
+    from paurubot.bot.utils import show
+    from paurubot.core import forced_join
+
+    rows = await forced_join.listing(session, child.id)
+    text = t("rb_channels_title", n=len(rows), max=forced_join.MAX_CHANNELS) + "\n\n" + t("rb_channels_hint")
+    await show(event, text, channels_kb(t, rows))
+
+
 @router.callback_query(Rb.filter(F.action == "customize_channel"))
+async def channel_list(
+    call: CallbackQuery,
+    session: AsyncSession,
+    shop: ShopRow,
+    customer: Customer,
+    staff: StaffIdentity | None,
+    t: Texts,
+    state: FSMContext,
+) -> None:
+    """The channels the reseller's buyers must join, each removable, and a button to add one."""
+    found = await _running(call, session, shop, customer, staff, t)
+    if found is None:
+        return
+    await call.answer()
+    await state.clear()
+    await _show_channels(call, session, found[1], t)
+
+
+@router.callback_query(Rb.filter(F.action == "channel_add"))
 async def channel_ask(
     call: CallbackQuery,
     session: AsyncSession,
@@ -199,6 +244,42 @@ async def channel_ask(
         await call.message.answer(t("rb_customize_channel_ask"), reply_markup=keyboards.cancel(t))
 
 
+@router.callback_query(Rb.filter(F.action == "channel_del"))
+async def channel_remove(
+    call: CallbackQuery,
+    callback_data: Rb,
+    session: AsyncSession,
+    shop: ShopRow,
+    customer: Customer,
+    staff: StaffIdentity | None,
+    t: Texts,
+) -> None:
+    from paurubot.core import forced_join
+
+    found = await _running(call, session, shop, customer, staff, t)
+    if found is None:
+        return
+    profile, child = found
+    try:
+        row = await forced_join.owned(session, child.id, callback_data.id)
+    except forced_join.ForcedJoinError:
+        await call.answer(t("button_expired"), show_alert=True)
+        return
+    await session.delete(row)
+    await record(
+        session,
+        shop_id=profile.shop_id,
+        actor=_actor(customer, staff),
+        action="reseller_bot.channel_removed",
+        entity="shop",
+        entity_id=child.id,
+        after={"chat_id": row.chat_id},
+    )
+    await session.commit()
+    await call.answer(t("rb_channel_removed"))
+    await _show_channels(call, session, child, t)
+
+
 @router.message(ResaleCustomizeStates.channel, F.text)
 async def channel_got(
     message: Message,
@@ -209,33 +290,35 @@ async def channel_got(
     t: Texts,
     state: FSMContext,
 ) -> None:
+    """Add one channel. The reseller's own bot must be an admin there, or nobody could be held."""
+    from paurubot.core import forced_join
+
     found = await _state_target(message, session, shop, customer, staff, state)
     if found is None:
         return
     profile, child = found
     raw = (message.text or "").strip()
-    if raw == "-":
+    if raw == "-":  # the old way to turn the gate off: remove every channel
         await session.execute(delete(ForcedChannel).where(ForcedChannel.shop_id == child.id))
-        enabled = False
+        action = "reseller_bot.customized_channel"
+        after: dict[str, object] = {"enabled": False}
     else:
-        parsed = resale_customization.parse_channel(raw)
-        if parsed is None:
-            await message.answer(t("rb_customize_channel_invalid"))
-            return
-        chat_id, url = parsed
-        await session.execute(delete(ForcedChannel).where(ForcedChannel.shop_id == child.id))
-        session.add(ForcedChannel(shop_id=child.id, chat_id=chat_id, title=chat_id, url=url))
-        enabled = True
+        try:
+            row = await forced_join.add(session, child.id, raw)
+        except forced_join.ForcedJoinError as exc:
+            await message.answer(t(f"rb_channel_err_{exc.code}"))
+            return  # still waiting: the reseller can fix the bot's rights and send it again
+        action, after = "reseller_bot.channel_added", {"chat_id": row.chat_id}
     await record(
         session,
         shop_id=profile.shop_id,
         actor=_actor(customer, staff),
-        action="reseller_bot.customized_channel",
+        action=action,
         entity="shop",
         entity_id=child.id,
-        after={"enabled": enabled},
+        after=after,
     )
     await session.commit()
     await state.clear()
-    await message.answer(t("rb_customize_saved"))
-    await show_home(message, session, shop, profile, t)
+    await message.answer(t("rb_channel_added" if raw != "-" else "rb_customize_saved"))
+    await _show_channels(message, session, child, t)

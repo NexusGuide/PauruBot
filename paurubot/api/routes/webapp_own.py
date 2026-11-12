@@ -438,3 +438,98 @@ async def save_features(body: FeaturesBody, ctx: WebApp) -> dict[str, Any]:
     )
     cfg = await shop_settings.load(ctx.session, ctx.shop.id, fresh=True)
     return {"features": _features(cfg, panel)}
+
+
+# ---------------------------------------------------------------- forced-join channels (GRW-07)
+
+_JOIN_STATUS = {"channel_exists": 409, "bot_stopped": 503}
+
+
+def _join_error(exc: Exception) -> HTTPException:
+    from paurubot.core import forced_join
+
+    code = exc.code if isinstance(exc, forced_join.ForcedJoinError) else "channel_not_found"
+    return HTTPException(status_code=_JOIN_STATUS.get(code, 422), detail=code)
+
+
+class ChannelBody(BaseModel):
+    channel: str = Field(min_length=2, max_length=300)
+
+
+class ChannelPatch(BaseModel):
+    is_active: bool
+
+
+@router.get("/channels")
+async def own_channels(ctx: WebApp) -> dict[str, Any]:
+    """The channels this bot's buyers must join; the bot must be an admin in each."""
+    from paurubot.core import forced_join
+
+    await _merchant(ctx)
+    rows = await forced_join.listing(ctx.session, ctx.shop.id)
+    return {"channels": [forced_join.view(r) for r in rows], "limit": forced_join.MAX_CHANNELS}
+
+
+@router.post("/channels")
+async def own_add_channel(body: ChannelBody, ctx: WebApp) -> dict[str, Any]:
+    from paurubot.core import forced_join
+
+    staff = await _merchant(ctx)
+    try:
+        row = await forced_join.add(ctx.session, ctx.shop.id, body.channel)
+    except forced_join.ForcedJoinError as exc:
+        raise _join_error(exc) from None
+    await record(
+        ctx.session,
+        shop_id=ctx.shop.id,
+        actor=staff.actor,
+        action="own.channel.add",
+        entity="channel",
+        entity_id=row.id,
+        after={"chat_id": row.chat_id, "title": row.title},
+    )
+    return {"channel": forced_join.view(row)}
+
+
+@router.put("/channels/{row_id}")
+async def own_set_channel(row_id: int, body: ChannelPatch, ctx: WebApp) -> dict[str, Any]:
+    from paurubot.core import forced_join
+
+    staff = await _merchant(ctx)
+    try:
+        row = await forced_join.owned(ctx.session, ctx.shop.id, row_id)
+    except forced_join.ForcedJoinError:
+        raise HTTPException(status_code=404, detail="channel_not_found") from None
+    row.is_active = body.is_active
+    await ctx.session.flush()
+    await record(
+        ctx.session,
+        shop_id=ctx.shop.id,
+        actor=staff.actor,
+        action="own.channel.set",
+        entity="channel",
+        entity_id=row.id,
+        after={"is_active": body.is_active},
+    )
+    return {"channel": forced_join.view(row)}
+
+
+@router.delete("/channels/{row_id}")
+async def own_remove_channel(row_id: int, ctx: WebApp) -> dict[str, bool]:
+    from paurubot.core import forced_join
+
+    staff = await _merchant(ctx)
+    try:
+        row = await forced_join.owned(ctx.session, ctx.shop.id, row_id)
+    except forced_join.ForcedJoinError:
+        raise HTTPException(status_code=404, detail="channel_not_found") from None
+    await ctx.session.delete(row)
+    await record(
+        ctx.session,
+        shop_id=ctx.shop.id,
+        actor=staff.actor,
+        action="own.channel.remove",
+        entity="channel",
+        entity_id=row_id,
+    )
+    return {"deleted": True}

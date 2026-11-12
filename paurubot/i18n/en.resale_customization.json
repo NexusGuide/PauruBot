@@ -10,7 +10,19 @@
   "rb_customize_text_invalid": "Send a non-empty text up to {max} characters.",
   "rb_customize_logo_ask": "Send a photo to show before /start, or send - to remove it.",
   "rb_customize_logo_invalid": "Send a photo, or - to remove the current image.",
-  "rb_customize_channel_ask": "Send <code>@channel | https://t.me/channel</code>, or - to remove the required channel. The bot must be an admin there.",
+  "rb_customize_channel_ask": "Send the channel's username (like <code>@my_channel</code>) or its link.\nFor a private channel: <code>-100... | https://t.me/+invite</code>\nYour bot must be an <b>admin</b> there. Send <code>-</code> to remove every channel.",
   "rb_customize_channel_invalid": "Format: <code>@channel | https://t.me/channel</code>.",
-  "rb_customize_saved": "✅ Saved."
+  "rb_customize_saved": "✅ Saved.",
+  "rb_channels_title": "📢 Required channels ({n} of {max})",
+  "rb_channels_hint": "Your bot's customers must join these channels before using it. Your bot must be an admin in each. Tap a channel to remove it.",
+  "rb_channel_add": "➕ Add a channel",
+  "rb_channel_remove": "🗑 {title}",
+  "rb_channel_added": "✅ Channel added.",
+  "rb_channel_removed": "Channel removed.",
+  "rb_channel_err_bot_not_admin": "❗️ Your bot is not an admin in this channel. Make it an admin, then send the channel again.",
+  "rb_channel_err_channel_not_found": "❗️ Channel not found. Check the username and that your bot is in the channel.",
+  "rb_channel_err_channel_exists": "This channel is already added.",
+  "rb_channel_err_channel_limit": "You reached the limit of channels.",
+  "rb_channel_err_link_required": "❗️ The channel is private; send its invite link too: <code>-100... | https://t.me/+...</code>",
+  "rb_channel_err_bot_stopped": "❗️ Your bot is not running; turn it on first."
 }

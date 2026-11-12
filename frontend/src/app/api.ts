@@ -117,6 +117,14 @@ export interface StaffAccess {
   own?: boolean;
 }
 
+/** A channel the dedicated bot's buyers must join before using it (GRW-07). */
+export interface OwnChannel {
+  id: number;
+  title: string;
+  url: string;
+  is_active: boolean;
+}
+
 /** The reseller's own admin account its dedicated bot sells from. */
 export interface OwnAccount {
   username: string;
@@ -470,6 +478,10 @@ const send = <T>(method: "PUT" | "DELETE", path: string, body?: unknown) =>
 
 export const api = {
   ownShop: () => get<OwnShop>("/own"),
+  ownChannels: () => get<{ channels: OwnChannel[]; limit: number }>("/own/channels"),
+  ownAddChannel: (channel: string) => post<{ channel: OwnChannel }>("/own/channels", { channel }),
+  ownSetChannel: (id: number, is_active: boolean) => send<{ channel: OwnChannel }>("PUT", `/own/channels/${id}`, { is_active }),
+  ownDeleteChannel: (id: number) => send<{ deleted: boolean }>("DELETE", `/own/channels/${id}`),
   ownPlans: () => get<OwnPlans>("/own/plans"),
   ownCreatePlan: (body: OwnPlanInput) => post<{ plan: OwnPlan }>("/own/plans", body),
   ownUpdatePlan: (id: number, body: OwnPlanInput) => send<{ plan: OwnPlan }>("PUT", `/own/plans/${id}`, body),
