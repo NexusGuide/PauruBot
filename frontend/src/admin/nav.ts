@@ -80,6 +80,7 @@ export const NAV_GROUPS: NavGroup[] = [
         tabs: [
           page("/panels", "nav_panels", "panels", { permission: "panels.read" }),
           page("/connection", "nav_connection", "trend", { permission: "panels.read" }),
+          page("/domains", "nav_domains", "globe", { permission: "settings.read" }),
         ],
       },
     ],

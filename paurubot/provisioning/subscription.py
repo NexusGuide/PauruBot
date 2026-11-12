@@ -71,8 +71,10 @@ ALLOWED_SCHEMES = re.compile(r"^[a-z][a-z0-9+.-]{1,24}://", re.IGNORECASE)
 BLOCKED_SCHEMES = {"javascript", "data", "vbscript", "file", "blob"}
 
 
-def branded_url(service: Service) -> str | None:
-    base = get_settings().public_url
+def branded_url(service: Service, cfg: dict[str, Any] | None = None) -> str | None:
+    """The shop's own link: on its chosen, healthy domain (B4) when there is one, else the main address."""
+    domain = (cfg or {}).get("link_domain")
+    base = f"https://{domain}" if domain else get_settings().public_url.rstrip("/")
     if not base or not service.sub_token:
         return None
     return f"{base}/s/{service.sub_token}"
@@ -89,9 +91,9 @@ def customer_link(service: Service, cfg: dict[str, Any]) -> str | None:
     from paurubot.panels.registry import delivery_of
 
     if delivery_of(service.panel.kind if service.panel is not None else None) != "subscription":
-        return branded_url(service)
+        return branded_url(service, cfg)
     if cfg.get("branded_sub_links"):
-        branded = branded_url(service)
+        branded = branded_url(service, cfg)
         if branded:
             return branded
     return service.subscription_url

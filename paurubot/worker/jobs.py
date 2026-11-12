@@ -1023,6 +1023,15 @@ async def auto_close_tickets() -> None:
         await tickets.auto_close(session)
 
 
+@every(6 * 3600, "domains.check")
+async def check_domains() -> None:
+    """Subscription-link domains: DNS, certificate and that they still reach us (ClockBot parity B4)."""
+    from paurubot.core import domains
+
+    async with session_scope() as session:
+        await domains.run_checks(session)
+
+
 @every(3600, "ticket_media.cleanup")
 async def cleanup_ticket_media() -> None:
     from paurubot.core import ticket_media

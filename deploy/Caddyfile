@@ -1,6 +1,35 @@
+{
+	# Subscription-link domains added in the admin panel (Panels → Domains): Caddy asks the API
+	# before it requests a certificate, so only a registered domain ever gets one.
+	on_demand_tls {
+		ask http://api:8080/internal/tls-ask
+	}
+}
+
 {$DOMAIN} {
 	encode zstd gzip
+	@internal path /internal/*
+	respond @internal 404
 	reverse_proxy api:8080 {
 		header_up X-Forwarded-For {remote_host}
+	}
+}
+
+# Any other name: a shop's subscription-link domain. Certificates come on first use, and these
+# names serve the subscription links only (/s/...); the panel, the Mini App and the API stay on
+# the main domain.
+https:// {
+	tls {
+		on_demand
+	}
+	encode zstd gzip
+	@links path /s/*
+	handle @links {
+		reverse_proxy api:8080 {
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+	handle {
+		respond 404
 	}
 }

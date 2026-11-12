@@ -87,6 +87,11 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/discounts` | `discounts.write` | List codes |
 | POST | `/api/admin/discounts` | `discounts.write` | Create code |
 | GET | `/api/admin/doctor` | `settings.write` | Environment analyser (ADM-08). |
+| PUT | `/api/admin/domains/links` | `panels.secrets` | Links domain |
+| POST | `/api/admin/domains/{domain_id}/check` | `panels.secrets` | Check domain |
+| DELETE | `/api/admin/domains/{domain_id}` | `panels.secrets` | Remove domain |
+| GET | `/api/admin/domains` | `settings.read` | List domains |
+| POST | `/api/admin/domains` | `panels.secrets` | Add domain |
 | GET | `/api/admin/export/{kind}.xlsx` | `dashboard.view` | Excel download of one table, for a date range (FIN-05). |
 | GET | `/api/admin/gift-codes/{code_id}/redemptions` | `discounts.write` | Gift redemptions |
 | PUT | `/api/admin/gift-codes/{code_id}` | `discounts.write` | Update gift |
@@ -399,6 +404,12 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | Method | Path | Access | What it does |
 |---|---|---|---|
 | GET | `/healthz` | public | Healthz |
+
+## `/internal`
+
+| Method | Path | Access | What it does |
+|---|---|---|---|
+| GET | `/internal/tls-ask` | public | Tls ask |
 
 ## `/metrics`
 

@@ -22,6 +22,7 @@ from sqlalchemy import select
 from paurubot import kv
 from paurubot.api.deps import DB
 from paurubot.bot.views import qr_base64, qr_png
+from paurubot.core import domains
 from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import days_left, jdate, size
 from paurubot.db.base import utcnow
@@ -487,6 +488,13 @@ async def sub_js() -> Response:
     )
 
 
+@router.get(domains.MARK_PATH, include_in_schema=False)
+async def domain_mark(request: Request) -> Response:
+    """This install's mark for the host asked for: the domain check reads it (ClockBot parity B4)."""
+    host = (request.headers.get("host") or "").split(":")[0].lower().rstrip(".")
+    return Response(domains.marker(host), media_type="text/plain", headers={"Cache-Control": "no-store"})
+
+
 @router.get("/s/_/{font}", include_in_schema=False)
 async def font_file(font: str) -> Response:
     info = _FONT_FILES.get(font)
@@ -519,8 +527,10 @@ async def _resolve(db: DB, token: str) -> tuple[Service, Shop, Panel] | None:
     return service, shop, panel
 
 
-def _link(service: Service, request: Request) -> str:
-    return subscription.branded_url(service) or f"{str(request.base_url).rstrip('/')}/s/{service.sub_token}"
+def _link(service: Service, request: Request, cfg: dict[str, Any] | None = None) -> str:
+    return (
+        subscription.branded_url(service, cfg) or f"{str(request.base_url).rstrip('/')}/s/{service.sub_token}"
+    )
 
 
 async def _links(panel: Panel, service: Service) -> list[str]:
@@ -587,7 +597,7 @@ async def subscription_qr(token: str, request: Request, db: DB) -> Response:
     if found is None:
         return _not_found()
     service, _, panel = found
-    item: str = _link(service, request)
+    item: str = _link(service, request, await shop_settings.load(db, service.shop_id))
     if "i" in request.query_params:
         try:
             index = int(request.query_params.get("i", ""))
@@ -955,7 +965,7 @@ async def _page(db: DB, request: Request, service: Service, shop: Shop, panel: P
     customer = await db.get(Customer, service.customer_id)
     t = await texts_for(db, shop.id, (customer.locale if customer else None) or shop.default_locale)
     cfg = await shop_settings.load(db, shop.id)
-    link = _link(service, request)
+    link = _link(service, request, cfg)
     title = shop.title or "PauruBot"
     tag = t("sub_page_tag")
     chevron = "‹" if t.locale == "fa" else "›"

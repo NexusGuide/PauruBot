@@ -26,6 +26,8 @@ OPTIONAL_ROUTERS: list[str] = [
     "admin.panels",
     "admin.panel_capabilities",
     "admin.connection",
+    "admin.domains",
+    "tls_ask",
     "admin.growth",
     "admin.people",
     "admin.system",
