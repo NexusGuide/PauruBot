@@ -23,7 +23,7 @@ async function ready(h){h.render();await tick();return h.render();}
 async function preview(h){let tree=await ready(h);const inputs=nodes(tree,n=>n.type==="input");inputs[0].props.onChange({target:{value:"@recipient"}});inputs[1].props.onChange({target:{value:"50"}});tree=h.render();await button(tree,"Preview recipient and amount").props.onClick();return h.render();}
 for (const value of ["50","۵۰","٥٠"]) test(`integer amount accepts ${value}`,()=>assert.equal(sessions.transferAmount(value),50));
 for (const value of ["-1","1e3","5.5","","Infinity","9007199254740992"]) test(`reject malformed amount ${value}`,()=>assert.equal(sessions.transferAmount(value),null));
-test("session token is scoped by authenticated owner and survives reload",()=>{globalThis.sessionStorage=storage();sessions.saveTransfer(1,{quote:q,attempted:true});assert.deepEqual(sessions.readTransfer(1),{quote:q,attempted:true});assert.equal(sessions.readTransfer(2),null);sessions.clearTransfer(1);assert.equal(sessions.readTransfer(1),null);});
+test("session token is scoped by authenticated owner and survives reload",()=>{Object.defineProperty(globalThis,"sessionStorage",{value:storage(),configurable:true,writable:true});sessions.saveTransfer(1,{quote:q,attempted:true});assert.deepEqual(sessions.readTransfer(1),{quote:q,attempted:true});assert.equal(sessions.readTransfer(2),null);sessions.clearTransfer(1);assert.equal(sessions.readTransfer(1),null);});
 test("disabled policy hides new transfer; a failed read exposes read-only retry",async()=>{
  let calls=0;const h=setup({policy:async()=>{if(++calls===1)throw Error("offline");return{enabled:false}}});
  let tree=await ready(h);assert(button(tree,"Retry policy read"));await button(tree,"Retry policy read").props.onClick();assert.equal(h.render(),null);assert.equal(h.calls.confirm.length,0);h.unmount();
@@ -55,7 +55,7 @@ test("unmounted owner ignores a late financial acknowledgement",async()=>{
  const p=deferred(),h=setup({confirm:()=>p.promise});const tree=await preview(h);const pending=button(tree,"Confirm transfer").props.onClick();h.unmount();p.resolve({journal_id:42});await pending;assert.equal(h.done(),0);assert.equal(h.held(),false);
 });
 test("disabled policy can still show and safely retry a previously attempted token",async()=>{
- const store=storage();globalThis.sessionStorage=store;sessions.saveTransfer(1,{quote:q,attempted:true});const h=setup({store,policy:async()=>({enabled:false})});const tree=await ready(h);assert(button(tree,"Retry same confirmation"));assert.equal(button(tree,"Preview recipient and amount"),undefined);h.unmount();
+ const store=storage();Object.defineProperty(globalThis,"sessionStorage",{value:store,configurable:true,writable:true});sessions.saveTransfer(1,{quote:q,attempted:true});const h=setup({store,policy:async()=>({enabled:false})});const tree=await ready(h);assert(button(tree,"Retry same confirmation"));assert.equal(button(tree,"Preview recipient and amount"),undefined);h.unmount();
 });
 test("cancel before confirmation has no financial call and clears saved quote",async()=>{const h=setup();const tree=await preview(h);button(tree,"Cancel").props.onClick();assert.equal(sessions.readTransfer(1),null);assert.equal(h.calls.confirm.length,0);h.unmount();});
 
