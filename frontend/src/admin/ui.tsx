@@ -1252,3 +1252,33 @@ export function Intro({ children }: { children: string }) {
     </div>
   );
 }
+
+/** One titled block of a long form, as a card, so a sheet reads in steps. */
+export function FormCard({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-4 rounded-2xl bg-[var(--bg)] p-4 ring-1 ring-[var(--line)]">
+      <h3 className="text-[0.92rem] font-bold">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+/** The rarely touched part of a form, folded away under "more settings". */
+export function MoreSettings({ children, label }: { children: ReactNode; label?: string }) {
+  const { t } = useSession();
+  return (
+    <details className="group rounded-2xl ring-1 ring-[var(--line)]">
+      <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 px-4 text-[0.9rem] font-bold text-[var(--hint)] hover:text-[var(--text)]">
+        <Icon name="settings" size={18} />
+        <span className="flex-1">{label ?? t("more_settings")}</span>
+        <Icon name="down" size={18} className="transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="flex flex-col gap-5 border-t border-[var(--line)] p-4">{children}</div>
+    </details>
+  );
+}
+
+/** A small heading inside a folded settings block. */
+export function SubHead({ children }: { children: ReactNode }) {
+  return <h4 className="-mb-2 text-[0.78rem] font-bold uppercase tracking-wide text-[var(--hint)]">{children}</h4>;
+}

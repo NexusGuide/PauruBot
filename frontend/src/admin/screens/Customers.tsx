@@ -36,7 +36,7 @@ import { GiftAllButton } from "./Tools";
 import { BulkMessageButton, DeleteCustomerButton, NewCustomerButton } from "./ClockTools";
 import { CustomerPhoto, QuickRenewButton, TestCustomerToggle } from "./ClockTools2";
 import { HiddenPanels } from "./People";
-import { ServiceTable } from "./Services";
+import { ServiceCards } from "./Services";
 
 const RISKS = ["none", "low", "medium", "high"];
 const COLORS = ["red", "orange", "yellow", "green", "blue", "purple"];
@@ -622,11 +622,7 @@ export function CustomerPage() {
               ]}
             />
 
-            {tab === "services" && (
-              <Section flush>
-                <ServiceTable rows={detail.services} />
-              </Section>
-            )}
+            {tab === "services" && <ServiceCards rows={detail.services} />}
 
             {tab === "orders" && (
               <Section flush>
@@ -682,7 +678,7 @@ export function CustomerPage() {
 
             {tab === "profile" && (
               <>
-            <Section>
+            <Section title={t("cust_info")}>
               <Facts
                 items={[
                   [t("wallet_balance"), <Money key="b" amount={detail.balance} />],
@@ -699,8 +695,10 @@ export function CustomerPage() {
                   ...(c.is_banned ? ([[t("ban_reason"), c.ban_reason || "—"]] as [string, string][]) : []),
                 ]}
               />
+            </Section>
               {can("customers.write") && (
-                <div className="mt-4 grid gap-3 border-t border-[var(--line)] pt-4 sm:grid-cols-2">
+              <Section title={t("cust_markers")}>
+                <div className="grid gap-4 sm:grid-cols-2">
                   <Field label={t("customer_color")} hint={t("customer_color_hint")}>
                     {(fid) => (
                       <Select id={fid} value={c.color ?? ""} onChange={(e) => void saveMarkers({ color: e.target.value || null })}>
@@ -743,9 +741,9 @@ export function CustomerPage() {
                     />
                   </div>
                 </div>
+              </Section>
               )}
-              <div className="mt-4 border-t border-[var(--line)] pt-4">
-                <p className="mb-1.5 text-[0.82rem] font-semibold">{t("staff_note")}</p>
+              <Section title={t("staff_note")}>
                 {note === null ? (
                   <button
                     type="button"
@@ -768,7 +766,6 @@ export function CustomerPage() {
                     </div>
                   </div>
                 )}
-              </div>
             </Section>
 
             {can("resellers.manage") && me?.role !== "reseller" && <OwnBotSection customerId={c.id} />}

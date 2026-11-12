@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { money } from "@shared/format";
 import { ApiError, call, type PanelRow, type Service } from "../api";
@@ -9,11 +9,13 @@ import {
   Async,
   Badge,
   BulkBar,
+  Bytes,
   Button,
   Chips,
   CopyText,
-  Facts,
+  Empty,
   Field,
+  Icon,
   Input,
   NumberInput,
   Page,
@@ -113,7 +115,7 @@ function ServiceSheet({
   onClose: () => void;
   onChange: (service: Service) => void;
 }) {
-  const { t, can, me, toast, errorText } = useSession();
+  const { t, can, me, locale, toast, errorText } = useSession();
   const typedConfirm = useTypedConfirm();
   const [busy, run] = useAction();
   const [days, setDays] = useState<number | null>(null);
@@ -172,120 +174,238 @@ function ServiceSheet({
     await act("delete", { reason: reason.trim() || null, notify });
   };
 
+  const left = service.expire_at ? Math.max(0, Math.ceil((new Date(service.expire_at).getTime() - Date.now()) / 86_400_000)) : null;
+  const ratio = service.data_limit > 0 ? Math.min(1, service.used_bytes / service.data_limit) : 0;
+  const tile =
+    "flex min-h-[4.25rem] flex-col items-center justify-center gap-1.5 rounded-2xl bg-[var(--surface-2)] px-1 text-[0.76rem] font-semibold ring-1 ring-[var(--line)] transition-colors hover:brightness-125 disabled:opacity-50";
+  const fold = (title: string, children: ReactNode, danger = false) => (
+    <details className={`group rounded-2xl ring-1 ${danger ? "ring-anar-100" : "ring-[var(--line)]"}`}>
+      <summary className={`flex min-h-12 cursor-pointer list-none items-center justify-between gap-2 px-4 font-bold ${danger ? "text-anar-700" : ""}`}>
+        {title}
+        <Icon name="down" size={18} className="text-[var(--hint)] transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="flex flex-col gap-3 border-t border-[var(--line)] p-4">{children}</div>
+    </details>
+  );
   return (
     <Sheet open onClose={onClose} title={service.label || service.panel_username} wide>
-      <div className="flex flex-col gap-6">
-        <Facts
-          items={[
-            [
-              t("col_status"),
-              <span key="st" className="inline-flex items-center gap-2">
-                <Status value={service.status} />
-                {service.status === "disabled" && service.disabled_reason && (
-                  <span className="text-[0.78rem] text-[var(--hint)]">{t(`disabled_by_${service.disabled_reason}`)}</span>
+      <div className="flex flex-col gap-5">
+        <section className="flex flex-col gap-3 rounded-2xl bg-[var(--bg)] p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Status value={service.status} />
+            {service.is_trial && <Badge tone="brand">{t("trial")}</Badge>}
+            {service.status === "disabled" && service.disabled_reason && (
+              <span className="text-[0.78rem] text-[var(--hint)]">{t(`disabled_by_${service.disabled_reason}`)}</span>
+            )}
+            <span className="flex-1" />
+            <span className="text-[0.8rem] text-[var(--hint)]">{service.panel}</span>
+          </div>
+          <div className="flex items-end justify-between gap-3">
+            <div className="flex flex-col">
+              <span className="text-[0.75rem] text-[var(--hint)]">{t("col_usage")}</span>
+              <span className="text-[1.05rem] font-extrabold">
+                <Bytes value={service.used_bytes} />
+                {service.data_limit > 0 && (
+                  <span className="text-[0.8rem] font-semibold text-[var(--hint)]">
+                    {" "}
+                    / <Bytes value={service.data_limit} />
+                  </span>
                 )}
-              </span>,
-            ],
-            [t("col_customer"), <Link key="c" className="text-firouzeh-700" to={`/customers/${service.customer_id}`}>{service.customer ?? `#${service.customer_id}`}</Link>],
-            [t("col_panel"), service.panel],
-            [t("panel_username"), <span key="u" dir="ltr">{service.panel_username}</span>],
-            [t("col_usage"), <Usage key="us" used={service.used_bytes} limit={service.data_limit} />],
-            [t("col_expires"), service.expire_at ? <When key="e" iso={service.expire_at} time /> : t("never")],
-            [t("synced_at"), <When key="sy" iso={service.synced_at} time />],
-            [t("col_created"), <When key="cr" iso={service.created_at} time />],
-          ]}
-        />
-        {service.branded_url && (
-          <div className="flex flex-col gap-1">
-            <p className="text-[0.78rem] text-[var(--hint)]">{t("branded_link")}</p>
-            <CopyText text={service.branded_url} />
+              </span>
+            </div>
+            <div className="flex flex-col items-end">
+              <span className="text-[0.75rem] text-[var(--hint)]">{t("col_expires")}</span>
+              <span className={`text-[1.05rem] font-extrabold ${left !== null && left <= 3 ? "text-saffron-700" : ""}`}>
+                {left === null ? t("never") : service.status === "active" ? t("cust_days_left", { n: money(left, locale) }) : <When iso={service.expire_at} />}
+              </span>
+            </div>
           </div>
-        )}
-        {service.subscription_url && (
-          <div className="flex flex-col gap-1">
-            <p className="text-[0.78rem] text-[var(--hint)]">{t("subscription_link")}</p>
-            <CopyText text={service.subscription_url} />
-          </div>
-        )}
-        <ServiceNote service={service} writable={writable} onChange={onChange} />
-        <div className="flex flex-wrap gap-2">
-          <Button icon="refresh" busy={busy} onClick={() => void refresh()}>
+          {service.data_limit > 0 && (
+            <div className="h-2 overflow-hidden rounded-full bg-[var(--surface-2)]">
+              <div
+                className={`h-full rounded-full ${ratio >= 1 ? "bg-anar-500" : ratio >= 0.85 ? "bg-saffron-500" : "bg-[var(--accent)]"}`}
+                style={{ width: `${ratio * 100}%` }}
+              />
+            </div>
+          )}
+          <p className="flex flex-wrap gap-x-3 gap-y-1 text-[0.74rem] text-[var(--hint)]">
+            <span>
+              <Link className="font-semibold text-firouzeh-700" to={`/customers/${service.customer_id}`}>
+                <bdi>{service.customer ?? `#${service.customer_id}`}</bdi>
+              </Link>
+            </span>
+            <span dir="ltr">{service.panel_username}</span>
+            <span>
+              {t("synced_at")}: <When iso={service.synced_at} time />
+            </span>
+          </p>
+        </section>
+
+        <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <button type="button" className={tile} disabled={busy} onClick={() => void refresh()}>
+            <Icon name="refresh" size={19} className="text-[var(--accent)]" />
             {t("refresh_from_panel")}
-          </Button>
+          </button>
           {writable && (
             <>
               {service.status === "disabled" ? (
-                <Button busy={busy} onClick={() => void act("enable")}>
+                <button type="button" className={tile} disabled={busy} onClick={() => void act("enable")}>
+                  <Icon name="check" size={19} className="text-pista-700" />
                   {t("enable")}
-                </Button>
+                </button>
               ) : (
-                <Button busy={busy} onClick={() => void act("disable", { reason: reason.trim() || null, notify })}>
+                <button type="button" className={tile} disabled={busy} onClick={() => void act("disable", { reason: reason.trim() || null, notify })}>
+                  <Icon name="close" size={19} className="text-saffron-700" />
                   {t("disable")}
-                </Button>
+                </button>
               )}
-              <Button busy={busy} onClick={() => void act("revoke")}>
+              <button type="button" className={tile} disabled={busy} onClick={() => void act("revoke")}>
+                <Icon name="link" size={19} className="text-[var(--accent)]" />
                 {t("revoke_link")}
-              </Button>
-              <Button busy={busy} onClick={() => void act("reset_usage")}>
+              </button>
+              <button type="button" className={tile} disabled={busy} onClick={() => void act("reset_usage")}>
+                <Icon name="trend" size={19} className="text-[var(--accent)]" />
                 {t("reset_usage")}
-              </Button>
+              </button>
             </>
           )}
-        </div>
-        {writable && me?.role !== "reseller" && (
-          <section className="flex flex-col gap-3 rounded-2xl bg-[var(--bg)] p-4">
-            <h3 className="font-bold">{t("gift_title")}</h3>
-            <p className="text-[0.82rem] text-[var(--hint)]">{t("gift_hint")}</p>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label={t("extra_days")}>{(id) => <NumberInput id={id} value={days} onChange={setDays} allowEmpty />}</Field>
-              <Field label={t("extra_gb")}>{(id) => <NumberInput id={id} value={gb} onChange={setGb} allowEmpty />}</Field>
-            </div>
-            <Button
-              tone="primary"
-              busy={busy}
-              disabled={!days && !gb}
-              onClick={() => void act("extend", { days: days ?? 0, gb: gb ?? 0 })}
-            >
-              {t("apply_gift")}
-            </Button>
+        </section>
+
+        {(service.branded_url || service.subscription_url) && (
+          <section className="flex flex-col gap-2 rounded-2xl p-1">
+            {service.branded_url && (
+              <div className="flex flex-col gap-1">
+                <p className="text-[0.76rem] font-semibold text-[var(--hint)]">{t("branded_link")}</p>
+                <CopyText text={service.branded_url} short />
+              </div>
+            )}
+            {service.subscription_url && (
+              <div className="flex flex-col gap-1">
+                <p className="text-[0.76rem] font-semibold text-[var(--hint)]">{t("subscription_link")}</p>
+                <CopyText text={service.subscription_url} short />
+              </div>
+            )}
           </section>
         )}
-        {writable && service.status !== "deleted" && panels.data && (
-          <section className="flex flex-col gap-3 rounded-2xl bg-[var(--bg)] p-4">
-            <h3 className="font-bold">{t("svc_move_title")}</h3>
-            <p className="text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("svc_move_hint")}</p>
-            <Field label={t("svc_move_target")}>
-              {(id) => (
-                <Select id={id} value={moveTo} onChange={(event) => setMoveTo(event.target.value)}>
-                  <option value="">{t("svc_move_pick_panel")}</option>
-                  {panels.data?.items
-                    .filter((panel) => panel.id !== service.panel_id && panel.is_active)
-                    .map((panel) => (
-                      <option key={panel.id} value={panel.id}>
-                        {panel.name}
-                      </option>
-                    ))}
-                </Select>
-              )}
-            </Field>
-            <Button busy={busy} disabled={!moveTo} onClick={() => void move()}>
-              {t("svc_move_start")}
-            </Button>
-          </section>
-        )}
-        {writable && service.status !== "deleted" && (
-          <section className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
-            <Field label={t("delete_reason")} hint={t("reason_shown_to_customer")}>
-              {(id) => <Input id={id} value={reason} maxLength={255} onChange={(event) => setReason(event.target.value)} />}
-            </Field>
-            <Toggle checked={notify} onChange={setNotify} label={t("notify_customer")} hint={t("notify_customer_hint")} />
-            <Button tone="danger" busy={busy} onClick={() => void remove()}>
-              {t("delete_service")}
-            </Button>
-          </section>
-        )}
+
+        {writable &&
+          me?.role !== "reseller" &&
+          fold(
+            t("gift_title"),
+            <>
+              <p className="text-[0.82rem] text-[var(--hint)]">{t("gift_hint")}</p>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label={t("extra_days")}>{(id) => <NumberInput id={id} value={days} onChange={setDays} allowEmpty />}</Field>
+                <Field label={t("extra_gb")}>{(id) => <NumberInput id={id} value={gb} onChange={setGb} allowEmpty />}</Field>
+              </div>
+              <Button tone="primary" busy={busy} disabled={!days && !gb} onClick={() => void act("extend", { days: days ?? 0, gb: gb ?? 0 })}>
+                {t("apply_gift")}
+              </Button>
+            </>,
+          )}
+        {writable &&
+          service.status !== "deleted" &&
+          panels.data &&
+          fold(
+            t("svc_move_title"),
+            <>
+              <p className="text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("svc_move_hint")}</p>
+              <Field label={t("svc_move_target")}>
+                {(id) => (
+                  <Select id={id} value={moveTo} onChange={(event) => setMoveTo(event.target.value)}>
+                    <option value="">{t("svc_move_pick_panel")}</option>
+                    {panels.data?.items
+                      .filter((panel) => panel.id !== service.panel_id && panel.is_active)
+                      .map((panel) => (
+                        <option key={panel.id} value={panel.id}>
+                          {panel.name}
+                        </option>
+                      ))}
+                  </Select>
+                )}
+              </Field>
+              <Button busy={busy} disabled={!moveTo} onClick={() => void move()}>
+                {t("svc_move_start")}
+              </Button>
+            </>,
+          )}
+
+        <ServiceNote service={service} writable={writable} onChange={onChange} />
+
+        {writable &&
+          service.status !== "deleted" &&
+          fold(
+            t("delete_service"),
+            <>
+              <Field label={t("delete_reason")} hint={t("reason_shown_to_customer")}>
+                {(id) => <Input id={id} value={reason} maxLength={255} onChange={(event) => setReason(event.target.value)} />}
+              </Field>
+              <Toggle checked={notify} onChange={setNotify} label={t("notify_customer")} hint={t("notify_customer_hint")} />
+              <Button tone="danger" busy={busy} onClick={() => void remove()}>
+                {t("delete_service")}
+              </Button>
+            </>,
+            true,
+          )}
       </div>
     </Sheet>
+  );
+}
+
+/** A customer's services as cards: name, panel, status, a usage bar and the days left. */
+export function ServiceCards({ rows }: { rows: Service[] }) {
+  const { t, locale } = useSession();
+  const [open, setOpen] = useState<Service | null>(null);
+  if (rows.length === 0) return <Empty title={t("cust_no_service")} />;
+  return (
+    <>
+      <ul className="grid gap-3 md:grid-cols-2">
+        {rows.map((s) => {
+          const left = s.expire_at ? Math.max(0, Math.ceil((new Date(s.expire_at).getTime() - Date.now()) / 86_400_000)) : null;
+          const ratio = s.data_limit > 0 ? Math.min(1, s.used_bytes / s.data_limit) : 0;
+          return (
+            <li key={s.id}>
+              <button
+                type="button"
+                onClick={() => setOpen(s)}
+                className="flex w-full flex-col gap-3 rounded-[18px] bg-[var(--surface)] p-4 text-start ring-1 ring-[var(--line)] transition-colors hover:bg-[var(--surface-2)]"
+              >
+                <span className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate font-bold" dir="auto">
+                    {s.label || s.panel_username}
+                  </span>
+                  {s.is_trial && <Badge tone="brand">{t("trial")}</Badge>}
+                  <Status value={s.status} />
+                </span>
+                <span className="flex items-center justify-between text-[0.8rem]">
+                  <span className="text-[var(--hint)]">
+                    {s.panel ?? "—"} · <Bytes value={s.used_bytes} />
+                    {s.data_limit > 0 && (
+                      <>
+                        {" / "}
+                        <Bytes value={s.data_limit} />
+                      </>
+                    )}
+                  </span>
+                  <span className={`font-bold ${left !== null && left <= 3 && s.status === "active" ? "text-saffron-700" : ""}`}>
+                    {left === null ? t("never") : s.status === "active" ? t("cust_days_left", { n: money(left, locale) }) : <When iso={s.expire_at} />}
+                  </span>
+                </span>
+                {s.data_limit > 0 && (
+                  <span className="block h-1.5 overflow-hidden rounded-full bg-[var(--surface-2)]">
+                    <span
+                      className={`block h-full rounded-full ${ratio >= 1 ? "bg-anar-500" : ratio >= 0.85 ? "bg-saffron-500" : "bg-[var(--accent)]"}`}
+                      style={{ width: `${ratio * 100}%` }}
+                    />
+                  </span>
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      {open && <ServiceSheet service={open} onClose={() => setOpen(null)} onChange={setOpen} />}
+    </>
   );
 }
 
