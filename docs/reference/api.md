@@ -320,6 +320,10 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/orders/{order_id}/renewal-preview` | Mini App initData | Get renewal preview |
 | GET | `/api/webapp/orders/{order_id}` | Mini App initData | Get order |
 | POST | `/api/webapp/orders` | Mini App initData | Create order |
+| DELETE | `/api/webapp/own/channels/{row_id}` | Mini App initData | Own remove channel |
+| PUT | `/api/webapp/own/channels/{row_id}` | Mini App initData | Own set channel |
+| GET | `/api/webapp/own/channels` | Mini App initData | The channels this bot's buyers must join; the bot must be an admin in each. |
+| POST | `/api/webapp/own/channels` | Mini App initData | Own add channel |
 | PUT | `/api/webapp/own/features` | Mini App initData | Save features |
 | GET | `/api/webapp/own/payment` | Mini App initData | Payment |
 | PUT | `/api/webapp/own/payment` | Mini App initData | Save payment |

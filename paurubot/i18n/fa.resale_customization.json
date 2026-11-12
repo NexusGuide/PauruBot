@@ -10,7 +10,19 @@
   "rb_customize_text_invalid": "یک متن غیرخالی تا {max} نویسه بفرستید.",
   "rb_customize_logo_ask": "یک عکس برای نمایش قبل از /start بفرستید، یا برای حذف عکس - را بفرستید.",
   "rb_customize_logo_invalid": "یک عکس یا برای حذف تصویر فعلی - را بفرستید.",
-  "rb_customize_channel_ask": "<code>@channel | https://t.me/channel</code> را بفرستید، یا برای حذف کانال اجباری - را بفرستید. ربات باید در کانال ادمین باشد.",
+  "rb_customize_channel_ask": "یوزرنیم کانال (مثل <code>@my_channel</code>) یا لینک آن را بفرستید.\nبرای کانال خصوصی: <code>-100... | https://t.me/+لینک‌دعوت</code>\nربات شما باید در کانال <b>ادمین</b> باشد. برای حذف همه کانال‌ها <code>-</code> بفرستید.",
   "rb_customize_channel_invalid": "قالب صحیح: <code>@channel | https://t.me/channel</code>.",
-  "rb_customize_saved": "✅ ذخیره شد."
+  "rb_customize_saved": "✅ ذخیره شد.",
+  "rb_channels_title": "📢 کانال‌های عضویت اجباری ({n} از {max})",
+  "rb_channels_hint": "مشتری‌های ربات شما تا عضو این کانال‌ها نشوند نمی‌توانند از ربات استفاده کنند. ربات شما باید در هر کانال ادمین باشد. برای حذف، روی کانال بزنید.",
+  "rb_channel_add": "➕ افزودن کانال",
+  "rb_channel_remove": "🗑 {title}",
+  "rb_channel_added": "✅ کانال اضافه شد.",
+  "rb_channel_removed": "کانال حذف شد.",
+  "rb_channel_err_bot_not_admin": "❗️ ربات شما در این کانال ادمین نیست. اول ربات را ادمین کانال کنید و دوباره همین را بفرستید.",
+  "rb_channel_err_channel_not_found": "❗️ این کانال پیدا نشد. یوزرنیم را درست بفرستید و مطمئن شوید ربات شما عضو کانال است.",
+  "rb_channel_err_channel_exists": "این کانال قبلاً اضافه شده.",
+  "rb_channel_err_channel_limit": "به سقف تعداد کانال‌ها رسیدید.",
+  "rb_channel_err_link_required": "❗️ کانال خصوصی است؛ لینک دعوت را هم بفرستید: <code>-100... | https://t.me/+...</code>",
+  "rb_channel_err_bot_stopped": "❗️ ربات شما روشن نیست؛ اول آن را روشن کنید."
 }
