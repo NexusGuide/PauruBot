@@ -125,6 +125,14 @@ export interface OwnChannel {
   is_active: boolean;
 }
 
+/** Who runs a dedicated bot: its owner first, then the admins the owner added. */
+export interface OwnAdmins {
+  admins: { telegram_id: number; owner: boolean; name: string }[];
+  max: number;
+  /** Only the owner may add or remove admins. */
+  can_edit: boolean;
+}
+
 /** The reseller's own admin account its dedicated bot sells from. */
 export interface OwnAccount {
   username: string;
@@ -482,6 +490,9 @@ export const api = {
   ownAddChannel: (channel: string) => post<{ channel: OwnChannel }>("/own/channels", { channel }),
   ownSetChannel: (id: number, is_active: boolean) => send<{ channel: OwnChannel }>("PUT", `/own/channels/${id}`, { is_active }),
   ownDeleteChannel: (id: number) => send<{ deleted: boolean }>("DELETE", `/own/channels/${id}`),
+  ownAdmins: () => get<OwnAdmins>("/own/admins"),
+  ownAddAdmin: (telegram_id: number) => post<OwnAdmins>("/own/admins", { telegram_id }),
+  ownRemoveAdmin: (telegram_id: number) => send<OwnAdmins>("DELETE", `/own/admins/${telegram_id}`),
   ownPlans: () => get<OwnPlans>("/own/plans"),
   ownCreatePlan: (body: OwnPlanInput) => post<{ plan: OwnPlan }>("/own/plans", body),
   ownUpdatePlan: (id: number, body: OwnPlanInput) => send<{ plan: OwnPlan }>("PUT", `/own/plans/${id}`, body),

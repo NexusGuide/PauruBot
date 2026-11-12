@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { date, daysLeft, digits, gb, money } from "@shared/format";
-import { api, type OwnChannel, type OwnExtra, type OwnFeatures, type OwnPlan, type OwnPlanInput, type OwnShop } from "../api";
+import { api, type OwnAdmins as OwnAdminsData, type OwnChannel, type OwnExtra, type OwnFeatures, type OwnPlan, type OwnPlanInput, type OwnShop } from "../api";
 import { Icon } from "../icons";
 import { errorText, useApp } from "../state";
 import { haptic, tg } from "../telegram";
@@ -125,6 +125,7 @@ export function OwnHome() {
           to="/shop/features"
         />
         <Item icon={<Icon name="send" />} title={t("own_channels")} sub={t("own_channels_sub")} to="/shop/channels" />
+        <Item icon={<Icon name="user" />} title={t("own_admins")} sub={t("own_admins_sub")} to="/shop/admins" />
         <Item icon={<Icon name="gauge" />} title={t("own_status")} sub={t("own_status_sub")} to="/shop/status" />
         <Item
           icon={<Icon name="check" />}
@@ -617,6 +618,102 @@ export function OwnChannels() {
       )}
       {!full && (
         <Button busy={busy === "add"} disabled={channel.trim().length < 2} onClick={() => void add()}>{t("own_channel_add")}</Button>
+      )}
+    </Screen>
+  );
+}
+
+/** The bot's admins: the owner adds and removes them; an added admin only sees the list. */
+export function OwnAdmins() {
+  const { t, locale, toast } = useApp();
+  const load = useCallback(() => api.ownAdmins(), []);
+  const { data, error, loading, retry } = useResource(load);
+  const [view, setView] = useState<OwnAdminsData | null>(null);
+  const [adminId, setAdminId] = useState("");
+  const [busy, setBusy] = useState<number | "add" | null>(null);
+
+  useEffect(() => {
+    if (data) setView(data);
+  }, [data]);
+
+  if (error) return <Screen title={t("own_admins")} backTo="/shop"><ReadFailure error={error} retry={retry} /></Screen>;
+  if (loading || view === null) return <Loading />;
+  const extra = view.admins.filter((a) => !a.owner).length;
+
+  const run = async (key: number | "add", fn: () => Promise<OwnAdminsData>, done: string) => {
+    setBusy(key);
+    try {
+      setView(await fn());
+      haptic("success");
+      toast(t(done));
+    } catch (err) {
+      haptic("error");
+      toast(errorText(t, err), "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+  const add = async () => {
+    await run("add", () => api.ownAddAdmin(Number(adminId)), "own_admin_added");
+    setAdminId("");
+  };
+
+  return (
+    <Screen title={t("own_admins")} backTo="/shop">
+      <p className="mb-4 text-sm leading-7 text-[var(--hint)]">{t("own_admins_intro")}</p>
+      <div className="app-card mb-4">
+        {view.admins.map((admin) => (
+          <div key={admin.telegram_id} className="flex items-center gap-3 px-4 py-3">
+            <span className="min-w-0 flex-1">
+              <b className="num block text-[0.95rem]"><bdi dir="ltr">{admin.telegram_id}</bdi></b>
+              {admin.name && <small className="block truncate text-xs text-[var(--hint)]"><bdi dir="auto">{admin.name}</bdi></small>}
+            </span>
+            {admin.owner ? (
+              <span className="rounded-full bg-[var(--surface-2,rgba(0,0,0,0.06))] px-2.5 py-0.5 text-xs font-semibold">{t("own_admin_owner")}</span>
+            ) : (
+              view.can_edit && (
+                <button
+                  type="button"
+                  aria-label={t("own_admin_remove")}
+                  disabled={busy === admin.telegram_id}
+                  onClick={() => {
+                    if (window.confirm(t("own_admin_remove_confirm", { id: String(admin.telegram_id) })))
+                      void run(admin.telegram_id, () => api.ownRemoveAdmin(admin.telegram_id), "own_admin_removed");
+                  }}
+                  className="grid size-9 place-items-center rounded-full text-anar-700"
+                >
+                  <Icon name="trash" />
+                </button>
+              )
+            )}
+          </div>
+        ))}
+      </div>
+      {!view.can_edit ? (
+        <Note>{t("own_admins_owner_only")}</Note>
+      ) : extra >= view.max ? (
+        <Note>{t("own_admins_full", { max: digits(view.max, locale) })}</Note>
+      ) : (
+        <>
+          <Panel className="mb-4">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-sm font-semibold">{t("own_admin_id")}</span>
+              <input
+                dir="ltr"
+                inputMode="numeric"
+                value={adminId}
+                placeholder="8697735343"
+                maxLength={14}
+                onChange={(e) => setAdminId(e.target.value.replace(/[^0-9]/g, ""))}
+                className="w-full"
+              />
+            </label>
+            <small className="mt-2 block text-xs leading-6 text-[var(--hint)]">{t("own_admin_id_hint", { max: digits(view.max, locale) })}</small>
+          </Panel>
+          <Button busy={busy === "add"} disabled={!/^[1-9][0-9]{4,12}$/.test(adminId)} onClick={() => void add()}>
+            {t("own_admin_add")}
+          </Button>
+        </>
       )}
     </Screen>
   );
