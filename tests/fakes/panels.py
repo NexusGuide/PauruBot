@@ -67,6 +67,12 @@ class FakeTokenPanel:
                 return httpx.Response(422, json={"detail": [{"msg": "Value error, weak password"}]})
             if body["username"] in self.sold_admins:
                 return httpx.Response(409, json={"detail": "Admin already exists"})
+            tg = body.get("telegram_id")
+            if tg and any(a.get("telegram_id") == tg for a in self.sold_admins.values()):
+                # PasarGuard keeps one admin per Telegram id.
+                return httpx.Response(
+                    409, json={"detail": "Telegram ID is already assigned to another admin."}
+                )
             if body.get("role_id") not in {r["id"] for r in self.roles}:
                 return httpx.Response(404, json={"detail": "Role not found"})
             self.sold_admins[body["username"]] = {

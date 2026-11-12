@@ -110,7 +110,7 @@ BULK_LIMIT = 5000
 def service_out(service: Service) -> dict[str, Any]:
     data = plain(service, SERVICE_FIELDS)
     data["panel"] = service.panel.name if service.panel else None
-    data["customer"] = service.customer.display_name if service.customer else None
+    data["customer"] = service.customer.staff_label if service.customer else None
     data["branded_url"] = branded_url(service)
     return data
 
@@ -1041,7 +1041,7 @@ async def trial_users(
             {
                 "customer": {
                     "id": c.id,
-                    "name": c.display_name,
+                    "name": c.staff_label,
                     "username": c.username,
                     "banned": c.is_banned,
                 },

@@ -413,7 +413,7 @@ async def list_stock(plan_id: int, ctx: Writer, db: DB, status: str | None = Non
                 "created_at": item.created_at.isoformat(),
                 "sold_at": item.sold_at.isoformat() if item.sold_at else None,
                 "customer_id": item.customer_id,
-                "customer": customer.display_name if customer else None,
+                "customer": customer.staff_label if customer else None,
                 "order_id": item.order_id,
             }
         )

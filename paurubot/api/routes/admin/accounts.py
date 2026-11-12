@@ -216,7 +216,7 @@ async def archive_account_plan(row_id: int, ctx: Manager, db: DB) -> dict[str, A
 
 def _account_row(account: PanelAccount, customer: Customer | None) -> dict[str, Any]:
     out = plain(account, ACCOUNT_FIELDS)
-    out["customer"] = customer.display_name if customer else None
+    out["customer"] = customer.staff_label if customer else None
     out["telegram_id"] = customer.telegram_id if customer else None
     out["plan"] = account.plan.title if account.plan else None
     out["panel"] = account.panel.name if account.panel else None

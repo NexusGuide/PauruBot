@@ -162,7 +162,7 @@ async def inbox(ctx: Viewer, db: DB) -> dict[str, Any]:
                     "type": "payment",
                     "id": p.id,
                     "amount": p.amount,
-                    "customer": p.customer.display_name,
+                    "customer": p.customer.staff_label,
                     "duplicate_of": p.duplicate_of_id,
                     "at": p.updated_at.isoformat(),
                 }

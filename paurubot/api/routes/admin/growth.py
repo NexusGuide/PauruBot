@@ -592,7 +592,7 @@ async def gift_redemptions(
             {
                 "id": r.id,
                 "customer_id": c.id,
-                "customer": c.display_name,
+                "customer": c.staff_label,
                 "amount": r.amount,
                 "at": r.created_at.isoformat(),
             }

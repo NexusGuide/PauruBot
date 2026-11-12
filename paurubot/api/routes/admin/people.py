@@ -135,7 +135,7 @@ async def resellers(ctx: Manager, db: DB) -> dict[str, Any]:
         "profiles": [
             {
                 **plain(p, PROFILE_FIELDS),
-                "customer": c.display_name,
+                "customer": c.staff_label,
                 "telegram_id": c.telegram_id,
                 "balance": balances.get(c.id, 0),
                 "discount_percent": p.discount_percent,
@@ -147,7 +147,7 @@ async def resellers(ctx: Manager, db: DB) -> dict[str, Any]:
             {
                 "id": a.id,
                 "customer_id": c.id,
-                "customer": c.display_name,
+                "customer": c.staff_label,
                 "text": a.text,
                 "created_at": a.created_at.isoformat(),
             }
@@ -503,7 +503,7 @@ async def sub_resellers(ctx: SubManager, db: DB) -> dict[str, Any]:
         "items": [
             {
                 **plain(r, SUB_FIELDS),
-                "customer": names[r.customer_id].display_name if r.customer_id in names else None,
+                "customer": names[r.customer_id].staff_label if r.customer_id in names else None,
                 "telegram_id": names[r.customer_id].telegram_id if r.customer_id in names else None,
                 "discount_percent": r.discount_percent,
                 "balance": balances.get(r.customer_id, 0),
@@ -783,7 +783,7 @@ async def list_tickets(
         stmt = stmt.where(waiting if awaiting else ~waiting)
     rows, total = await paginate(db, stmt.order_by(Ticket.updated_at.desc()), page)
     names = {
-        c.id: c.display_name
+        c.id: c.staff_label
         for c in await db.scalars(select(Customer).where(Customer.id.in_([t.customer_id for t in rows])))
     }
     return {
@@ -848,7 +848,7 @@ async def ticket_detail(
     messages = await tickets.messages(db, ticket.id, limit=200, include_internal=staff_view)
     return {
         "ticket": _ticket_row(ticket),
-        "customer": customer.display_name if customer else None,
+        "customer": customer.staff_label if customer else None,
         "messages": [
             plain(m, MESSAGE_FIELDS)
             | {
