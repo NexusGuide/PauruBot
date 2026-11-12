@@ -607,3 +607,24 @@ async def test_an_archived_plan_stops_new_sales_but_its_buyers_keep_renewing(ses
     with pytest.raises(orders.OrderError) as exc:
         await panel_accounts.draft(session, cust, OrderKind.ACCOUNT_RENEW, account=account)
     assert exc.value.key == "account_not_renewable"
+
+
+async def test_a_second_account_on_the_same_panel_is_created_without_the_telegram_id(session, env) -> None:  # type: ignore[no-untyped-def]
+    """PasarGuard gives one admin per Telegram id. A customer's second account there (or one whose id
+    an admin made by hand already has) was refused with 409, retried and refunded; it is now made
+    without the id, which only drives the panel's own notices."""
+    fake = env["fake"]
+    cust = await _buyer(session, env["shop"])
+    _, first = await _bought(session, env, cust)
+    _, second = await _bought(session, env, cust)
+    assert fake.sold_admins[first.username]["telegram_id"] == cust.telegram_id
+    assert "telegram_id" not in fake.sold_admins[second.username]
+    assert second.status == "active" and second.username != first.username
+
+
+async def test_an_id_already_on_a_hand_made_admin_does_not_block_the_sale(session, env) -> None:  # type: ignore[no-untyped-def]
+    fake = env["fake"]
+    cust = await _buyer(session, env["shop"])
+    fake.sold_admins["made_by_hand"] = {"username": "made_by_hand", "telegram_id": cust.telegram_id}
+    _, account = await _bought(session, env, cust)
+    assert "telegram_id" not in fake.sold_admins[account.username]

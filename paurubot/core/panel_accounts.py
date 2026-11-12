@@ -377,6 +377,11 @@ async def _driver(session: AsyncSession, panel_id: int) -> Any:
     return driver
 
 
+def _telegram_id_taken(exc: PanelError) -> bool:
+    text = f"{exc} {exc.body or ''}".lower()
+    return exc.status in (400, 409) and "telegram" in text and ("assigned" in text or "exist" in text)
+
+
 async def _username(session: AsyncSession, customer: Customer, panel_id: int) -> str:
     base = str(customer.telegram_id) if customer.telegram_id > 0 else secrets.token_hex(4)
     while True:
@@ -473,15 +478,21 @@ async def _create(
     username = str(params["username"])
     password = secretbox.decrypt("panel", str(params["password_enc"]))
     if await driver.get_admin(username) is None:
-        await driver.create_admin(
-            username,
-            password,
-            role_id=plan.role_id,
-            data_limit=plan.data_gb * GB if plan.data_gb > 0 else 0,
-            max_users=plan.max_users,
-            telegram_id=customer.telegram_id,
-            note=f"tg:{customer.telegram_id} shop:{order.shop_id}",
-        )
+        fields: dict[str, Any] = {
+            "role_id": plan.role_id,
+            "data_limit": plan.data_gb * GB if plan.data_gb > 0 else 0,
+            "max_users": plan.max_users,
+            "note": f"tg:{customer.telegram_id} shop:{order.shop_id}",
+        }
+        try:
+            await driver.create_admin(username, password, telegram_id=customer.telegram_id, **fields)
+        except PanelError as exc:
+            # PasarGuard gives one admin per Telegram id: the customer's second account there (or an
+            # admin made by hand with their id) is made without it. The id only drives the panel's
+            # own notices to that admin; the account works the same.
+            if not _telegram_id_taken(exc):
+                raise
+            await driver.create_admin(username, password, telegram_id=None, **fields)
     account = PanelAccount(
         shop_id=order.shop_id,
         customer_id=customer.id,
