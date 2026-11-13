@@ -426,6 +426,14 @@ async def set_locale(body: LocaleBody, ctx: WebApp) -> dict[str, Any]:
     return {"locale": body.locale}
 
 
+async def _category_views(ctx: WebApp, categories: list[Category]) -> list[dict[str, Any]]:
+    """One flat row of categories; a subcategory carries its category: «VOLUME › PER-USER»."""
+    from paurubot.core import category_tree
+
+    names = await category_tree.labels(ctx.session, categories)
+    return [{"id": c.id, "title": names[c.id]} for c in categories]
+
+
 @router.get("/catalog")
 async def catalog_view(ctx: WebApp) -> dict[str, Any]:
     plans = await catalog.plans(ctx.session, ctx.shop.id, ctx.customer)
@@ -447,7 +455,7 @@ async def catalog_view(ctx: WebApp) -> dict[str, Any]:
     )
     return {
         "locations": [{"id": loc.id, "title": loc.title, "flag": loc.flag} for loc in locations],
-        "categories": [{"id": c.id, "title": c.title} for c in categories],
+        "categories": await _category_views(ctx, categories),
         "plans": [await _priced_view(ctx, p) for p in plans],
         "custom": _custom_offer(ctx),
     }
@@ -530,9 +538,7 @@ async def account_plans_view(ctx: WebApp) -> dict[str, Any]:
     return {
         "available": await panel_accounts.available(ctx.session, ctx.customer),
         "plans": [account_plan_view(p) for p in items],
-        "categories": [
-            {"id": c.id, "title": c.title} for c in await panel_accounts.categories(ctx.session, items)
-        ],
+        "categories": await _category_views(ctx, await panel_accounts.categories(ctx.session, items)),
     }
 
 

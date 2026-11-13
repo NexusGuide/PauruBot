@@ -141,7 +141,10 @@ async def account_plans(ctx: Manager, db: DB) -> dict[str, Any]:
     return {
         "items": [plain(x, PLAN_FIELDS) for x in rows],
         "panels": [{"id": p.id, "name": p.name, "is_active": p.is_active} for p in panels],
-        "categories": [{"id": c.id, "title": c.title, "is_active": c.is_active} for c in categories],
+        "categories": [
+            {"id": c.id, "title": c.title, "is_active": c.is_active, "parent_id": c.parent_id}
+            for c in categories
+        ],
     }
 
 

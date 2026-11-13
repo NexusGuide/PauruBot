@@ -77,6 +77,8 @@ class Category(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(String(64))
     sort: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # One level of subcategories (e.g. VOLUME › PER-USER): the category this one sits under.
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id", ondelete="SET NULL"))
 
 
 class Plan(Base, UpdatedMixin):

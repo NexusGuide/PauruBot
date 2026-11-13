@@ -129,3 +129,31 @@ async def test_a_canceled_order_offers_the_plans_again(env) -> None:  # type: ig
     assert again == [Shop(step="start").pack()], "not a dead end: the plans are one press away"
     await send(callback_update(UID, again[0]))
     assert fake.last(EditMessageText).text == FA("choose_plan")
+
+
+async def test_a_category_opens_its_subcategories_and_back_walks_up(session, env) -> None:  # type: ignore[no-untyped-def]
+    send, fake = env["send"], env["fake"]
+    parent = Category(shop_id=env["shop"].id, title="VOLUME")
+    session.add(parent)
+    await session.flush()
+    child = Category(shop_id=env["shop"].id, title="PER-USER", parent_id=parent.id)
+    session.add(child)
+    await session.flush()
+    env["plan"].category_id = child.id
+    await session.commit()
+
+    await send(message_update(UID, "/start"))
+    await send(message_update(UID, FA("btn_buy")))
+    cats = fake.last(SendMessage)
+    assert cats.text == FA("choose_category")
+    assert [text for text, _ in fake.buttons(cats) if text != FA("btn_back")] == ["VOLUME"]
+
+    await send(callback_update(UID, Shop(step="cat", loc=0, cat=parent.id).pack()))
+    subs = fake.last(EditMessageText)
+    assert subs.text == FA("choose_category")
+    assert [text for text, _ in fake.buttons(subs) if text != FA("btn_back")] == ["PER-USER"]
+
+    await send(callback_update(UID, Shop(step="cat", loc=0, cat=child.id).pack()))
+    plans = fake.last(EditMessageText)
+    assert plans.text == FA("choose_plan")
+    assert _back(fake, plans) == Shop(step="cat", loc=0, cat=parent.id).pack(), "back to VOLUME"

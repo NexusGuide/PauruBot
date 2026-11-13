@@ -130,7 +130,15 @@ async def export(session: AsyncSession, shop_id: int) -> dict[str, Any]:
         "locations": [
             {"title": x.title, "flag": x.flag, "sort": x.sort, "is_active": x.is_active} for x in locations
         ],
-        "categories": [{"title": x.title, "sort": x.sort, "is_active": x.is_active} for x in categories],
+        "categories": [
+            {
+                "title": x.title,
+                "sort": x.sort,
+                "is_active": x.is_active,
+                "parent": category_names.get(x.parent_id) if x.parent_id else None,
+            }
+            for x in categories
+        ],
         "plans": [
             {
                 **{k: getattr(p, k) for k in PLAN_KEYS},
@@ -271,9 +279,20 @@ async def apply(session: AsyncSession, shop_id: int, raw: Any, *, dry_run: bool 
     locations = {
         x.title: x.id for x in await session.scalars(select(Location).where(Location.shop_id == shop_id))
     }
-    categories = {
-        x.title: x.id for x in await session.scalars(select(Category).where(Category.shop_id == shop_id))
+    category_rows = {
+        x.title: x for x in await session.scalars(select(Category).where(Category.shop_id == shop_id))
     }
+    categories = {title: row.id for title, row in category_rows.items()}
+    # Subcategories, once every category exists: a parent must be a top-level category here.
+    for item in bundle.get("categories", []):
+        row = category_rows.get(str(item["title"])[:64])
+        parent = category_rows.get(str(item.get("parent") or "")[:64])
+        if row is None or not item.get("parent"):
+            continue
+        if parent is None or parent.parent_id is not None or parent.id == row.id:
+            report.warnings.append(f"category {row.title}: parent {item.get('parent')} skipped")
+            continue
+        row.parent_id = parent.id
     panels = {x.name: x.id for x in await session.scalars(select(Panel).where(Panel.shop_id == shop_id))}
 
     for item in bundle.get("plans", []):
