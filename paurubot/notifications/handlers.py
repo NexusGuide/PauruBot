@@ -829,6 +829,20 @@ async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
         await _replace_alert(customer, service.id, message)
 
 
+async def bot_token_rejected(session: AsyncSession, job: queue.Claimed) -> None:
+    """A customer's or reseller's bot whose token Telegram rejects: told to the reports group."""
+    from paurubot.notifications import log_reports
+
+    shop = await session.get(Shop, int(job.payload["shop_id"]))
+    if shop is None:
+        return
+    found = await log_reports.bot_token_rejected(session, shop)
+    if found is None:
+        return
+    parent_id, text, markup = found
+    await report(session, parent_id, "reports", text, markup=markup)
+
+
 async def auto_renew_notice(session: AsyncSession, job: queue.Claimed) -> None:
     """Auto-renewal could not run (F-02): a short wallet, or a rule that had to stop."""
     from paurubot.bot.callbacks import Svc
@@ -1603,6 +1617,7 @@ register_queue(
             "review_decided": review_decided,
             "payment_fix_requested": payment_fix_requested,
             "service_alert": service_alert,
+            "bot_token_rejected": bot_token_rejected,
             "auto_renew_notice": auto_renew_notice,
             "referral_joined": simple_customer,
             "referral_reward": simple_customer,

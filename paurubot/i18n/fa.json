@@ -246,6 +246,7 @@
   "report_paid": "✅ پرداخت تأیید شد — #{id}\n\n💳 روش پرداخت: {method}\n💰 مبلغ: {amount} تومان\n🎯 بابت: {purpose}\n👮 تأییدکننده: {reviewer}\n🕒 زمان: {time}\n\n{user}",
   "report_rejected": "❌ رسید پرداخت رد شد — #{id}\n\n💳 روش پرداخت: {method}\n💰 مبلغ: {amount} تومان\n🎯 بابت: {purpose}\n👮 ردکننده: {reviewer}\n📝 دلیل رد: {reason}\n🕒 زمان: {time}\n\n{user}",
   "report_referral": "🎁 پورسانت معرفی پرداخت شد\n\n🛍 خرید زیرمجموعه: سفارش #{order} — {order_amount} تومان\n💰 پورسانت: {reward} تومان ({percent}٪)\n👛 موجودی معرف قبل از پورسانت: {before} تومان\n👛 موجودی معرف بعد از پورسانت: {after} تومان\n🕒 زمان: {time}\n\n🙋 زیرمجموعه:\n{buyer}\n\n🤝 معرف:\n{referrer}",
+  "report_bot_token_rejected": "⚠️ <b>توکن ربات از کار افتاد</b>\n\nربات: {bot} ({title})\nتلگرام دیگر توکن این ربات را قبول نمی‌کند؛ صاحبش احتمالاً توکن را در BotFather عوض کرده یا ربات را حذف کرده است. تا ربات با توکن جدید دوباره وصل نشود، کار نمی‌کند.\n\n<b>صاحب ربات</b>\n{user}",
   "report_service_deleted": "📌 اطلاعیه حذف خودکار سرویس\n\n🔑 نام کاربری سرویس: <code>{config}</code>\n📍 وضعیت سرویس: {status}\n⏳ روز باقی‌مانده: {days}\n💾 حجم باقی‌مانده: {left}\n📶 آخرین اتصال: {online}\n🌍 نام پنل: {panel}\n\n{user}",
   "report_discount": "\n🏷 کد تخفیف: {code} ({amount} تومان تخفیف)",
   "report_none": "ندارد",
