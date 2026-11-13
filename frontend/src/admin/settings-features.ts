@@ -42,7 +42,7 @@ export const FEATURES: Feature[] = [
     key: "notify",
     keys: ["warn_days", "warn_remaining_percent", "first_use_nudge_hours", "alerts_quiet_start", "alerts_quiet_end", "ip_notice_enabled"],
   },
-  { key: "cleanup", keys: ["delete_expired_after_days", "self_delete_enabled", "self_delete_refund_percent", "ban_disables_services"] },
+  { key: "cleanup", keys: ["delete_expired_after_days", "delete_warn_days", "self_delete_enabled", "self_delete_refund_percent", "ban_disables_services"] },
   {
     key: "sync",
     keys: ["usage_sync_minutes", "capacity_warn_percent", "service_import_enabled", "service_import_auto", "service_import_panel_ids", "remnawave_loyalty_tags"],

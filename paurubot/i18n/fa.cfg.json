@@ -82,6 +82,7 @@
   "adm_cfg_warn_days": "هشدار چند روز قبل از پایان",
   "adm_cfg_warn_remaining_percent": "هشدار حجم باقیمانده (٪)",
   "adm_cfg_delete_expired_after_days": "حذف سرویس منقضی بعد از (روز)",
+  "adm_cfg_delete_warn_days": "هشدار قبل از حذف سرویس منقضی (روز)",
   "adm_cfg_daily_report_hour": "ساعت گزارش روزانه",
   "adm_cfg_log_retention_days": "نگهداری لاگ (روز)",
   "adm_cfg_wheel_every_hours": "فاصله گردونه (ساعت)",

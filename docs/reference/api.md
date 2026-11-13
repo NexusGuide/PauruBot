@@ -193,6 +193,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/services/bulk` | `services.write` | Queue one job per service so slow panels never block the request and failures retry. |
 | POST | `/api/admin/services/{service_id}/action` | `services.write` | Service action |
 | POST | `/api/admin/services/{service_id}/confirm-delete` | `services.write` | Step one of deleting a service (F-22): type its username to confirm. |
+| PUT | `/api/admin/services/{service_id}/keep` | `services.write` | Hold a lapsed service back from the cleanup; an empty body goes back to the shop's rule. |
 | POST | `/api/admin/services/{service_id}/move` | `services.write` | Move a service to another panel with its remaining data and end date; the link stays (SVC-04). |
 | PUT | `/api/admin/services/{service_id}/note` | `services.write` | A note on a service only staff see (SVC-16). |
 | GET | `/api/admin/services/{service_id}` | `services.read` | Service detail |

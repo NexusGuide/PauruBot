@@ -82,6 +82,7 @@
   "adm_cfg_warn_days": "Warn days before end",
   "adm_cfg_warn_remaining_percent": "Warn at data left (%)",
   "adm_cfg_delete_expired_after_days": "Delete expired after (days)",
+  "adm_cfg_delete_warn_days": "Warn before deleting expired (days)",
   "adm_cfg_daily_report_hour": "Daily report hour",
   "adm_cfg_log_retention_days": "Log retention (days)",
   "adm_cfg_wheel_every_hours": "Wheel every (hours)",

@@ -90,7 +90,7 @@ async def _world(session, *, expire_at, limited_days_ago: float, updated_days_ag
             updated_at=NOW - timedelta(days=updated_days_ago),
         )
     )
-    await shop_settings.set_many(session, shop.id, {"delete_expired_after_days": 7})
+    await shop_settings.set_many(session, shop.id, {"delete_expired_after_days": 7, "delete_warn_days": 0})
     await session.commit()
     return shop, service, fake
 

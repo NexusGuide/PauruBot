@@ -2508,5 +2508,17 @@
   "err_own_admin_limit": "This bot already has the most admins it can have.",
   "err_own_admin_is_owner": "The bot's owner can't be removed.",
   "err_own_admin_not_found": "This ID isn't an admin of the bot.",
-  "err_own_admin_invalid": "Enter a valid numeric Telegram ID."
+  "err_own_admin_invalid": "Enter a valid numeric Telegram ID.",
+  "svc_keep_title": "Keep from automatic deletion",
+  "svc_keep_hint": "Expired services are deleted automatically after the time set in settings, and the customer is warned a few days before. Here you can keep this service out of that cleanup for a while or for good.",
+  "svc_keep_forever_now": "This service is never deleted automatically.",
+  "svc_keep_until_now": "Kept from automatic deletion until",
+  "svc_keep_shop_rule": "Follows the shop's deletion rule.",
+  "svc_keep_warned": "Deletion warning sent to the customer:",
+  "svc_keep_days": "Days from now",
+  "svc_keep_for_days": "Keep",
+  "svc_keep_forever": "Never delete",
+  "svc_keep_release": "Back to the shop's rule",
+  "setting_delete_warn_days": "Warn before deletion (days)",
+  "setting_delete_warn_days_hint": "The customer is told this many days before the automatic deletion, and the deletion waits at least that long after the warning. 0 means no warning."
 }

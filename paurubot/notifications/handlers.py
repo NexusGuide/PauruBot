@@ -756,7 +756,7 @@ def _renew_markup(t: Texts, service_id: int) -> InlineKeyboardMarkup:
 
 
 # Reminders about one service that a newer one makes stale (REF-05): only the latest is kept.
-REPLACEABLE_ALERTS = frozenset({"low_volume", "expiring", "expired", "limited"})
+REPLACEABLE_ALERTS = frozenset({"low_volume", "expiring", "expired", "limited", "delete_soon"})
 ALERT_MESSAGE_TTL = 30 * 86400
 
 
@@ -794,6 +794,10 @@ async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
     if customer is None:
         return
     alert = str(job.payload["alert"])
+    if alert == "delete_soon" and (
+        service.cleanup_warned_at is None or service.status == ServiceStatus.DELETED
+    ):
+        return  # renewed (or kept, or already gone) while the warning waited for the morning
     if alert == "deleted":  # the cleanup removed it: the «cron» report for the shop
         from paurubot.notifications import log_reports
 

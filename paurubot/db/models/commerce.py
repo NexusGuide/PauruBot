@@ -83,6 +83,11 @@ class Service(Base, UpdatedMixin):
     # Only a recognised app name and version are kept, never the raw User-Agent.
     sub_client: Mapped[str | None] = mapped_column(String(48))
     sub_fetched_at: Mapped[datetime | None] = mapped_column()
+    # Expired-service cleanup: when the customer was warned of the coming deletion (cleared as the
+    # service comes back to life), and staff holds that keep it, for a while or for good.
+    cleanup_warned_at: Mapped[datetime | None] = mapped_column()
+    keep_until: Mapped[datetime | None] = mapped_column()
+    cleanup_exempt: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     customer: Mapped[Customer] = relationship(lazy="selectin")
     panel: Mapped[Panel] = relationship(lazy="selectin")
@@ -94,6 +99,8 @@ class Service(Base, UpdatedMixin):
         loaded = sa_inspect(self).dict
         previous = loaded.get("status", NO_VALUE)
         since = loaded.get("limited_at", NO_VALUE)
+        if value not in {ServiceStatus.EXPIRED, ServiceStatus.LIMITED}:
+            self.cleanup_warned_at = None  # a later lapse is warned again
         if value != ServiceStatus.LIMITED:
             self.limited_at = None
         elif previous != ServiceStatus.LIMITED or since in (None, NO_VALUE):

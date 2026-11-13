@@ -151,6 +151,10 @@ export interface Service {
   branded_url: string | null;
   disabled_reason: string | null;
   staff_note?: string | null;
+  // Expired-service cleanup: staff holds and when the customer was warned of the deletion.
+  keep_until?: string | null;
+  cleanup_exempt?: boolean;
+  cleanup_warned_at?: string | null;
   synced_at: string | null;
   created_at: string;
   panel: string | null;
