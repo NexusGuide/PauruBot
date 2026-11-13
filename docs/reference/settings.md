@@ -245,6 +245,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `alerts_quiet_end` | int | — | Reminders quiet until. E.g. 0 to 8: alerts due at midnight go out at 8:00 |
 | `warn_days` | int | 2 | Expiry warning (days left) |
 | `delete_expired_after_days` | int | 7 | Delete expired after (days). 0 means never |
+| `delete_warn_days` | int | 2 | Warn before deletion (days). The customer is told this many days before the automatic deletion, and the deletion waits at least that long after the warning. 0 means no warning |
 | `usage_sync_minutes` | int | 10 | Usage sync interval (minutes) |
 | `extras_enabled` | bool | true | Sell extra data and days |
 | `extra_packages` | list | [] | Ready-made data and time packages. Fixed-price packages shown beside buying any amount |

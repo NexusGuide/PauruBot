@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import ColumnElement, Select, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -87,6 +87,9 @@ SERVICE_FIELDS = [
     "staff_note",
     "synced_at",
     "created_at",
+    "keep_until",
+    "cleanup_exempt",
+    "cleanup_warned_at",
 ]
 
 
@@ -632,6 +635,46 @@ async def service_note(
         entity_id=service.id,
         before={"staff_note": before},
         after={"staff_note": service.staff_note},
+    )
+    return {"service": service_out(service)}
+
+
+class KeepBody(BaseModel):
+    """Keep a service out of the expired-service cleanup: some days from now, for good, or neither."""
+
+    days: int = Field(default=0, ge=0, le=3650)
+    forever: bool = False
+
+    @model_validator(mode="after")
+    def _one(self) -> KeepBody:
+        if self.days and self.forever:
+            raise ValueError("days or forever, not both")
+        return self
+
+
+@router.put("/services/{service_id}/keep")
+async def service_keep(
+    service_id: int,
+    body: KeepBody,
+    ctx: Annotated[StaffContext, Depends(require("services.write"))],
+    db: DB,
+) -> dict[str, Any]:
+    """Hold a lapsed service back from the cleanup; an empty body goes back to the shop's rule."""
+    service = await scoped_service(db, service_id, ctx)
+    fields = ["keep_until", "cleanup_exempt"]
+    before = snapshot(service, fields)
+    service.cleanup_exempt = body.forever
+    service.keep_until = datetime.now(UTC) + timedelta(days=body.days) if body.days else None
+    service.cleanup_warned_at = None  # a new date: the customer is warned again before it
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="service.keep",
+        entity="service",
+        entity_id=service.id,
+        before=before,
+        after=snapshot(service, fields),
     )
     return {"service": service_out(service)}
 

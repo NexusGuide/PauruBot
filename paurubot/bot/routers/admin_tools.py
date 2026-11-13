@@ -110,6 +110,7 @@ SETTINGS: dict[str, list[str]] = {
         "warn_days",
         "warn_remaining_percent",
         "delete_expired_after_days",
+        "delete_warn_days",
         "daily_report_hour",
     ],
 }
@@ -121,6 +122,7 @@ BOUNDS: dict[str, tuple[int, int]] = {
     "order_expire_minutes": (5, 7 * 24 * 60),
     "payment_expire_minutes": (5, 7 * 24 * 60),
     "usage_sync_minutes": (1, 24 * 60),
+    "delete_warn_days": (0, 30),
     "trial_days": (1, 365),
     "trial_gb": (1, 10_000),
     "card_auto_min_history": (0, 1_000),

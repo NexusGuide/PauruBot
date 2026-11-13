@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Iterable
+import math
+from collections.abc import Awaitable, Callable, Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from paurubot import kv
 from paurubot.config import get_settings
@@ -37,6 +40,7 @@ BACKGROUND_LEASE_TTL = 60
 # `parallel_reads` (lowered by the panel option `sync_concurrency`) bounds requests in flight.
 PANEL_CONCURRENCY = 3
 DOWN_AFTER = 5  # failures with nothing synced: the panel looks down, stop hammering it
+CLEANUP_BATCH = 200  # services warned or deleted per shop in one cleanup run
 
 LIVE_STATUSES = [
     ServiceStatus.ACTIVE,
@@ -297,15 +301,49 @@ async def apply_webhook_user(session: AsyncSession, panel: Panel, info: PanelUse
     return service
 
 
+def ended_at(service: Service) -> datetime | None:
+    """When a lapsed service stopped working: its end date, or the moment its data ran out (SEC-F15).
+
+    An expired service without an end date has no better clock than its last row update.
+    """
+    if service.status not in {ServiceStatus.EXPIRED, ServiceStatus.LIMITED}:
+        return None
+    moments = [service.expire_at] if service.expire_at is not None else []
+    if service.status == ServiceStatus.LIMITED and service.limited_at is not None:
+        moments.append(service.limited_at)
+    if (
+        service.status == ServiceStatus.EXPIRED
+        and service.expire_at is None
+        and service.updated_at is not None
+    ):
+        moments.append(service.updated_at)
+    return min(moments) if moments else None
+
+
 def _expired_long_enough(service: Service, cutoff: datetime) -> bool:
     """Ended before `cutoff`: its end date passed then, or its data ran out then (SEC-F15)."""
-    if service.status not in {ServiceStatus.EXPIRED, ServiceStatus.LIMITED}:
-        return False
-    if service.expire_at is not None and service.expire_at < cutoff:
-        return True
-    if service.status == ServiceStatus.LIMITED:
-        return service.limited_at is not None and service.limited_at < cutoff
-    return service.expire_at is None and service.updated_at is not None and service.updated_at < cutoff
+    ended = ended_at(service)
+    return ended is not None and ended < cutoff
+
+
+def _ended_before(cutoff: datetime) -> ColumnElement[bool]:
+    """`_expired_long_enough` in SQL."""
+    return Service.status.in_([ServiceStatus.EXPIRED, ServiceStatus.LIMITED]) & or_(
+        Service.expire_at < cutoff,
+        (Service.status == ServiceStatus.LIMITED) & (Service.limited_at < cutoff),
+        (Service.status == ServiceStatus.EXPIRED)
+        & Service.expire_at.is_(None)
+        & (Service.updated_at < cutoff),
+    )
+
+
+def _not_held_after(moment: datetime) -> ColumnElement[bool]:
+    """Staff did not keep it out of the cleanup for good, or past `moment`."""
+    return Service.cleanup_exempt.is_(False) & (Service.keep_until.is_(None) | (Service.keep_until <= moment))
+
+
+def _held_after(service: Service, moment: datetime) -> bool:
+    return bool(service.cleanup_exempt) or (service.keep_until is not None and service.keep_until > moment)
 
 
 async def _has_open_order(session: AsyncSession, service_id: int) -> bool:
@@ -321,16 +359,61 @@ async def _has_open_order(session: AsyncSession, service_id: int) -> bool:
     return found is not None
 
 
-async def _cleanup_one(session: AsyncSession, shop_id: int, service_id: int, cutoff: datetime) -> bool:
-    """Delete one stale service under its lease and row lock, and commit. Returns whether it did."""
+@dataclass(frozen=True, slots=True)
+class CleanupRule:
+    """When the cleanup deletes and warns, from the shop's settings."""
+
+    now: datetime
+    days: int  # delete this long after the service ended
+    warn_days: int  # tell the customer this long before; the deletion waits this long after it
+
+    @property
+    def cutoff(self) -> datetime:
+        return self.now - timedelta(days=self.days)
+
+    def deletable(self, service: Service) -> bool:
+        if not _expired_long_enough(service, self.cutoff) or _held_after(service, self.now):
+            return False
+        if self.warn_days <= 0 or service.is_trial:
+            return True  # a trial is not renewed: nothing to warn about
+        warned = service.cleanup_warned_at
+        return warned is not None and warned <= self.now - timedelta(days=self.warn_days)
+
+    def warnable(self, service: Service) -> bool:
+        if self.warn_days <= 0 or service.is_trial or service.cleanup_warned_at is not None:
+            return False
+        soon = self.now + timedelta(days=self.warn_days)
+        return _expired_long_enough(
+            service, self.cutoff + timedelta(days=self.warn_days)
+        ) and not _held_after(service, soon)
+
+    def days_left(self, service: Service) -> int:
+        """Whole days until the deletion, counted as the customer reads the warning."""
+        ended = ended_at(service) or self.now
+        due = max(ended + timedelta(days=self.days), self.now + timedelta(days=self.warn_days))
+        if service.keep_until is not None:
+            due = max(due, service.keep_until)
+        return max(1, math.ceil((due - self.now).total_seconds() / 86400 - 0.01))
+
+
+async def _locked_lapsed(session: AsyncSession, shop_id: int, service_id: int) -> Service | None:
+    """The current row under its lock, or None (and the transaction closed) when it must be left."""
     service = await session.get(Service, service_id)
     if service is None or not await lock_fresh(session, service, skip_locked=True):
+        return None
+    if service.shop_id != shop_id or await _has_open_order(session, service.id):
+        await session.commit()
+        return None
+    return service
+
+
+async def _cleanup_one(session: AsyncSession, shop_id: int, service_id: int, rule: CleanupRule) -> bool:
+    """Delete one stale service under its lease and row lock, and commit. Returns whether it did."""
+    service = await _locked_lapsed(session, shop_id, service_id)
+    if service is None:
         return False
     # Decide again on the locked, current row: it may have been renewed since the page was read.
-    if service.shop_id != shop_id or not _expired_long_enough(service, cutoff):
-        await session.commit()
-        return False
-    if await _has_open_order(session, service.id):
+    if not rule.deletable(service):
         await session.commit()
         return False
     await delete_service(session, service, "expired")
@@ -346,39 +429,88 @@ async def _cleanup_one(session: AsyncSession, shop_id: int, service_id: int, cut
     return True
 
 
-async def cleanup_expired(session: AsyncSession, shop_id: int) -> int:
-    """Delete services that stayed expired or exhausted longer than the shop allows."""
-    days = int(await shop_settings.get(session, shop_id, "delete_expired_after_days") or 0)
-    if days <= 0:
-        return 0
-    cutoff = utcnow() - timedelta(days=days)
-    stale = list(
-        await session.scalars(
-            select(Service.id)
-            .where(
-                Service.shop_id == shop_id,
-                Service.status.in_([ServiceStatus.EXPIRED, ServiceStatus.LIMITED]),
-                or_(
-                    Service.expire_at < cutoff,
-                    (Service.status == ServiceStatus.LIMITED) & (Service.limited_at < cutoff),
-                    (Service.status == ServiceStatus.EXPIRED)
-                    & Service.expire_at.is_(None)
-                    & (Service.updated_at < cutoff),
-                ),
-            )
-            .order_by(Service.id)
-            .limit(200)
-        )
+async def _warn_one(session: AsyncSession, shop_id: int, service_id: int, rule: CleanupRule) -> bool:
+    """Tell the customer their lapsed service will be deleted soon; the deletion waits for it."""
+    service = await _locked_lapsed(session, shop_id, service_id)
+    if service is None:
+        return False
+    if not rule.warnable(service):
+        await session.commit()
+        return False
+    cfg = await shop_settings.load(session, shop_id)
+    # Inside the quiet hours the warning waits for the morning, and so does its countdown.
+    later = alert_policy.quiet_until(rule.now, cfg, get_settings().tz)
+    service.cleanup_warned_at = later or rule.now
+    await queue.enqueue(
+        session,
+        "notify",
+        "service_alert",
+        {"service_id": service.id, "alert": "delete_soon", "days": rule.days_left(service)},
+        shop_id=shop_id,
+        dedupe_key=f"alert:{service.id}:delete_soon:{service.cleanup_warned_at.isoformat()}",
+        run_at=later,
     )
     await session.commit()
-    removed = 0
-    for service_id in stale:
+    return True
+
+
+async def _each_under_lease(
+    session: AsyncSession,
+    shop_id: int,
+    service_ids: list[int],
+    rule: CleanupRule,
+    step: Callable[[AsyncSession, int, int, CleanupRule], Awaitable[bool]],
+) -> int:
+    done = 0
+    for service_id in service_ids:
         try:
             async with kv.lease(service_lease(service_id), ttl=BACKGROUND_LEASE_TTL):
-                if await _cleanup_one(session, shop_id, service_id, cutoff):
-                    removed += 1
+                if await step(session, shop_id, service_id, rule):
+                    done += 1
         except kv.LockNotAcquired:
             await session.rollback()  # being changed right now; look again next run
         except PanelError:
             await session.rollback()
-    return removed
+    return done
+
+
+async def cleanup_expired(session: AsyncSession, shop_id: int) -> int:
+    """Delete services that stayed expired or exhausted longer than the shop allows.
+
+    With `delete_warn_days` on, the customer is told that many days before, and a service is only
+    deleted that long after its warning. Services staff keep (for a while or for good) are skipped
+    by the queries themselves, so any number of them never crowd out the rest of a batch.
+    Returns how many were deleted.
+    """
+    cfg = await shop_settings.load(session, shop_id)
+    days = int(cfg.get("delete_expired_after_days") or 0)
+    if days <= 0:
+        return 0
+    rule = CleanupRule(utcnow(), days, max(0, min(30, int(cfg.get("delete_warn_days") or 0))))
+    if rule.warn_days:
+        soon = rule.now + timedelta(days=rule.warn_days)
+        to_warn = list(
+            await session.scalars(
+                select(Service.id)
+                .where(
+                    Service.shop_id == shop_id,
+                    _ended_before(rule.cutoff + timedelta(days=rule.warn_days)),
+                    _not_held_after(soon),
+                    Service.is_trial.is_(False),
+                    Service.cleanup_warned_at.is_(None),
+                )
+                .order_by(Service.id)
+                .limit(CLEANUP_BATCH)
+            )
+        )
+        await session.commit()
+        await _each_under_lease(session, shop_id, to_warn, rule, _warn_one)
+    stale = select(Service.id).where(
+        Service.shop_id == shop_id, _ended_before(rule.cutoff), _not_held_after(rule.now)
+    )
+    if rule.warn_days:
+        warned_enough = Service.cleanup_warned_at <= rule.now - timedelta(days=rule.warn_days)
+        stale = stale.where(Service.is_trial.is_(True) | warned_enough)
+    service_ids = list(await session.scalars(stale.order_by(Service.id).limit(CLEANUP_BATCH)))
+    await session.commit()
+    return await _each_under_lease(session, shop_id, service_ids, rule, _cleanup_one)

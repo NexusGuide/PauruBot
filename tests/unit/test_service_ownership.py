@@ -185,7 +185,7 @@ async def _expired_world(maker):  # type: ignore[no-untyped-def]
     shop_id, panel_id, cust_id, (service_id,), fake, _ = await _world(maker)
     long_ago = datetime.now(UTC) - timedelta(days=40)
     async with maker() as s:
-        await shop_settings.set_many(s, shop_id, {"delete_expired_after_days": 7})
+        await shop_settings.set_many(s, shop_id, {"delete_expired_after_days": 7, "delete_warn_days": 0})
         await s.execute(
             update(Service)
             .where(Service.id == service_id)

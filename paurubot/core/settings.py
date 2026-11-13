@@ -236,6 +236,8 @@ SPECS: dict[str, Spec] = {
     "alerts_quiet_end": Spec(int, None, "services"),
     "warn_days": Spec(int, 2, "services"),
     "delete_expired_after_days": Spec(int, 7, "services"),
+    # Days before that cleanup the customer is warned; the deletion waits that long after it. 0 is off.
+    "delete_warn_days": Spec(int, 2, "services"),
     "usage_sync_minutes": Spec(int, 10, "services"),
     "extras_enabled": Spec(bool, True, "services"),
     # Ready-made extra packages (ClockBot parity): [{"unit": "gb"|"days", "amount", "price"}].
@@ -470,6 +472,8 @@ def _check(key: str, value: Any) -> None:
         for tier in value
     ):
         raise SettingError("bulk_buy_tiers_invalid")
+    if key == "delete_warn_days" and not 0 <= value <= 30:
+        raise SettingError("delete_warn_days_invalid")
     if key == "ticket_auto_close_days" and not 0 <= value <= 365:
         raise SettingError("ticket_auto_close_days_invalid")
     if key == "catalog_discount_percent" and not 0 <= value <= 90:

@@ -330,6 +330,10 @@ function ServiceSheet({
             </>,
           )}
 
+        {writable &&
+          service.status !== "deleted" &&
+          fold(t("svc_keep_title"), <ServiceKeep service={service} onChange={onChange} />)}
+
         <ServiceNote service={service} writable={writable} onChange={onChange} />
 
         {writable &&
@@ -641,6 +645,61 @@ export function Services() {
         </div>
       </Sheet>
     </Page>
+  );
+}
+
+function ServiceKeep({ service, onChange }: { service: Service; onChange: (s: Service) => void }) {
+  const { t, toast, errorText } = useSession();
+  const [days, setDays] = useState<number | null>(30);
+  const [busy, run] = useAction();
+  const keep = async (body: { days?: number; forever?: boolean }) => {
+    try {
+      const result = await run(() => call<{ service: Service }>(`/api/admin/services/${service.id}/keep`, { method: "PUT", body }));
+      if (result) onChange(result.service);
+      toast(t("saved"));
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  const held = service.cleanup_exempt || (service.keep_until && new Date(service.keep_until).getTime() > Date.now());
+  return (
+    <>
+      <p className="text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("svc_keep_hint")}</p>
+      <p className="text-[0.85rem] font-semibold">
+        {service.cleanup_exempt ? (
+          t("svc_keep_forever_now")
+        ) : held ? (
+          <>
+            {t("svc_keep_until_now")} <When iso={service.keep_until ?? null} />
+          </>
+        ) : (
+          t("svc_keep_shop_rule")
+        )}
+      </p>
+      {service.cleanup_warned_at && (
+        <p className="text-[0.78rem] text-saffron-700">
+          {t("svc_keep_warned")} <When iso={service.cleanup_warned_at} time />
+        </p>
+      )}
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label={t("svc_keep_days")}>{(id) => <NumberInput id={id} value={days} onChange={setDays} allowEmpty />}</Field>
+        <Button busy={busy} disabled={!days || days < 1 || days > 3650} onClick={() => void keep({ days: days ?? 0 })}>
+          {t("svc_keep_for_days")}
+        </Button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {!service.cleanup_exempt && (
+          <Button small busy={busy} onClick={() => void keep({ forever: true })}>
+            {t("svc_keep_forever")}
+          </Button>
+        )}
+        {held && (
+          <Button small busy={busy} onClick={() => void keep({})}>
+            {t("svc_keep_release")}
+          </Button>
+        )}
+      </div>
+    </>
   );
 }
 
