@@ -245,6 +245,23 @@ export interface Category {
   title: string;
   sort: number;
   is_active: boolean;
+  /** The category this one sits under (one level deep); null: a top-level category. */
+  parent_id?: number | null;
+}
+
+type TreeNode = { id: number; title: string; parent_id?: number | null };
+
+/** Categories in tree order (each top-level one, then its subcategories), with a display name:
+ * a subcategory reads «VOLUME › PER-USER». */
+export function categoryTree<T extends TreeNode>(rows: T[]): (T & { label: string; depth: number })[] {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const top = rows.filter((row) => row.parent_id == null || !byId.has(row.parent_id));
+  return top.flatMap((parent) => [
+    { ...parent, label: parent.title, depth: 0 },
+    ...rows
+      .filter((row) => row.parent_id === parent.id)
+      .map((row) => ({ ...row, label: `${parent.title} › ${row.title}`, depth: 1 })),
+  ]);
 }
 
 export interface Plan {

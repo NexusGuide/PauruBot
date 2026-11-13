@@ -2520,5 +2520,10 @@
   "svc_keep_forever": "Never delete",
   "svc_keep_release": "Back to the shop's rule",
   "setting_delete_warn_days": "Warn before deletion (days)",
-  "setting_delete_warn_days_hint": "The customer is told this many days before the automatic deletion, and the deletion waits at least that long after the warning. 0 means no warning."
+  "setting_delete_warn_days_hint": "The customer is told this many days before the automatic deletion, and the deletion waits at least that long after the warning. 0 means no warning.",
+  "category_parent": "Under",
+  "category_parent_none": "— Top-level category —",
+  "category_parent_hint": "Pick a category to make this one its subcategory; buyers see that category first, then its subcategories. One level only.",
+  "category_parent_has_subs": "This category has subcategories, so it cannot go under another one.",
+  "err_category_too_deep": "Only one level of subcategories: the category above must be a top-level one, and a category with subcategories cannot go under another."
 }

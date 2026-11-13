@@ -324,3 +324,20 @@ async def test_admin_plans_come_with_their_categories(session, acc_env) -> None:
     view = (await acc_env["client"].get("/api/webapp/account-plans", headers=h(64001))).json()
     assert view["categories"] == [{"id": direct.id, "title": "DIRECT"}]  # only categories with plans
     assert [(p["title"], p["category_id"]) for p in view["plans"]] == [(plan.title, direct.id)]
+
+
+async def test_a_subcategory_carries_its_category_in_its_name(session, acc_env) -> None:  # type: ignore[no-untyped-def]
+    """The Mini App shows one row of categories; a subcategory reads «VOLUME › PER-USER»."""
+    from paurubot.db.models import Category
+
+    shop, plan = acc_env["shop"], acc_env["plan"]
+    volume = Category(shop_id=shop.id, title="VOLUME")
+    session.add(volume)
+    await session.flush()
+    per_user = Category(shop_id=shop.id, title="PER-USER", parent_id=volume.id)
+    session.add(per_user)
+    await session.flush()
+    plan.category_id = per_user.id
+    await session.commit()
+    view = (await acc_env["client"].get("/api/webapp/account-plans", headers=h(64001))).json()
+    assert view["categories"] == [{"id": per_user.id, "title": "VOLUME › PER-USER"}]

@@ -341,3 +341,56 @@ async def test_without_categories_the_plans_show_straight_away(session, env) -> 
     await send(callback_update(UID, Acc(action="plans").pack()))
     shown = fake.last(EditMessageText)
     assert shown.text == FA("acc_plans") and any("Pro admin" in x for x, _ in fake.buttons(shown))
+
+
+async def test_a_category_opens_its_subcategories(session, env) -> None:  # type: ignore[no-untyped-def]
+    """A category with subcategories (e.g. VOLUME › PER-USER / PER-GB): the subcategories come
+    after their category, back walks up one level, and a switched-off category hides them all."""
+    from paurubot.db.models import Category
+
+    send, fake, shop, plan = env["send"], env["fake"], env["shop"], env["plan"]
+    volume = Category(shop_id=shop.id, title="VOLUME", sort=0)
+    session.add(volume)
+    await session.flush()
+    per_user = Category(shop_id=shop.id, title="PER-USER", sort=0, parent_id=volume.id)
+    per_gb = Category(shop_id=shop.id, title="PER-GB", sort=1, parent_id=volume.id)
+    empty = Category(shop_id=shop.id, title="EMPTY", sort=2, parent_id=volume.id)
+    session.add_all([per_user, per_gb, empty])
+    await session.flush()
+    plan.category_id = per_user.id
+    session.add(
+        AccountPlan(
+            shop_id=shop.id,
+            panel_id=plan.panel_id,
+            category_id=per_gb.id,
+            title="Gb admin",
+            role_id=2,
+            data_gb=100,
+            days=30,
+            price=300_000,
+        )
+    )
+    await session.commit()
+    await send(message_update(UID, "/start"))
+
+    await send(callback_update(UID, Acc(action="plans").pack()))
+    assert [text for text, _ in fake.buttons(fake.last(EditMessageText))] == ["VOLUME", FA("btn_back")]
+
+    await send(callback_update(UID, Acc(action="cat", id=volume.id).pack()))
+    shown = fake.last(EditMessageText)
+    assert shown.text == FA("acc_choose_category")
+    assert [(text, data) for text, data in fake.buttons(shown)] == [
+        ("PER-USER", Acc(action="cat", id=per_user.id).pack()),
+        ("PER-GB", Acc(action="cat", id=per_gb.id).pack()),
+        (FA("btn_back"), Acc(action="plans").pack()),
+    ], "only subcategories with plans on sale"
+
+    await send(callback_update(UID, Acc(action="cat", id=per_user.id).pack()))
+    buttons = fake.buttons(fake.last(EditMessageText))
+    assert any("Pro admin" in text for text, _ in buttons) and not any("Gb admin" in t for t, _ in buttons)
+    assert buttons[-1] == (FA("btn_back"), Acc(action="cat", id=volume.id).pack()), "back to VOLUME"
+
+    volume.is_active = False
+    await session.commit()
+    await send(callback_update(UID, Acc(action="plans").pack()))
+    assert fake.last(EditMessageText).text == FA("acc_no_plans"), "VOLUME off: its subcategories too"

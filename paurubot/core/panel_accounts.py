@@ -108,7 +108,9 @@ async def plans(
 ) -> list[AccountPlan]:
     """The plans on sale; with a customer, only those offered to them. A plan in a category that
     is switched off is not on sale, as with config plans."""
-    category_ok = select(Category.id).where(Category.shop_id == shop_id, Category.is_active.is_(True))
+    from paurubot.core import category_tree
+
+    category_ok = category_tree.open_ids(shop_id)
     stmt = (
         select(AccountPlan)
         .join(Panel, Panel.id == AccountPlan.panel_id)

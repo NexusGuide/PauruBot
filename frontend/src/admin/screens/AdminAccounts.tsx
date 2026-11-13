@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { call, type AccountPlan, type PanelAccountRow, type RenewPackage } from "../api";
+import { call, categoryTree, type AccountPlan, type PanelAccountRow, type RenewPackage } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
 import {
@@ -58,7 +58,7 @@ const EMPTY: PlanDraft = {
 interface PlansData {
   items: AccountPlan[];
   panels: { id: number; name: string; is_active: boolean }[];
-  categories?: { id: number; title: string; is_active: boolean }[];
+  categories?: { id: number; title: string; is_active: boolean; parent_id?: number | null }[];
 }
 
 function Roles({ panelId, value, onChange }: { panelId: number; value: number; onChange: (v: number) => void }) {
@@ -201,9 +201,9 @@ function PlanSheet({
               onChange={(e) => set({ category_id: e.target.value ? Number(e.target.value) : null })}
             >
               <option value="">{t("account_no_category")}</option>
-              {categories.map((c) => (
+              {categoryTree(categories).map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.title}
+                  {c.label}
                   {c.is_active ? "" : ` (${t("inactive")})`}
                 </option>
               ))}

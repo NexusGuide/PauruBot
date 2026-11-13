@@ -131,3 +131,19 @@ async def test_the_backup_schedule_stays_on_its_server(session) -> None:  # type
     report = await bundle.apply(session, target.id, data)
     assert "setting backup_auto_enabled: ignored" in report.warnings
     assert (await shop_settings.load(session, target.id, fresh=True))["backup_auto_enabled"] is True
+
+
+async def test_subcategories_travel_with_the_bundle(session) -> None:  # type: ignore[no-untyped-def]
+    source = await factories.shop(session, "Source")
+    volume = Category(shop_id=source.id, title="VOLUME")
+    session.add(volume)
+    await session.flush()
+    session.add(Category(shop_id=source.id, title="PER-USER", parent_id=volume.id))
+    await session.commit()
+    data = json.loads(json.dumps(await bundle.export(session, source.id)))
+
+    target = await factories.shop(session, "Target")
+    await bundle.apply(session, target.id, data)
+    await session.commit()
+    rows = {c.title: c for c in await session.scalars(select(Category).where(Category.shop_id == target.id))}
+    assert rows["PER-USER"].parent_id == rows["VOLUME"].id and rows["VOLUME"].parent_id is None

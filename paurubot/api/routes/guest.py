@@ -142,7 +142,10 @@ async def _account_options(db: Any, t: Texts, accounts: list[Any], *, first: boo
     groups = await panel_accounts.categories(db, accounts)
     if not groups:
         return "".join(_account_option(t, p, first and i == 0) for i, p in enumerate(accounts))
-    ordered = [(g.title, [p for p in accounts if p.category_id == g.id]) for g in groups]
+    from paurubot.core import category_tree
+
+    names = await category_tree.labels(db, groups)  # a subcategory reads «VOLUME › PER-USER»
+    ordered = [(names[g.id], [p for p in accounts if p.category_id == g.id]) for g in groups]
     loose = [p for p in accounts if p.category_id not in {g.id for g in groups}]
     if loose:
         ordered.append((t("btn_other_plans"), loose))

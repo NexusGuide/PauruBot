@@ -15,9 +15,9 @@ from paurubot.bot import keyboards
 from paurubot.bot.callbacks import Acc
 from paurubot.bot.states import AccountStates
 from paurubot.bot.utils import Btn, error_text, show
-from paurubot.core import account_auto_renew, orders, panel_accounts, pricing
+from paurubot.core import account_auto_renew, category_tree, orders, panel_accounts, pricing
 from paurubot.core.formatting import esc, jdate, money, parse_int
-from paurubot.db.models import AccountPlan, Customer, DiscountCode, OrderKind, PanelAccount
+from paurubot.db.models import AccountPlan, Category, Customer, DiscountCode, OrderKind, PanelAccount
 from paurubot.i18n import Texts
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.panels import GB, PanelError
@@ -169,7 +169,7 @@ async def plans(call: CallbackQuery, session: AsyncSession, customer: Customer, 
         await show(call, t("accounts_unavailable"))
         return
     items = await panel_accounts.plans(session, customer.shop_id, customer)
-    groups = await panel_accounts.categories(session, items)
+    groups = await category_tree.roots(session, await panel_accounts.categories(session, items))
     if not groups:
         await _plan_list(call, t, items, back=Acc(action="home"))
         return
@@ -192,14 +192,26 @@ async def category(
     if not await panel_accounts.available(session, customer):
         await show(call, t("accounts_unavailable"))
         return
-    items = await panel_accounts.plans(
-        session,
-        customer.shop_id,
-        customer,
-        category_id=callback_data.id or None,
-        uncategorised=not callback_data.id,
-    )
-    await _plan_list(call, t, items, back=Acc(action="plans"))
+    everything = await panel_accounts.plans(session, customer.shop_id, customer)
+    items = [p for p in everything if p.category_id == (callback_data.id or None)]
+    if callback_data.id:
+        subs = category_tree.children(await panel_accounts.categories(session, everything), callback_data.id)
+        if subs:
+            # Its subcategories (e.g. PER-USER / PER-GB), then any plans right in the category.
+            kb = InlineKeyboardBuilder()
+            for sub in subs:
+                kb.button(text=sub.title, callback_data=Acc(action="cat", id=sub.id))
+            for plan in items:
+                kb.button(
+                    text=f"{plan.title} — {money(plan.price)}", callback_data=Acc(action="plan", id=plan.id)
+                )
+            kb.button(text=t("btn_back"), callback_data=Acc(action="plans"))
+            kb.adjust(1)
+            await show(call, t("acc_choose_category"), kb.as_markup())
+            return
+    here = await session.get(Category, callback_data.id) if callback_data.id else None
+    up = Acc(action="cat", id=here.parent_id) if here is not None and here.parent_id else Acc(action="plans")
+    await _plan_list(call, t, items, back=up)
 
 
 async def _plan_list(call: CallbackQuery, t: Texts, items: list[AccountPlan], *, back: Acc) -> None:

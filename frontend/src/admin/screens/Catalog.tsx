@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from "react";
 import { money } from "@shared/format";
-import { call, type CatalogData, type Category, type Location, type PanelRow, type Plan } from "../api";
+import { call, categoryTree, type CatalogData, type Category, type Location, type PanelRow, type Plan } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { OptionPicker } from "./Panels";
 import { useSession } from "../session";
@@ -334,9 +334,9 @@ function PlanSheet({
               {(id) => (
                 <Select id={id} value={form.category_id ?? ""} onChange={(e) => set("category_id", idOrNull(e.target.value))}>
                   <option value="">—</option>
-                  {catalog.categories.map((cat) => (
+                  {categoryTree(catalog.categories).map((cat) => (
                     <option key={cat.id} value={cat.id}>
-                      {cat.title}
+                      {cat.label}
                     </option>
                   ))}
                 </Select>
@@ -488,16 +488,25 @@ function PlanSheet({
   );
 }
 
-type Simple = { id?: number; title: string; sort: number; is_active: boolean; flag?: string | null };
+type Simple = {
+  id?: number;
+  title: string;
+  sort: number;
+  is_active: boolean;
+  flag?: string | null;
+  parent_id?: number | null;
+};
 
 function SimpleSheet({
   kind,
   draft,
+  categories,
   onClose,
   onSaved,
 }: {
   kind: "locations" | "categories";
   draft: Simple;
+  categories: Category[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -524,6 +533,7 @@ function SimpleSheet({
   const save = async () => {
     const { id, ...body } = form;
     if (kind === "categories") delete body.flag;
+    else delete body.parent_id;
     try {
       await run(() => call(id ? `/api/admin/${kind}/${id}` : `/api/admin/${kind}`, { method: id ? "PUT" : "POST", body }));
       toast(t("saved"));
@@ -558,6 +568,30 @@ function SimpleSheet({
           <Field label={t("flag")} hint={t("flag_hint")}>
             {(id) => (
               <Input id={id} value={form.flag ?? ""} maxLength={16} onChange={(e) => setForm({ ...form, flag: e.target.value || null })} />
+            )}
+          </Field>
+        )}
+        {kind === "categories" && (
+          <Field
+            label={t("category_parent")}
+            hint={categories.some((c) => c.parent_id === draft.id && draft.id !== undefined) ? t("category_parent_has_subs") : t("category_parent_hint")}
+          >
+            {(id) => (
+              <Select
+                id={id}
+                value={form.parent_id ?? ""}
+                disabled={categories.some((c) => c.parent_id === draft.id && draft.id !== undefined)}
+                onChange={(e) => setForm({ ...form, parent_id: e.target.value ? Number(e.target.value) : null })}
+              >
+                <option value="">{t("category_parent_none")}</option>
+                {categories
+                  .filter((c) => c.parent_id == null && c.id !== draft.id)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.title}
+                    </option>
+                  ))}
+              </Select>
             )}
           </Field>
         )}
@@ -691,7 +725,10 @@ export function Catalog() {
                     {(kind === "locations" ? data.locations : data.categories).length === 0 && (
                       <li className="px-4 py-6 text-center text-[0.85rem] text-[var(--hint)]">{t("empty_list")}</li>
                     )}
-                    {(kind === "locations" ? data.locations : data.categories).map((row: Simple & { id: number }) => (
+                    {(kind === "locations"
+                      ? data.locations.map((row: Simple & { id: number }) => ({ ...row, depth: 0 }))
+                      : categoryTree(data.categories)
+                    ).map((row: Simple & { id: number; depth: number }) => (
                       <li key={row.id}>
                         <button
                           type="button"
@@ -699,7 +736,8 @@ export function Catalog() {
                           onClick={() => setSimple({ kind, draft: { ...row } })}
                           className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-start hover:bg-[var(--bg)] disabled:hover:bg-transparent"
                         >
-                          <span className="font-semibold">
+                          <span className={`font-semibold ${row.depth ? "ps-5 text-[0.9rem]" : ""}`}>
+                            {row.depth ? "↳ " : ""}
                             {row.flag ? `${row.flag} ` : ""}
                             {row.title}
                           </span>
@@ -728,6 +766,7 @@ export function Catalog() {
               <SimpleSheet
                 kind={simple.kind}
                 draft={simple.draft}
+                categories={data.categories}
                 onClose={() => setSimple(null)}
                 onSaved={() => {
                   setSimple(null);

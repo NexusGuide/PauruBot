@@ -6,6 +6,7 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from paurubot.core import category_tree
 from paurubot.core.resale import catalog_owner
 from paurubot.db.models import Category, Customer, Location, Panel, Plan, PlanAudience, Service, ServiceStatus
 
@@ -50,9 +51,7 @@ def visible_plans_stmt(shop_id: int, customer: Customer | None) -> Select:  # ty
         target.is_active.is_(True),
         available_stmt(target.id),
     )
-    category_ok = select(Category.id).where(
-        Category.shop_id == catalog_owner(shop_id), Category.is_active.is_(True)
-    )
+    category_ok = category_tree.open_ids(catalog_owner(shop_id))
     stmt = select(Plan).where(
         Plan.shop_id == catalog_owner(shop_id),
         Plan.is_active.is_(True),
@@ -98,8 +97,7 @@ async def categories(
     stmt = (
         select(Category)
         .where(
-            Category.shop_id == catalog_owner(shop_id),
-            Category.is_active.is_(True),
+            Category.id.in_(category_tree.open_ids(catalog_owner(shop_id))),
             Category.id.in_(plans_stmt.with_only_columns(Plan.category_id)),
         )
         .order_by(Category.sort, Category.id)
@@ -233,6 +231,8 @@ async def delete_category(session: AsyncSession, category: Category) -> int:
 
     from paurubot.db.models import AccountPlan
 
+    # Its subcategories stay, now standing on their own.
+    await session.execute(update(Category).where(Category.parent_id == category.id).values(parent_id=None))
     moved = 0
     for model in (Plan, AccountPlan):
         result = await session.execute(

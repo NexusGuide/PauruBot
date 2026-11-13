@@ -15,10 +15,10 @@ from paurubot.bot.callbacks import Pay, Shop, Svc
 from paurubot.bot.routers.start import menu
 from paurubot.bot.states import ShopStates
 from paurubot.bot.utils import Btn, error_text, show
-from paurubot.core import catalog, orders, pricing
+from paurubot.core import catalog, category_tree, orders, pricing
 from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import esc, money, parse_int, processing_key
-from paurubot.db.models import Customer, DiscountCode, Order, OrderKind, OrderStatus, Plan, Service
+from paurubot.db.models import Category, Customer, DiscountCode, Order, OrderKind, OrderStatus, Plan, Service
 from paurubot.db.models import Shop as ShopRow
 from paurubot.i18n import Texts
 from paurubot.ledger.accounts import wallet_balance
@@ -66,7 +66,9 @@ async def show_categories(
     # screen and back leaves the shop (pointing it at itself made the button do nothing).
     several = len(await catalog.locations(session, shop.id, customer)) > 1
     up = Shop(step="start").pack() if several else Shop(step="exit").pack()
-    cats = await catalog.categories(session, shop.id, customer, loc or None)
+    cats = await category_tree.roots(
+        session, await catalog.categories(session, shop.id, customer, loc or None)
+    )
     loose = await catalog.plans(session, shop.id, customer, location_id=loc or None, uncategorised=True)
     if not cats:
         plans = await catalog.plans(session, shop.id, customer, location_id=loc or None)
@@ -236,18 +238,43 @@ async def pick_category(
     t: Texts,
 ) -> None:
     await call.answer()
+    loc, cat = callback_data.loc, callback_data.cat
     plans = await catalog.plans(
         session,
         shop.id,
         customer,
-        location_id=callback_data.loc or None,
-        category_id=callback_data.cat or None,
-        uncategorised=not callback_data.cat,
+        location_id=loc or None,
+        category_id=cat or None,
+        uncategorised=not cat,
     )
+    if cat and callback_data.kind != "direct":
+        used = await catalog.categories(session, shop.id, customer, loc or None)
+        subs = category_tree.children(used, cat)
+        if subs:
+            # Its subcategories first (e.g. PER-USER / PER-GB); plans right in it under "other plans".
+            await show(
+                call,
+                t("choose_category"),
+                keyboards.categories_kb(
+                    t,
+                    subs,
+                    loc,
+                    False,
+                    back_cb=Shop(step="loc", loc=loc).pack(),
+                    direct_of=cat if plans else 0,
+                ),
+            )
+            return
     if not plans:
         await show(call, t("no_plans"))
         return
-    back = Shop(step="loc", loc=callback_data.loc).pack()
+    here = await session.get(Category, cat) if cat else None
+    if callback_data.kind == "direct":
+        back = Shop(step="cat", loc=loc, cat=cat).pack()
+    elif here is not None and here.parent_id:
+        back = Shop(step="cat", loc=loc, cat=here.parent_id).pack()
+    else:
+        back = Shop(step="loc", loc=loc).pack()
     await plans_or_durations(
         call,
         session,

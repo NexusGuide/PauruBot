@@ -87,7 +87,7 @@ async def test_an_account_plan_takes_only_its_own_shops_category(session, http, 
     assert created.status_code == 200, created.text
     assert created.json()["category_id"] == mine.id
     listed = (await owner.call("GET", "/api/admin/account-plans")).json()
-    assert {"id": mine.id, "title": "TUNNEL", "is_active": True} in listed["categories"]
+    assert {"id": mine.id, "title": "TUNNEL", "is_active": True, "parent_id": None} in listed["categories"]
     assert all(c["id"] != theirs.id for c in listed["categories"])
     refused = await owner.call(
         "PUT", f"/api/admin/account-plans/{created.json()['id']}", {**body, "category_id": theirs.id}

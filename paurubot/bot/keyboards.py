@@ -110,12 +110,19 @@ def categories_kb(
     other: bool,
     custom: bool = False,
     back_cb: str | None = None,
+    direct_of: int = 0,
 ) -> InlineKeyboardMarkup:
+    """Categories, or one category's subcategories; `direct_of` adds the plans right in that
+    category under "other plans"."""
     kb = InlineKeyboardBuilder()
     for cat in items:
         kb.button(text=cat.title, callback_data=Shop(step="cat", loc=loc, cat=cat.id))
     if other:
         kb.button(text=t("btn_other_plans"), callback_data=Shop(step="cat", loc=loc, cat=0))
+    if direct_of:
+        kb.button(
+            text=t("btn_other_plans"), callback_data=Shop(step="cat", loc=loc, cat=direct_of, kind="direct")
+        )
     kb.adjust(2)
     if custom:
         kb.row(InlineKeyboardButton(text=t("btn_custom_plan"), callback_data=Shop(step="custom").pack()))

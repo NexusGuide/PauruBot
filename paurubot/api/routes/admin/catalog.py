@@ -19,7 +19,7 @@ Reader = Annotated[StaffContext, Depends(require("catalog.read"))]
 Writer = Annotated[StaffContext, Depends(require("catalog.write"))]
 
 LOCATION_FIELDS = ["id", "title", "flag", "sort", "is_active"]
-CATEGORY_FIELDS = ["id", "title", "sort", "is_active"]
+CATEGORY_FIELDS = ["id", "title", "sort", "is_active", "parent_id"]
 PLAN_FIELDS = [
     "id",
     "title",
@@ -56,6 +56,18 @@ class CategoryBody(BaseModel):
     title: str = Field(min_length=1, max_length=64)
     sort: int = 0
     is_active: bool = True
+    # The category this one sits under (one level deep); None: a top-level category.
+    parent_id: int | None = None
+
+
+async def _check_parent(db: DB, ctx: StaffContext, row: Category | None, parent_id: int | None) -> None:
+    from paurubot.core import category_tree
+
+    parent = await owned(db, Category, parent_id, ctx) if parent_id is not None else None
+    try:
+        await category_tree.check_parent(db, row, parent)
+    except category_tree.TreeError as exc:
+        raise HTTPException(status_code=422, detail=exc.key) from exc
 
 
 class PlanPanelOptions(BaseModel):
@@ -220,6 +232,7 @@ async def update_location(row_id: int, body: LocationBody, ctx: Writer, db: DB) 
 
 @router.post("/categories")
 async def create_category(body: CategoryBody, ctx: Writer, db: DB) -> dict[str, Any]:
+    await _check_parent(db, ctx, None, body.parent_id)
     row = Category(shop_id=ctx.shop_id, **body.model_dump())
     db.add(row)
     await db.flush()
@@ -238,6 +251,7 @@ async def create_category(body: CategoryBody, ctx: Writer, db: DB) -> dict[str, 
 @router.put("/categories/{row_id}")
 async def update_category(row_id: int, body: CategoryBody, ctx: Writer, db: DB) -> dict[str, Any]:
     row = await owned(db, Category, row_id, ctx)
+    await _check_parent(db, ctx, row, body.parent_id)
     before = snapshot(row)
     for key, value in body.model_dump().items():
         setattr(row, key, value)
