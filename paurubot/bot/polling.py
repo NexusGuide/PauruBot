@@ -10,7 +10,12 @@ from typing import Any
 
 from aiogram import Bot
 from aiogram.client.session.middlewares.base import BaseRequestMiddleware, NextRequestMiddlewareType
-from aiogram.exceptions import TelegramNetworkError, TelegramRetryAfter, TelegramServerError
+from aiogram.exceptions import (
+    TelegramNetworkError,
+    TelegramRetryAfter,
+    TelegramServerError,
+    TelegramUnauthorizedError,
+)
 from aiogram.methods import GetUpdates, TelegramMethod
 from aiogram.methods.base import TelegramType
 
@@ -19,13 +24,18 @@ from paurubot.logs import log_tags
 log = logging.getLogger(__name__)
 ESCALATE_AFTER = 300.0
 REPEAT_ALERT_AFTER = 900.0
+# A token Telegram rejects (revoked in BotFather, or the bot deleted) is not fixed by retrying
+# quickly: aiogram did it every few seconds, an error in the log channel each time.
+UNAUTHORIZED_RETRY = 600.0
+UNAUTHORIZED_ALERT_EVERY = 3600.0
 
 
 class PollingRetryMiddleware(BaseRequestMiddleware):
     """Keep aiogram's polling/offset machinery; retry transport errors at the request boundary.
 
-    Fatal authentication/conflict/bad-request errors still reach aiogram unchanged. Other
-    Telegram methods must retain their caller's retry/idempotency policy.
+    Conflict and bad-request errors still reach aiogram unchanged. A rejected token waits
+    quietly, retried every ten minutes and reported once an hour, until it works again or the
+    bot is replaced. Other Telegram methods must retain their caller's retry/idempotency policy.
     """
 
     def __init__(self, shop_id: int | None = None) -> None:
@@ -50,9 +60,24 @@ class PollingRetryMiddleware(BaseRequestMiddleware):
         began = time.monotonic()
         attempts = 0
         next_alert = ESCALATE_AFTER
+        rejected_alert = 0.0
         while True:
             try:
                 result = await make_request(bot, request_method)
+            except TelegramUnauthorizedError:
+                attempts += 1
+                elapsed = time.monotonic() - began
+                if elapsed >= rejected_alert:
+                    self._log(
+                        logging.ERROR,
+                        "Telegram rejected the bot token (shop %s): it was revoked or the bot deleted. "
+                        "Connect the bot again with a new token; retrying every %.0f min",
+                        self.shop_id if self.shop_id is not None else "main",
+                        UNAUTHORIZED_RETRY / 60,
+                    )
+                    rejected_alert = elapsed + UNAUTHORIZED_ALERT_EVERY
+                await asyncio.sleep(UNAUTHORIZED_RETRY)
+                continue
             except (TelegramRetryAfter, TelegramNetworkError, TelegramServerError) as exc:
                 attempts += 1
                 elapsed = time.monotonic() - began

@@ -43,7 +43,6 @@ from paurubot.bot.routers import (
     start,
     wallet,
 )
-from paurubot.config import get_settings
 from paurubot.i18n import Texts
 
 log = logging.getLogger(__name__)
@@ -93,6 +92,13 @@ async def stale_button(call: CallbackQuery, t: Texts) -> None:
 _dispatcher: Dispatcher | None = None
 
 
+def fsm_storage() -> RedisStorage:
+    """Conversation state in Redis, on a pool that waits for a free connection under a burst."""
+    from paurubot import kv
+
+    return RedisStorage(kv.make_client(), key_builder=DefaultKeyBuilder(with_bot_id=True, prefix="fsm"))
+
+
 def build_dispatcher(storage: BaseStorage | None = None, shop_id: int | None = None) -> Dispatcher:
     """One dispatcher per process (routers attach once); `shop_id` selects the shop it serves."""
     global _dispatcher
@@ -102,9 +108,7 @@ def build_dispatcher(storage: BaseStorage | None = None, shop_id: int | None = N
         _dispatcher.workflow_data["shop_id"] = shop_id
         return _dispatcher
     if storage is None:
-        storage = RedisStorage.from_url(
-            get_settings().redis_url, key_builder=DefaultKeyBuilder(with_bot_id=True, prefix="fsm")
-        )
+        storage = fsm_storage()
     dp = Dispatcher(storage=storage, shop_id=shop_id)
     # First: a retried webhook delivery must not open a second ticket or revoke twice.
     dp.update.outer_middleware(UpdateDedupeMiddleware())

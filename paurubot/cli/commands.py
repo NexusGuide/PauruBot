@@ -204,6 +204,12 @@ async def _prepare_bot():  # type: ignore[no-untyped-def]
     return bot
 
 
+def polling_options() -> dict[str, Any]:
+    """Updates are handled as tasks, a bounded number at once across every polled bot, so a burst
+    queues instead of exhausting the Redis and database pools."""
+    return {"handle_as_tasks": True, "tasks_concurrency_limit": get_settings().bot_update_concurrency}
+
+
 @command("bot", "run the Telegram bot with long polling")
 async def bot(_: argparse.Namespace) -> int:
     from paurubot.bot.app import build_dispatcher
@@ -220,7 +226,10 @@ async def bot(_: argparse.Namespace) -> int:
         watcher = asyncio.create_task(_watch_reseller_bots(dispatcher, fingerprint))
         try:
             await dispatcher.start_polling(
-                telegram_bot, *extra, allowed_updates=dispatcher.resolve_used_update_types()
+                telegram_bot,
+                *extra,
+                allowed_updates=dispatcher.resolve_used_update_types(),
+                **polling_options(),
             )
         finally:
             for extra_bot in extra:

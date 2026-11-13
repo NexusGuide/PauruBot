@@ -6,8 +6,9 @@ import asyncio
 import secrets
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager, suppress
+from typing import Any
 
-from redis.asyncio import Redis
+from redis.asyncio import BlockingConnectionPool, Redis
 
 from paurubot.config import get_settings
 
@@ -28,10 +29,26 @@ return 0
 """
 
 
+def make_client(url: str | None = None, *, max_connections: int | None = None, **options: Any) -> Redis:
+    """A Redis client whose pool makes a caller wait for a free connection when all are in use.
+
+    The default pool raises "Too many connections" at once, so a burst of bot updates failed
+    instead of waiting a few milliseconds.
+    """
+    settings = get_settings()
+    pool = BlockingConnectionPool.from_url(
+        url or settings.redis_url,
+        max_connections=max_connections or settings.redis_max_connections,
+        timeout=settings.redis_pool_timeout,
+        **options,
+    )
+    return Redis(connection_pool=pool)
+
+
 def get_redis() -> Redis:
     global _client
     if _client is None:
-        _client = Redis.from_url(get_settings().redis_url, decode_responses=True)
+        _client = make_client(decode_responses=True)
     return _client
 
 
@@ -43,7 +60,7 @@ def set_redis(client: Redis | None) -> None:
 async def close_redis() -> None:
     global _client
     if _client is not None:
-        await _client.aclose()
+        await _client.aclose(close_connection_pool=True)
     _client = None
 
 

@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     # and migrations grant the runtime role in DATABASE_URL its data rights. Empty: one role for all.
     database_owner_url: str = ""
     redis_url: str = "redis://localhost:6379/0"
+    # Connections per Redis pool. A busy pool makes callers wait up to `redis_pool_timeout` seconds
+    # for a free connection instead of failing with "Too many connections".
+    redis_max_connections: int = 100
+    redis_pool_timeout: float = 10.0
+    # Updates the polling bot handles at the same time (all bots together); the rest wait.
+    bot_update_concurrency: int = 48
 
     bot_token: SecretStr = SecretStr("")
     bot_mode: Literal["polling", "webhook"] = "polling"
