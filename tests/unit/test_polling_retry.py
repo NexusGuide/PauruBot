@@ -111,9 +111,16 @@ async def test_fatal_polling_errors_are_not_swallowed(exception, clock) -> None:
     assert clock[1] == []
 
 
-async def test_a_rejected_token_waits_quietly_instead_of_flooding_the_log(clock, caplog) -> None:  # type: ignore[no-untyped-def]
+async def test_a_rejected_token_waits_quietly_instead_of_flooding_the_log(clock, caplog, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """A reseller bot whose token was revoked: aiogram retried it every few seconds, each attempt an
-    error in the log channel. Now it is reported once (again only hourly) and retried slowly."""
+    error in the log channel. Now it is retried slowly and told once a day to the reports group,
+    by the main bot, naming the bot and its owner (see test_bot_token_rejected)."""
+    reported: list[int] = []
+
+    async def report(shop_id: int) -> None:
+        reported.append(shop_id)
+
+    monkeypatch.setattr(polling, "report_rejected", report)
     method = GetUpdates()
     rejected = TelegramUnauthorizedError(method=method, message="Unauthorized")
     request = AsyncMock(side_effect=[rejected] * 12 + [[]])
@@ -125,9 +132,21 @@ async def test_a_rejected_token_waits_quietly_instead_of_flooding_the_log(clock,
         await bot.session.close()
     assert result == [] and request.await_count == 13
     assert clock[1] == [polling.UNAUTHORIZED_RETRY] * 12
-    errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
-    assert len(errors) == 2, "once at first, once more an hour later"
-    assert "token" in errors[0].getMessage() and "7" in errors[0].getMessage()
+    assert reported == [7], "two hours of retries: one report"
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR], "nothing in the error channel"
+
+
+async def test_the_main_bots_rejected_token_is_an_error_once(clock, caplog) -> None:  # type: ignore[no-untyped-def]
+    method = GetUpdates()
+    rejected = TelegramUnauthorizedError(method=method, message="Unauthorized")
+    request = AsyncMock(side_effect=[rejected] * 3 + [[]])
+    bot = make_bot()
+    try:
+        with caplog.at_level(logging.INFO, logger=polling.__name__):
+            await polling.PollingRetryMiddleware()(request, bot, method)
+    finally:
+        await bot.session.close()
+    assert len([r for r in caplog.records if r.levelno >= logging.ERROR]) == 1
 
 
 async def test_non_polling_methods_are_never_retried(clock) -> None:  # type: ignore[no-untyped-def]

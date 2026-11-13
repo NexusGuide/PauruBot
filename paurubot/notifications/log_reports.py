@@ -439,3 +439,37 @@ async def lottery_result(
         markup = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
         messages.append(("\n\n".join([top, *blocks]), markup))
     return messages
+
+
+async def bot_owner(session: AsyncSession, shop: Shop) -> tuple[int | None, Customer | None]:
+    """The shop a child bot was sold from, and the customer who owns it: a reseller's bot or a
+    customer's own bot. (None, None) for a shop that is not a child bot."""
+    from paurubot.db.models import PanelAccount, ResellerProfile
+
+    if shop.reseller_profile_id is not None:
+        profile = await session.get(ResellerProfile, shop.reseller_profile_id)
+        if profile is not None:
+            return profile.shop_id, await session.get(Customer, profile.customer_id)
+    if shop.own_account_id is not None:
+        account = await session.get(PanelAccount, shop.own_account_id)
+        if account is not None:
+            return account.shop_id, await session.get(Customer, account.customer_id)
+    return None, None
+
+
+async def bot_token_rejected(
+    session: AsyncSession, shop: Shop
+) -> tuple[int, str, InlineKeyboardMarkup | None] | None:
+    """Which bot Telegram stopped accepting, and whose: for the parent shop's reports group."""
+    parent_id, owner = await bot_owner(session, shop)
+    if parent_id is None:
+        return None
+    t = await shop_texts(session, parent_id)
+    text = t(
+        "report_bot_token_rejected",
+        bot=f"@{esc(shop.bot_username)}" if shop.bot_username else t("report_none"),
+        title=esc(shop.title),
+        user=user_block(t, owner) if owner is not None else t("report_none"),
+    )
+    markup = await manage_markup(session, parent_id, owner) if owner is not None else None
+    return parent_id, text, markup

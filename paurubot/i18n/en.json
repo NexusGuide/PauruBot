@@ -246,6 +246,7 @@
   "report_paid": "✅ Payment approved — #{id}\n\n💳 Method: {method}\n💰 Amount: {amount} Toman\n🎯 For: {purpose}\n👮 Approved by: {reviewer}\n🕒 Time: {time}\n\n{user}",
   "report_rejected": "❌ Receipt rejected — #{id}\n\n💳 Method: {method}\n💰 Amount: {amount} Toman\n🎯 For: {purpose}\n👮 Rejected by: {reviewer}\n📝 Reason: {reason}\n🕒 Time: {time}\n\n{user}",
   "report_referral": "🎁 Referral commission paid\n\n🛍 Invited customer's order #{order} — {order_amount} Toman\n💰 Commission: {reward} Toman ({percent}%)\n👛 Referrer's balance before: {before} Toman\n👛 Referrer's balance after: {after} Toman\n🕒 Time: {time}\n\n🙋 Invited customer:\n{buyer}\n\n🤝 Referrer:\n{referrer}",
+  "report_bot_token_rejected": "⚠️ <b>Bot token stopped working</b>\n\nBot: {bot} ({title})\nTelegram no longer accepts this bot's token; its owner probably changed the token in BotFather or deleted the bot. It stays down until it is connected again with a new token.\n\n<b>Bot owner</b>\n{user}",
   "report_service_deleted": "📌 Service removed automatically\n\n🔑 Service username: <code>{config}</code>\n📍 Status: {status}\n⏳ Days left: {days}\n💾 Data left: {left}\n📶 Last connected: {online}\n🌍 Panel: {panel}\n\n{user}",
   "report_discount": "\n🏷 Discount code: {code} ({amount} Toman off)",
   "report_none": "none",

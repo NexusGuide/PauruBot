@@ -27,14 +27,36 @@ REPEAT_ALERT_AFTER = 900.0
 # A token Telegram rejects (revoked in BotFather, or the bot deleted) is not fixed by retrying
 # quickly: aiogram did it every few seconds, an error in the log channel each time.
 UNAUTHORIZED_RETRY = 600.0
-UNAUTHORIZED_ALERT_EVERY = 3600.0
+UNAUTHORIZED_ALERT_EVERY = 86400.0
+
+
+async def report_rejected(shop_id: int) -> None:
+    """Queue «this bot's token was rejected» for the reports group, at most once a day per bot.
+
+    The main shop's bot sends it (the rejected bot cannot), naming the bot and its owner.
+    """
+    from datetime import UTC, datetime
+
+    from paurubot.db import session as db_session
+    from paurubot.worker import queue
+
+    day = datetime.now(UTC).date().isoformat()
+    async with db_session.session_scope() as session:
+        await queue.enqueue(
+            session,
+            "notify",
+            "bot_token_rejected",
+            {"shop_id": shop_id},
+            shop_id=shop_id,
+            dedupe_key=f"bot-token-rejected:{shop_id}:{day}",
+        )
 
 
 class PollingRetryMiddleware(BaseRequestMiddleware):
     """Keep aiogram's polling/offset machinery; retry transport errors at the request boundary.
 
     Conflict and bad-request errors still reach aiogram unchanged. A rejected token waits
-    quietly, retried every ten minutes and reported once an hour, until it works again or the
+    quietly, retried every ten minutes and reported once a day, until it works again or the
     bot is replaced. Other Telegram methods must retain their caller's retry/idempotency policy.
     """
 
@@ -47,6 +69,22 @@ class PollingRetryMiddleware(BaseRequestMiddleware):
             log.log(level, message, *args)
         finally:
             log_tags.reset(token)
+
+    async def _rejected(self) -> None:
+        """Say once that Telegram rejected the token: a customer's or reseller's bot goes to the
+        reports group (not the error channel); the main bot can only be logged."""
+        if self.shop_id is None:
+            self._log(
+                logging.ERROR,
+                "Telegram rejected the main bot token: set a valid BOT_TOKEN; retrying every %.0f min",
+                UNAUTHORIZED_RETRY / 60,
+            )
+            return
+        self._log(logging.WARNING, "Telegram rejected the bot token of shop %s", self.shop_id)
+        try:
+            await report_rejected(self.shop_id)
+        except Exception:  # the report is a courtesy; polling must keep going
+            log.warning("could not queue the rejected-token report for shop %s", self.shop_id, exc_info=True)
 
     async def __call__(
         self,
@@ -68,14 +106,8 @@ class PollingRetryMiddleware(BaseRequestMiddleware):
                 attempts += 1
                 elapsed = time.monotonic() - began
                 if elapsed >= rejected_alert:
-                    self._log(
-                        logging.ERROR,
-                        "Telegram rejected the bot token (shop %s): it was revoked or the bot deleted. "
-                        "Connect the bot again with a new token; retrying every %.0f min",
-                        self.shop_id if self.shop_id is not None else "main",
-                        UNAUTHORIZED_RETRY / 60,
-                    )
                     rejected_alert = elapsed + UNAUTHORIZED_ALERT_EVERY
+                    await self._rejected()
                 await asyncio.sleep(UNAUTHORIZED_RETRY)
                 continue
             except (TelegramRetryAfter, TelegramNetworkError, TelegramServerError) as exc:
