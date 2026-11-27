@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { money } from "@shared/format";
-import { call, type CatalogData, type Discount } from "../api";
+import { call, type AccountPlan, type CatalogData, type Discount } from "../api";
 import { PAGE_SIZE, useAction, useList, useLoad } from "../hooks";
 import { useSession } from "../session";
 import {
@@ -35,6 +35,7 @@ const EMPTY_CODE: CodeDraft = {
   max_uses: null,
   per_customer_limit: 1,
   plan_ids: [],
+  account_plan_ids: [],
   first_purchase_only: false,
   sticky: false,
   customer_telegram_id: null,
@@ -56,11 +57,35 @@ function fromLocalInput(value: string): string | null {
   return value ? new Date(value).toISOString() : null;
 }
 
+interface DiscountRedemptionRow {
+  id: number;
+  customer_id: number;
+  customer: string;
+  order_id: number | null;
+  amount: number;
+  at: string;
+}
+
+function downloadCodesCsv(filename: string, codes: string[]): void {
+  const blob = new Blob(["code\n" + codes.join("\n") + "\n"], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function CodeSheet({ draft, onClose, onSaved }: { draft: CodeDraft; onClose: () => void; onSaved: () => void }) {
   const { t, can, toast, errorText } = useSession();
-  const [form, setForm] = useState<CodeDraft>(draft);
+  const [form, setForm] = useState<CodeDraft>({ ...EMPTY_CODE, ...draft, account_plan_ids: draft.account_plan_ids ?? [] });
   const [busy, run] = useAction();
+  const confirm = useConfirm();
   const catalog = useLoad<CatalogData>(can("catalog.read") ? "/api/admin/catalog" : null);
+  const accPlans = useLoad<{ items: AccountPlan[] }>(can("resellers.manage") ? "/api/admin/account-plans" : null);
+  const redemptions = useLoad<{ items: DiscountRedemptionRow[] }>(
+    form.id ? `/api/admin/discounts/${form.id}/redemptions` : null,
+  );
   const set = <K extends keyof CodeDraft>(key: K, value: CodeDraft[K]) => setForm((prev) => ({ ...prev, [key]: value }));
 
   const save = async () => {
@@ -74,7 +99,27 @@ function CodeSheet({ draft, onClose, onSaved }: { draft: CodeDraft; onClose: () 
     }
   };
 
+  const remove = async () => {
+    if (!form.id) return;
+    const ok = await confirm({
+      title: t("delete_code"),
+      body: t("delete_code_confirm", { code: form.code }),
+      confirm: t("delete"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await run(() => call(`/api/admin/discounts/${form.id}`, { method: "DELETE" }));
+      toast(t("deleted"));
+      onSaved();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
   const valid = /^[A-Za-z0-9_-]{2,32}$/.test(form.code) && form.value > 0 && (form.kind !== "percent" || form.value <= 100);
+  const accountPlanList = accPlans.data?.items ?? [];
+  const allAccSelected = accountPlanList.length > 0 && accountPlanList.every((p) => form.account_plan_ids.includes(p.id));
 
   return (
     <Sheet
@@ -82,9 +127,16 @@ function CodeSheet({ draft, onClose, onSaved }: { draft: CodeDraft; onClose: () 
       onClose={onClose}
       title={form.id ? t("edit_code") : t("new_code")}
       footer={
-        <Button tone="primary" busy={busy} disabled={!valid} onClick={() => void save()}>
-          {t("save")}
-        </Button>
+        <div className="flex w-full items-center justify-between gap-2">
+          {form.id ? (
+            <Button tone="danger" busy={busy} onClick={() => void remove()}>
+              {t("delete")}
+            </Button>
+          ) : <span />}
+          <Button tone="primary" busy={busy} disabled={!valid} onClick={() => void save()}>
+            {t("save")}
+          </Button>
+        </div>
       }
     >
       <div className="flex flex-col gap-4">
@@ -152,7 +204,39 @@ function CodeSheet({ draft, onClose, onSaved }: { draft: CodeDraft; onClose: () 
             ))}
           </fieldset>
         )}
-        <Field label={t("code_customer")} hint={t("code_customer_hint")}>
+        {accountPlanList.length > 0 && (
+          <fieldset className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <legend className="text-[0.82rem] font-semibold">{t("code_account_plans")}</legend>
+              <Button
+                small
+                tone="quiet"
+                onClick={() =>
+                  set("account_plan_ids", allAccSelected ? [] : accountPlanList.map((p) => p.id))
+                }
+              >
+                {allAccSelected ? t("clear_selection") : t("select_all_account_plans")}
+              </Button>
+            </div>
+            <p className="text-[0.78rem] text-[var(--hint)]">{t("code_account_plans_hint")}</p>
+            {accountPlanList.map((ap) => (
+              <label key={ap.id} className="flex items-center gap-2 text-[0.88rem]">
+                <Checkbox
+                  label={ap.title}
+                  checked={form.account_plan_ids.includes(ap.id)}
+                  onChange={(on) =>
+                    set(
+                      "account_plan_ids",
+                      on ? [...form.account_plan_ids, ap.id] : form.account_plan_ids.filter((pid) => pid !== ap.id),
+                    )
+                  }
+                />
+                <span>{ap.title}</span>
+              </label>
+            ))}
+          </fieldset>
+        )}
+                <Field label={t("code_customer")} hint={t("code_customer_hint")}>
           {(id) => <NumberInput id={id} allowEmpty value={form.customer_telegram_id} onChange={(v) => set("customer_telegram_id", v)} />}
         </Field>
         <Toggle checked={form.first_purchase_only} onChange={(v) => set("first_purchase_only", v)} label={t("first_purchase_only")} />
@@ -161,7 +245,199 @@ function CodeSheet({ draft, onClose, onSaved }: { draft: CodeDraft; onClose: () 
         <Field label={t("staff_note")}>
           {(id) => <Input id={id} value={form.note ?? ""} maxLength={255} onChange={(e) => set("note", e.target.value || null)} />}
         </Field>
+        {redemptions.data && redemptions.data.items.length > 0 && (
+          <div>
+            <p className="mb-2 text-[0.82rem] font-semibold">{t("discount_redemptions")}</p>
+            <ul className="divide-y divide-[var(--line)] text-[0.85rem]">
+              {redemptions.data.items.map((r) => (
+                <li key={r.id} className="flex items-center justify-between gap-2 py-2">
+                  <span>{r.customer}</span>
+                  <span className="flex items-center gap-2 text-[var(--hint)]">
+                    <Money amount={r.amount} />
+                    <When iso={r.at} time />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
+    </Sheet>
+  );
+}
+
+function BulkCodeSheet({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const { t, can, toast, errorText } = useSession();
+  const [count, setCount] = useState<number | null>(10);
+  const [prefix, setPrefix] = useState("VIP");
+  const [kind, setKind] = useState("percent");
+  const [value, setValue] = useState<number | null>(15);
+  const [maxDiscount, setMaxDiscount] = useState<number | null>(null);
+  const [minAmount, setMinAmount] = useState<number | null>(0);
+  const [maxUses, setMaxUses] = useState<number | null>(1);
+  const [planIds, setPlanIds] = useState<number[]>([]);
+  const [accountPlanIds, setAccountPlanIds] = useState<number[]>([]);
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+  const [generated, setGenerated] = useState<string[] | null>(null);
+  const [busy, run] = useAction();
+  const catalog = useLoad<CatalogData>(can("catalog.read") ? "/api/admin/catalog" : null);
+  const accPlans = useLoad<{ items: AccountPlan[] }>(can("resellers.manage") ? "/api/admin/account-plans" : null);
+
+  const valid =
+    count !== null &&
+    count >= 2 &&
+    count <= 100 &&
+    /^[A-Za-z0-9_-]{0,12}$/.test(prefix) &&
+    value !== null &&
+    value > 0 &&
+    (kind !== "percent" || value <= 100);
+
+  const submit = async () => {
+    if (!valid || !count || !value) return;
+    try {
+      const res = await run(() =>
+        call<{ codes: string[] }>("/api/admin/discounts/bulk", {
+          method: "POST",
+          body: {
+            count,
+            prefix,
+            kind,
+            value,
+            max_discount: maxDiscount || null,
+            min_amount: minAmount ?? 0,
+            max_uses: maxUses || null,
+            plan_ids: planIds,
+            account_plan_ids: accountPlanIds,
+            expires_at: expiresAt,
+            note: note.trim() || null,
+          },
+        }),
+      );
+      if (res) {
+        setGenerated(res.codes);
+        toast(t("bulk_codes_created", { count: res.codes.length }));
+        onCreated();
+      }
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title={t("bulk_discounts_title")}
+      footer={
+        generated ? (
+          <div className="flex gap-2">
+            <Button
+              tone="quiet"
+              onClick={() => {
+                void navigator.clipboard.writeText(generated.join("\n"));
+                toast(t("copied"));
+              }}
+            >
+              {t("copy_all_codes")}
+            </Button>
+            <Button tone="primary" onClick={() => downloadCodesCsv("discount-codes.csv", generated)}>
+              {t("download_csv")}
+            </Button>
+          </div>
+        ) : (
+          <Button tone="primary" busy={busy} disabled={!valid} onClick={() => void submit()}>
+            {t("generate_codes")}
+          </Button>
+        )
+      }
+    >
+      {generated ? (
+        <div className="flex flex-col gap-3">
+          <p className="text-[0.86rem] text-[var(--hint)]">{t("bulk_codes_ready", { count: generated.length })}</p>
+          <pre
+            dir="ltr"
+            className="max-h-72 overflow-auto rounded-xl bg-[var(--surface-2)] p-3 font-mono text-[0.84rem] leading-6"
+          >
+            {generated.join("\n")}
+          </pre>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("bulk_count")} hint="2 - 100">
+              {(id) => <NumberInput id={id} value={count} onChange={setCount} />}
+            </Field>
+            <Field label={t("bulk_prefix")}>
+              {(id) => <Input id={id} dir="ltr" maxLength={12} value={prefix} onChange={(e) => setPrefix(e.target.value.replace(/\s/g, ""))} />}
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("discount_kind")}>
+              {(id) => (
+                <Select id={id} value={kind} onChange={(e) => setKind(e.target.value)}>
+                  <option value="percent">{t("discount_percent")}</option>
+                  <option value="fixed">{t("discount_fixed")}</option>
+                </Select>
+              )}
+            </Field>
+            <Field label={kind === "percent" ? t("percent") : t("amount_toman")}>
+              {(id) => <NumberInput id={id} value={value} onChange={setValue} />}
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {kind === "percent" && (
+              <Field label={t("max_discount")} hint={t("empty_no_limit")}>
+                {(id) => <NumberInput id={id} value={maxDiscount} onChange={(v) => setMaxDiscount(v || null)} allowEmpty />}
+              </Field>
+            )}
+            <Field label={t("min_amount")}>
+              {(id) => <NumberInput id={id} value={minAmount} onChange={setMinAmount} />}
+            </Field>
+            <Field label={t("max_uses")} hint={t("empty_no_limit")}>
+              {(id) => <NumberInput id={id} value={maxUses} onChange={(v) => setMaxUses(v || null)} allowEmpty />}
+            </Field>
+            <Field label={t("expires_at")}>
+              {(id) => <Input id={id} type="datetime-local" value={toLocalInput(expiresAt)} onChange={(e) => setExpiresAt(fromLocalInput(e.target.value))} />}
+            </Field>
+          </div>
+          {catalog.data && catalog.data.plans.length > 0 && (
+            <fieldset className="flex flex-col gap-2">
+              <legend className="mb-1 text-[0.82rem] font-semibold">{t("code_plans")}</legend>
+              {catalog.data.plans.map((plan) => (
+                <label key={plan.id} className="flex items-center gap-2 text-[0.88rem]">
+                  <Checkbox
+                    label={plan.title}
+                    checked={planIds.includes(plan.id)}
+                    onChange={(on) => setPlanIds(on ? [...planIds, plan.id] : planIds.filter((pid) => pid !== plan.id))}
+                  />
+                  {plan.title}
+                </label>
+              ))}
+            </fieldset>
+          )}
+          {accPlans.data && accPlans.data.items.length > 0 && (
+            <fieldset className="flex flex-col gap-2">
+              <legend className="mb-1 text-[0.82rem] font-semibold">{t("code_account_plans")}</legend>
+              {accPlans.data.items.map((ap) => (
+                <label key={ap.id} className="flex items-center gap-2 text-[0.88rem]">
+                  <Checkbox
+                    label={ap.title}
+                    checked={accountPlanIds.includes(ap.id)}
+                    onChange={(on) =>
+                      setAccountPlanIds(on ? [...accountPlanIds, ap.id] : accountPlanIds.filter((pid) => pid !== ap.id))
+                    }
+                  />
+                  {ap.title}
+                </label>
+              ))}
+            </fieldset>
+          )}
+          <Field label={t("staff_note")}>
+            {(id) => <Input id={id} value={note} maxLength={255} onChange={(e) => setNote(e.target.value)} />}
+          </Field>
+        </div>
+      )}
     </Sheet>
   );
 }
@@ -204,15 +480,40 @@ function GiftSheet({ draft, onClose, onSaved }: { draft: GiftDraft; onClose: () 
       toast(errorText(err), "error");
     }
   };
+  const confirm = useConfirm();
+  const remove = async () => {
+    if (!form.id) return;
+    const ok = await confirm({
+      title: t("delete_code"),
+      body: t("delete_code_confirm", { code: form.code }),
+      confirm: t("delete"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await run(() => call(`/api/admin/gift-codes/${form.id}`, { method: "DELETE" }));
+      toast(t("deleted"));
+      onSaved();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
   return (
     <Sheet
       open
       onClose={onClose}
       title={form.id ? t("edit_gift") : t("new_gift")}
       footer={
-        <Button tone="primary" busy={busy} disabled={!/^[A-Za-z0-9_-]{4,32}$/.test(form.code) || form.amount < 1000} onClick={() => void save()}>
-          {t("save")}
-        </Button>
+        <div className="flex w-full items-center justify-between gap-2">
+          {form.id ? (
+            <Button tone="danger" busy={busy} onClick={() => void remove()}>
+              {t("delete")}
+            </Button>
+          ) : <span />}
+          <Button tone="primary" busy={busy} disabled={!/^[A-Za-z0-9_-]{4,32}$/.test(form.code) || form.amount < 1000} onClick={() => void save()}>
+            {t("save")}
+          </Button>
+        </div>
       }
     >
       <div className="flex flex-col gap-4">
@@ -260,10 +561,127 @@ function GiftSheet({ draft, onClose, onSaved }: { draft: GiftDraft; onClose: () 
   );
 }
 
+function BulkGiftSheet({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const { t, toast, errorText } = useSession();
+  const [count, setCount] = useState<number | null>(10);
+  const [prefix, setPrefix] = useState("GIFT");
+  const [amount, setAmount] = useState<number | null>(50_000);
+  const [maxUses, setMaxUses] = useState<number | null>(1);
+  const [newOnly, setNewOnly] = useState(false);
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+  const [generated, setGenerated] = useState<string[] | null>(null);
+  const [busy, run] = useAction();
+
+  const valid =
+    count !== null &&
+    count >= 2 &&
+    count <= 100 &&
+    /^[A-Za-z0-9_-]{0,12}$/.test(prefix) &&
+    amount !== null &&
+    amount > 0;
+
+  const submit = async () => {
+    if (!valid || !count || !amount) return;
+    try {
+      const res = await run(() =>
+        call<{ codes: string[] }>("/api/admin/gift-codes/bulk", {
+          method: "POST",
+          body: {
+            count,
+            prefix,
+            amount,
+            max_uses: maxUses || null,
+            new_customers_only: newOnly,
+            expires_at: expiresAt,
+            note: note.trim() || null,
+          },
+        }),
+      );
+      if (res) {
+        setGenerated(res.codes);
+        toast(t("bulk_codes_created", { count: res.codes.length }));
+        onCreated();
+      }
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title={t("bulk_gifts_title")}
+      footer={
+        generated ? (
+          <div className="flex gap-2">
+            <Button
+              tone="quiet"
+              onClick={() => {
+                void navigator.clipboard.writeText(generated.join("\n"));
+                toast(t("copied"));
+              }}
+            >
+              {t("copy_all_codes")}
+            </Button>
+            <Button tone="primary" onClick={() => downloadCodesCsv("gift-codes.csv", generated)}>
+              {t("download_csv")}
+            </Button>
+          </div>
+        ) : (
+          <Button tone="primary" busy={busy} disabled={!valid} onClick={() => void submit()}>
+            {t("generate_codes")}
+          </Button>
+        )
+      }
+    >
+      {generated ? (
+        <div className="flex flex-col gap-3">
+          <p className="text-[0.86rem] text-[var(--hint)]">{t("bulk_codes_ready", { count: generated.length })}</p>
+          <pre
+            dir="ltr"
+            className="max-h-72 overflow-auto rounded-xl bg-[var(--surface-2)] p-3 font-mono text-[0.84rem] leading-6"
+          >
+            {generated.join("\n")}
+          </pre>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("bulk_count")} hint="2 - 100">
+              {(id) => <NumberInput id={id} value={count} onChange={setCount} />}
+            </Field>
+            <Field label={t("bulk_prefix")}>
+              {(id) => <Input id={id} dir="ltr" maxLength={12} value={prefix} onChange={(e) => setPrefix(e.target.value.replace(/\s/g, ""))} />}
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("amount_toman")}>
+              {(id) => <NumberInput id={id} value={amount} onChange={setAmount} />}
+            </Field>
+            <Field label={t("max_uses")} hint={t("empty_no_limit")}>
+              {(id) => <NumberInput id={id} value={maxUses} onChange={(v) => setMaxUses(v || null)} allowEmpty />}
+            </Field>
+          </div>
+          <Field label={t("expires_at")}>
+            {(id) => <Input id={id} type="datetime-local" value={toLocalInput(expiresAt)} onChange={(e) => setExpiresAt(fromLocalInput(e.target.value))} />}
+          </Field>
+          <Toggle checked={newOnly} onChange={setNewOnly} label={t("gift_new_only")} />
+          <Field label={t("staff_note")}>
+            {(id) => <Input id={id} value={note} maxLength={255} onChange={(e) => setNote(e.target.value)} />}
+          </Field>
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
 function GiftCodes() {
   const { t, can, locale } = useSession();
   const list = useLoad<{ items: Gift[]; total: number }>("/api/admin/gift-codes?limit=200");
   const [editing, setEditing] = useState<GiftDraft | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const columns: Column<Gift>[] = [
     {
       key: "code",
@@ -291,9 +709,14 @@ function GiftCodes() {
       title={t("gift_codes")}
       actions={
         can("wallet.adjust") && (
-          <Button small icon="plus" onClick={() => setEditing({ code: randomCode(), amount: 50_000, max_uses: 1, new_customers_only: false, expires_at: null, is_active: true, note: null })}>
-            {t("new_gift")}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button small tone="quiet" onClick={() => setBulkOpen(true)}>
+              {t("bulk_generate")}
+            </Button>
+            <Button small icon="plus" onClick={() => setEditing({ code: randomCode(), amount: 50_000, max_uses: 1, new_customers_only: false, expires_at: null, is_active: true, note: null })}>
+              {t("new_gift")}
+            </Button>
+          </div>
         )
       }
     >
@@ -310,6 +733,14 @@ function GiftCodes() {
           }}
         />
       )}
+      {bulkOpen && (
+        <BulkGiftSheet
+          onClose={() => setBulkOpen(false)}
+          onCreated={() => {
+            void list.reload();
+          }}
+        />
+      )}
     </Section>
   );
 }
@@ -318,6 +749,7 @@ export function Discounts() {
   const { t, locale } = useSession();
   const list = useList<Discount>("/api/admin/discounts", []);
   const [editing, setEditing] = useState<CodeDraft | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const columns: Column<Discount>[] = [
     {
@@ -331,6 +763,9 @@ export function Discounts() {
           </span>
           {!c.is_active && <Badge>{t("inactive")}</Badge>}
           {c.sticky && <Badge tone="brand">{t("sticky")}</Badge>}
+          {c.account_plan_ids && c.account_plan_ids.length > 0 && (
+            <Badge tone="wait">{t("badge_panel_admin")}</Badge>
+          )}
         </span>
       ),
     },
@@ -358,9 +793,14 @@ export function Discounts() {
     <Page
       title={t("nav_discounts")}
       actions={
-        <Button tone="primary" icon="plus" onClick={() => setEditing({ ...EMPTY_CODE })}>
-          {t("new_code")}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button tone="quiet" onClick={() => setBulkOpen(true)}>
+            {t("bulk_generate")}
+          </Button>
+          <Button tone="primary" icon="plus" onClick={() => setEditing({ ...EMPTY_CODE })}>
+            {t("new_code")}
+          </Button>
+        </div>
       }
     >
       <Section flush>
@@ -380,6 +820,14 @@ export function Discounts() {
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
+            void list.reload();
+          }}
+        />
+      )}
+      {bulkOpen && (
+        <BulkCodeSheet
+          onClose={() => setBulkOpen(false)}
+          onCreated={() => {
             void list.reload();
           }}
         />
@@ -816,6 +1264,96 @@ export function Lotteries() {
           </div>
         </div>
       </Sheet>
+      <ReferralLeaderboard />
     </Page>
+  );
+}
+
+interface ReferrerRow {
+  rank: number;
+  customer_id: number;
+  name: string;
+  username: string | null;
+  telegram_id: number;
+  invited: number;
+  qualified: number;
+  commission: number;
+  config_claims: number;
+}
+
+interface LeaderboardResponse {
+  summary: {
+    total_invited: number;
+    total_qualified: number;
+    total_commission: number;
+    total_config_claims: number;
+  };
+  items: ReferrerRow[];
+}
+
+function ReferralLeaderboard() {
+  const { t, can, locale } = useSession();
+  const [days, setDays] = useState(0);
+  const data = useLoad<LeaderboardResponse>(
+    can("customers.read") ? `/api/admin/referrals/leaderboard?days=${days}&limit=50` : null,
+  );
+  if (!can("customers.read")) return null;
+  const cols: Column<ReferrerRow & { id: number }>[] = [
+    { key: "rank", label: "#", mobile: "meta", render: (r) => <span className="num font-bold">#{r.rank}</span> },
+    {
+      key: "name",
+      label: t("customer"),
+      mobile: "title",
+      render: (r) => (
+        <span className="flex flex-col">
+          <span className="font-semibold">{r.name}</span>
+          {r.username && <span className="text-[0.76rem] text-[var(--hint)]" dir="ltr">@{r.username}</span>}
+        </span>
+      ),
+    },
+    { key: "invited", label: t("ref_col_invited"), mobile: "meta", render: (r) => <span className="num">{money(r.invited, locale)}</span> },
+    { key: "qualified", label: t("ref_col_qualified"), mobile: "meta", render: (r) => <span className="num">{money(r.qualified, locale)}</span> },
+    { key: "commission", label: t("ref_col_commission"), mobile: "end", render: (r) => <Money amount={r.commission} /> },
+    { key: "claims", label: t("ref_col_configs"), mobile: "meta", render: (r) => <span className="num">{money(r.config_claims, locale)}</span> },
+  ];
+  return (
+    <Section
+      flush
+      title={t("ref_leaderboard_title")}
+      actions={
+        <Select className="w-auto" value={String(days)} onChange={(e) => setDays(Number(e.target.value))}>
+          <option value="0">{t("ref_period_all")}</option>
+          <option value="7">{t("ref_period_7d")}</option>
+          <option value="30">{t("ref_period_30d")}</option>
+          <option value="90">{t("ref_period_90d")}</option>
+        </Select>
+      }
+    >
+      <Async data={data.data} error={data.error} reload={data.reload}>
+        {(res) => (
+          <>
+            <div className="grid grid-cols-2 gap-3 border-b border-[var(--line)] px-4 py-3 md:grid-cols-4">
+              <div>
+                <p className="text-[0.76rem] text-[var(--hint)]">{t("ref_col_invited")}</p>
+                <p className="num text-[1.05rem] font-extrabold">{money(res.summary.total_invited, locale)}</p>
+              </div>
+              <div>
+                <p className="text-[0.76rem] text-[var(--hint)]">{t("ref_col_qualified")}</p>
+                <p className="num text-[1.05rem] font-extrabold">{money(res.summary.total_qualified, locale)}</p>
+              </div>
+              <div>
+                <p className="text-[0.76rem] text-[var(--hint)]">{t("ref_col_commission")}</p>
+                <p className="num text-[1.05rem] font-extrabold"><Money amount={res.summary.total_commission} /></p>
+              </div>
+              <div>
+                <p className="text-[0.76rem] text-[var(--hint)]">{t("ref_col_configs")}</p>
+                <p className="num text-[1.05rem] font-extrabold">{money(res.summary.total_config_claims, locale)}</p>
+              </div>
+            </div>
+            <Table columns={cols} rows={res.items.map((item) => ({ ...item, id: item.customer_id }))} />
+          </>
+        )}
+      </Async>
+    </Section>
   );
 }

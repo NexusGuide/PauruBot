@@ -226,7 +226,7 @@ async def mark(
     row = await session.scalar(
         select(Announcement)
         .where(Announcement.id == row_id, _visible(customer, utcnow()))
-        .with_for_update()
+        .with_for_update(read=True)
         .execution_options(populate_existing=True)
     )
     if row is None:

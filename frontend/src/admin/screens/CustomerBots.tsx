@@ -5,6 +5,8 @@ import { call } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
 import { Async, Badge, Button, Empty, Icon, Money, Page, SearchBox, When, useConfirm, Intro } from "../ui";
+import { BotLogsSheet } from "./BotLogsSheet";
+import { WebhookHealth } from "./MyBot";
 
 /** One bot run by a customer of this shop, as `GET /api/admin/customer-bots` reports it. */
 export interface CustomerBot {
@@ -122,6 +124,7 @@ function BotCard({ bot, onChanged }: { bot: CustomerBot; onChanged: () => void }
   const { t, locale, toast, errorText } = useSession();
   const confirm = useConfirm();
   const [busy, run] = useAction();
+  const [logsOpen, setLogsOpen] = useState(false);
   const ownPath = bot.owner ? `/api/admin/customers/${bot.owner.id}/own-bot` : null;
 
   const act = async (path: string, body: unknown, done: string) => {
@@ -197,6 +200,17 @@ function BotCard({ bot, onChanged }: { bot: CustomerBot; onChanged: () => void }
         </span>
       </div>
 
+      {bot.state !== "stopped" && bot.state !== "blocked" && (
+        <WebhookHealth
+          compact
+          basePath={
+            bot.kind === "own" && ownPath
+              ? ownPath
+              : `/api/admin/resellers/${bot.profile_id}/bot`
+          }
+        />
+      )}
+
       <div className="flex flex-wrap gap-2 border-t border-[var(--line)] pt-3">
         {bot.kind === "own" && ownPath && bot.state !== "stopped" && (
           <>
@@ -218,6 +232,9 @@ function BotCard({ bot, onChanged }: { bot: CustomerBot; onChanged: () => void }
             {t("own_bot_stop")}
           </Button>
         )}
+        <Button small tone="quiet" onClick={() => setLogsOpen(true)}>
+          {t("bot_logs_open")}
+        </Button>
         {bot.owner && (
           <Link
             to={`/customers/${bot.owner.id}`}
@@ -227,6 +244,13 @@ function BotCard({ bot, onChanged }: { bot: CustomerBot; onChanged: () => void }
           </Link>
         )}
       </div>
+      {logsOpen && (
+        <BotLogsSheet
+          basePath={`/api/admin/customer-bots/${bot.shop_id}/logs`}
+          title={bot.bot_username ? `@${bot.bot_username}` : bot.title}
+          onClose={() => setLogsOpen(false)}
+        />
+      )}
     </article>
   );
 }

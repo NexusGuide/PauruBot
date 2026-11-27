@@ -14,9 +14,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.db.models import (
+    AccountPlan,
     Customer,
     Order,
     OrderStatus,
+    Panel,
+    PanelAccount,
     Payment,
     PaymentPurpose,
     PaymentStatus,
@@ -28,16 +31,23 @@ MAX_ROWS = 200_000
 _FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
 
+def _guard_formula(text: str) -> str:
+    if text and (text.startswith(_FORMULA_START) or text.lstrip().startswith(_FORMULA_START)):
+        return "'" + text
+    return text
+
+
 def safe(value: Any) -> Any:
     """Keep spreadsheet apps from running text as a formula."""
-    if isinstance(value, str) and value.startswith(_FORMULA_START):
-        return "'" + value
+    if isinstance(value, str):
+        return _guard_formula(value)
     if isinstance(value, datetime):
         return value.replace(tzinfo=None)
     if isinstance(value, (list, dict)):
-        return ", ".join(map(str, value)) if isinstance(value, list) else str(value)
+        joined = ", ".join(map(str, value)) if isinstance(value, list) else str(value)
+        return _guard_formula(joined)
     if hasattr(value, "value") and not isinstance(value, (int, float, str)):
-        return str(value.value)  # enums
+        return _guard_formula(str(value.value))  # enums
     return value
 
 
@@ -125,6 +135,20 @@ SHEETS: dict[str, tuple[str, ...]] = {
         "expire_at",
         "created_at",
     ),
+    "accounts": (
+        "id",
+        "customer_id",
+        "customer",
+        "panel",
+        "username",
+        "plan",
+        "status",
+        "used_bytes",
+        "data_limit",
+        "max_users",
+        "expire_at",
+        "created_at",
+    ),
 }
 
 
@@ -141,6 +165,13 @@ async def build(
     header = SHEETS[kind]
     wb, ws = _workbook(kind, header)
     if kind == "orders":
+        account_titles = dict(
+            (
+                await session.execute(
+                    select(AccountPlan.id, AccountPlan.title).where(AccountPlan.shop_id == shop_id)
+                )
+            ).all()
+        )
         order_stmt = (
             select(Order, Customer, Plan.title)
             .join(Customer, Customer.id == Order.customer_id)
@@ -155,6 +186,12 @@ async def build(
         if customer_ids is not None:
             order_stmt = order_stmt.where(Order.customer_id.in_(customer_ids))
         async for order, customer, plan in _rows(session, order_stmt):
+            title = plan
+            if not title and isinstance(order.params, dict) and order.params.get("account_plan_id"):
+                try:
+                    title = account_titles.get(int(order.params["account_plan_id"]))
+                except (TypeError, ValueError):
+                    title = None
             ws.append(
                 [
                     safe(v)
@@ -166,7 +203,7 @@ async def build(
                         customer.display_name,
                         order.kind,
                         order.status,
-                        plan or "",
+                        title or "",
                         order.base_price,
                         order.reseller_discount,
                         order.code_discount,
@@ -265,6 +302,41 @@ async def build(
                     )
                 ]
             )
+    elif kind == "accounts":
+        acct_stmt = (
+            select(PanelAccount, Customer, Panel.name, AccountPlan.title)
+            .join(Customer, Customer.id == PanelAccount.customer_id)
+            .outerjoin(Panel, Panel.id == PanelAccount.panel_id)
+            .outerjoin(AccountPlan, AccountPlan.id == PanelAccount.plan_id)
+            .where(PanelAccount.shop_id == shop_id)
+            .order_by(PanelAccount.id)
+        )
+        if start:
+            acct_stmt = acct_stmt.where(PanelAccount.created_at >= start)
+        if end:
+            acct_stmt = acct_stmt.where(PanelAccount.created_at < end)
+        if customer_ids is not None:
+            acct_stmt = acct_stmt.where(PanelAccount.customer_id.in_(customer_ids))
+        async for acct, customer, panel_name, plan_title in _rows(session, acct_stmt):
+            ws.append(
+                [
+                    safe(v)
+                    for v in (
+                        acct.id,
+                        customer.id,
+                        customer.display_name,
+                        panel_name or "",
+                        acct.username,
+                        plan_title or "",
+                        acct.status,
+                        acct.used_bytes,
+                        acct.data_limit,
+                        acct.max_users if acct.max_users is not None else "",
+                        acct.expire_at,
+                        acct.created_at,
+                    )
+                ]
+            )
     else:
         raise KeyError(kind)
     return _bytes(wb)
@@ -317,6 +389,7 @@ async def top_customers(
         select(Customer, spent_sq.c.orders, spent_sq.c.spent, spent_sq.c.last_order, topups.c.topped_up)
         .join(spent_sq, spent_sq.c.customer_id == Customer.id)
         .outerjoin(topups, topups.c.customer_id == Customer.id)
+        .where(Customer.is_test.is_(False))
         .order_by(spent_sq.c.spent.desc(), spent_sq.c.orders.desc())
         .limit(max(1, min(limit, 100)))
     )

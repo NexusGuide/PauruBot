@@ -90,10 +90,22 @@ async def test_rollback_needs_a_previous_version_and_waits_while_running() -> No
         await updater.request("update")
 
 
+def test_dev_channel_request() -> None:
+    assert updater.build_request("update", "dev", None) == {"action": "update", "channel": "dev"}
+
+
 def test_version_comparison() -> None:
     assert updater._newer("v1.10.0", "v1.9.3")
     assert not updater._newer("v1.2.0", "v1.2.0")
+    assert updater._newer("v0.5.8", "v0.5.8-rc.1")
+    assert not updater._newer("v0.5.8-rc.1", "v0.5.8")
+    assert updater._newer("v0.5.8-rc.2", "v0.5.8-rc.1")
+    assert updater._newer("v0.5.8-rc.10", "v0.5.8-rc.2")
+    assert updater._newer("v0.5.8-beta.1", "v0.5.8-alpha.9")
+    assert updater._newer("v0.5.8-rc.1.1", "v0.5.8-rc.1")
+    assert not updater._newer("v0.5.8-rc.1", "v0.5.8-rc.1")
     assert not updater._newer("main", "v1.0.0")
+    assert not updater._newer("dev", "v1.0.0")
     assert not updater._newer(None, "v1.0.0")
 
 

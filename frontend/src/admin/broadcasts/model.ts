@@ -1,4 +1,4 @@
-export const AUDIENCE_KINDS = ["all", "buyers", "resellers", "active", "inactive", "never_bought"] as const;
+export const AUDIENCE_KINDS = ["all", "buyers", "resellers", "active", "inactive", "never_bought", "account_buyers"] as const;
 /** Foxima parity: the buyers of one panel, and people who have not used the bot for N days. */
 export const EXTRA_KINDS = ["panel", "idle"] as const;
 export const ALL_KINDS = [...AUDIENCE_KINDS, ...EXTRA_KINDS] as const;

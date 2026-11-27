@@ -1,13 +1,13 @@
 name: release
 
-# Images: `edge` from main (beta channel), `X.Y.Z` and `latest` from version tags (stable channel).
+# Images: `dev` from dev (dev channel), `edge` from main (beta channel), `X.Y.Z` and `latest` from version tags (stable channel).
 # Every image is signed keylessly with cosign, so the installer can verify where it was built.
 # A release is a pushed vX.Y.Z tag, or a manual run on main with `version`: that run tags the
 # commit it built itself, once the signed image is pushed.
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     tags: ["v*.*.*"]
   workflow_dispatch:
     inputs:
@@ -17,9 +17,9 @@ on:
         default: ""
 
 concurrency:
-  # A manual release never shares a group with pushes to main, which cancel each other.
+  # A manual release never shares a group with pushes to main or dev, which cancel each other.
   group: release-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+  cancel-in-progress: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && github.event_name == 'push' }}
 
 # Read-only by default; only the jobs that push and sign get write access (audit OPS-03).
 permissions:
@@ -46,17 +46,30 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Image name in lower case
         run: echo "IMAGE=${IMAGE,,}" >> "$GITHUB_ENV"
+      - name: Read dev version
+        if: github.ref == 'refs/heads/dev' && env.RELEASE == ''
+        run: |
+          dev_ver=$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml)
+          if [[ $dev_ver =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.]+$ ]]; then
+            echo "DEV_VERSION=$dev_ver" >> "$GITHUB_ENV"
+          fi
       - name: Check the version being released
         if: env.RELEASE != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           have=$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml)
-          if [[ ! $RELEASE =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ || ${RELEASE#v} != "$have" ]]; then
+          if [[ ! $RELEASE =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ || ${RELEASE#v} != "$have" ]]; then
             echo "::error::$RELEASE does not match pyproject.toml version $have"; exit 1
           fi
-          if [[ $GITHUB_EVENT_NAME == workflow_dispatch && $GITHUB_REF != refs/heads/main ]]; then
+          if [[ $RELEASE == *-* ]]; then
+            echo "IS_PRERELEASE=true" >> "$GITHUB_ENV"
+          fi
+          if [[ $GITHUB_EVENT_NAME == workflow_dispatch && $RELEASE != *-* && $GITHUB_REF != refs/heads/main ]]; then
             echo "::error::a manual release runs on main only"; exit 1
+          fi
+          if [[ $GITHUB_EVENT_NAME == workflow_dispatch && $RELEASE == *-* && $GITHUB_REF != refs/heads/dev ]]; then
+            echo "::error::a prerelease runs on dev only"; exit 1
           fi
           # Before any image is pushed: a second manual run must not overwrite a released image.
           if [[ $GITHUB_EVENT_NAME == workflow_dispatch ]] \
@@ -79,9 +92,11 @@ jobs:
           images: ${{ env.IMAGE }}
           tags: |
             type=edge,branch=main
+            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' && env.RELEASE == '' }}
+            type=raw,value=${{ env.DEV_VERSION || 'unused' }},enable=${{ github.ref == 'refs/heads/dev' && env.RELEASE == '' && env.DEV_VERSION != '' }}
             type=semver,pattern={{version}}
             type=raw,value=${{ inputs.version || 'unused' }},enable=${{ github.event_name == 'workflow_dispatch' && env.RELEASE != '' }}
-            type=raw,value=latest,enable=${{ env.RELEASE != '' }}
+            type=raw,value=latest,enable=${{ env.RELEASE != '' && env.IS_PRERELEASE != 'true' }}
 
       - id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
@@ -108,7 +123,9 @@ jobs:
             gh api "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/${RELEASE}" -f sha="${GITHUB_SHA}"
           fi
           printf '{"version":"%s","image":"%s@%s"}\n' "${RELEASE}" "${IMAGE}" "${DIGEST}" > release.json
-          gh release create "${RELEASE}" release.json --generate-notes --verify-tag
+          flags=(--generate-notes --verify-tag)
+          [[ ${IS_PRERELEASE:-} == true ]] && flags+=(--prerelease)
+          gh release create "${RELEASE}" release.json "${flags[@]}"
 
   # Docker Hub refuses many Iranian addresses; keep copies of the base images next to ours on GHCR.
   # Each copy is signed like our image, so the installer can refuse a swapped one (audit SEC-04).

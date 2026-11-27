@@ -19,7 +19,7 @@ from paurubot.bot.states import ResellerStates
 from paurubot.bot.utils import error_text, show
 from paurubot.core import reseller_desk, resellers
 from paurubot.core.formatting import esc, jdate, money, parse_int
-from paurubot.db.models import Customer, ResellerProfile, Service
+from paurubot.db.models import Customer, ResellerBillingSnapshot, ResellerProfile, Service
 from paurubot.i18n import Texts
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.worker import queue
@@ -86,6 +86,8 @@ def hub_kb(
     kb.button(text=t("rs_btn_web"), callback_data=Rs(action="web"))
     kb.button(text=t("rs_btn_wallet"), callback_data=Wallet(action="home"))
     kb.button(text=t("rs_btn_services"), callback_data=Svc(action="list"))
+    if profile.is_metered or profile.billing_debt > 0:
+        kb.button(text=t("rs_btn_billing"), callback_data=Rs(action="billing"))
     if profile.parent_id is None and "resellers.sub" in (profile.permissions or []):
         kb.button(text=t("rs_btn_subs"), callback_data=Rs(action="subs"))
     if accounts:
@@ -394,6 +396,86 @@ async def web(call: CallbackQuery, session: AsyncSession, customer: Customer, t:
     await show(call, t("rs_web", url=esc(url), username=esc(login.username)), back_kb(t))
 
 
+# --- PAYG billing & instant debt settlement ----------------------------------------------
+
+
+@router.callback_query(Rs.filter(F.action == "billing"))
+async def billing(call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts) -> None:
+    profile = current(customer)
+    if profile is None:
+        await call.answer()
+        return
+    await call.answer()
+    balance = await wallet_balance(session, customer.shop_id, customer.id)
+    snaps = list(
+        await session.scalars(
+            select(ResellerBillingSnapshot)
+            .where(ResellerBillingSnapshot.profile_id == profile.id)
+            .order_by(ResellerBillingSnapshot.id.desc())
+            .limit(5)
+        )
+    )
+    mode_label = (
+        t("reseller_billing_usage", price=money(profile.gb_price))
+        if profile.billing_mode == "usage"
+        else t("reseller_billing_hourly", price=money(profile.hourly_price))
+        if profile.billing_mode == "hourly"
+        else t("rs_billing_prepaid")
+    )
+    lines = [
+        t("rs_billing_title"),
+        mode_label,
+        t(
+            "rs_billing_summary",
+            balance=money(balance),
+            debt=money(profile.billing_debt),
+            credit=money(profile.credit_limit),
+        ),
+    ]
+    if profile.suspended_at is not None:
+        lines.append(t("reseller_suspended_line"))
+    if snaps:
+        lines.append("")
+        lines.append(t("rs_billing_recent"))
+        for snap in snaps:
+            lines.append(
+                t(
+                    "rs_billing_row",
+                    date=jdate(snap.period_end),
+                    amount=money(snap.amount),
+                    charged=money(snap.charged),
+                    debt=money(snap.debt_after),
+                )
+            )
+    kb = InlineKeyboardBuilder()
+    if profile.billing_debt > 0:
+        kb.row(
+            InlineKeyboardButton(text=t("rs_btn_settle_debt"), callback_data=Rs(action="settle_debt").pack())
+        )
+    kb.row(InlineKeyboardButton(text=t("rs_btn_wallet"), callback_data=Wallet(action="home").pack()))
+    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Rs(action="home").pack()))
+    await show(call, "\n".join(lines), kb.as_markup())
+
+
+@router.callback_query(Rs.filter(F.action == "settle_debt"))
+async def settle_debt(call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts) -> None:
+    profile = current(customer)
+    if profile is None:
+        await call.answer()
+        return
+    if profile.billing_debt <= 0:
+        await call.answer(t("rs_debt_none"), show_alert=True)
+        return
+    res = await resellers.settle_debt(session, profile)
+    await session.commit()
+    if res.charged <= 0:
+        await call.answer(t("rs_debt_short"), show_alert=True)
+        return
+    key = "rs_debt_settled_resumed" if res.resumed else "rs_debt_settled"
+    await call.answer(t(key, charged=money(res.charged), debt=money(res.debt_after)), show_alert=True)
+    await billing(call, session, customer, t)
+
+
 # --- level-2 resellers (TEN-01) ----------------------------------------------------------
 
 
@@ -415,13 +497,18 @@ async def subs(call: CallbackQuery, session: AsyncSession, customer: Customer, t
         c.id: c
         for c in await session.scalars(select(Customer).where(Customer.id.in_([r.customer_id for r in rows])))
     }
+    stats = await resellers.sub_reseller_stats(session, profile, rows)
     kb = InlineKeyboardBuilder()
     for row in rows:
         who = names.get(row.customer_id)
         state = "✅" if row.is_active else "⏸"
+        st = stats[row.id]
+        extra = f" · {st.orders_month}" if st.orders_month else ""
         kb.row(
             InlineKeyboardButton(
-                text=f"{state} {who.display_name if who else row.customer_id} · {row.discount_percent}%",
+                text=(
+                    f"{state} {who.display_name if who else row.customer_id} · {row.discount_percent}%{extra}"
+                )[:64],
                 callback_data=Rs(action="sub", id=row.id).pack(),
             )
         )
@@ -429,7 +516,10 @@ async def subs(call: CallbackQuery, session: AsyncSession, customer: Customer, t
     if limit is None or len(rows) < limit:
         kb.row(InlineKeyboardButton(text=t("rs_btn_sub_add"), callback_data=Rs(action="sub_add").pack()))
     kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Rs(action="home").pack()))
+    total_comm = sum(s.commission_month for s in stats.values())
     text = t("rs_subs", count=len(rows), max=profile.discount_percent)
+    if total_comm > 0:
+        text += "\n" + t("rs_subs_commission", amount=money(total_comm))
     await show(call, text, kb.as_markup())
 
 
@@ -455,13 +545,23 @@ async def sub(
     await call.answer()
     who = await session.get(Customer, child.customer_id)
     balance = await wallet_balance(session, child.shop_id, child.customer_id)
-    text = t(
-        "rs_sub_card",
-        name=esc(who.display_name if who else "-"),
-        telegram_id=who.telegram_id if who else "-",
-        percent=child.discount_percent,
-        balance=money(balance),
-        state=t("rs_active") if child.is_active else t("rs_paused"),
+    st = (await resellers.sub_reseller_stats(session, parent, [child]))[child.id]
+    text = (
+        t(
+            "rs_sub_card",
+            name=esc(who.display_name if who else "-"),
+            telegram_id=who.telegram_id if who else "-",
+            percent=child.discount_percent,
+            balance=money(balance),
+            state=t("rs_active") if child.is_active else t("rs_paused"),
+        )
+        + "\n"
+        + t(
+            "rs_sub_stats",
+            orders=st.orders_month,
+            sales=money(st.sales_month),
+            commission=money(st.commission_month),
+        )
     )
     kb = InlineKeyboardBuilder()
     kb.button(text=t("rs_btn_sub_discount"), callback_data=Rs(action="sub_discount", id=child.id))

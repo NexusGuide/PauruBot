@@ -156,14 +156,44 @@ def dice_wins(style: str, value: int) -> bool:
     return value == 6 if style == "dice" else value in SLOT_JACKPOTS
 
 
+async def _check_spin(
+    session: AsyncSession, customer: Customer, cfg: dict[str, Any], *, lock: bool = True
+) -> None:
+    """Who may spin now: not banned, buyers only when required, once per period."""
+    if customer.is_banned:
+        raise GrowthError("wheel_off")
+    if cfg.get("wheel_buyers_only"):
+        bought = await session.scalar(
+            select(func.count(Order.id)).where(
+                Order.customer_id == customer.id, Order.status == OrderStatus.COMPLETED, Order.amount > 0
+            )
+        )
+        if not bought:
+            raise GrowthError("wheel_buyers_only")
+    if lock:
+        await session.execute(select(Customer.id).where(Customer.id == customer.id).with_for_update())
+    when = await next_spin_at(session, customer, cfg)
+    if when is not None and when > utcnow():
+        raise GrowthError("wheel_wait", at=when)
+
+
 async def dice_spin(session: AsyncSession, customer: Customer, cfg: dict[str, Any], *, roll: Any) -> Spin:
     """One throw of Telegram's dice or slot machine instead of the wheel (Foxima parity): the same
     eligibility and waiting time; `roll` throws it in the chat and returns Telegram's value."""
+    from paurubot import kv
+
     if not cfg.get("wheel_enabled"):
         raise GrowthError("wheel_off")
-    await _check_spin(session, customer, cfg)
+    # Check eligibility without holding a DB row lock across the external Telegram API call.
+    await _check_spin(session, customer, cfg, lock=False)
     style = str(cfg.get("wheel_style") or "dice")
-    value = int(await roll())
+    try:
+        async with kv.lease(f"wheel-dice:{customer.shop_id}:{customer.id}", ttl=15):
+            value = int(await roll())
+            await _check_spin(session, customer, cfg, lock=True)
+    except kv.LockNotAcquired:
+        when = await next_spin_at(session, customer, cfg) or (utcnow() + timedelta(seconds=15))
+        raise GrowthError("wheel_wait", at=when) from None
     win = dice_wins(style, value)
     amount = int(cfg.get("wheel_dice_prize") or 0) if win else 0
     prize: dict[str, Any] = {
@@ -188,40 +218,12 @@ async def dice_spin(session: AsyncSession, customer: Customer, cfg: dict[str, An
     return Spin(0, prize, None)
 
 
-async def _check_spin(session: AsyncSession, customer: Customer, cfg: dict[str, Any]) -> None:
-    """Who may spin now: buyers only when the shop says so, once per period (row-locked)."""
-    if cfg.get("wheel_buyers_only"):
-        bought = await session.scalar(
-            select(func.count(Order.id)).where(
-                Order.customer_id == customer.id, Order.status == OrderStatus.COMPLETED, Order.amount > 0
-            )
-        )
-        if not bought:
-            raise GrowthError("wheel_buyers_only")
-    await session.execute(select(Customer.id).where(Customer.id == customer.id).with_for_update())
-    when = await next_spin_at(session, customer, cfg)
-    if when is not None and when > utcnow():
-        raise GrowthError("wheel_wait", at=when)
-
-
 async def spin(session: AsyncSession, customer: Customer, cfg: dict[str, Any]) -> Spin:
     """One spin: pick a slice by weight, pay the prize, remember when the next spin is allowed."""
     if not cfg.get("wheel_enabled"):
         raise GrowthError("wheel_off")
     prizes = validate_prizes(cfg.get("wheel_prizes") or [])
-    if cfg.get("wheel_buyers_only"):
-        bought = await session.scalar(
-            select(func.count(Order.id)).where(
-                Order.customer_id == customer.id, Order.status == OrderStatus.COMPLETED, Order.amount > 0
-            )
-        )
-        if not bought:
-            raise GrowthError("wheel_buyers_only")
-    # Lock the customer row so two quick taps can never spin twice.
-    await session.execute(select(Customer.id).where(Customer.id == customer.id).with_for_update())
-    when = await next_spin_at(session, customer, cfg)
-    if when is not None and when > utcnow():
-        raise GrowthError("wheel_wait", at=when)
+    await _check_spin(session, customer, cfg, lock=True)
     pick = _random.uniform(0, sum(p["weight"] for p in prizes))
     index = 0
     for index, prize in enumerate(prizes):  # noqa: B007
@@ -248,6 +250,7 @@ async def spin(session: AsyncSession, customer: Customer, cfg: dict[str, Any]) -
         session.add(
             DiscountCode(
                 shop_id=customer.shop_id,
+                customer_id=customer.id,
                 code=code,
                 kind=DiscountKind.PERCENT,
                 value=prize["value"],
@@ -282,7 +285,12 @@ async def open_lottery(session: AsyncSession, shop_id: int) -> Lottery | None:
 
 async def join(session: AsyncSession, lottery: Lottery, customer: Customer) -> bool:
     """Enter a join-style lottery; False when already in."""
-    if lottery.mode != "join" or lottery.status != "open" or lottery.ends_at <= utcnow():
+    if (
+        customer.is_banned
+        or lottery.mode != "join"
+        or lottery.status != "open"
+        or lottery.ends_at <= utcnow()
+    ):
         raise GrowthError("lottery_closed")
     existing = await session.scalar(
         select(LotteryEntry).where(
@@ -439,8 +447,18 @@ async def draw(session: AsyncSession, lottery: Lottery) -> list[int]:
     """
     from paurubot.worker import queue
 
+    locked = await session.scalar(
+        select(Lottery)
+        .where(Lottery.id == lottery.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if locked is not None:
+        lottery = locked
     if lottery.status == "drawn":
         return [int(x) for x in (lottery.result or {}).get("winners", [])]
+    if lottery.status != "open":
+        return []
     board = await standings(session, lottery)
     prizes = prize_list(lottery)
     if lottery.pick == "top":
@@ -470,7 +488,12 @@ async def draw(session: AsyncSession, lottery: Lottery) -> list[int]:
             award["status"] = "paid"
         elif prize["kind"] == "service":
             panel = await session.get(Panel, int(prize["panel_id"]))
-            if panel is None or panel.shop_id != lottery.shop_id or not panel.is_active:
+            if (
+                panel is None
+                or panel.shop_id != lottery.shop_id
+                or not panel.is_active
+                or panel.national_mode
+            ):
                 award["status"] = "failed"
             else:
                 order = Order(

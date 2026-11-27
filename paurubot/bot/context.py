@@ -22,7 +22,7 @@ from paurubot.config import get_settings
 from paurubot.core import channels as channel_rules
 from paurubot.core import customers
 from paurubot.core import settings as shop_settings
-from paurubot.core.formatting import esc
+from paurubot.core.formatting import esc, money
 from paurubot.core.shops import root_shop
 from paurubot.db.models import Customer, ForcedChannel, Shop, ShopStatus, Staff, StaffRole
 from paurubot.db.session import get_sessionmaker
@@ -178,7 +178,33 @@ class ContextMiddleware(BaseMiddleware):
                 first_name=tg_user.first_name,
                 locale=_initial_locale(tg_user, shop, cfg),
             )
+            if created:
+                from paurubot.core import referral
+
+                start_text = (
+                    (update.message.text or "").strip()
+                    if update is not None and update.message is not None
+                    else ""
+                )
+                ref_id: int | None = None
+                if start_text.startswith("/start"):
+                    parts = start_text.split(maxsplit=1)
+                    if len(parts) > 1 and parts[1].startswith("ref_") and parts[1][4:].isdigit():
+                        ref_id = int(parts[1][4:])
+                try:
+                    await referral.remember_pending_start(shop.id, customer.id, ref_id)
+                except Exception:
+                    log.debug("could not cache pending start for customer %s", customer.id)
             staff = await resolve_staff(session, shop.id, tg_user.id)
+            from paurubot.core import trials
+            from paurubot.ledger.accounts import wallet_balance
+
+            bal = await wallet_balance(session, shop.id, customer.id)
+            trial_used = (
+                await trials.has_used_current(session, customer)
+                if bool(cfg.get("trial_hide_after_use"))
+                else False
+            )
             texts = await texts_for(
                 session,
                 shop.id,
@@ -190,9 +216,17 @@ class ContextMiddleware(BaseMiddleware):
                     "username": esc(tg_user.username or ""),
                     "shop": esc(shop.title),
                     "support": esc(cfg.get("support_username") or ""),
+                    "balance": money(bal),
+                    "ref_code": f"ref_{customer.telegram_id}",
                 },
             )
-            data.update(customer=customer, is_new_customer=created, staff=staff, t=texts)
+            data.update(
+                customer=customer,
+                is_new_customer=created,
+                staff=staff,
+                t=texts,
+                trial_used=trial_used,
+            )
             if staff is None and not financial_update:
                 if customer.is_banned:
                     await _notify(event, texts("banned"))
@@ -202,9 +236,13 @@ class ContextMiddleware(BaseMiddleware):
                     await _notify(event, texts("maintenance"))
                     await session.commit()
                     return None
+            started = time.monotonic()
             try:
                 result = await handler(event, data)
                 await session.commit()
+                elapsed = time.monotonic() - started
+                if elapsed > 1.5:
+                    log.warning("slow telegram update %.2fs type=%s", elapsed, type(event).__name__)
                 return result
             except Exception:
                 await session.rollback()
@@ -284,6 +322,17 @@ class GateMiddleware(BaseMiddleware):
             elif isinstance(event, CallbackQuery):
                 await event.answer(texts("terms_required_alert"), show_alert=True)
             return None
+        is_start = isinstance(event, Message) and (event.text or "").strip().startswith("/start")
+        if not data.get("is_new_customer") and not is_start:
+            pending, saved_ref = await referral.take_pending_start(customer.shop_id, customer.id)
+            if pending:
+                welcome_gift = await referral.complete_onboarding(
+                    session, customer.shop_id, customer, cfg, ref_telegram_id=saved_ref
+                )
+                if welcome_gift and isinstance(event, Message):
+                    from paurubot.core.formatting import money
+
+                    await event.answer(texts("start_gift", amount=money(welcome_gift)))
         return await handler(event, data)
 
 

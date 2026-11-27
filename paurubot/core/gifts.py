@@ -7,8 +7,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot import kv
+from paurubot.core import pricing
 from paurubot.db.base import utcnow
-from paurubot.db.models import Customer, GiftCode, GiftRedemption, Order, OrderStatus
+from paurubot.db.models import Customer, GiftCode, GiftRedemption
 from paurubot.ledger import wallet
 
 ATTEMPTS_PER_HOUR = 10
@@ -24,6 +25,8 @@ async def redeem(session: AsyncSession, customer: Customer, text: str) -> int:
     """Credit a gift code once per customer and return the amount. Commits nothing."""
     # By Telegram account: a new user's failed try is rolled back with their customer row, so a
     # customer-id key would start over on every try.
+    if customer.is_banned:
+        raise GiftError("gift_invalid")
     allowed, _ = await kv.hit(f"gift:{customer.shop_id}:{customer.telegram_id}", ATTEMPTS_PER_HOUR, 3600)
     if not allowed:
         raise GiftError("gift_too_many_attempts")
@@ -41,14 +44,8 @@ async def redeem(session: AsyncSession, customer: Customer, text: str) -> int:
         raise GiftError("gift_expired")
     if code.max_uses is not None and code.used_count >= code.max_uses:
         raise GiftError("gift_used_up")
-    if code.new_customers_only:
-        bought = await session.scalar(
-            select(func.count(Order.id)).where(
-                Order.customer_id == customer.id, Order.status == OrderStatus.COMPLETED
-            )
-        )
-        if bought:
-            raise GiftError("gift_new_only")
+    if code.new_customers_only and await pricing.has_prior_purchase(session, customer.id):
+        raise GiftError("gift_new_only")
     try:
         async with session.begin_nested():
             session.add(

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from typing import Any
 
@@ -41,7 +42,7 @@ async def fetch_nobitex(transport: httpx.AsyncBaseTransport | None = None) -> di
             rial = float(entry.get("latest") or entry.get("bestSell") or 0)
         except (TypeError, ValueError):
             continue
-        if rial > 0:
+        if math.isfinite(rial) and rial > 0:
             rates[symbol] = int(rial // 10)
     return rates
 
@@ -85,9 +86,10 @@ def pick(data: Any, path: str) -> float | None:
     if isinstance(node, bool):
         return None
     try:
-        return float(node)
+        value = float(node)
     except (TypeError, ValueError):
         return None
+    return value if math.isfinite(value) else None
 
 
 def api_key(cfg: dict[str, Any]) -> str:
@@ -110,20 +112,29 @@ async def fetch_api(cfg: dict[str, Any], transport: httpx.AsyncBaseTransport | N
     if not template.startswith("https://") or not path:
         return {}
     rates: dict[str, int] = {}
+    payloads: dict[str, Any] = {}
+    failed_urls: set[str] = set()
     for symbol in SYMBOLS:
         url = template.replace("{symbol}", symbol)
-        client_transport = transport or ValidatedTransport(
-            url, context=ssl.create_default_context(), allow_private=False
-        )
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(10, connect=5), transport=client_transport, follow_redirects=False
-        ) as client:
+        if url in failed_urls:
+            continue
+        if url not in payloads:
             try:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                value = pick(resp.json(), path.replace("{symbol}", symbol))
-            except (httpx.HTTPError, ValueError):
+                client_transport = transport or ValidatedTransport(
+                    url, context=ssl.create_default_context(), allow_private=False
+                )
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(10, connect=5),
+                    transport=client_transport,
+                    follow_redirects=False,
+                ) as client:
+                    resp = await client.get(url)
+                    resp.raise_for_status()
+                    payloads[url] = resp.json()
+            except (httpx.HTTPError, httpx.InvalidURL, ValueError):
+                failed_urls.add(url)
                 continue
+        value = pick(payloads[url], path.replace("{symbol}", symbol))
         if value and value > 0:
             rates[symbol] = int(value // divisor)
     return rates

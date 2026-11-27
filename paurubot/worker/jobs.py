@@ -280,8 +280,30 @@ async def expire_open_items() -> None:
         log.info("expired payments=%s orders=%s", expired_payments, expired_orders)
 
 
+_light_ticks: dict[str, int] = {}
+
+
+async def _light_mode_skip(name: str) -> bool:
+    """When root shop enables light_mode, skip every other tick of heavy background loops."""
+    from paurubot.core import settings as shop_settings
+    from paurubot.core.shops import root_shop
+
+    async with session_scope() as session:
+        shop = await root_shop(session)
+        if shop is None:
+            return False
+        cfg = await shop_settings.load(session, shop.id)
+        if not bool(cfg.get("light_mode")):
+            return False
+    count = _light_ticks.get(name, 0) + 1
+    _light_ticks[name] = count
+    return count % 2 == 1
+
+
 @every(300, "usage.sync")
 async def usage_sync() -> None:
+    if await _light_mode_skip("usage.sync"):
+        return
     async with session_scope() as session:
         panels = await sync.due_panels(session)
         panel_ids = [p.id for p in panels]
@@ -460,6 +482,86 @@ async def cleanup_jobs() -> None:
                 Job.finished_at < utcnow() - timedelta(days=DEFAULT_RETENTION_DAYS),
             )
         )
+
+
+@every(86400, "audit.cleanup")
+async def cleanup_audit_logs() -> None:
+    """Prune old audit log entries according to each shop's audit_retention_days (0: keep all)."""
+    from datetime import timedelta
+
+    from paurubot.core import settings as shop_settings
+    from paurubot.db.models import AuditLog
+
+    async with session_scope() as session:
+        for shop_id in list(await session.scalars(select(Shop.id))):
+            cfg = await shop_settings.load(session, shop_id)
+            days = int(cfg.get("audit_retention_days") or 0)
+            if days <= 0:
+                continue
+            await session.execute(
+                delete(AuditLog).where(
+                    AuditLog.shop_id == shop_id,
+                    AuditLog.created_at < utcnow() - timedelta(days=days),
+                )
+            )
+
+
+@every(300, "tickets.remind")
+async def remind_unanswered_tickets() -> None:
+    """Remind staff about open tickets awaiting a reply longer than ticket_reminder_minutes."""
+    from datetime import timedelta
+
+    from paurubot import kv
+    from paurubot.core import settings as shop_settings
+    from paurubot.db.models import Ticket, TicketMessage, TicketStatus
+
+    now = utcnow()
+    async with session_scope() as session:
+        for shop_id in list(await session.scalars(select(Shop.id))):
+            cfg = await shop_settings.load(session, shop_id)
+            minutes = int(cfg.get("ticket_reminder_minutes") or 0)
+            if minutes <= 0:
+                continue
+            cutoff = now - timedelta(minutes=minutes)
+            open_tickets = list(
+                await session.scalars(
+                    select(Ticket).where(Ticket.shop_id == shop_id, Ticket.status == TicketStatus.OPEN)
+                )
+            )
+            for ticket in open_tickets:
+                last_msg = await session.scalar(
+                    select(TicketMessage)
+                    .where(TicketMessage.ticket_id == ticket.id, TicketMessage.is_internal.is_(False))
+                    .order_by(TicketMessage.id.desc())
+                    .limit(1)
+                )
+                if last_msg is None or last_msg.author_type != "customer":
+                    continue
+                if last_msg.created_at is None:
+                    continue
+                created_at = (
+                    last_msg.created_at.replace(tzinfo=now.tzinfo)
+                    if last_msg.created_at.tzinfo is None
+                    else last_msg.created_at
+                )
+                if created_at > cutoff:
+                    continue
+                mark_key = f"ticket_remind:{ticket.id}:{last_msg.id}"
+                try:
+                    if mark_key in await kv.marked([mark_key]):
+                        continue
+                    await kv.mark(mark_key, max(minutes * 60, 3600), "1")
+                except Exception:
+                    pass
+                waited = max(minutes, int((now - created_at).total_seconds() // 60))
+                await queue.enqueue(
+                    session,
+                    "notify",
+                    "ticket_reminder",
+                    {"ticket_id": ticket.id, "minutes": waited},
+                    shop_id=shop_id,
+                    dedupe_key=f"ticket_remind:{ticket.id}:{last_msg.id}",
+                )
 
 
 # --- backups (OPS-05, OPS-06) --------------------------------------------------
@@ -1049,3 +1151,222 @@ async def cleanup_ticket_media() -> None:
 
     async with session_scope() as session:
         await ticket_media.prune(session)
+
+
+CRON_CATEGORIES: dict[str, str] = {
+    "payments.sweep": "payments",
+    "gateways.poll": "payments",
+    "crypto.scan": "payments",
+    "stars.reconcile": "payments",
+    "cards.late_approve": "payments",
+    "ledger.reconcile": "payments",
+    "fx.refresh": "payments",
+    "usage.sync": "services",
+    "services.cleanup": "services",
+    "services.auto_renew": "services",
+    "services.ip_watch": "services",
+    "services.on_hold_remind": "services",
+    "renewals.reconcile": "services",
+    "purchases.reconcile": "services",
+    "expiry.sweep": "services",
+    "accounts.auto_renew": "services",
+    "accounts.sync": "services",
+    "panels.monitor": "panels",
+    "panels.capacity": "panels",
+    "panels.remnawave_loyalty": "panels",
+    "domains.check": "panels",
+    "reports.daily": "reports",
+    "backups.daily": "reports",
+    "tickets.remind": "reports",
+    "tickets.auto_close": "reports",
+    "errors.flush": "reports",
+    "resellers.billing": "growth",
+    "resellers.expire": "growth",
+    "discounts.expire": "growth",
+    "lottery.draw": "growth",
+    "broadcasts.unpin": "growth",
+    "miniapp.notice_expire": "growth",
+    "usage_history.cleanup": "cleanup",
+    "guests.cleanup": "cleanup",
+    "jobs.cleanup": "cleanup",
+    "audit.cleanup": "cleanup",
+    "migration_uploads.cleanup": "cleanup",
+    "ticket_media.cleanup": "cleanup",
+    "apps.refresh": "system",
+    "worker.heartbeat": "system",
+}
+
+
+@every(900, "services.on_hold_remind")
+async def remind_on_hold_services() -> None:
+    """Remind customers whose ON_HOLD service has not been connected yet (Faoxima parity)."""
+    from datetime import timedelta
+
+    from paurubot.core import settings as shop_settings
+    from paurubot.db.models import Service, ServiceStatus
+
+    now = utcnow()
+    async with session_scope() as session:
+        shop_ids = list(await session.scalars(select(Shop.id)))
+    for shop_id in shop_ids:
+        async with session_scope() as session:
+            cfg = await shop_settings.load(session, shop_id)
+            hours = int(cfg.get("on_hold_remind_hours") or 0)
+            if hours <= 0:
+                continue
+            cutoff = now - timedelta(hours=hours)
+            rows = list(
+                await session.scalars(
+                    select(Service)
+                    .where(
+                        Service.shop_id == shop_id,
+                        Service.status == ServiceStatus.ON_HOLD,
+                        Service.is_trial.is_(False),
+                        Service.created_at <= cutoff,
+                    )
+                    .limit(100)
+                )
+            )
+            if not rows:
+                continue
+            marks = await kv.marked([f"on-hold-remind:{s.id}" for s in rows])
+            enqueued = 0
+            for svc in rows:
+                key = f"on-hold-remind:{svc.id}"
+                if key in marks:
+                    continue
+                await kv.mark(key, 72 * 3600)
+                await queue.enqueue(
+                    session,
+                    "notify",
+                    "service_alert",
+                    {"service_id": svc.id, "alert": "on_hold_remind", "hours": hours},
+                    shop_id=shop_id,
+                    dedupe_key=f"on-hold-remind:{svc.id}:{now.strftime('%Y%m%d')}",
+                )
+                enqueued += 1
+            if enqueued:
+                await session.commit()
+
+
+@every(1800, "discounts.expire")
+async def expire_discounts() -> None:
+    """Deactivate expired or fully redeemed discount codes and report to the crons topic."""
+    from sqlalchemy import or_
+
+    from paurubot.db.models import DiscountCode
+    from paurubot.notifications import handlers as notify_handlers
+    from paurubot.notifications import log_reports
+
+    now = utcnow()
+    async with session_scope() as session:
+        rows = list(
+            await session.scalars(
+                select(DiscountCode).where(
+                    DiscountCode.is_active.is_(True),
+                    or_(
+                        DiscountCode.expires_at <= now,
+                        (
+                            DiscountCode.max_uses.is_not(None)
+                            & (DiscountCode.used_count >= DiscountCode.max_uses)
+                        ),
+                    ),
+                )
+            )
+        )
+        if not rows:
+            return
+        by_shop: dict[int, list[str]] = {}
+        for row in rows:
+            row.is_active = False
+            by_shop.setdefault(row.shop_id, []).append(row.code)
+        await session.commit()
+        for shop_id, codes in by_shop.items():
+            t = await log_reports.shop_texts(session, shop_id)
+            text = t(
+                "report_cron_discounts_expired",
+                count=len(codes),
+                codes=", ".join(codes[:12]),
+            )
+            await notify_handlers.report(session, shop_id, "crons", text, strict=True)
+
+
+@every(1800, "resellers.expire")
+async def expire_resellers() -> None:
+    """Suspend expired reseller profiles, notify them, and report to resellers/crons topics."""
+    from html import escape as esc
+
+    from paurubot.db.models import Customer, ResellerProfile
+    from paurubot.notifications import handlers as notify_handlers
+    from paurubot.notifications import log_reports
+
+    now = utcnow()
+    async with session_scope() as session:
+        rows = list(
+            await session.scalars(
+                select(ResellerProfile).where(
+                    ResellerProfile.is_active.is_(True),
+                    ResellerProfile.expires_at.is_not(None),
+                    ResellerProfile.expires_at <= now,
+                )
+            )
+        )
+        if not rows:
+            return
+        for profile in rows:
+            profile.is_active = False
+            profile.suspended_at = now
+            profile.suspend_reason = "expired"
+            await queue.enqueue(
+                session,
+                "notify",
+                "reseller_notice",
+                {"profile_id": profile.id, "notice": "expired"},
+                shop_id=profile.shop_id,
+                dedupe_key=f"reseller-expired:{profile.id}:{now.strftime('%Y%m%d')}",
+            )
+            customer = await session.get(Customer, profile.customer_id)
+            t = await log_reports.shop_texts(session, profile.shop_id)
+            who = log_reports.user_block(t, customer) if customer else esc(str(profile.customer_id))
+            text = t("report_cron_reseller_expired", user=who)
+            await notify_handlers.report(session, profile.shop_id, "resellers", text)
+            await notify_handlers.report(session, profile.shop_id, "crons", text, strict=True)
+        await session.commit()
+
+
+@every(300, "miniapp.notice_expire")
+async def expire_miniapp_notices() -> None:
+    """Automatically clear expired Mini App announcement banners."""
+    from datetime import UTC, datetime
+
+    from paurubot.core import settings as shop_settings
+    from paurubot.notifications import handlers as notify_handlers
+    from paurubot.notifications import log_reports
+
+    now = utcnow()
+    async with session_scope() as session:
+        shop_ids = list(await session.scalars(select(Shop.id)))
+    for shop_id in shop_ids:
+        async with session_scope() as session:
+            cfg = await shop_settings.load(session, shop_id)
+            notice = str(cfg.get("miniapp_notice") or "").strip()
+            exp_raw = str(cfg.get("miniapp_notice_expires_at") or "").strip()
+            if not notice or not exp_raw:
+                continue
+            try:
+                exp = datetime.fromisoformat(exp_raw.replace("Z", "+00:00"))
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=UTC)
+            except ValueError:
+                continue
+            if exp <= now:
+                await shop_settings.set_many(
+                    session,
+                    shop_id,
+                    {"miniapp_notice": "", "miniapp_notice_expires_at": ""},
+                )
+                await session.commit()
+                t = await log_reports.shop_texts(session, shop_id)
+                await notify_handlers.report(
+                    session, shop_id, "crons", t("report_cron_notice_expired"), strict=True
+                )

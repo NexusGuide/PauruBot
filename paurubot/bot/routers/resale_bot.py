@@ -640,8 +640,43 @@ async def prices(
         )
     if nav:
         kb.row(*nav)
+    if sale is not None and sale.prices:
+        kb.row(
+            InlineKeyboardButton(
+                text=t("rb_btn_prices_reset", count=len(sale.prices)),
+                callback_data=Rb(action="prices_reset").pack(),
+            )
+        )
     kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Rb(action="home").pack()))
     await show(call, t("rb_prices_title") if plans else t("no_plans"), kb.as_markup())
+
+
+@router.callback_query(Rb.filter(F.action.in_({"prices_reset", "prices_reset_go"})))
+async def prices_reset(
+    call: CallbackQuery,
+    callback_data: Rb,
+    session: AsyncSession,
+    shop: ShopRow,
+    customer: Customer,
+    staff: StaffIdentity | None,
+    t: Texts,
+) -> None:
+    found = await _running(call, session, shop, customer, staff, t)
+    if found is None:
+        return
+    profile, child = found
+    if callback_data.action == "prices_reset":
+        await call.answer()
+        kb = InlineKeyboardBuilder()
+        kb.button(text=t("btn_confirm"), callback_data=Rb(action="prices_reset_go"))
+        kb.button(text=t("btn_cancel"), callback_data=Rb(action="prices"))
+        kb.adjust(2)
+        await show(call, t("rb_prices_reset_confirm"), kb.as_markup())
+        return
+    await _save(session, child, profile, customer, staff, {"resale_prices": {}})
+    await session.commit()
+    await call.answer(t("rb_prices_reset_done"), show_alert=True)
+    await show_home(call, session, shop, profile, t)
 
 
 @router.callback_query(Rb.filter(F.action == "price"))

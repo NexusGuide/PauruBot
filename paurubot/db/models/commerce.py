@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 from sqlalchemy.orm.base import NO_VALUE
@@ -132,6 +132,33 @@ class ServiceClaim(Base, TimestampMixin):
     panel_username: Mapped[str] = mapped_column(String(128))
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending|approved|rejected
     service_id: Mapped[int | None] = mapped_column(ForeignKey("services.id", ondelete="SET NULL"))
+    decided_at: Mapped[datetime | None] = mapped_column()
+    decided_by: Mapped[str | None] = mapped_column(String(128))
+
+
+class CancellationRequest(Base, UpdatedMixin):
+    """A customer's request to cancel a service when staff approval is enabled (SVC-14)."""
+
+    __tablename__ = "cancellation_requests"
+    __table_args__ = (
+        Index("ix_cancellation_requests_shop_status", "shop_id", "status"),
+        Index(
+            "uq_cancellation_requests_pending_service",
+            "service_id",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"))
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id", ondelete="CASCADE"))
+    service_id: Mapped[int] = mapped_column(ForeignKey("services.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending|approved|rejected
+    reason: Mapped[str | None] = mapped_column(String(500))
+    quoted_refund: Mapped[int] = mapped_column(default=0)
+    refund_amount: Mapped[int | None] = mapped_column()
+    staff_note: Mapped[str | None] = mapped_column(String(255))
     decided_at: Mapped[datetime | None] = mapped_column()
     decided_by: Mapped[str | None] = mapped_column(String(128))
 

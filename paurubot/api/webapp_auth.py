@@ -93,6 +93,8 @@ async def forced_gate(db: AsyncSession, shop: Shop, customer: Customer) -> list[
     """
     if await kv.marked([f"joined:{shop.id}:{customer.telegram_id}"]):
         return []
+    if await _gate_exempt(db, shop.id, customer.telegram_id):
+        return []
     rows = list(
         await db.scalars(
             select(ForcedChannel)

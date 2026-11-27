@@ -30,7 +30,11 @@ async def run(session: AsyncSession) -> int:
     sent = 0
     panels = list(
         await session.scalars(
-            select(Panel).where(Panel.kind == PanelKind.REMNAWAVE, Panel.is_active.is_(True))
+            select(Panel).where(
+                Panel.kind == PanelKind.REMNAWAVE,
+                Panel.is_active.is_(True),
+                Panel.national_mode.is_(False),
+            )
         )
     )
     for panel in panels:

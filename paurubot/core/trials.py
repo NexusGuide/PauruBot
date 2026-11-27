@@ -11,10 +11,12 @@ to the first panel that allows them and still has room, so a busy panel hands ov
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Any
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import utcnow
@@ -121,39 +123,121 @@ async def panel_used(session: AsyncSession, panel_id: int) -> int:
     )
 
 
-async def _trial_panel(session: AsyncSession, shop_id: int, panel_id: int | None) -> Panel:
-    """The panel for the next trial: the chosen one, else the first that allows trials and has room."""
-    if panel_id:
-        panel = await session.get(Panel, int(panel_id))
-        allowed = (
-            panel is not None
-            and panel.shop_id == shop_id
-            and panel.is_active
-            and (panel.options or {}).get("allow_trials") is not False
+def _configured_panel_ids(rules: dict[str, object]) -> list[int]:
+    """Configured trial panels: multi-panel allowlist, else legacy trial_panel_id, else all."""
+    raw_list = rules.get("trial_panel_ids")
+    if isinstance(raw_list, list):
+        ids = [int(p) for p in raw_list if isinstance(p, int) and not isinstance(p, bool) and p > 0]
+        if ids:
+            return ids
+    single = rules.get("trial_panel_id")
+    if isinstance(single, int) and not isinstance(single, bool) and single > 0:
+        return [single]
+    return []
+
+
+async def _hidden_panels(session: AsyncSession, customer: Customer | None) -> set[int]:
+    if customer is None:
+        return set()
+    from paurubot.core import catalog
+
+    hidden = {int(p) for p in (customer.hidden_panel_ids or [])}
+    if customer.is_reseller and customer.reseller_profile and customer.reseller_profile.group:
+        hidden |= {int(p) for p in (customer.reseller_profile.group.hidden_panel_ids or [])}
+    hidden |= await catalog.resale_hidden_panels(session, customer.shop_id)
+    return hidden
+
+
+async def _eligible_panels(
+    session: AsyncSession,
+    shop_id: int,
+    rules: dict[str, object],
+    customer: Customer | None = None,
+) -> tuple[list[Panel], list[Panel]]:
+    """Return (candidates, with_quota_room) respecting health, national mode, capacity and quotas."""
+    from paurubot.core import catalog
+    from paurubot.provisioning.monitor import quota_full
+
+    allowed_ids = _configured_panel_ids(rules)
+    stmt = (
+        select(Panel)
+        .options(selectinload(Panel.location))
+        .where(
+            Panel.shop_id == shop_id,
+            Panel.is_active.is_(True),
+            Panel.national_mode.is_(False),
+            Panel.is_healthy.is_not(False),
+            Panel.options["allow_trials"].as_boolean().is_not(False),
         )
-        candidates = [panel] if allowed and panel is not None else []
-    else:
-        candidates = list(
-            await session.scalars(
-                select(Panel)
-                .where(
-                    Panel.shop_id == shop_id,
-                    Panel.is_active.is_(True),
-                    Panel.options["allow_trials"].as_boolean().is_not(False),
-                )
-                .order_by(Panel.id)
-            )
-        )
-    if not candidates:
-        raise TrialError("trial_disabled")
+        .order_by(Panel.id)
+    )
+    if allowed_ids:
+        stmt = stmt.where(Panel.id.in_(allowed_ids))
+    rows = list((await session.scalars(stmt)).all())
+    if allowed_ids:
+        order_map = {pid: idx for idx, pid in enumerate(allowed_ids)}
+        rows.sort(key=lambda p: order_map.get(p.id, len(order_map)))
+    hidden = await _hidden_panels(session, customer)
+    candidates: list[Panel] = []
+    for panel in rows:
+        if panel.id in hidden or quota_full(panel):
+            continue
+        if panel.capacity and await catalog.panel_load(session, panel.id) >= panel.capacity:
+            continue
+        candidates.append(panel)
+    available: list[Panel] = []
     for panel in candidates:
         quota = panel_quota(panel)
         if not quota or await panel_used(session, panel.id) < quota:
-            return panel
-    raise TrialError("trial_quota_reached")
+            available.append(panel)
+    return candidates, available
 
 
-async def request(session: AsyncSession, customer: Customer) -> Order:
+async def effective_rules(
+    session: AsyncSession, shop_id: int, *, fresh: bool = False
+) -> tuple[int, dict[str, Any]]:
+    """Return (panel_owner_shop_id, effective_trial_rules) accounting for reseller bots."""
+    from paurubot.core import resale
+
+    cfg = await shop_settings.load(session, shop_id, fresh=fresh)
+    sale = await resale.for_shop(session, shop_id)
+    if sale is not None:
+        return sale.parent_id, await shop_settings.load(session, sale.parent_id, fresh=fresh)
+    return shop_id, cfg
+
+
+async def options(session: AsyncSession, customer: Customer) -> list[Panel]:
+    """Eligible trial panels with quota room for `customer`, for multi-panel trial selection."""
+    owner, rules = await effective_rules(session, customer.shop_id)
+    _, available = await _eligible_panels(session, owner, rules, customer)
+    return available
+
+
+async def _trial_panel(
+    session: AsyncSession,
+    shop_id: int,
+    rules: dict[str, object],
+    customer: Customer | None = None,
+    chosen_panel_id: int | None = None,
+) -> Panel:
+    """The panel for the next trial: customer's pick (if valid), else the first with room."""
+    candidates, available = await _eligible_panels(session, shop_id, rules, customer)
+    if chosen_panel_id is not None:
+        chosen_id = int(chosen_panel_id)
+        if not any(p.id == chosen_id for p in candidates):
+            raise TrialError("trial_panel_unavailable")
+        for panel in available:
+            if panel.id == chosen_id:
+                return panel
+        raise TrialError("trial_quota_reached")
+    if not candidates:
+        raise TrialError("trial_disabled")
+    if not available:
+        raise TrialError("trial_quota_reached")
+    return available[0]
+
+
+async def request(session: AsyncSession, customer: Customer, *, panel_id: int | None = None) -> Order:
     """Reserve a trial and queue its provisioning as a zero-amount order."""
     reason = await eligibility(session, customer)
     if reason:
@@ -179,7 +263,7 @@ async def request(session: AsyncSession, customer: Customer) -> Order:
     # the per-shop lock above does not cover: one more lock, always taken after it (F-20).
     panels_key = func.hashtextextended(f"{_QUOTA_LOCK_NAMESPACE}panels:{owner}", 0)
     await session.execute(select(func.pg_advisory_xact_lock(panels_key)))
-    panel = await _trial_panel(session, owner, rules["trial_panel_id"])
+    panel = await _trial_panel(session, owner, rules, customer, chosen_panel_id=panel_id)
     if sale is not None:
         fee = int(rules["resale_trial_fee"] or 0)
         if fee > 0:
@@ -203,19 +287,26 @@ async def request(session: AsyncSession, customer: Customer) -> Order:
     )
     if grant_id is None:
         raise TrialError("trial_already_used")
+    trial_hours = max(0, int(rules.get("trial_hours") or 0))
+    trial_mb = max(0, int(rules.get("trial_mb") or 0))
+    trial_params: dict[str, object] = {
+        "panel_id": panel.id,
+        "days": int(rules["trial_days"] or 1),
+        "gb": int(rules["trial_gb"] or 1),
+        "grant_id": grant_id,
+        "label": "trial",
+        **extra,
+    }
+    if trial_hours > 0:
+        trial_params["hours"] = trial_hours
+    if trial_mb > 0:
+        trial_params["mb"] = trial_mb
     order = Order(
         shop_id=customer.shop_id,
         customer_id=customer.id,
         kind=OrderKind.TRIAL,
         status=OrderStatus.PAID,
-        params={
-            "panel_id": panel.id,
-            "days": int(rules["trial_days"] or 1),
-            "gb": int(rules["trial_gb"] or 1),
-            "grant_id": grant_id,
-            "label": "trial",
-            **extra,
-        },
+        params=trial_params,
         amount=0,
         paid_at=utcnow(),
     )
@@ -242,8 +333,8 @@ async def release(session: AsyncSession, grant_id: int) -> None:
 async def allow_again(session: AsyncSession, customer: Customer) -> bool:
     """One more trial for this customer (CAT-11). Its grant in the current round moves out of the
     way (kept for reports) so a new one can be reserved. False when it had none to give back."""
-    cfg = await shop_settings.load(session, customer.shop_id, fresh=True)
-    generation = int(cfg["trial_generation"] or 1)
+    _, rules = await effective_rules(session, customer.shop_id, fresh=True)
+    generation = int(rules["trial_generation"] or 1)
     result = await session.execute(
         update(TrialGrant)
         .where(
@@ -254,6 +345,89 @@ async def allow_again(session: AsyncSession, customer: Customer) -> bool:
         .values(generation=-TrialGrant.id)
     )
     return bool(getattr(result, "rowcount", 0))
+
+
+async def has_used_current(session: AsyncSession, customer: Customer) -> bool:
+    """True when the customer already claimed a trial in the active generation."""
+    _, rules = await effective_rules(session, customer.shop_id)
+    generation = int(rules["trial_generation"] or 1)
+    grant = await session.scalar(
+        select(TrialGrant.id)
+        .where(
+            TrialGrant.shop_id == customer.shop_id,
+            TrialGrant.customer_id == customer.id,
+            TrialGrant.generation == generation,
+        )
+        .limit(1)
+    )
+    return grant is not None
+
+
+async def _non_buyer_grant_ids(session: AsyncSession, shop_id: int, generation: int) -> list[int]:
+    """Current-round trial grants whose owners are not banned, never paid, and have no active trial."""
+    from paurubot.db.models import Service, ServiceStatus
+
+    has_paid_order = (
+        select(Order.id)
+        .where(
+            Order.shop_id == shop_id,
+            Order.customer_id == TrialGrant.customer_id,
+            Order.kind != OrderKind.TRIAL,
+            Order.status == OrderStatus.COMPLETED,
+        )
+        .exists()
+    )
+    has_active_trial = (
+        select(Service.id)
+        .where(
+            Service.shop_id == shop_id,
+            Service.customer_id == TrialGrant.customer_id,
+            Service.plan_id.is_(None),
+            Service.status == ServiceStatus.ACTIVE,
+        )
+        .exists()
+    )
+    rows = await session.scalars(
+        select(TrialGrant.id)
+        .join(Customer, Customer.id == TrialGrant.customer_id)
+        .where(
+            TrialGrant.shop_id == shop_id,
+            TrialGrant.generation == generation,
+            Customer.is_banned.is_(False),
+            ~has_paid_order,
+            ~has_active_trial,
+        )
+    )
+    return list(rows)
+
+
+async def reset_preview(session: AsyncSession, shop_id: int) -> dict[str, int]:
+    """Count grants affected by a full vs. non-buyer trial reset in the current generation."""
+    cfg = await shop_settings.load(session, shop_id, fresh=True)
+    generation = int(cfg["trial_generation"] or 1)
+    total = int(
+        await session.scalar(
+            select(func.count(TrialGrant.id)).where(
+                TrialGrant.shop_id == shop_id, TrialGrant.generation == generation
+            )
+        )
+        or 0
+    )
+    non_buyers = len(await _non_buyer_grant_ids(session, shop_id, generation))
+    return {"generation": generation, "all": total, "non_buyers": non_buyers}
+
+
+async def reset_non_buyers(session: AsyncSession, shop_id: int) -> tuple[int, int]:
+    """Allow non-buying past trial users to claim a trial again without opening a full round."""
+    cfg = await shop_settings.load(session, shop_id, fresh=True)
+    generation = int(cfg["trial_generation"] or 1)
+    ids = await _non_buyer_grant_ids(session, shop_id, generation)
+    if not ids:
+        return 0, generation
+    result = await session.execute(
+        update(TrialGrant).where(TrialGrant.id.in_(ids)).values(generation=-TrialGrant.id)
+    )
+    return int(getattr(result, "rowcount", 0) or 0), generation
 
 
 async def new_round(session: AsyncSession, shop_id: int) -> int:

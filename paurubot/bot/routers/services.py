@@ -333,10 +333,19 @@ async def cancel_service(
     if service is None or not cfg["self_delete_enabled"]:
         await call.answer(t("service_not_found"), show_alert=True)
         return
+    if cfg.get("self_delete_require_approval") and await cancellation.pending_for_service(
+        session, service.id
+    ):
+        await call.answer(t("cancel_request_pending"), show_alert=True)
+        return
     await call.answer()
     refund = await cancellation.quote(session, customer, service)
+    if cfg.get("self_delete_require_approval"):
+        key = "cancel_request_confirm_refund" if refund else "cancel_request_confirm"
+    else:
+        key = "cancel_service_confirm_refund" if refund else "cancel_service_confirm"
     text = t(
-        "cancel_service_confirm_refund" if refund else "cancel_service_confirm",
+        key,
         name=esc(service.label or service.panel_username),
         amount=money(refund),
     )
@@ -353,7 +362,12 @@ async def cancel_service(
 
 @router.callback_query(Svc.filter(F.action == "cancel_go"))
 async def cancel_service_go(
-    call: CallbackQuery, callback_data: Svc, session: AsyncSession, customer: Customer, t: Texts
+    call: CallbackQuery,
+    callback_data: Svc,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
 ) -> None:
     from paurubot.core import cancellation
     from paurubot.core.formatting import money
@@ -363,6 +377,12 @@ async def cancel_service_go(
         await call.answer(t("service_not_found"), show_alert=True)
         return
     try:
+        if cfg.get("self_delete_require_approval"):
+            await cancellation.request_cancel(session, customer, service)
+            await session.commit()
+            await call.answer()
+            await show(call, t("cancel_request_submitted"))
+            return
         refund = await cancellation.cancel(session, customer, service)
     except cancellation.CancelError as exc:
         await session.rollback()
@@ -569,6 +589,9 @@ async def qr(
     cfg: dict[str, Any],
 ) -> None:
     service = await owned(session, customer, callback_data.id)
+    if service is not None and service.panel and service.panel.national_mode:
+        await call.answer(t("national_service_notice"), show_alert=True)
+        return
     kind = delivery_of(service.panel.kind if service is not None and service.panel else None)
     if service is not None and kind == "account":
         await call.answer(t("account_no_qr"), show_alert=True)
@@ -585,11 +608,13 @@ async def qr(
         return
     await call.answer()
     if isinstance(call.message, Message):
-        png = qr_png(link)
-        if png is None:
+        from paurubot.bot.views import build_qr_photo
+
+        built = await build_qr_photo(t, service, link, cfg)
+        if built is None:
             await call.message.answer(t("qr_too_long"))
         else:
-            await call.message.answer_photo(BufferedInputFile(png, "qr.png"), caption=t("qr_caption"))
+            await call.message.answer_photo(BufferedInputFile(built[0], "qr.png"), caption=built[1])
 
 
 @router.callback_query(Svc.filter(F.action == "card"))
@@ -610,8 +635,9 @@ async def info_card(
     if not isinstance(call.message, Message):
         return
     kind = delivery_of(service.panel.kind if service.panel else None)
-    scan: str | None = customer_link(service, cfg)
-    if kind == "account":
+    national = bool(service.panel and service.panel.national_mode)
+    scan: str | None = None if national else customer_link(service, cfg)
+    if kind == "account" or national:
         scan = None
     elif kind == "wireguard":
         items = await lifecycle.links(session, service)
@@ -742,7 +768,7 @@ async def _auto_menu(
 
     plans: list[tuple[Plan, int]] = []
     if _renewable(service):
-        offered = await catalog.plans(session, customer.shop_id, customer, panel_id=service.panel_id)
+        offered = await catalog.plans_for_service(session, customer.shop_id, customer, service)
         usable = [p for p in offered if p.renewable and p.delivery != "stock"][:8]
         plans = await priced(session, usable, customer)
     gb_price, day_price = service_extras(cfg, service)

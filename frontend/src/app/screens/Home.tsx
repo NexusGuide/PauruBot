@@ -58,6 +58,7 @@ function HomeBody() {
   const { data, error, retry } = useResource(api.services);
   const { data: history } = useResource(api.history);
   const [trialBusy, setTrialBusy] = useState(false);
+  const [trialPicker, setTrialPicker] = useState(false);
   const [read] = useState<Set<string>>(() => (me ? readAlertIds(me.id) : new Set<string>()));
 
   if (!me) return null;
@@ -72,10 +73,31 @@ function HomeBody() {
   const remaining = featured && ratio !== null ? dataLeft(featured.data_limit, featured.used_bytes) : null;
   const remainingPct = ratio === null ? null : Math.max(0, Math.min(100, Math.round(ratio * 100)));
 
-  const takeTrial = async () => {
+  const trialPanels = me.trial.panels ?? [];
+  const hasTrialChoice = Boolean(me.trial.choose_panel && trialPanels.length > 1);
+  const trialTitle =
+    (me.trial.hours ?? 0) > 0 || (me.trial.mb ?? 0) > 0
+      ? t("take_trial_custom", {
+          duration:
+            (me.trial.hours ?? 0) > 0
+              ? t("trial_hours_label", { hours: money(me.trial.hours ?? 0, locale) })
+              : t("trial_days_label", { days: money(me.trial.days, locale) }),
+          volume:
+            (me.trial.mb ?? 0) > 0
+              ? t("trial_mb_label", { mb: money(me.trial.mb ?? 0, locale) })
+              : t("trial_gb_label", { gb: money(me.trial.gb, locale) }),
+        })
+      : t("take_trial", { days: me.trial.days, gb: me.trial.gb });
+
+  const takeTrial = async (panelId?: number) => {
+    if (panelId === undefined && hasTrialChoice) {
+      setTrialPicker((open) => !open);
+      return;
+    }
     setTrialBusy(true);
     try {
-      await api.trial();
+      await api.trial(panelId);
+      setTrialPicker(false);
       haptic("success");
       toast(t("trial_started"));
       await reload();
@@ -110,6 +132,12 @@ function HomeBody() {
           </button>
         </div>
       </header>
+
+      {me.maintenance && (
+        <p className="app-brand-notice" role="status">
+          {t("shop_maintenance")}
+        </p>
+      )}
 
       {me.shop.brand?.notice && (
         <p className="app-brand-notice" dir="auto">
@@ -186,14 +214,38 @@ function HomeBody() {
         <Item icon={<Icon name="card" />} tone="green" title={t("home_topup_full")} sub={t("home_topup_sub")} to="/wallet" />
         <Item icon={<Icon name="headset" />} tone="orange" title={t("contact_support")} sub={t("home_support_sub")} to="/tickets" />
         {me.trial.available && (
-          <Item
-            icon={<Icon name="gift" />}
-            tone="orange"
-            title={t("take_trial", { days: me.trial.days, gb: me.trial.gb })}
-            sub={t("trial_row_sub")}
-            onClick={takeTrial}
-            disabled={trialBusy}
-          />
+          <>
+            <Item
+              icon={<Icon name="gift" />}
+              tone="orange"
+              title={trialTitle}
+              sub={hasTrialChoice ? t("trial_choose_panel") : t("trial_row_sub")}
+              onClick={() => void takeTrial()}
+              disabled={trialBusy}
+            />
+            {trialPicker && hasTrialChoice && (
+              <div className="border-t border-[var(--line)] px-4 py-3">
+                <p className="mb-2 text-xs font-semibold text-[var(--hint)]">{t("trial_choose_panel")}</p>
+                <div className="flex flex-wrap gap-2">
+                  {trialPanels.map((panel) => {
+                    const loc = panel.location ? `${panel.flag ? `${panel.flag} ` : ""}${panel.location}` : null;
+                    const label = loc && panel.name !== panel.location ? `${loc} · ${panel.name}` : loc || panel.name;
+                    return (
+                      <button
+                        key={panel.id}
+                        type="button"
+                        disabled={trialBusy}
+                        onClick={() => void takeTrial(panel.id)}
+                        className="app-chip app-rip-host text-xs font-semibold"
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </Screen>

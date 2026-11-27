@@ -353,7 +353,9 @@ async def test_return_paths_restore_selected_menu(telegram, monkeypatch, mode, f
     bot, requests = telegram
     cfg = cfg_for(mode)
     t = Texts("en")
-    customer = SimpleNamespace(telegram_id=USER_ID, terms_accepted_version=0, locale="en", phone=None)
+    customer = SimpleNamespace(
+        id=1, shop_id=1, telegram_id=USER_ID, terms_accepted_version=0, locale="en", phone=None
+    )
     state = AsyncMock()
     call = callback(bot)
     if flow == "cancel":
@@ -362,7 +364,7 @@ async def test_return_paths_restore_selected_menu(telegram, monkeypatch, mode, f
         monkeypatch.setattr(start, "missing_channels", AsyncMock(return_value=[]))
         await start.joined(call, customer, t, cfg, None, bot, AsyncMock())
     elif flow == "terms":
-        await start.accept_terms(call, customer, t, cfg, None)
+        await start.accept_terms(call, customer, t, cfg, None, AsyncMock())
         assert customer.terms_accepted_version == cfg["terms_version"]
     elif flow == "language":
         await start.set_language(call, Lang(code="fa"), AsyncMock(), object(), customer, cfg, None, t)

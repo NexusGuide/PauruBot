@@ -9,7 +9,7 @@ first connection") and keeps usage in GB. The subscription address is the client
 from __future__ import annotations
 
 import math
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from paurubot.panels.base import (
@@ -150,9 +150,10 @@ class HiddifyDriver(PanelDriver):
         if spec.on_hold_days:
             payload.update(package_days=int(spec.on_hold_days), start_date=None)
         elif spec.expire_at:
-            payload.update(package_days=self._days_until(spec.expire_at), start_date=date.today().isoformat())
+            today_utc = datetime.now(UTC).date().isoformat()
+            payload.update(package_days=self._days_until(spec.expire_at), start_date=today_utc)
         else:
-            payload.update(package_days=UNLIMITED_DAYS, start_date=date.today().isoformat())
+            payload.update(package_days=UNLIMITED_DAYS, start_date=datetime.now(UTC).date().isoformat())
         if spec.note.startswith("tg:") and spec.note[3:].isdigit():
             payload["telegram_id"] = int(spec.note[3:])
         return self.parse_user(as_dict(await self.call("POST", USERS, json=payload)))
@@ -174,7 +175,7 @@ class HiddifyDriver(PanelDriver):
         row = await self._raw(ref)
         payload: dict[str, Any] = {}
         if expire_at is not UNSET:
-            payload["start_date"] = date.today().isoformat()
+            payload["start_date"] = datetime.now(UTC).date().isoformat()
             payload["package_days"] = self._days_until(expire_at) if expire_at else UNLIMITED_DAYS
         if data_limit is not None:
             payload["usage_limit_GB"] = round(data_limit / GB, 3) if data_limit else UNLIMITED_GB

@@ -8,7 +8,7 @@ pending ──pay──▶ paid ──worker──▶ provisioning ──▶ com
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, select, update
@@ -174,6 +174,22 @@ def extra_choices(cfg: dict[str, Any], unit: str) -> list[int]:
     return sorted(picks) or [low]
 
 
+async def _check_plan_matches_service(session: AsyncSession, plan: Plan, service: Service) -> None:
+    """Reject plans belonging to a different panel or a different location than the service."""
+    if plan.panel_id:
+        if plan.panel_id != service.panel_id:
+            raise OrderError("plan_wrong_panel")
+        return
+    if plan.location_id:
+        panel = service.panel if "panel" in service.__dict__ and service.panel is not None else None
+        if panel is None:
+            panel = await session.get(Panel, service.panel_id)
+        if panel is None or panel.location_id != plan.location_id:
+            raise OrderError("plan_wrong_panel")
+        return
+    raise OrderError("plan_wrong_panel")
+
+
 def can_change(service: Service, change: str) -> bool:
     """Whether the service's panel can apply `change` (renew, upgrade, extra_volume...) at all."""
     from paurubot.panels.registry import changes_of
@@ -246,6 +262,7 @@ async def draft(
     move_to: Panel | None = None,
     wanted_username: str | None = None,
     package: int | None = None,
+    start_at: datetime | None = None,
 ) -> Draft:
     from paurubot.core import own_panel, resale, usernames
 
@@ -281,10 +298,13 @@ async def draft(
                 kind=kind,
                 add_gb=(
                     plan.data_gb
-                    if kind == OrderKind.PURCHASE and plan is not None
+                    if kind in {OrderKind.PURCHASE, OrderKind.UPGRADE} and plan is not None
                     else (extra_gb if kind == OrderKind.EXTRA_VOLUME else 0)
                 ),
                 bot_shop_id=shop_resale.shop.id,
+                replace_bytes=int(service.data_limit or 0)
+                if kind == OrderKind.UPGRADE and service is not None
+                else 0,
             )
         except resellers.ResellerError as exc:
             raise OrderError("shop_unavailable") from exc
@@ -308,6 +328,12 @@ async def draft(
     name = usernames.wanted(wanted_username) if kind == OrderKind.PURCHASE else None
     if name:
         d.params["wanted_username"] = name  # the customer's own service name (CAT-12)
+    if start_at is not None:
+        if kind != OrderKind.RENEW or d.params.get("stock_plan_id"):
+            raise OrderError("renew_start_at_invalid")
+        if not await shop_settings.get(session, customer.shop_id, "renew_queue_when_active"):
+            raise OrderError("renew_start_at_unavailable")
+        d.params["queued_start_at"] = normalize_renew_start_at(start_at).isoformat()
     if shop_resale is not None:
         if kind in {OrderKind.EXTRA_VOLUME, OrderKind.EXTRA_DAYS}:
             assert service is not None
@@ -353,7 +379,15 @@ async def _draft(
         params["label"] = label[:48]
     add_gb = extra_gb if kind == OrderKind.EXTRA_VOLUME else (custom_gb if plan is None else plan.data_gb)
     try:
-        await resellers.check_purchase(session, customer, kind=kind, add_gb=add_gb)
+        await resellers.check_purchase(
+            session,
+            customer,
+            kind=kind,
+            add_gb=add_gb,
+            replace_bytes=int(service.data_limit or 0)
+            if kind == OrderKind.UPGRADE and service is not None
+            else 0,
+        )
     except resellers.ResellerError as exc:
         raise OrderError(exc.key, **exc.params) from exc
     if kind in {
@@ -406,8 +440,7 @@ async def _draft(
             raise OrderError("plan_unavailable")
         if plan is None or not plan.renewable or plan.delivery == "stock":
             raise OrderError("plan_unavailable")
-        if plan.panel_id and plan.panel_id != service.panel_id:
-            raise OrderError("plan_wrong_panel")
+        await _check_plan_matches_service(session, plan, service)
         return Draft(kind, plan, service, params, plan.price)
     if kind in {OrderKind.EXTRA_VOLUME, OrderKind.EXTRA_DAYS} and package is not None:
         # A ready-made package (ClockBot parity): its own amount and price, when extras are on.
@@ -447,8 +480,7 @@ async def _draft(
         assert service is not None
         if not cfg["upgrade_enabled"] or plan is None or plan.delivery == "stock":
             raise OrderError("plan_unavailable")
-        if plan.panel_id and plan.panel_id != service.panel_id:
-            raise OrderError("plan_wrong_panel")
+        await _check_plan_matches_service(session, plan, service)
         if not upgradable(plan, service, await upgrade_floor(session, service)):
             raise OrderError("upgrade_not_higher")
         credit = await upgrade_credit(session, service)
@@ -573,8 +605,14 @@ async def create(
     if resellers.metered(customer) and d.kind not in ACCOUNT_KINDS:
         code = None  # nothing to discount: the order itself is free
     if code is not None:
+        acct_plan_id = int(d.params["account_plan_id"]) if d.params.get("account_plan_id") else None
         await pricing.validate_code(
-            session, code, customer, plan_id=d.plan.id if d.plan else None, amount=d.base_price
+            session,
+            code,
+            customer,
+            plan_id=d.plan.id if d.plan else None,
+            amount=d.base_price,
+            account_plan_id=acct_plan_id,
         )
     account = d.kind in ACCOUNT_KINDS
     # Panel admin accounts carry no reseller discount unless their plan opts in (TEN-14).
@@ -737,18 +775,56 @@ async def settle_from_wallet(session: AsyncSession, order_id: int) -> Order:
     return order
 
 
+def normalize_renew_start_at(start_at: datetime, *, now: datetime | None = None) -> datetime:
+    """Validate and normalize a customer-selected future start date for a reserved renewal."""
+    if start_at.tzinfo is None or start_at.utcoffset() is None:
+        raise OrderError("renew_start_at_invalid")
+    target = start_at.astimezone(UTC)
+    ref = now or utcnow()
+    if target <= ref + timedelta(minutes=5) or target > ref + timedelta(days=365):
+        raise OrderError("renew_start_at_invalid")
+    return target
+
+
+def _parse_start_at(raw: Any) -> datetime | None:
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(UTC)
+
+
 async def queued_until(session: AsyncSession, order: Order) -> datetime | None:
-    """When a renewal should wait for the current period to end (SVC-02), the time it runs."""
+    """When a renewal should wait for the current period or custom start date (SVC-02)."""
     if order.params.get("stock_plan_id") or order.kind != OrderKind.RENEW or not order.service_id:
         return None
     if not await shop_settings.get(session, order.shop_id, "renew_queue_when_active"):
         return None
     service = await session.get(Service, order.service_id)
-    if service is None or service.status != ServiceStatus.ACTIVE or service.expire_at is None:
+    if service is None:
+        return None
+    cutoff = utcnow() + timedelta(minutes=5)
+    custom_start = _parse_start_at((order.params or {}).get("queued_start_at"))
+    if custom_start is not None:
+        if custom_start <= cutoff:
+            return None
+        if service.status == ServiceStatus.ACTIVE:
+            if service.data_limit and service.used_bytes >= service.data_limit:
+                return None
+            if service.expire_at is not None and service.expire_at <= cutoff:
+                return None
+            if service.expire_at is not None and service.expire_at < custom_start:
+                return service.expire_at
+        return custom_start
+    if service.status != ServiceStatus.ACTIVE or service.expire_at is None:
         return None
     if service.data_limit and service.used_bytes >= service.data_limit:
         return None
-    if service.expire_at <= utcnow() + timedelta(minutes=5):
+    if service.expire_at <= cutoff:
         return None
     return service.expire_at
 
@@ -852,8 +928,8 @@ async def release_holds(session: AsyncSession, order: Order) -> None:
         .where(StockItem.order_id == order.id, StockItem.status == stock.RESERVED)
         .values(status=stock.AVAILABLE, order_id=None, customer_id=None, sold_at=None)
     )
-    await session.execute(delete(DiscountRedemption).where(DiscountRedemption.order_id == order.id))
-    if order.discount_code_id:
+    deleted = await session.execute(delete(DiscountRedemption).where(DiscountRedemption.order_id == order.id))
+    if order.discount_code_id and affected(deleted) > 0:
         await session.execute(
             update(DiscountCode)
             .where(DiscountCode.id == order.discount_code_id, DiscountCode.used_count > 0)

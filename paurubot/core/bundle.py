@@ -20,6 +20,7 @@ from paurubot import __version__
 from paurubot.core import channels as channel_rules
 from paurubot.core import settings as shop_settings
 from paurubot.db.models import (
+    AccountPlan,
     BotText,
     Category,
     DiscountCode,
@@ -38,6 +39,7 @@ from paurubot.db.models import (
 FORMAT = "paurubot-bundle"
 VERSION = 1
 PANEL_SETTINGS = ("trial_panel_id", "custom_panel_id")
+PANEL_LIST_SETTINGS = ("trial_panel_ids", "service_import_panel_ids")
 LOCATION_SETTINGS = ("custom_location_id",)
 # Server-wide settings (the backup schedule) belong to the server, not to the shop's setup.
 SERVER_GROUPS = ("backups",)
@@ -103,6 +105,10 @@ async def export(session: AsyncSession, shop_id: int) -> dict[str, Any]:
     category_names = {c.id: c.title for c in categories}
     plans = list(await session.scalars(select(Plan).where(Plan.shop_id == shop_id).order_by(Plan.id)))
     plan_names = {p.id: p.title for p in plans}
+    account_plan_names = {
+        p.id: p.title
+        for p in await session.scalars(select(AccountPlan).where(AccountPlan.shop_id == shop_id))
+    }
 
     settings: dict[str, Any] = {}
     refs: dict[str, str] = {}
@@ -113,6 +119,11 @@ async def export(session: AsyncSession, shop_id: int) -> dict[str, Any]:
         if key in PANEL_SETTINGS:
             if value and int(value) in panels:
                 refs[key] = panels[int(value)]
+            continue
+        if key in PANEL_LIST_SETTINGS:
+            names = [panels[int(pid)] for pid in (value or []) if int(pid) in panels]
+            if names:
+                refs[key] = names  # type: ignore[assignment]
             continue
         if key in LOCATION_SETTINGS:
             if value and int(value) in location_names:
@@ -155,6 +166,9 @@ async def export(session: AsyncSession, shop_id: int) -> dict[str, Any]:
                 "kind": c.kind.value,
                 **{k: getattr(c, k) for k in CODE_KEYS},
                 "plans": [plan_names[i] for i in (c.plan_ids or []) if i in plan_names],
+                "account_plans": [
+                    account_plan_names[i] for i in (c.account_plan_ids or []) if i in account_plan_names
+                ],
                 "starts_at": _iso(c.starts_at),
                 "expires_at": _iso(c.expires_at),
             }
@@ -224,6 +238,15 @@ def _check(bundle: Any) -> dict[str, Any]:
 
 def _when(value: Any) -> datetime | None:
     return datetime.fromisoformat(str(value)) if value else None
+
+
+def _safe_link(value: Any) -> str:
+    text = str(value or "").strip()[:255]
+    if not text:
+        return ""
+    if text.startswith(("https://", "tg://")):
+        return text
+    return ""
 
 
 async def apply(session: AsyncSession, shop_id: int, raw: Any, *, dry_run: bool = False) -> Report:
@@ -300,7 +323,8 @@ async def apply(session: AsyncSession, shop_id: int, raw: Any, *, dry_run: bool 
         location_id = locations.get(item.get("location")) if item.get("location") else None
         if item.get("panel") and panel_id is None:
             report.warnings.append(f"plan {item.get('title')}: panel {item.get('panel')} is not here")
-        if panel_id is None and location_id is None:
+        delivery = str(item.get("delivery") or "panel")
+        if delivery != "stock" and panel_id is None and location_id is None:
             report.warnings.append(f"plan {item.get('title')}: skipped, no panel or location here")
             continue
         values = {k: item[k] for k in PLAN_KEYS if k in item}
@@ -317,6 +341,10 @@ async def apply(session: AsyncSession, shop_id: int, raw: Any, *, dry_run: bool 
         put("plans", row, values, Plan)
     await session.flush()
     plan_ids = {x.title: x.id for x in await session.scalars(select(Plan).where(Plan.shop_id == shop_id))}
+    account_plan_ids = {
+        x.title: x.id
+        for x in await session.scalars(select(AccountPlan).where(AccountPlan.shop_id == shop_id))
+    }
 
     for item in bundle.get("discount_codes", []):
         code = str(item["code"])[:32]
@@ -325,6 +353,9 @@ async def apply(session: AsyncSession, shop_id: int, raw: Any, *, dry_run: bool 
             code=code,
             kind=DiscountKind(item.get("kind") or "percent"),
             plan_ids=[plan_ids[name] for name in item.get("plans", []) if name in plan_ids],
+            account_plan_ids=[
+                account_plan_ids[name] for name in item.get("account_plans", []) if name in account_plan_ids
+            ],
             starts_at=_when(item.get("starts_at")),
             expires_at=_when(item.get("expires_at")),
         )
@@ -353,10 +384,14 @@ async def apply(session: AsyncSession, shop_id: int, raw: Any, *, dry_run: bool 
         )
     for item in bundle.get("forced_channels", []):
         chat = str(item["chat_id"])[:64]
+        url = _safe_link(item.get("url"))
+        if item.get("url") and not url:
+            report.warnings.append(f"forced channel {chat}: unsafe url skipped")
+            continue
         values = {
             "chat_id": chat,
             "title": str(item.get("title") or "")[:96],
-            "url": str(item.get("url") or "")[:255],
+            "url": url,
         }
         put(
             "forced_channels",
@@ -374,10 +409,14 @@ async def apply(session: AsyncSession, shop_id: int, raw: Any, *, dry_run: bool 
         if not kinds:
             report.warnings.append(f"trust channel {chat_id}: no report kinds, skipped")
             continue
+        url = _safe_link(item.get("url"))
+        if item.get("url") and not url:
+            report.warnings.append(f"trust channel {chat_id}: unsafe url skipped")
+            continue
         values = {
             "chat_id": chat_id,
             "title": str(item.get("title") or "")[:96],
-            "url": str(item.get("url") or "")[:255],
+            "url": url,
             "kinds": kinds,
             "is_active": bool(item.get("is_active", True)),
         }
@@ -389,7 +428,11 @@ async def apply(session: AsyncSession, shop_id: int, raw: Any, *, dry_run: bool 
         )
     for item in bundle.get("support_contacts", []):
         title = str(item["title"])[:64]
-        values = {"title": title, "url": str(item.get("url") or "")[:255], "sort": int(item.get("sort") or 0)}
+        url = _safe_link(item.get("url"))
+        if not url:
+            report.warnings.append(f"support contact {title}: invalid url skipped")
+            continue
+        values = {"title": title, "url": url, "sort": int(item.get("sort") or 0)}
         put("support_contacts", await one(SupportContact, title=title), values, SupportContact)
 
     settings: dict[str, Any] = {}
@@ -400,12 +443,20 @@ async def apply(session: AsyncSession, shop_id: int, raw: Any, *, dry_run: bool 
             or spec.secret
             or spec.group in SERVER_GROUPS
             or key in PANEL_SETTINGS
+            or key in PANEL_LIST_SETTINGS
             or key in LOCATION_SETTINGS
         ):
             report.warnings.append(f"setting {key}: ignored")
             continue
         settings[key] = value
     for key, name in (bundle.get("setting_refs") or {}).items():
+        if key in PANEL_LIST_SETTINGS and isinstance(name, list):
+            resolved = [panels[item] for item in name if isinstance(item, str) and item in panels]
+            if resolved:
+                settings[key] = resolved
+            else:
+                report.warnings.append(f"setting {key}: no panels are here")
+            continue
         target = (
             panels.get(name)
             if key in PANEL_SETTINGS

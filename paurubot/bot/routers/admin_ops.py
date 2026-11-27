@@ -69,6 +69,9 @@ async def backups(
     from paurubot.config import get_settings
     from paurubot.ops import backup, delivery
 
+    if shop.parent_id is not None:
+        await call.answer(t("adm_forbidden"), show_alert=True)
+        return
     items = backup.listing()[:SHOWN_BACKUPS]
     if callback_data.action == "now":
         if not get_settings().backup_passphrase.get_secret_value():
@@ -219,3 +222,38 @@ async def list_logs(message: Message, session: AsyncSession, shop: ShopRow, t: T
         await message.reply(t("adm_logs_none", topics=", ".join(_topics())))
         return
     await message.reply(t("adm_logs_here", topics=", ".join(sorted(r.topic for r in rows))))
+
+
+@router.message(Command("setuplogs"), F.chat.type.in_(GROUPS), StaffOnly("settings.write"))
+async def setup_logs(
+    message: Message,
+    session: AsyncSession,
+    shop: ShopRow,
+    t: Texts,
+    staff: StaffIdentity,
+) -> None:
+    """Create all missing forum topics in this supergroup and bind every report topic."""
+    from paurubot.core import log_topics
+
+    try:
+        res = await log_topics.auto_setup_forum_topics(session, shop.id, message.chat.id)
+    except log_topics.TopicSetupError as exc:
+        await message.reply(t(f"adm_setuplogs_err_{exc.code}"))
+        return
+    await record(
+        session,
+        shop_id=shop.id,
+        actor=actor(staff),
+        action="channel.logs_auto_setup",
+        entity="channel",
+        after={"chat_id": message.chat.id, **res},
+    )
+    await session.commit()
+    await message.reply(
+        t(
+            "adm_setuplogs_done",
+            created=len(res["created"]),
+            skipped=len(res["skipped"]),
+            failed=len(res["failed"]),
+        )
+    )

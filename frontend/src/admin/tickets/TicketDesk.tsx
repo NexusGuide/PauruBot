@@ -1,7 +1,7 @@
 import { TicketAttachment } from "../../shared/TicketAttachment";
 import { useRef, useState, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { ApiError, call } from "../api";
+import { ApiError, call, uploadRaw } from "../api";
 import { useSession } from "../session";
 import { Avatar, Badge, Button, Chips, Icon, Page, Section, Segmented, Select, Textarea, Toggle } from "../ui";
 import {
@@ -84,6 +84,19 @@ function DeskList({ t, locale }: { t: T; locale: string }) {
   const { path, page } = listPath(params);
   const list = useRead(path, parseList);
   const departments = useRead("/api/admin/ticket-departments", parseDepartments);
+  const stats = useRead("/api/admin/tickets/stats", (raw) => {
+    if (!record(raw)) return null;
+    return {
+      open: Number(raw.open ?? 0),
+      answered: Number(raw.answered ?? 0),
+      closed: Number(raw.closed ?? 0),
+      awaiting: Number(raw.awaiting ?? 0),
+      avg: typeof raw.avg_first_reply_minutes === "number" ? raw.avg_first_reply_minutes : null,
+      up: Number(raw.reactions_up ?? 0),
+      down: Number(raw.reactions_down ?? 0),
+      csat: typeof raw.satisfaction_percent === "number" ? raw.satisfaction_percent : null,
+    };
+  });
   const filter = (key: string, value: string) =>
     setParams(
       (prev) => {
@@ -123,6 +136,7 @@ function DeskList({ t, locale }: { t: T; locale: string }) {
             onClick={() => {
               void list.reload();
               void departments.reload();
+              void stats.reload();
             }}
           />
           {can("settings.write") && (
@@ -133,7 +147,36 @@ function DeskList({ t, locale }: { t: T; locale: string }) {
         </>
       }
     >
-      {settings && (
+      {stats.data && (
+        <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="rounded-2xl bg-[var(--surface)] px-4 py-3 ring-1 ring-[var(--line)]">
+            <p className="text-[0.76rem] text-[var(--hint)]">{t("statsOpen")}</p>
+            <p className="num text-[1.25rem] font-extrabold">{stats.data.open}</p>
+          </div>
+          <div className="rounded-2xl bg-[var(--surface)] px-4 py-3 ring-1 ring-[var(--line)]">
+            <p className="text-[0.76rem] text-[var(--hint)]">{t("statsAwaiting")}</p>
+            <p className="num text-[1.25rem] font-extrabold text-saffron-700">{stats.data.awaiting}</p>
+          </div>
+          <div className="rounded-2xl bg-[var(--surface)] px-4 py-3 ring-1 ring-[var(--line)]">
+            <p className="text-[0.76rem] text-[var(--hint)]">{t("statsAvgReply")}</p>
+            <p className="num text-[1.25rem] font-extrabold">
+              {stats.data.avg !== null ? `${stats.data.avg} ${t("minutesUnit")}` : "—"}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-[var(--surface)] px-4 py-3 ring-1 ring-[var(--line)]">
+            <p className="text-[0.76rem] text-[var(--hint)]">{t("statsCsat")}</p>
+            <p className="num text-[1.25rem] font-extrabold text-pista-700">
+              {stats.data.csat !== null ? `${stats.data.csat}%` : "—"}
+              {stats.data.up + stats.data.down > 0 && (
+                <span className="ms-1.5 text-[0.74rem] font-normal text-[var(--hint)]">
+                  (👍 {stats.data.up} / 👎 {stats.data.down})
+                </span>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+            {settings && (
         <Section>
           <div className="td td-embed">
             <DeskSettings t={t} onChanged={() => void departments.reload()} />
@@ -375,6 +418,21 @@ function ThreadBody({
         </>
       ),
     });
+  const reopen = () =>
+    setProposal({
+      title: t("reopenTicket"),
+      path: `/api/admin/tickets/${row.id}/reopen`,
+      method: "POST",
+      validate: ok,
+      preview: (
+        <>
+          <p className="font-bold">
+            #{row.id} — <bdi>{row.subject}</bdi>
+          </p>
+          <p className="mt-2 text-[0.9rem] text-[var(--hint)]">{t("reopenHint")}</p>
+        </>
+      ),
+    });
 
   return (
     <>
@@ -397,6 +455,11 @@ function ThreadBody({
           {writable && known && row.status !== "closed" && (
             <Button tone="danger" icon="close" disabled={blocked} onClick={close}>
               {t("closeTicket")}
+            </Button>
+          )}
+          {writable && known && row.status === "closed" && (
+            <Button tone="primary" icon="refresh" disabled={blocked} onClick={reopen}>
+              {t("reopenTicket")}
             </Button>
           )}
         </div>
@@ -635,10 +698,41 @@ function Composer({
         className="min-h-28"
       />
       {error && <p role="alert" className="text-[0.84rem] font-semibold text-anar-700">{error}</p>}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="flex-1 text-[0.74rem] text-[var(--hint)]" dir="ltr">
           {points(draft)} / 4000
         </span>
+        {mode === "reply" && !closed && (
+          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-[var(--surface-2)] px-3 py-2 text-[0.84rem] font-semibold hover:opacity-85">
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp,text/plain,.log,.txt"
+              className="hidden"
+              disabled={blocked || busy}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (!file || lock.current) return;
+                lock.current = true;
+                setBusy(true);
+                setError("");
+                const headers: Record<string, string> = {};
+                if (draft.trim()) headers["x-ticket-caption"] = encodeURIComponent(draft.trim().slice(0, 1000));
+                void uploadRaw(`/api/admin/tickets/${row.id}/attachments`, file, headers)
+                  .then(() => {
+                    setDraft("");
+                    onSent(t("attachSent"));
+                  })
+                  .catch(() => setError(t("attachFailed")))
+                  .finally(() => {
+                    lock.current = false;
+                    setBusy(false);
+                  });
+              }}
+            />
+            <span>📎 {t("attachFile")}</span>
+          </label>
+        )}
         <Button
           tone="primary"
           icon="send"

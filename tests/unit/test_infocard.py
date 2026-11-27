@@ -22,7 +22,9 @@ def service(**over):  # type: ignore[no-untyped-def]
         "used_bytes": int(41.3 * GB),
         "expire_at": datetime.now(UTC) + timedelta(days=12, hours=2),
         "status": ServiceStatus.ACTIVE,
-        "panel": SimpleNamespace(location=SimpleNamespace(title="🇩🇪 Germany"), name="de1"),
+        "panel": SimpleNamespace(
+            location=SimpleNamespace(title="🇩🇪 Germany"), name="de1", national_mode=False
+        ),
         "plan": SimpleNamespace(title="Monthly 50"),
         "label": "Phone 🔥",
         "panel_username": "tg_5501_1",

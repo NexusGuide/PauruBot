@@ -60,13 +60,16 @@ async def _orders(
             Order.shop_id == shop_id,
             Order.kind.in_(SALE_KINDS),
             Order.status == OrderStatus.COMPLETED,
-            Order.amount > 0,
             Order.completed_at >= start,
             Order.completed_at < end,
         )
         .order_by(Order.completed_at, Order.id)
     )
-    return list(rows.all())
+    return [
+        (order, customer)
+        for order, customer in rows.all()
+        if int(order.amount or 0) > 0 or int((order.params or {}).get("wholesale") or 0) > 0
+    ]
 
 
 async def summary(session: AsyncSession, shop_id: int, key: str) -> ProfitPeriod:

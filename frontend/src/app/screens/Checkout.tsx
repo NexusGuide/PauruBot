@@ -42,6 +42,14 @@ export function Checkout() {
   const [appliedCode, setAppliedCode] = useState<string | undefined>(params.get("draft_code") || undefined);
   const isPurchase = (params.get("kind") ?? "purchase") === "purchase";
   const [label, setLabel] = useState(() => params.get("draft_label") ?? (isPurchase ? randomName() : ""));
+  const [startAtLocal, setStartAtLocal] = useState(() => {
+    const raw = params.get("draft_start_at");
+    if (!raw) return "";
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) return "";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+  });
   const gate = useRef(actionGate());
   const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
@@ -65,6 +73,7 @@ export function Checkout() {
         location_id: Number(params.get("loc")) || undefined,
         code: params.get("draft_code") || undefined,
         label: params.get("draft_label") || undefined,
+        start_at: params.get("draft_start_at") || undefined,
       };
       const result = await api.createOrder(body);
       return result;
@@ -139,13 +148,13 @@ export function Checkout() {
     }
   };
 
-  const applyLabel = async () => {
+  const applyDraftEdit = async (busyKey: string, nextStartAt?: string | null) => {
     if (!gate.current.enter()) return;
-    setBusy("label");
+    setBusy(busyKey);
     try {
       if (order) await api.cancelOrder(order.id);
       setOrder(null);
-      setParams(reviseDraft(params, appliedCode ?? "", label.trim()), { replace: true });
+      setParams(reviseDraft(params, appliedCode ?? "", label.trim(), undefined, nextStartAt), { replace: true });
     } catch (err) {
       haptic("error");
       toast(errorText(t, err), "error");
@@ -153,6 +162,16 @@ export function Checkout() {
       gate.current.leave();
       setBusy(null);
     }
+  };
+  const applyLabel = () => applyDraftEdit("label");
+  const applyStartAt = () => {
+    if (!startAtLocal) return applyDraftEdit("start_at", "");
+    const parsed = new Date(startAtLocal);
+    if (Number.isNaN(parsed.getTime())) {
+      toast(t("err_renew_start_at_invalid"), "error");
+      return;
+    }
+    return applyDraftEdit("start_at", parsed.toISOString());
   };
 
   const renewalReady = order.kind !== "renew" || Boolean(order.params.national) || previewedOrderId === order.id;
@@ -227,6 +246,30 @@ export function Checkout() {
       )}
 
       {order.kind === "renew" && !order.params.national && <RenewalPreview order={order} onReady={setPreviewedOrderId} />}
+      {order.kind === "renew" && !order.params.national && me.extras.renew_queue && (
+        <div className="app-card mt-4 p-4">
+          <p className="app-lbl mt-0">{t("renew_start_at_label")}</p>
+          <input
+            type="datetime-local"
+            dir="ltr"
+            aria-label={t("renew_start_at_label")}
+            value={startAtLocal}
+            onChange={(e) => setStartAtLocal(e.target.value)}
+            className="w-full text-left"
+          />
+          <p className="app-hint mt-2 text-xs">{t("renew_start_at_hint")}</p>
+          <div className="mt-3 flex gap-2">
+            <Button tone="quiet" busy={busy === "start_at"} disabled={busy !== null} onClick={applyStartAt}>
+              {t("apply")}
+            </Button>
+            {params.has("draft_start_at") && (
+              <Button tone="quiet" disabled={busy !== null} onClick={() => { setStartAtLocal(""); void applyDraftEdit("start_at", ""); }}>
+                {t("renew_start_at_clear")}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="app-card mt-4 p-4">
         {order.kind === "account_purchase" && (
@@ -238,7 +281,7 @@ export function Checkout() {
         {order.kind === "account_renew" && order.params.renew && (
           <Line
             label={t("agency_renew_size")}
-            value={`${t("n_days", { days: money(order.params.renew.days, locale) })} · ${
+            value={`${order.params.renew.days ? t("n_days", { days: money(order.params.renew.days, locale) }) : t("unlimited_time")} · ${
               order.params.renew.gb ? `${money(order.params.renew.gb, locale)} ${t("gb")}` : t("unlimited_data")
             }`}
           />
@@ -281,7 +324,7 @@ export function Checkout() {
         <Line label={t("total")} value={`${money(order.amount, locale)} ${t("currency")}`} strong />
       </div>
 
-      {order.code_discount === 0 && (!order.kind.startsWith("account_") || order.params.discounts) && (
+      {me?.discounts_enabled !== false && order.code_discount === 0 && (!order.kind.startsWith("account_") || order.params.discounts) && (
         <>
           <p className="app-lbl">{t("code_discount")}</p>
           <div className="app-dc">
@@ -310,6 +353,9 @@ export function Checkout() {
       {due > 0 && (
         <>
           <p className="app-hint mt-4 text-center text-sm">{t("pay_due", { amount: money(due, locale) })}</p>
+          {me?.gateway_vpn_off_reminder !== false && methods.some((m) => m !== "card" && m !== "stars" && !m.startsWith("usdt_") && !m.startsWith("trx_") && !m.startsWith("ton_")) && (
+            <p className="mt-2 text-center text-xs text-[var(--hint)]">{t("gateway_vpn_off_note")}</p>
+          )}
           {methods.length === 0 && <p className="mt-2 text-center text-sm">{t("no_methods")}</p>}
           {methods.length > 1 && (
             <div className="mt-3 flex flex-col gap-3">

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { call, categoryTree, type AccountPlan, type PanelAccountRow, type RenewPackage } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
@@ -155,7 +155,14 @@ function PlanSheet({
     if (draft) setForm({ ...draft, panel_id: draft.panel_id || panels[0]?.id || 0 });
   }, [draft, panels]);
   const set = (patch: Partial<PlanDraft>) => setForm((f) => ({ ...f, ...patch }));
+  const rangeError =
+    (form.gb_min !== null && form.gb_max !== null && form.gb_min > form.gb_max) ||
+    (form.days_min !== null && form.days_max !== null && form.days_min > form.days_max);
   const save = async () => {
+    if (rangeError) {
+      toast(t("err_account_extras_invalid"), "error");
+      return;
+    }
     const { id, ...body } = form;
     try {
       await run(() => call(id ? `/api/admin/account-plans/${id}` : "/api/admin/account-plans", { method: id ? "PUT" : "POST", body }));
@@ -300,6 +307,11 @@ function PlanSheet({
             </Field>
           ))}
         </div>
+        {rangeError && (
+          <p className="rounded-xl bg-anar-100 px-3 py-2 text-[0.82rem] font-semibold text-anar-700">
+            {t("err_account_extras_invalid")}
+          </p>
+        )}
         <Toggle checked={form.is_active} onChange={(is_active) => set({ is_active })} label={t("active")} />
       </div>
     </Sheet>
@@ -357,7 +369,7 @@ type AccountChange =
   | { action: "plan"; plan_id: number };
 
 /** Everything staff may do to one sold account, each told to its owner when "notify" is on. */
-function ManageSheet({ row, plans, onClose, onChanged }: { row: PanelAccountRow; plans: AccountPlan[]; onClose: () => void; onChanged: (row: PanelAccountRow) => void }) {
+export function ManageAccountSheet({ row, plans, onClose, onChanged }: { row: PanelAccountRow; plans: AccountPlan[]; onClose: () => void; onChanged: (row: PanelAccountRow) => void }) {
   const { t, toast, errorText } = useSession();
   const confirm = useConfirm();
   const [busy, run] = useAction();
@@ -518,8 +530,13 @@ function BulkGiftSheet({ ids, onClose, onDone }: { ids: number[]; onClose: () =>
 function Accounts() {
   const { t, toast, errorText } = useSession();
   const confirm = useConfirm();
-  const [q, setQ] = useState("");
-  const { data, error, reload } = useLoad<{ items: PanelAccountRow[] }>(`/api/admin/panel-accounts?q=${encodeURIComponent(q)}`);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const customerIdParam = searchParams.get("customer_id") || "";
+  const [q, setQ] = useState(() => searchParams.get("q") || "");
+  const query = new URLSearchParams();
+  if (q.trim()) query.set("q", q.trim());
+  if (customerIdParam) query.set("customer_id", customerIdParam);
+  const { data, error, reload } = useLoad<{ items: PanelAccountRow[] }>(`/api/admin/panel-accounts?${query.toString()}`);
   const plans = useLoad<{ items: AccountPlan[] }>("/api/admin/account-plans");
   const [busy, run] = useAction();
   const [managing, setManaging] = useState<PanelAccountRow | null>(null);
@@ -550,8 +567,22 @@ function Accounts() {
         )
       }
     >
-      <div className="px-4 py-3">
-        <Input placeholder={t("account_search")} value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <Input placeholder={t("account_search")} value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        {(customerIdParam || searchParams.get("q")) && (
+          <Button
+            small
+            icon="close"
+            onClick={() => {
+              setQ("");
+              setSearchParams({});
+            }}
+          >
+            {t("clear_filters")}
+          </Button>
+        )}
       </div>
       <Async data={data} error={error} reload={reload}>
         {(value) =>
@@ -611,7 +642,7 @@ function Accounts() {
         }
       </Async>
       {managing && (
-        <ManageSheet
+        <ManageAccountSheet
           row={managing}
           plans={plans.data?.items ?? []}
           onClose={() => setManaging(null)}

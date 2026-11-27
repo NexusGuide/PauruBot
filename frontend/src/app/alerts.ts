@@ -72,13 +72,32 @@ const WALLET_KINDS: Record<string, { icon: AlertItem["icon"]; tone: AlertItem["t
 export function parseAlertPolicy(value: unknown): ServiceAlertPolicy | null {
   if (!value || typeof value !== "object") return null;
   const policy = value as Record<string, unknown>;
-  return Number.isSafeInteger(policy.warn_remaining_percent) && Number.isSafeInteger(policy.warn_days)
+  const timeOk = policy.warn_time_percent === undefined || Number.isSafeInteger(policy.warn_time_percent);
+  const gbOk = policy.warn_remaining_gb === undefined || Number.isSafeInteger(policy.warn_remaining_gb);
+  return Number.isSafeInteger(policy.warn_remaining_percent) && Number.isSafeInteger(policy.warn_days) && timeOk && gbOk
     ? value as ServiceAlertPolicy : null;
 }
 
+const GB_BYTES = 1024 ** 3;
+
 export function lowVolumeWarning(service: Service, policy: ServiceAlertPolicy | null): boolean {
-  return !!policy && service.status === "active" && service.data_limit > 0 &&
-    Math.max(0, service.data_limit - service.used_bytes) * 100 <= policy.warn_remaining_percent * service.data_limit;
+  if (!policy || service.status !== "active" || service.data_limit <= 0) return false;
+  const left = Math.max(0, service.data_limit - service.used_bytes);
+  if (policy.warn_remaining_percent > 0 && left * 100 <= policy.warn_remaining_percent * service.data_limit) return true;
+  return (policy.warn_remaining_gb ?? 0) > 0 && left <= (policy.warn_remaining_gb ?? 0) * GB_BYTES;
+}
+
+export function expiringWarning(service: Service, policy: ServiceAlertPolicy | null, seconds: number): boolean {
+  if (!policy || service.status !== "active" || !(seconds > 0)) return false;
+  if (policy.warn_days > 0 && seconds <= policy.warn_days * 86400) return true;
+  const pct = policy.warn_time_percent ?? 0;
+  if (pct <= 0) return false;
+  let total = service.plan_days && service.plan_days > 0 ? service.plan_days * 86400 : 0;
+  if (!total && service.created_at && service.expire_at) {
+    const span = (Date.parse(service.expire_at) - Date.parse(service.created_at)) / 1000;
+    if (Number.isFinite(span) && span > 0) total = span;
+  }
+  return total > 0 && seconds * 100 <= pct * total;
 }
 
 export function buildAlerts(
@@ -111,7 +130,7 @@ export function buildAlerts(
         id: `s${service.id}-expired@${service.expire_at ?? "-"}`, kind: "service", tone: "red", icon: "clock", at: service.expire_at, href,
         title: t("alert_expired_title"), body: t("alert_expired_body", { label }),
       });
-    } else if (policy && service.status === "active" && seconds > 0 && seconds <= policy.warn_days * 86400) {
+    } else if (expiringWarning(service, policy, seconds)) {
       // Match the existing worker payload, including its exact-day boundary convention.
       const days = Math.max(1, Math.floor(seconds / 86400) + 1);
       serviceAlerts.push({

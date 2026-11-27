@@ -49,6 +49,7 @@ class SafeHttpClient:
         ssrf.check_url_shape(base_url)
         self.base_url = base_url.rstrip("/")
         self._host = urlsplit(self.base_url).hostname
+        self.pinned_pem = pinned_pem
         self.allow_private = allow_private or settings.allow_private_panel_hosts
         total = timeout or settings.http_total_timeout
         self._client = httpx.AsyncClient(

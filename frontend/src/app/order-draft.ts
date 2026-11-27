@@ -7,10 +7,14 @@ export function prepareDraft(params: URLSearchParams, label: string, uuid = () =
   }
   return next;
 }
-export function reviseDraft(params: URLSearchParams, code: string, label: string, uuid = () => crypto.randomUUID()) {
+export function reviseDraft(params: URLSearchParams, code: string, label: string, uuid = () => crypto.randomUUID(), startAt?: string | null) {
   const next = new URLSearchParams(params);
   next.set("draft", uuid());
   next.set("draft_code", code);
   next.set("draft_label", label);
+  if (startAt !== undefined) {
+    if (startAt) next.set("draft_start_at", startAt);
+    else next.delete("draft_start_at");
+  }
   return next;
 }

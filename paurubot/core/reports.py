@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.config import get_settings
 from paurubot.db.models import (
+    AccountPlan,
     Customer,
     LedgerAccount,
     LedgerAccountKind,
@@ -18,6 +19,7 @@ from paurubot.db.models import (
     OrderKind,
     OrderStatus,
     Panel,
+    PanelAccount,
     Payment,
     PaymentStatus,
     Service,
@@ -174,13 +176,24 @@ class DailyDetails:
         return round((self.total - self.yesterday_total) * 100 / self.yesterday_total)
 
 
-def _sold_gb(order: Order) -> int:
+def _sold_gb(order: Order, account_plans: dict[int, AccountPlan] | None = None) -> int:
     params = order.params or {}
     custom = params.get("custom") if isinstance(params.get("custom"), dict) else None
     if custom:
         return int(custom.get("gb") or 0)
     if order.kind == OrderKind.EXTRA_VOLUME:
         return int(params.get("extra_gb") or 0)
+    if order.kind == OrderKind.ACCOUNT_GB:
+        return int(params.get("gb") or 0)
+    if order.kind == OrderKind.ACCOUNT_RENEW:
+        renew = params.get("renew") if isinstance(params.get("renew"), dict) else None
+        if renew and "gb" in renew:
+            return int(renew.get("gb") or 0)
+        plan = (account_plans or {}).get(int(params.get("account_plan_id") or 0))
+        return int(plan.data_gb or 0) if plan is not None else 0
+    if order.kind == OrderKind.ACCOUNT_PURCHASE:
+        plan = (account_plans or {}).get(int(params.get("account_plan_id") or 0))
+        return int(plan.data_gb or 0) if plan is not None else 0
     if order.plan is not None and order.kind in {OrderKind.PURCHASE, OrderKind.RENEW, OrderKind.UPGRADE}:
         return int(order.plan.data_gb or 0)
     return 0
@@ -220,25 +233,56 @@ async def daily_details(session: AsyncSession, shop_id: int, start: datetime, en
         if order.completed_at is not None:
             hour = order.completed_at.astimezone(tz).hour
             hours[hour] = hours.get(hour, 0) + 1
-    service_panels = dict(
-        (
-            await session.execute(
-                select(Service.id, Service.panel_id).where(
-                    Service.id.in_({o.service_id for o in rows if o.service_id})
+    service_ids = {o.service_id for o in rows if o.service_id}
+    service_panels = (
+        dict(
+            (
+                await session.execute(select(Service.id, Service.panel_id).where(Service.id.in_(service_ids)))
+            ).all()
+        )
+        if service_ids
+        else {}
+    )
+    acct_ids = {
+        int(o.params["account_id"]) for o in rows if isinstance(o.params, dict) and o.params.get("account_id")
+    }
+    account_panels = (
+        dict(
+            (
+                await session.execute(
+                    select(PanelAccount.id, PanelAccount.panel_id).where(PanelAccount.id.in_(acct_ids))
                 )
-            )
-        ).all()
+            ).all()
+        )
+        if acct_ids
+        else {}
+    )
+    acct_plan_ids = {
+        int(o.params["account_plan_id"])
+        for o in rows
+        if isinstance(o.params, dict) and o.params.get("account_plan_id")
+    }
+    account_plans = (
+        {p.id: p for p in await session.scalars(select(AccountPlan).where(AccountPlan.id.in_(acct_plan_ids)))}
+        if acct_plan_ids
+        else {}
     )
     all_panels = list(await session.scalars(select(Panel).where(Panel.shop_id == shop_id).order_by(Panel.id)))
     active_ids = {panel.id for panel in all_panels if panel.is_active}
     panels = {panel.id: PanelDay(panel.name) for panel in all_panels}
     for order in rows:
         panel_id = service_panels.get(order.service_id) if order.service_id else None
+        if panel_id is None and isinstance(order.params, dict):
+            if order.params.get("account_id"):
+                panel_id = account_panels.get(int(order.params["account_id"]))
+            if panel_id is None and order.params.get("account_plan_id"):
+                ap = account_plans.get(int(order.params["account_plan_id"]))
+                panel_id = ap.panel_id if ap is not None else None
         if panel_id in panels:
             day = panels[panel_id]
             day.orders += 1
             day.amount += int(order.amount)
-            day.gb += _sold_gb(order)
+            day.gb += _sold_gb(order, account_plans)
     people = int(
         await session.scalar(
             select(func.count(Customer.id)).where(Customer.shop_id == shop_id, Customer.telegram_id > 0)
@@ -284,6 +328,7 @@ async def funnel(
     cohort = select(Customer.id).where(
         Customer.shop_id == shop_id,
         Customer.telegram_id > 0,
+        Customer.is_test.is_(False),
         Customer.created_at >= start,
         Customer.created_at < end,
     )
@@ -297,6 +342,7 @@ async def funnel(
             Order.customer_id, func.count(Order.id).label("n"), func.min(Order.completed_at).label("first")
         )
         .where(
+            Order.shop_id == shop_id,
             Order.customer_id.in_(ids),
             Order.status == OrderStatus.COMPLETED,
             Order.amount > 0,

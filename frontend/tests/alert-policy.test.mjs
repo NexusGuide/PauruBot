@@ -106,3 +106,12 @@ test("read state is stored per customer, never in the shared legacy key", () => 
   delete globalThis.localStorage;
  }
 });
+test("warn_time_percent triggers expiring warning when warn_days is 0 and fails closed when invalid", () => {
+  assert.equal(alerts.parseAlertPolicy({warn_days: 0, warn_remaining_percent: 0, warn_time_percent: "20"}), null);
+  const p = {warn_days: 0, warn_remaining_percent: 0, warn_time_percent: 20};
+  assert.equal(alerts.parseAlertPolicy(p), p);
+  const sWarn = service({used_bytes: 0, plan_days: 30, expire_at: new Date(NOW + 5 * 86400000).toISOString()});
+  const sOk = service({used_bytes: 0, plan_days: 30, expire_at: new Date(NOW + 10 * 86400000).toISOString()});
+  assert.deepEqual(ids(build([sWarn], p)), ["s7-expiring"]);
+  assert.deepEqual(build([sOk], p), []);
+});

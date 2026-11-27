@@ -40,7 +40,7 @@ def _tg(note: str) -> int | None:
 
 class RemnawaveDriver(PanelDriver):
     kind = "remnawave"
-    supports_webhooks = False
+    supports_webhooks = True
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)

@@ -297,10 +297,20 @@ class PanelDriver(ABC):
         parts = urlsplit(subscription_url)
         origin = f"{parts.scheme}://{parts.netloc}"
         path = subscription_url[len(origin) :] or "/"
-        own = subscription_url.startswith(self.base_url + "/") or origin == self.base_url
-        client = self.http if own else SafeHttpClient(origin, allow_private=self.http.allow_private)
+        base_parts = urlsplit(self.base_url)
+        base_origin = f"{base_parts.scheme}://{base_parts.netloc}"
+        base_path = base_parts.path.rstrip("/")
+        same_origin = origin.lower() == base_origin.lower()
+        if same_origin and not base_path:
+            client, req_path = self.http, path
+        elif same_origin and (path == base_path or path.startswith(base_path + "/")):
+            client, req_path = self.http, path[len(base_path) :] or "/"
+        else:
+            pinned = self.http.pinned_pem if same_origin else None
+            client = SafeHttpClient(origin, pinned_pem=pinned, allow_private=self.http.allow_private)
+            req_path = path
         try:
-            resp = await client.request("GET", path, headers={"User-Agent": user_agent[:200]})
+            resp = await client.request("GET", req_path, headers={"User-Agent": user_agent[:200]})
         except PanelError:
             return None
         finally:

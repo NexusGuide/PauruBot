@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { money } from "@shared/format";
 import { api, type CryptoInstructions } from "../api";
-import { useApp } from "../state";
+import { errorText, useApp } from "../state";
 import { haptic } from "../telegram";
 import { translator } from "../receipts/copy";
 import { ReceiptFlow } from "../receipts/ReceiptFlow";
 import { CustomTonpayFlow } from "../tonpay/CustomTonpayFlow";
-import { Panel, Screen } from "../ui";
+import { Button, Panel, Screen } from "../ui";
 
 interface Account {
   number: string;
@@ -56,6 +56,29 @@ export function Payment() {
   const [status, setStatus] = useState<string>("unknown");
   const [amount, setAmount] = useState(remembered?.amount ?? 0);
   const [provider, setProvider] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  const recheckNow = async () => {
+    setChecking(true);
+    try {
+      const result = await api.recheckPayment(paymentId);
+      setStatus(result.status);
+      setProvider(result.provider);
+      setAmount(result.amount);
+      if (result.status === "paid" && result.fulfilled) {
+        haptic("success");
+        await reload();
+        const order = result.order_id;
+        navigate(order ? `/done/${order}` : "/wallet", { replace: true });
+        return;
+      }
+      toast(t("payment_rechecked"));
+    } catch (err) {
+      toast(errorText(t, err));
+    } finally {
+      setChecking(false);
+    }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -134,6 +157,11 @@ export function Payment() {
           <Panel className="text-center">
             <p className="font-bold">{waiting ? t("receipt_under_review") : t("crypto_waiting")}</p>
             <p className="mt-1 text-sm text-[var(--hint)]">{t("crypto_waiting_hint")}</p>
+            <div className="mt-3">
+              <Button tone="quiet" busy={checking} onClick={() => void recheckNow()}>
+                {t("check_payment_now")}
+              </Button>
+            </div>
           </Panel>
         )}
       </Screen>
@@ -158,6 +186,11 @@ export function Payment() {
             <>
               <p className="font-bold">{t("gateway_waiting")}</p>
               <p className="mt-1 text-sm text-[var(--hint)]">{t("gateway_waiting_hint")}</p>
+              <div className="mt-3">
+                <Button tone="quiet" busy={checking} onClick={() => void recheckNow()}>
+                  {t("check_payment_now")}
+                </Button>
+              </div>
             </>
           )}
         </Panel>

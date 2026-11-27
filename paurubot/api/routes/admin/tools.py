@@ -19,7 +19,7 @@ from paurubot.worker import queue
 
 router = APIRouter(prefix="/api/admin/tools", tags=["admin"])
 
-Audience = Literal["all", "buyers", "active", "inactive", "never_bought", "resellers"]
+Audience = Literal["all", "buyers", "active", "inactive", "never_bought", "resellers", "account_buyers"]
 GIFT_MIN, GIFT_MAX = 1_000, 10_000_000  # as in the bot's gift (ADM-09)
 
 
@@ -75,12 +75,41 @@ async def gift(
     return {"batch": batch}
 
 
-@router.post("/trial-reset")
-async def trial_reset(
+class TrialResetBody(BaseModel):
+    scope: Literal["all", "non_buyers"] = "all"
+
+
+@router.get("/trial-reset/preview")
+async def trial_reset_preview(
     ctx: Annotated[StaffContext, Depends(require("settings.write"))], db: DB
 ) -> dict[str, int]:
-    """Everyone may take a free trial again (a new trial round, CAT-11)."""
+    """Preview how many trial users would be reset under each scope."""
     _shop_wide(ctx)
+    return await trials.reset_preview(db, ctx.shop_id)
+
+
+@router.post("/trial-reset")
+async def trial_reset(
+    ctx: Annotated[StaffContext, Depends(require("settings.write"))],
+    db: DB,
+    body: TrialResetBody | None = None,
+) -> dict[str, Any]:
+    """Start a new trial round for everyone, or reset only eligible non-buyers."""
+    _shop_wide(ctx)
+    scope = body.scope if body is not None else "all"
+    if scope == "non_buyers":
+        reset_count, generation = await trials.reset_non_buyers(db, ctx.shop_id)
+        await record(
+            db,
+            shop_id=ctx.shop_id,
+            actor=ctx.actor,
+            action="trial.reset_non_buyers",
+            entity="shop",
+            entity_id=ctx.shop_id,
+            after={"scope": scope, "reset_count": reset_count, "trial_generation": generation},
+        )
+        await db.commit()
+        return {"generation": generation, "scope": scope, "reset_count": reset_count}
     generation = await trials.new_round(db, ctx.shop_id)
     await record(
         db,
@@ -89,10 +118,10 @@ async def trial_reset(
         action="settings.update",
         entity="shop",
         entity_id=ctx.shop_id,
-        after={"trial_generation": generation},
+        after={"trial_generation": generation, "scope": scope},
     )
     await db.commit()
-    return {"generation": generation}
+    return {"generation": generation, "scope": scope}
 
 
 class PricesBody(BaseModel):
@@ -168,3 +197,102 @@ async def unpin_all(
     await record(db, shop_id=ctx.shop_id, actor=ctx.actor, action="broadcast.unpin_all", entity="shop")
     await db.commit()
     return {"ok": True}
+
+
+ServiceGiftMode = Literal["days", "gb"]
+
+
+def _check_service_gift_value(mode: ServiceGiftMode, value: int) -> None:
+    limit = 3650 if mode == "days" else 100_000
+    if not 1 <= value <= limit:
+        raise HTTPException(status_code=422, detail="invalid_gift_value")
+
+
+async def _check_panel_filter(db: DB, shop_id: int, panel_id: int | None) -> int | None:
+    if panel_id is None:
+        return None
+    from paurubot.db.models import Panel
+
+    found = await db.scalar(select(Panel.id).where(Panel.id == panel_id, Panel.shop_id == shop_id))
+    if found is None:
+        raise HTTPException(status_code=404, detail="panel_not_found")
+    return panel_id
+
+
+@router.get("/service-gift")
+async def service_gift_preview(
+    ctx: Annotated[StaffContext, Depends(require("services.write"))],
+    db: DB,
+    mode: ServiceGiftMode = "days",
+    value: int = 1,
+    panel_id: int | None = None,
+) -> dict[str, int]:
+    """How many active services a mass days/GB gift would update."""
+    from paurubot.core import service_gifts
+
+    _shop_wide(ctx)
+    _check_service_gift_value(mode, value)
+    pid = await _check_panel_filter(db, ctx.shop_id, panel_id)
+    try:
+        targets = await service_gifts.preview(db, ctx.shop_id, mode, value, panel_id=pid)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="too_many_services") from exc
+    return {"count": len(targets), "limit": service_gifts.LIMIT}
+
+
+class ServiceGiftBody(BaseModel):
+    mode: ServiceGiftMode
+    value: int = Field(ge=1, le=100_000)
+    panel_id: int | None = None
+
+
+@router.post("/service-gift")
+async def service_gift(
+    body: ServiceGiftBody, ctx: Annotated[StaffContext, Depends(require("services.write"))], db: DB
+) -> dict[str, Any]:
+    """Add days or GB to every active service (or one panel's services) in the background."""
+    from paurubot.core import service_gifts
+
+    _shop_wide(ctx)
+    _check_service_gift_value(body.mode, body.value)
+    pid = await _check_panel_filter(db, ctx.shop_id, body.panel_id)
+    try:
+        targets = await service_gifts.preview(db, ctx.shop_id, body.mode, body.value, panel_id=pid)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="too_many_services") from exc
+    batch = f"web:{secrets.token_hex(6)}"
+    queued = 0
+    for target in targets:
+        job_id = await queue.enqueue(
+            db,
+            "bulk",
+            "service",
+            {
+                "service_id": target["service_id"],
+                "action": "extend",
+                "gift_target": target,
+                "staff_id": ctx.staff.id,
+                "batch": batch,
+            },
+            shop_id=ctx.shop_id,
+            dedupe_key=f"bulk:{batch}:{target['service_id']}",
+            max_attempts=5,
+        )
+        queued += job_id is not None
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="service.bulk_extend",
+        entity="service",
+        after={
+            "source": "web",
+            "count": queued,
+            "batch": batch,
+            "mode": body.mode,
+            "value": body.value,
+            "panel_id": pid,
+        },
+    )
+    await db.commit()
+    return {"queued": queued, "batch": batch}

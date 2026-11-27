@@ -1,5 +1,5 @@
 import { PasswordRecovery } from "../password-recovery/PasswordRecovery";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { digits, money } from "@shared/format";
 import { call, qs, type AuditRow, type Channels as ChannelData, type JobRow, type SalesReport, type SettingItem, type TextItem } from "../api";
@@ -34,7 +34,8 @@ import {
   CopyText,
   useConfirm,
 } from "../ui";
-import { AlertMatrix, AutoReplies, ReportSections, type AutoReply } from "../settings-editors";
+import { AlertMatrix, AutoReplies, RejectReasonsEditor, ReportSections, SupportFaqEditor, type AutoReply, type SupportFaqItem } from "../settings-editors";
+import { CronsSection } from "./Crons";
 import { TrialResetCard } from "./Tools";
 import { AmountList, ResetTextsButton } from "./ClockTools";
 import { BackupBotForm, DateTimeInput, IdPicker, PackagesEditor, SettingsFileButtons, TierEditor, VerifyBackupButton, type ExtraPackage, type Tier as BulkTier } from "./ClockTools2";
@@ -483,8 +484,12 @@ function SettingControl({
   if (item.key === "catalog_discount_until") {
     return <Field label={label} hint={hint}>{() => <DateTimeInput value={String(value ?? "")} onChange={onChange} />}</Field>;
   }
-  if (item.key === "catalog_discount_category_ids" || item.key === "service_import_panel_ids") {
-    const source = item.key === "service_import_panel_ids" ? "panels" : "categories";
+  if (
+    item.key === "catalog_discount_category_ids" ||
+    item.key === "service_import_panel_ids" ||
+    item.key === "trial_panel_ids"
+  ) {
+    const source = item.key === "catalog_discount_category_ids" ? "categories" : "panels";
     return <Field label={label} hint={hint}>{() => <IdPicker source={source} value={Array.isArray(value) ? (value as number[]) : []} onChange={onChange} />}</Field>;
   }
   if (item.key === "wallet_topup_presets") {
@@ -505,6 +510,29 @@ function SettingControl({
     return (
       <Field label={label} hint={hint}>
         {() => <AutoReplies value={Array.isArray(value) ? (value as AutoReply[]) : []} onChange={onChange} />}
+      </Field>
+    );
+  }
+  if (item.key === "support_faq") {
+    const rows = Array.isArray(value)
+      ? (value as Partial<SupportFaqItem>[]).map((r) => ({
+          q: String(r.q ?? ""),
+          a: String(r.a ?? ""),
+          ...(r.btn_text ? { btn_text: String(r.btn_text) } : {}),
+          ...(r.btn_url ? { btn_url: String(r.btn_url) } : {}),
+        }))
+      : [];
+    return (
+      <Field label={label} hint={hint}>
+        {() => <SupportFaqEditor value={rows} onChange={onChange} />}
+      </Field>
+    );
+  }
+  if (item.key === "reject_reasons") {
+    const rows = Array.isArray(value) ? (value as unknown[]).map(String) : [];
+    return (
+      <Field label={label} hint={hint}>
+        {() => <RejectReasonsEditor value={rows} onChange={onChange} />}
       </Field>
     );
   }
@@ -608,10 +636,61 @@ function SettingControl({
   );
 }
 
-const WIDE_SETTINGS = ["payment_method_rules", "bulk_buy_tiers", "extra_packages", "catalog_discount_category_ids", "service_import_panel_ids", "alerts_muted", "auto_replies", "card_accounts", "topup_bonus_rules", "app_links", "loyalty_tiers", "wheel_prizes", "business_rules", "business_reply", "guest_plan_ids"];
+const WIDE_SETTINGS = ["payment_method_rules", "bulk_buy_tiers", "extra_packages", "catalog_discount_category_ids", "service_import_panel_ids", "trial_panel_ids", "alerts_muted", "auto_replies", "support_faq", "reject_reasons", "card_accounts", "topup_bonus_rules", "app_links", "loyalty_tiers", "wheel_prizes", "business_rules", "business_reply", "guest_plan_ids"];
 // Edited elsewhere: the trust channel on the channels screen; appearance and resale on their own screens.
 const HIDDEN_GROUPS = ["appearance", "resale"];
-const HIDDEN_SETTINGS = ["trust_channel_id"];
+const HIDDEN_SETTINGS = ["trust_channel_id", "cron_overrides"];
+
+function MaintenanceCard() {
+  const { t, locale, can, toast, errorText } = useSession();
+  const [busyCache, runCache] = useAction();
+  const [busySync, runSync] = useAction();
+  if (!can("settings.write")) return null;
+  const clearCache = async () => {
+    try {
+      const res = await runCache(() =>
+        call<{ redis_keys: number }>("/api/admin/system/maintenance/clear-cache", { method: "POST" }),
+      );
+      if (res) toast(t("maint_cache_done", { count: digits(res.redis_keys, locale) }));
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  const resync = async () => {
+    try {
+      const res = await runSync(() =>
+        call<{ panels: number; synced: number; failed: number }>("/api/admin/system/maintenance/resync", {
+          method: "POST",
+        }),
+      );
+      if (res) {
+        toast(
+          t("maint_resync_done", {
+            synced: digits(res.synced, locale),
+            panels: digits(res.panels, locale),
+          }),
+        );
+      }
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <Section title={t("maint_title")}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="min-w-0 flex-1 text-[0.86rem] text-[var(--hint)]">{t("maint_hint")}</p>
+        <div className="flex flex-wrap gap-2">
+          <Button tone="quiet" busy={busyCache} onClick={() => void clearCache()}>
+            {t("maint_clear_cache")}
+          </Button>
+          <Button tone="primary" busy={busySync} onClick={() => void resync()}>
+            {t("maint_resync")}
+          </Button>
+        </div>
+      </div>
+    </Section>
+  );
+}
 
 export function Settings() {
   const { t, can, toast, errorText } = useSession();
@@ -622,6 +701,16 @@ export function Settings() {
   const [busy, run] = useAction();
   const writable = can("settings.write");
   const dirty = Object.keys(changes).length > 0;
+
+  useEffect(() => {
+    if (!dirty) return;
+    const onUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
+  }, [dirty]);
 
   const save = async () => {
     try {
@@ -698,6 +787,7 @@ export function Settings() {
                       </Section>
                     );
                   })}
+                  {!query.trim() && selected === "general" && <MaintenanceCard />}
                   {!query.trim() && selected === "trial" && <TrialResetCard />}
                   {query.trim() && shownGroups.every((group) => !(groups[group] ?? []).some((item) => matchesQuery(query, label(item.key), hintOf(item.key), item.key))) && (
                     <Empty title={t("empty_list")} />
@@ -751,6 +841,16 @@ export function MiniAppLook() {
   const [busy, run] = useAction();
   const writable = can("settings.write");
   const dirty = Object.keys(changes).length > 0;
+
+  useEffect(() => {
+    if (!dirty) return;
+    const onUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
+  }, [dirty]);
 
   const save = async () => {
     try {
@@ -852,12 +952,40 @@ interface TextsData {
   items: TextItem[];
 }
 
+const ALLOWED_TG_HTML = new Set([
+  "b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "code", "pre", "a", "tg-spoiler", "blockquote", "tg-emoji",
+]);
+
+function checkTelegramHtml(text: string): string | null {
+  const stack: string[] = [];
+  const re = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)(\s[^>]*)?>/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    const closing = match[1] === "/";
+    const tag = (match[2] ?? "").toLowerCase();
+    if (!ALLOWED_TG_HTML.has(tag)) return `<${tag}>`;
+    if (closing) {
+      if (stack.length === 0 || stack[stack.length - 1] !== tag) return `</${tag}>`;
+      stack.pop();
+    } else {
+      stack.push(tag);
+    }
+  }
+  if (stack.length > 0) return `<${stack[stack.length - 1]}>`;
+  return null;
+}
+
 function TextSheet({ item, locales, globals, onClose, onSaved }: { item: TextItem; locales: string[]; globals: string[]; onClose: () => void; onSaved: () => void }) {
   const { t, toast, errorText } = useSession();
   const [locale, setLocale] = useState(locales[0] ?? "fa");
   const [value, setValue] = useState(item.overrides[locale] ?? item.defaults[locale] ?? "");
   const [caret, setCaret] = useState<number | null>(null);
   const [busy, run] = useAction();
+  const btnMode = isButton(item.key);
+  const htmlIssue = useMemo(() => checkTelegramHtml(value), [value]);
+  const btnTooLong = btnMode && value.trim().length > 64;
+  const btnMultiline = btnMode && /[\r\n]/.test(value);
+  const hasIssue = Boolean(htmlIssue || btnTooLong || btnMultiline);
   const insert = (name: string) => {
     const at = caret ?? value.length;
     setValue(`${value.slice(0, at)}{${name}}${value.slice(at)}`);
@@ -874,6 +1002,14 @@ function TextSheet({ item, locales, globals, onClose, onSaved }: { item: TextIte
       await run(() => call(`/api/admin/texts/${locale}/${item.key}`, { method: "PUT", body: { value } }));
       toast(t("saved"));
       onSaved();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  const sendPreview = async () => {
+    try {
+      await run(() => call(`/api/admin/texts/${locale}/${item.key}/preview`, { method: "POST", body: { value } }));
+      toast(t("text_preview_sent"));
     } catch (err) {
       toast(errorText(err), "error");
     }
@@ -901,7 +1037,10 @@ function TextSheet({ item, locales, globals, onClose, onSaved }: { item: TextIte
               {t("text_reset")}
             </Button>
           )}
-          <Button tone="primary" busy={busy} disabled={!value.trim()} onClick={() => void save()}>
+          <Button busy={busy} disabled={!value.trim() || hasIssue} onClick={() => void sendPreview()}>
+            {t("text_send_preview")}
+          </Button>
+          <Button tone="primary" busy={busy} disabled={!value.trim() || hasIssue} onClick={() => void save()}>
             {t("save")}
           </Button>
         </>
@@ -928,6 +1067,21 @@ function TextSheet({ item, locales, globals, onClose, onSaved }: { item: TextIte
           // Clicking a variable takes focus from the text: keep where the cursor was.
           onBlur={(e) => setCaret(e.currentTarget.selectionStart)}
         />
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[0.78rem]">
+          <span className={btnTooLong ? "font-semibold text-anar-700" : "text-[var(--hint)]"}>
+            {btnMode
+              ? t("text_char_limit", { count: value.trim().length, max: 64 })
+              : t("text_char_count", { count: value.length })}
+          </span>
+          {htmlIssue && (
+            <span className="font-semibold text-anar-700">
+              {t("text_html_invalid", { tag: htmlIssue })}
+            </span>
+          )}
+          {btnMultiline && (
+            <span className="font-semibold text-anar-700">{t("text_button_one_line")}</span>
+          )}
+        </div>
         <div className="flex flex-col gap-1.5">
           <p className="text-[0.8rem] font-semibold">{t("text_variables")}</p>
           <p className="flex flex-wrap gap-1.5" dir="ltr">
@@ -1189,6 +1343,8 @@ export function Channels() {
   const [trustEdit, setTrustEdit] = useState<TrustRow | null>(null);
   const [contact, setContact] = useState({ title: "", url: "https://t.me/" });
   const [log, setLog] = useState<{ topic: string; chat_id: string; thread_id: string } | null>(null);
+  const [autoSetupOpen, setAutoSetupOpen] = useState(false);
+  const [autoChatId, setAutoChatId] = useState("");
   const writable = can("settings.write");
 
   const act = async (fn: () => Promise<unknown>, done: string) => {
@@ -1212,8 +1368,38 @@ export function Channels() {
     }
   };
 
+  const verifyAll = async () => {
+    try {
+      const res = await run(() =>
+        call<{ checked: number; ok: number; failed: number }>("/api/admin/channels/verify", { method: "POST" }),
+      );
+      if (res) {
+        toast(
+          t(res.failed ? "channels_verify_issues" : "channels_verify_ok", {
+            checked: res.checked,
+            ok: res.ok,
+            failed: res.failed,
+          }),
+          res.failed ? "error" : "ok",
+        );
+        void reload();
+      }
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
   return (
-    <Page title={t("nav_channels")}>
+    <Page
+      title={t("nav_channels")}
+      actions={
+        writable ? (
+          <Button small icon="refresh" busy={busy} onClick={() => void verifyAll()}>
+            {t("channels_verify_all")}
+          </Button>
+        ) : undefined
+      }
+    >
       <Async data={data} error={error} reload={reload}>
         {(value) => (
           <>
@@ -1344,7 +1530,16 @@ export function Channels() {
               )}
             </Section>
 
-            <Section title={t("log_channels")}>
+            <Section
+              title={t("log_channels")}
+              actions={
+                writable ? (
+                  <Button small tone="primary" onClick={() => setAutoSetupOpen(true)}>
+                    {t("log_auto_setup")}
+                  </Button>
+                ) : undefined
+              }
+            >
               <p className="mb-3 text-[0.85rem] leading-relaxed text-[var(--hint)]">{t("log_channels_hint")}</p>
               <ul className="divide-y divide-[var(--line)]">
                 {value.topics.map((topic) => {
@@ -1358,7 +1553,17 @@ export function Channels() {
                         </span>
                       </span>
                       {writable && (
-                        <span className="flex gap-2">
+                        <span className="flex flex-wrap gap-2">
+                          {row && (
+                            <Button
+                              small
+                              tone="ghost"
+                              busy={busy}
+                              onClick={() => void act(() => call(`/api/admin/channels/logs/${row.id}/test`, { method: "POST" }), "log_test_sent")}
+                            >
+                              {t("log_test_btn")}
+                            </Button>
+                          )}
                           {row && (
                             <Button small tone="ghost" busy={busy} onClick={() => void act(() => call(`/api/admin/channels/logs/${row.id}`, { method: "DELETE" }), "removed")}>
                               {t("remove")}
@@ -1377,6 +1582,52 @@ export function Channels() {
                 })}
               </ul>
             </Section>
+
+            <Sheet
+              open={autoSetupOpen}
+              onClose={() => setAutoSetupOpen(false)}
+              title={t("log_auto_setup")}
+              footer={
+                <Button
+                  tone="primary"
+                  busy={busy}
+                  disabled={!/^-?\d+$/.test(autoChatId.trim())}
+                  onClick={() =>
+                    void (async () => {
+                      try {
+                        const res = await run(() =>
+                          call<{ created: string[]; skipped: string[]; failed: string[] }>("/api/admin/channels/logs/auto-setup", {
+                            method: "POST",
+                            body: { chat_id: Number(autoChatId.trim()) },
+                          }),
+                        );
+                        toast(
+                          t("log_auto_setup_done", {
+                            created: res?.created.length ?? 0,
+                            skipped: res?.skipped.length ?? 0,
+                            failed: res?.failed.length ?? 0,
+                          }),
+                        );
+                        setAutoSetupOpen(false);
+                        setAutoChatId("");
+                        void reload();
+                      } catch (err) {
+                        toast(errorText(err), "error");
+                      }
+                    })()
+                  }
+                >
+                  {t("log_auto_setup_run")}
+                </Button>
+              }
+            >
+              <div className="flex flex-col gap-3">
+                <p className="text-[0.84rem] leading-relaxed text-[var(--hint)]">{t("log_auto_setup_hint")}</p>
+                <Field label={t("chat_id")} hint={t("chat_id_hint")}>
+                  {(id) => <Input id={id} dir="ltr" placeholder="-1001234567890" value={autoChatId} onChange={(e) => setAutoChatId(e.target.value)} />}
+                </Field>
+              </div>
+            </Sheet>
 
             <Section title={t("support_contacts")}>
               <ul className="mb-4 divide-y divide-[var(--line)]">
@@ -1585,8 +1836,27 @@ export function Audit() {
     { key: "ip", label: "IP", mobile: "hide", render: (r) => <span dir="ltr">{r.ip ?? "—"}</span> },
     { key: "at", label: t("audit_when"), mobile: "end", render: (r) => <When iso={r.created_at} time /> },
   ];
+  const csvParams = new URLSearchParams();
+  for (const key of ["action", "entity", "entity_id", "actor_id"]) {
+    const val = list.get(key);
+    if (val) csvParams.set(key, val);
+  }
+  const csvHref = `/api/admin/audit.csv${csvParams.toString() ? `?${csvParams.toString()}` : ""}`;
   return (
-    <Page title={t("nav_audit")} wide>
+    <Page
+      title={t("nav_audit")}
+      wide
+      actions={
+        <a
+          className="inline-flex min-h-9 items-center rounded-xl px-3.5 text-[0.86rem] font-semibold ring-1 ring-[var(--line)] hover:bg-[var(--surface)]"
+          href={csvHref}
+          download
+        >
+          {t("audit_export_csv")}
+        </a>
+      }
+    >
+      <CronsSection />
       <Section flush>
         <Toolbar>
           <SearchBox value={list.get("action")} onChange={(action) => list.set({ action })} placeholder={t("audit_filter_action")} />
@@ -1623,6 +1893,7 @@ export function Audit() {
 
 export function Jobs() {
   const { t, locale, toast, errorText } = useSession();
+  const confirm = useConfirm();
   const list = useList<JobRow>("/api/admin/jobs", ["status"]);
   const [busy, run] = useAction();
   const retryAll = async () => {
@@ -1634,12 +1905,39 @@ export function Jobs() {
       toast(errorText(err), "error");
     }
   };
+  const clearDead = async () => {
+    const deadTotal = (data?.counts?.dead ?? 0) + (data?.counts?.failed ?? 0);
+    const ok = await confirm({
+      title: t("jobs_clear_dead"),
+      body: t("jobs_clear_dead_body", { n: money(deadTotal, locale) }),
+      confirm: t("jobs_clear_dead"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const result = await run(() => call<{ cleared: number }>("/api/admin/jobs/clear-dead", { method: "POST", body: {} }));
+      toast(t("jobs_cleared", { n: money(result?.cleared ?? 0, locale) }));
+      void list.reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
   const data = list.data as (typeof list.data & { counts?: Record<string, number> }) | null;
 
   const retry = async (job: JobRow) => {
     try {
       await run(() => call(`/api/admin/jobs/${job.id}/retry`, { method: "POST" }));
       toast(t("job_requeued"));
+      void list.reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  const cancel = async (job: JobRow) => {
+    try {
+      await run(() => call(`/api/admin/jobs/${job.id}/cancel`, { method: "POST" }));
+      toast(t("job_canceled"));
       void list.reload();
     } catch (err) {
       toast(errorText(err), "error");
@@ -1661,18 +1959,31 @@ export function Jobs() {
           <Button small busy={busy} onClick={() => void retry(j)}>
             {t("retry")}
           </Button>
+        ) : j.status === "queued" ? (
+          <Button small tone="danger" busy={busy} onClick={() => void cancel(j)}>
+            {t("cancel")}
+          </Button>
         ) : null,
     },
   ];
+  const deadCount = data?.counts?.dead ?? 0;
+  const failedCount = data?.counts?.failed ?? 0;
   return (
     <Page
       title={t("nav_jobs")}
       wide
       actions={
-        (data?.counts?.dead ?? 0) > 0 ? (
-          <Button busy={busy} onClick={() => void retryAll()}>
-            {t("retry_all_dead", { n: money(data?.counts?.dead ?? 0, locale) })}
-          </Button>
+        deadCount > 0 || failedCount > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {deadCount > 0 && (
+              <Button busy={busy} onClick={() => void retryAll()}>
+                {t("retry_all_dead", { n: money(deadCount, locale) })}
+              </Button>
+            )}
+            <Button tone="danger" busy={busy} onClick={() => void clearDead()}>
+              {t("jobs_clear_dead")}
+            </Button>
+          </div>
         ) : null
       }
     >
@@ -1754,9 +2065,38 @@ export function Reports() {
         {(report) => (
           <>
             <Section>
-              <p className="mb-4 text-[0.95rem]">
-                {t("report_totals", { orders: money(report.totals.orders, locale) })} <Money amount={report.totals.amount} className="font-extrabold" />
-              </p>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2 text-[0.95rem]">
+                  <span>
+                    {t("report_totals", { orders: money(report.totals.orders, locale) })}{" "}
+                    <Money amount={report.totals.amount} className="font-extrabold" />
+                  </span>
+                  {report.previous && report.previous.change_percent !== null && (
+                    <Badge tone={report.previous.change_percent >= 0 ? "health" : "loss"}>
+                      {report.previous.change_percent >= 0 ? "+" : ""}
+                      {money(report.previous.change_percent, locale)}% {t("report_vs_previous")}
+                    </Badge>
+                  )}
+                </div>
+                {report.breakdown && (
+                  <div className="flex flex-wrap items-center gap-3 text-[0.82rem] text-[var(--hint)]">
+                    <span>
+                      {t("report_split_services")}:{" "}
+                      <b className="text-[var(--ink)]">
+                        <Money amount={report.breakdown.services.amount} />
+                      </b>{" "}
+                      ({money(report.breakdown.services.orders, locale)})
+                    </span>
+                    <span>
+                      {t("report_split_accounts")}:{" "}
+                      <b className="text-[var(--ink)]">
+                        <Money amount={report.breakdown.accounts.amount} />
+                      </b>{" "}
+                      ({money(report.breakdown.accounts.orders, locale)})
+                    </span>
+                  </div>
+                )}
+              </div>
               <Columns
                 title={t("report_daily")}
                 data={report.days.map((d) => ({
@@ -1897,6 +2237,7 @@ const EXPORTS: [string, string][] = [
   ["orders", "orders.read"],
   ["payments", "payments.read"],
   ["services", "services.read"],
+  ["accounts", "resellers.manage"],
   ["customers", "customers.read"],
 ];
 
@@ -2063,8 +2404,85 @@ export function Account() {
         </div>
       </Section>
       <Section><PasswordRecovery initialUsername={me?.username ?? ""} /></Section>
+      <ActiveSessions />
       <ApiKeys />
     </Page>
+  );
+}
+
+interface ActiveSessionRow {
+  id: string;
+  ip: string | null;
+  created_at: string;
+  current: boolean;
+}
+
+function ActiveSessions() {
+  const { t, locale, toast, errorText } = useSession();
+  const confirm = useConfirm();
+  const { data, error, reload } = useLoad<{ items: ActiveSessionRow[] }>("/api/auth/sessions");
+  const [busy, run] = useAction();
+  const otherCount = (data?.items ?? []).filter((s) => !s.current).length;
+
+  const revokeOthers = async () => {
+    const ok = await confirm({
+      title: t("sessions_revoke_others"),
+      body: t("sessions_revoke_others_body", { n: money(otherCount, locale) }),
+      confirm: t("sessions_revoke_others"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const result = await run(() => call<{ revoked: number }>("/api/auth/sessions/others", { method: "DELETE" }));
+      toast(t("sessions_revoked_toast", { n: money(result?.revoked ?? 0, locale) }));
+      void reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  return (
+    <Section
+      title={t("active_sessions")}
+      actions={
+        otherCount > 0 ? (
+          <Button small tone="danger" busy={busy} onClick={() => void revokeOthers()}>
+            {t("sessions_revoke_others")}
+          </Button>
+        ) : null
+      }
+    >
+      <Async data={data} error={error} reload={reload}>
+        {(value) =>
+          value.items.length === 0 ? (
+            <Empty title={t("sessions_empty")} />
+          ) : (
+            <ul className="divide-y divide-[var(--line)]">
+              {value.items.map((item) => (
+                <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                  <div className="flex flex-col">
+                    <span className="flex items-center gap-2 text-[0.88rem] font-semibold">
+                      <span dir="ltr">{item.ip ?? "—"}</span>
+                      {item.current && (
+                        <span className="rounded-md bg-pista-100 px-2 py-0.5 text-[0.72rem] font-semibold text-pista-700">
+                          {t("session_current")}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-[0.78rem] text-[var(--hint)]">
+                      <When iso={item.created_at} time />
+                    </span>
+                  </div>
+                  <code className="text-[0.75rem] text-[var(--hint)]" dir="ltr">
+                    {item.id}
+                  </code>
+                </li>
+              ))}
+            </ul>
+          )
+        }
+      </Async>
+    </Section>
   );
 }
 
@@ -2286,6 +2704,7 @@ function BackupScheduleSection({ saved, timezone, onSaved }: { saved: BackupSche
 
 export function Backups() {
   const { t, toast, errorText } = useSession();
+  const confirm = useConfirm();
   const { data, error, reload } = useLoad<BackupData>("/api/admin/backups");
   const [busy, run] = useAction();
   const start = async () => {
@@ -2293,6 +2712,22 @@ export function Backups() {
       await run(() => call("/api/admin/backups", { method: "POST" }));
       toast(t("backup_started"));
       window.setTimeout(() => void reload(), 8000);
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  const remove = async (name: string) => {
+    const ok = await confirm({
+      title: t("backup_delete_title"),
+      body: t("backup_delete_body", { name }),
+      confirm: t("delete"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await run(() => call(`/api/admin/backups/${encodeURIComponent(name)}`, { method: "DELETE" }));
+      toast(t("backup_deleted"));
+      void reload();
     } catch (err) {
       toast(errorText(err), "error");
     }
@@ -2343,6 +2778,9 @@ export function Backups() {
                         >
                           {t("download")}
                         </a>
+                        <Button small tone="danger" busy={busy} onClick={() => void remove(item.name)}>
+                          {t("delete")}
+                        </Button>
                       </span>
                     </li>
                   ))}

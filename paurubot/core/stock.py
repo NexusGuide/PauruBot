@@ -96,7 +96,9 @@ async def add(session: AsyncSession, plan: Plan, text: str, note: str | None = N
 
 
 async def counts(session: AsyncSession, plan_ids: list[int]) -> dict[int, dict[str, int]]:
-    out: dict[int, dict[str, int]] = {pid: {AVAILABLE: 0, SOLD: 0, DISABLED: 0} for pid in plan_ids}
+    out: dict[int, dict[str, int]] = {
+        pid: {AVAILABLE: 0, RESERVED: 0, SOLD: 0, DISABLED: 0} for pid in plan_ids
+    }
     if not plan_ids:
         return out
     rows = await session.execute(
@@ -105,7 +107,7 @@ async def counts(session: AsyncSession, plan_ids: list[int]) -> dict[int, dict[s
         .group_by(StockItem.plan_id, StockItem.status)
     )
     for plan_id, status, n in rows.all():
-        out.setdefault(plan_id, {AVAILABLE: 0, SOLD: 0, DISABLED: 0})[status] = int(n)
+        out.setdefault(plan_id, {AVAILABLE: 0, RESERVED: 0, SOLD: 0, DISABLED: 0})[status] = int(n)
     return out
 
 

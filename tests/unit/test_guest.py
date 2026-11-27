@@ -160,11 +160,10 @@ async def test_web_purchase_end_to_end_and_claim(session, store) -> None:  # typ
     assert service is not None and service.panel_username.startswith("g")
 
     real = await factories.customer(session, shop, telegram_id=88001)
-    spent = customer.total_spent
     assert await guest.claim(session, token, real) == 1
     await session.commit()
     await session.refresh(customer)
-    assert customer.total_spent == 0 and real.total_spent == spent  # counted once
+    assert customer.total_spent == 0 and real.total_spent == 75_000  # counted once
     await session.refresh(service)
     assert service.customer_id == real.id
     order = await session.scalar(select(Order).where(Order.service_id == service.id))

@@ -86,8 +86,11 @@ SETTINGS: dict[str, list[str]] = {
     ],
     "growth": [
         "trial_enabled",
+        "trial_choose_panel",
         "trial_days",
+        "trial_hours",
         "trial_gb",
+        "trial_mb",
         "referral_enabled",
         "referral_percent",
         "referral_daily_max",
@@ -124,11 +127,13 @@ BOUNDS: dict[str, tuple[int, int]] = {
     "usage_sync_minutes": (1, 24 * 60),
     "delete_warn_days": (0, 30),
     "trial_days": (1, 365),
+    "trial_hours": (0, 720),
     "trial_gb": (1, 10_000),
+    "trial_mb": (0, 102_400),
     "card_auto_min_history": (0, 1_000),
     "resale_trial_fee": (0, 10_000_000),
 }
-AUDIENCES = ("all", "buyers", "active", "inactive", "never_bought", "resellers")
+AUDIENCES = ("all", "buyers", "active", "inactive", "never_bought", "resellers", "account_buyers")
 PIN_CYCLE = (None, 0, 24, 48)  # off, until unpinned, 24 h, 48 h
 GIVE_GUARD_SECONDS = 30  # the same free service again within this window is a double tap
 

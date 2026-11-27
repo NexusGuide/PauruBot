@@ -1,7 +1,15 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { money } from "@shared/format";
-import { call, type AccountPlan, type CatalogData, type Customer, type CustomerDetail } from "../api";
+import {
+  call,
+  type AccountPlan,
+  type CatalogData,
+  type Customer,
+  type CustomerDetail,
+  type CustomerOrderRow,
+  type PanelAccountRow,
+} from "../api";
 import { PAGE_SIZE, useAction, useList, useLoad, useSelection } from "../hooks";
 import { useSession } from "../session";
 import {
@@ -10,7 +18,9 @@ import {
   Badge,
   BulkBar,
   Button,
+  Bytes,
   Chips,
+  Empty,
   Field,
   Facts,
   Icon,
@@ -29,10 +39,13 @@ import {
   Textarea,
   Toggle,
   When,
+  useConfirm,
   type Column,
 } from "../ui";
+import { ManageAccountSheet } from "./AdminAccounts";
+import { formatOrderSpecs } from "./Commerce";
 import { OwnBotSection } from "./OwnBot";
-import { GiftAllButton } from "./Tools";
+import { GiftAllButton, ServiceGiftButton } from "./Tools";
 import { BulkMessageButton, DeleteCustomerButton, NewCustomerButton } from "./ClockTools";
 import { CustomerPhoto, QuickRenewButton, TestCustomerToggle } from "./ClockTools2";
 import { HiddenPanels } from "./People";
@@ -74,14 +87,26 @@ type Segment = "all" | "active" | "ending" | "buyers" | "none" | "banned";
 function ServicesCell({ c }: { c: Customer }) {
   const { t, locale } = useSession();
   const n = c.active_services ?? 0;
-  if (n === 0) return <span className="text-[0.82rem] font-semibold text-[var(--hint)]">{t("cust_no_service")}</span>;
+  const acc = c.active_accounts ?? 0;
+  if (n === 0 && acc === 0) {
+    return <span className="text-[0.82rem] font-semibold text-[var(--hint)]">{t("cust_no_service")}</span>;
+  }
   const left = c.next_expiry ? daysLeft(c.next_expiry) : null;
   const soon = left !== null && left <= 3;
   return (
     <span className="flex flex-col items-end gap-0.5 md:items-start">
-      <span className={`text-[0.84rem] font-bold ${soon ? "text-saffron-700" : "text-pista-700"}`}>
-        {soon ? t("cust_days_left", { n: money(left, locale) }) : t("cust_services_n", { n: money(n, locale) })}
-      </span>
+      {n > 0 ? (
+        <span className={`text-[0.84rem] font-bold ${soon ? "text-saffron-700" : "text-pista-700"}`}>
+          {soon ? t("cust_days_left", { n: money(left, locale) }) : t("cust_services_n", { n: money(n, locale) })}
+        </span>
+      ) : (
+        <span className={`text-[0.84rem] font-bold ${soon ? "text-saffron-700" : "text-firouzeh-700"}`}>
+          {t("cust_accounts_n", { n: money(acc, locale) })}
+        </span>
+      )}
+      {n > 0 && acc > 0 && (
+        <span className="text-[0.74rem] text-firouzeh-700">{t("cust_accounts_n", { n: money(acc, locale) })}</span>
+      )}
       {soon && n > 1 && <span className="text-[0.74rem] text-[var(--hint)]">{t("cust_services_n", { n: money(n, locale) })}</span>}
     </span>
   );
@@ -189,6 +214,7 @@ export function Customers() {
         <>
           <NewCustomerButton />
           <GiftAllButton />
+          <ServiceGiftButton />
         </>
       }
     >
@@ -471,6 +497,248 @@ function ActionTile({ icon, label, onClick }: { icon: string; label: string; onC
   );
 }
 
+const ACCOUNT_ORDER_KINDS = new Set([
+  "account_purchase",
+  "account_renew",
+  "account_gb",
+  "account_days",
+  "account_users",
+]);
+
+function OrderRowItem({ o }: { o: CustomerOrderRow }) {
+  const { t, locale } = useSession();
+  const specs = formatOrderSpecs(o.details, t);
+  const target = o.account_username || o.service_username;
+  return (
+    <li className="flex items-start justify-between gap-3 px-4 py-3 text-[0.88rem] md:px-5">
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex flex-wrap items-center gap-1.5">
+          <Link className="font-semibold text-[var(--text)] hover:text-firouzeh-700" to={`/orders?id=${o.id}`}>
+            {t(`order_kind_${o.kind}`)}
+          </Link>
+          {o.plan && <Badge>{o.plan}</Badge>}
+          {target && (
+            <span className="num rounded-md bg-[var(--bg)] px-1.5 py-0.5 text-[0.75rem] font-semibold text-[var(--text)]" dir="ltr">
+              {target}
+            </span>
+          )}
+        </span>
+        <span className="flex flex-wrap items-center gap-x-1.5 text-[0.78rem] text-[var(--hint)]">
+          <span>#{money(o.id, locale)}</span>
+          {o.panel && <span>· {o.panel}</span>}
+          {specs && <span className="font-semibold text-[var(--text)]">· {specs}</span>}
+          <span>
+            · <When iso={o.created_at} time />
+          </span>
+        </span>
+        {o.error && (
+          <span className="mt-1 truncate text-[0.76rem] text-anar-700" dir="auto">
+            {o.error}
+          </span>
+        )}
+      </span>
+      <span className="flex shrink-0 flex-col items-end gap-1">
+        <span className="font-bold">
+          <Money amount={o.amount} />
+        </span>
+        <Status value={o.status} />
+      </span>
+    </li>
+  );
+}
+
+function AccountManageModal({
+  row,
+  onClose,
+  onChanged,
+}: {
+  row: PanelAccountRow;
+  onClose: () => void;
+  onChanged: (row: PanelAccountRow) => void;
+}) {
+  const plans = useLoad<{ items: AccountPlan[] }>("/api/admin/account-plans");
+  return <ManageAccountSheet row={row} plans={plans.data?.items ?? []} onClose={onClose} onChanged={onChanged} />;
+}
+
+function CustomerPanelAccounts({
+  customerId,
+  accounts,
+  accountOrders,
+  accountOrdersTotal,
+  canManage,
+  onGive,
+  onReload,
+}: {
+  customerId: number;
+  accounts: PanelAccountRow[];
+  accountOrders: CustomerOrderRow[];
+  accountOrdersTotal: number;
+  canManage: boolean;
+  onGive: () => void;
+  onReload: () => Promise<void>;
+}) {
+  const { t, can, toast, errorText, locale } = useSession();
+  const confirm = useConfirm();
+  const [busy, run] = useAction();
+  const [managing, setManaging] = useState<PanelAccountRow | null>(null);
+
+  const act = async (row: PanelAccountRow, action: "pause" | "resume" | "refresh" | "delete") => {
+    if (action === "delete") {
+      const ok = await confirm({
+        title: t("account_delete_title"),
+        body: t("account_delete_body", { username: row.username }),
+        confirm: t("delete"),
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    try {
+      await run(() => call(`/api/admin/panel-accounts/${row.id}/${action}`, { method: "POST" }));
+      await onReload();
+      toast(t("saved"));
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Section
+        title={t("nav_admin_accounts")}
+        flush
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {canManage && (
+              <Button small tone="primary" icon="plus" onClick={onGive}>
+                {t("give_account")}
+              </Button>
+            )}
+            {canManage && accounts.length > 0 && (
+              <Link className="text-[0.82rem] font-semibold text-firouzeh-700" to={`/admin-accounts?customer_id=${customerId}`}>
+                {t("cust_view_all")}
+              </Link>
+            )}
+          </div>
+        }
+      >
+        {accounts.length === 0 ? (
+          <Empty title={t("cust_accounts_empty")} />
+        ) : (
+          <ul className="divide-y divide-[var(--line)]">
+            {accounts.map((row) => {
+              const pct = row.data_limit > 0 ? Math.min(100, Math.round((row.used_bytes * 100) / row.data_limit)) : 0;
+              return (
+                <li key={row.id} className="flex flex-col gap-2.5 px-4 py-3.5 md:px-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="num text-[0.95rem] font-extrabold" dir="ltr">
+                        {row.username}
+                      </span>
+                      {row.auto_renew && <Badge tone="brand">{t("cust_account_auto_renew")}</Badge>}
+                    </span>
+                    <Status value={row.status} />
+                  </div>
+                  <p className="text-[0.84rem] text-[var(--text)]">
+                    {row.plan ?? "—"} · {row.panel ?? "—"}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.78rem] text-[var(--hint)]">
+                    <span>
+                      <Bytes value={row.used_bytes} /> / {row.data_limit ? <Bytes value={row.data_limit} /> : "∞"}
+                    </span>
+                    <span>
+                      · {t("cust_account_users", { used: money(row.users_count, locale), max: row.max_users != null ? money(row.max_users, locale) : "∞" })}
+                    </span>
+                    <span>
+                      · {t("cust_account_expires")}: {row.expire_at ? <When iso={row.expire_at} /> : "∞"}
+                    </span>
+                    <span>
+                      · <When iso={row.created_at} />
+                    </span>
+                  </div>
+                  {row.data_limit > 0 && (
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--bg)]">
+                      <div
+                        className={`h-full rounded-full ${pct >= 90 ? "bg-anar-500" : pct >= 70 ? "bg-saffron-500" : "bg-firouzeh-500"}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  )}
+                  {row.note && (
+                    <p className="rounded-lg bg-[var(--bg)] px-2.5 py-1.5 text-[0.8rem] text-[var(--text)]">{row.note}</p>
+                  )}
+                  {canManage && (
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                      {row.status !== "deleted" && (
+                        <>
+                          <Button small tone="primary" onClick={() => setManaging(row)}>
+                            {t("account_manage")}
+                          </Button>
+                          <Button small busy={busy} onClick={() => void act(row, "refresh")}>
+                            {t("refresh")}
+                          </Button>
+                          {row.status === "active" && (
+                            <Button small busy={busy} onClick={() => void act(row, "pause")}>
+                              {t("account_pause")}
+                            </Button>
+                          )}
+                          {row.status === "paused" && (
+                            <Button small busy={busy} onClick={() => void act(row, "resume")}>
+                              {t("account_resume")}
+                            </Button>
+                          )}
+                          <Button small tone="ghost" busy={busy} onClick={() => void act(row, "delete")}>
+                            {t("delete")}
+                          </Button>
+                        </>
+                      )}
+                      <Link
+                        className="ms-auto text-[0.8rem] font-semibold text-firouzeh-700"
+                        to={`/admin-accounts?q=${encodeURIComponent(row.username)}`}
+                      >
+                        {t("open_admin_account")}
+                      </Link>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Section>
+
+      <Section
+        title={t("cust_account_orders")}
+        flush
+        actions={
+          can("orders.read") && accountOrdersTotal > 0 ? (
+            <Link className="text-[0.82rem] font-semibold text-firouzeh-700" to={`/orders?customer_id=${customerId}&group=accounts`}>
+              {t("cust_view_all")} ({money(accountOrdersTotal, locale)})
+            </Link>
+          ) : undefined
+        }
+      >
+        <ul className="divide-y divide-[var(--line)]">
+          {accountOrders.length === 0 && <li className="px-4 py-6 text-center text-[var(--hint)]">{t("cust_account_orders_empty")}</li>}
+          {accountOrders.map((o) => (
+            <OrderRowItem key={o.id} o={o} />
+          ))}
+        </ul>
+      </Section>
+
+      {managing && (
+        <AccountManageModal
+          row={managing}
+          onClose={() => setManaging(null)}
+          onChanged={(updated) => {
+            setManaging(updated);
+            void onReload();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 export function CustomerPage() {
   const { id } = useParams();
   const { t, can, me, locale, toast, errorText } = useSession();
@@ -485,7 +753,8 @@ export function CustomerPage() {
   const [giving, setGiving] = useState(false);
   const [givingAccount, setGivingAccount] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [tab, setTab] = useState<"services" | "orders" | "wallet" | "profile">("services");
+  const [tab, setTab] = useState<"services" | "accounts" | "orders" | "payments" | "wallet" | "profile">("services");
+  const [orderFilter, setOrderFilter] = useState<"all" | "services" | "accounts">("all");
   const [busy, run] = useAction();
 
   const ban = async (banned: boolean) => {
@@ -558,6 +827,54 @@ export function CustomerPage() {
     <Async data={data} error={error} reload={reload}>
       {(detail) => {
         const c = detail.customer;
+        const panelAccounts = detail.panel_accounts ?? [];
+        const activeServices = detail.services.filter((svc) => svc.status === "active").length;
+        const activeAccounts = panelAccounts.filter((acc) => acc.status === "active").length;
+        const accountOrders = detail.account_orders ?? detail.orders.filter((o) => ACCOUNT_ORDER_KINDS.has(o.kind));
+        const visibleOrders =
+          orderFilter === "accounts"
+            ? accountOrders
+            : orderFilter === "services"
+              ? detail.orders.filter((o) => !ACCOUNT_ORDER_KINDS.has(o.kind))
+              : detail.orders;
+        const ordersTotal = detail.orders_total ?? detail.orders.length;
+        const accountOrdersTotal = detail.account_orders_total ?? accountOrders.length;
+        const paymentsTotal = detail.payments_total ?? detail.payments.length;
+        const tickets = detail.tickets ?? [];
+        const canManageAccounts = can("resellers.manage") && me?.role !== "reseller";
+        const tabLabel = (label: string, count?: number) =>
+          count && count > 0 ? (
+            <>
+              <span>{label}</span>
+              <span className="num rounded-full bg-[var(--bg)] px-1.5 py-0.5 text-[0.72rem] text-[var(--hint)]">
+                {money(count, locale)}
+              </span>
+            </>
+          ) : (
+            label
+          );
+        const resellerFacts: [string, ReactNode][] = detail.reseller
+          ? [
+              [
+                t("reseller"),
+                detail.reseller.suspended_at
+                  ? t("cust_reseller_suspended")
+                  : detail.reseller.active
+                    ? t("reseller_active")
+                    : t("reseller_inactive"),
+              ],
+              ...(detail.reseller.group_title ? ([[t("reseller_group"), detail.reseller.group_title]] as [string, ReactNode][]) : []),
+              ...(detail.reseller.discount_percent
+                ? ([[t("discount_reseller"), `${money(detail.reseller.discount_percent, locale)}%`]] as [string, ReactNode][])
+                : []),
+              ...(detail.reseller.billing_mode
+                ? ([[t("billing_mode"), t(`billing_mode_${detail.reseller.billing_mode}`)]] as [string, ReactNode][])
+                : []),
+              ...(detail.reseller.billing_debt
+                ? ([[t("reseller_debt"), <Money key="rd" amount={detail.reseller.billing_debt} />]] as [string, ReactNode][])
+                : []),
+            ]
+          : [[t("reseller"), t("no")]];
         return (
           <Page title={t("customer_title")}>
             <section className="flex items-center gap-4">
@@ -574,7 +891,14 @@ export function CustomerPage() {
                   {c.is_banned && <Badge tone="loss">{t("banned")}</Badge>}
                   {c.is_test && <Badge tone="wait">{t("cust_test")}</Badge>}
                   {c.phone && <Badge tone="health">{t("cust_phone_ok")}</Badge>}
-                  {detail.reseller && <Badge tone="brand">{t("reseller")}</Badge>}
+                  {detail.reseller && (
+                    <Badge tone="brand">
+                      {detail.reseller.group_title ? `${t("reseller")} · ${detail.reseller.group_title}` : t("reseller")}
+                    </Badge>
+                  )}
+                  {panelAccounts.length > 0 && (
+                    <Badge tone="health">{t("cust_accounts_n", { n: money(panelAccounts.length, locale) })}</Badge>
+                  )}
                   <Badge>
                     {t("cust_member_since")}&nbsp;<When iso={c.created_at} />
                   </Badge>
@@ -582,7 +906,7 @@ export function CustomerPage() {
               </div>
             </section>
 
-            <section className="grid grid-cols-3 rounded-[18px] bg-[var(--surface)] ring-1 ring-[var(--line)] [&>div+div]:border-s [&>div+div]:border-[var(--line)]">
+            <section className="grid grid-cols-2 rounded-[18px] bg-[var(--surface)] ring-1 ring-[var(--line)] sm:grid-cols-4 [&>div]:border-[var(--line)] [&>div:nth-child(even)]:border-s [&>div:nth-child(n+3)]:border-t sm:[&>div+div]:border-s sm:[&>div:nth-child(n+3)]:border-t-0">
               <div className="flex flex-col items-center gap-0.5 px-2 py-3">
                 <span className="text-[1rem] font-extrabold">
                   <Money amount={detail.balance} />
@@ -591,9 +915,22 @@ export function CustomerPage() {
               </div>
               <div className="flex flex-col items-center gap-0.5 px-2 py-3">
                 <span className="num text-[1rem] font-extrabold">
-                  {money(detail.services.filter((svc) => svc.status === "active").length, locale)}
+                  {money(activeServices, locale)}
+                  {activeAccounts > 0 && (
+                    <span className="ms-1 text-[0.78rem] font-semibold text-firouzeh-700">
+                      +{money(activeAccounts, locale)}
+                    </span>
+                  )}
                 </span>
-                <span className="text-[0.75rem] text-[var(--hint)]">{t("dash_active_services")}</span>
+                <span className="text-[0.75rem] text-[var(--hint)]">
+                  {activeAccounts > 0 ? t("cust_active_services_and_accounts") : t("dash_active_services")}
+                </span>
+              </div>
+              <div className="flex flex-col items-center gap-0.5 px-2 py-3">
+                <span className="text-[1rem] font-extrabold">
+                  <Money amount={detail.total_spent ?? 0} />
+                </span>
+                <span className="text-[0.75rem] text-[var(--hint)]">{t("cust_total_spent")}</span>
               </div>
               <div className="flex flex-col items-center gap-0.5 px-2 py-3">
                 <span className="num text-[1rem] font-extrabold">{money(detail.referrals, locale)}</span>
@@ -615,8 +952,10 @@ export function CustomerPage() {
               value={tab}
               onChange={setTab}
               options={[
-                { value: "services", label: t("nav_services") },
-                { value: "orders", label: t("nav_orders") },
+                { value: "services", label: tabLabel(t("nav_services"), detail.services.length) },
+                { value: "accounts", label: tabLabel(t("nav_admin_accounts"), panelAccounts.length) },
+                { value: "orders", label: tabLabel(t("nav_orders"), ordersTotal) },
+                { value: "payments", label: tabLabel(t("nav_payments"), paymentsTotal) },
                 { value: "wallet", label: t("cust_wallet") },
                 { value: "profile", label: t("cust_profile") },
               ]}
@@ -624,25 +963,82 @@ export function CustomerPage() {
 
             {tab === "services" && <ServiceCards rows={detail.services} />}
 
+            {tab === "accounts" && (
+              <CustomerPanelAccounts
+                customerId={c.id}
+                accounts={panelAccounts}
+                accountOrders={accountOrders}
+                accountOrdersTotal={accountOrdersTotal}
+                canManage={canManageAccounts}
+                onGive={() => setGivingAccount(true)}
+                onReload={reload}
+              />
+            )}
+
             {tab === "orders" && (
-              <Section flush>
+              <Section
+                flush
+                actions={
+                  can("orders.read") && ordersTotal > 0 ? (
+                    <Link className="text-[0.82rem] font-semibold text-firouzeh-700" to={`/orders?customer_id=${c.id}`}>
+                      {t("cust_view_all")} ({money(ordersTotal, locale)})
+                    </Link>
+                  ) : undefined
+                }
+              >
+                <div className="border-b border-[var(--line)] px-4 py-3 md:px-5">
+                  <Chips
+                    label={t("orders_group_filter")}
+                    value={orderFilter}
+                    onChange={(v) => setOrderFilter(v as "all" | "services" | "accounts")}
+                    options={[
+                      { value: "all", label: t("seg_all") },
+                      { value: "services", label: t("orders_group_services") },
+                      { value: "accounts", label: `${t("orders_group_accounts")}${accountOrdersTotal ? ` (${money(accountOrdersTotal, locale)})` : ""}` },
+                    ]}
+                  />
+                </div>
                 <ul className="divide-y divide-[var(--line)]">
-                  {detail.orders.length === 0 && <li className="px-4 py-6 text-center text-[var(--hint)]">{t("empty_list")}</li>}
-                  {detail.orders.map((o) => (
-                    <li key={o.id} className="flex items-center justify-between gap-3 px-4 py-3 text-[0.88rem] md:px-5">
-                      <span className="flex flex-col gap-0.5">
-                        <Link className="font-semibold text-[var(--text)] hover:text-firouzeh-700" to={`/orders?id=${o.id}`}>
-                          {t(`order_kind_${o.kind}`)}
-                        </Link>
+                  {visibleOrders.length === 0 && <li className="px-4 py-6 text-center text-[var(--hint)]">{t("empty_list")}</li>}
+                  {visibleOrders.map((o) => (
+                    <OrderRowItem key={o.id} o={o} />
+                  ))}
+                </ul>
+              </Section>
+            )}
+
+            {tab === "payments" && (
+              <Section
+                flush
+                actions={
+                  can("payments.read") && paymentsTotal > 0 ? (
+                    <Link className="text-[0.82rem] font-semibold text-firouzeh-700" to={`/payments?customer_id=${c.id}`}>
+                      {t("cust_view_all")} ({money(paymentsTotal, locale)})
+                    </Link>
+                  ) : undefined
+                }
+              >
+                <ul className="divide-y divide-[var(--line)]">
+                  {detail.payments.length === 0 && <li className="px-4 py-6 text-center text-[var(--hint)]">{t("empty_list")}</li>}
+                  {detail.payments.map((p) => (
+                    <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-3 text-[0.88rem] md:px-5">
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="flex flex-wrap items-center gap-1.5">
+                          <Link className="font-semibold text-[var(--text)] hover:text-firouzeh-700" to={`/payments?id=${p.id}`}>
+                            {t(`provider_${p.provider}`)}
+                          </Link>
+                          {p.purpose && <Badge>{t(`purpose_${p.purpose}`)}</Badge>}
+                        </span>
                         <span className="text-[0.78rem] text-[var(--hint)]">
-                          #{money(o.id, locale)} · <When iso={o.created_at} time />
+                          #{money(p.id, locale)}
+                          {p.order_id ? ` · ${t("col_order")} #${money(p.order_id, locale)}` : ""} · <When iso={p.created_at} time />
                         </span>
                       </span>
-                      <span className="flex flex-col items-end gap-1">
+                      <span className="flex shrink-0 flex-col items-end gap-1">
                         <span className="font-bold">
-                          <Money amount={o.amount} />
+                          <Money amount={p.amount} />
                         </span>
-                        <Status value={o.status} />
+                        <Status value={p.status} />
                       </span>
                     </li>
                   ))}
@@ -682,6 +1078,8 @@ export function CustomerPage() {
               <Facts
                 items={[
                   [t("wallet_balance"), <Money key="b" amount={detail.balance} />],
+                  [t("cust_total_spent"), <Money key="ts" amount={detail.total_spent ?? 0} />],
+                  [t("nav_admin_accounts"), money(panelAccounts.length, locale)],
                   [t("col_telegram_id"), <span key="tg" className="num" dir="ltr">{c.telegram_id}</span>],
                   [t("col_phone"), c.phone ? <span dir="ltr">{c.phone}</span> : null],
                   [t("col_joined"), <When key="j" iso={c.created_at} time />],
@@ -689,13 +1087,40 @@ export function CustomerPage() {
                   [t("referrals"), money(detail.referrals, locale)],
                   [t("language"), c.locale],
                   [
-                    t("reseller"),
-                    detail.reseller ? (detail.reseller.active ? t("reseller_active") : t("reseller_inactive")) : t("no"),
+                    t("cust_trial_status"),
+                    detail.trial ? (
+                      <span key="tr" className="inline-flex flex-wrap items-center gap-1.5">
+                        <span>{detail.trial.panel ?? "—"}</span>
+                        <When iso={detail.trial.created_at} />
+                      </span>
+                    ) : (
+                      t("cust_trial_none")
+                    ),
                   ],
+                  ...resellerFacts,
                   ...(c.is_banned ? ([[t("ban_reason"), c.ban_reason || "—"]] as [string, string][]) : []),
                 ]}
               />
             </Section>
+            {tickets.length > 0 && can("tickets.read") && (
+              <Section title={t("cust_recent_tickets")} flush>
+                <ul className="divide-y divide-[var(--line)]">
+                  {tickets.map((tk) => (
+                    <li key={tk.id} className="flex items-center justify-between gap-3 px-4 py-3 text-[0.88rem] md:px-5">
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <Link className="truncate font-semibold text-[var(--text)] hover:text-firouzeh-700" to={`/tickets/${tk.id}`}>
+                          {tk.subject}
+                        </Link>
+                        <span className="text-[0.78rem] text-[var(--hint)]">
+                          #{money(tk.id, locale)} · <When iso={tk.updated_at} time />
+                        </span>
+                      </span>
+                      <Status value={tk.status} />
+                    </li>
+                  ))}
+                </ul>
+              </Section>
+            )}
               {can("customers.write") && (
               <Section title={t("cust_markers")}>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -816,7 +1241,11 @@ export function CustomerPage() {
               <GiveAccountSheet
                 customerId={c.id}
                 onClose={() => setGivingAccount(false)}
-                onDone={() => setGivingAccount(false)}
+                onDone={() => {
+                  setGivingAccount(false);
+                  setTab("accounts");
+                  window.setTimeout(() => void reload(), 1500);
+                }}
               />
             )}
             {giving && (

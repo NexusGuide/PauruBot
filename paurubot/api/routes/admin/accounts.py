@@ -223,6 +223,7 @@ def _account_row(account: PanelAccount, customer: Customer | None) -> dict[str, 
     out["telegram_id"] = customer.telegram_id if customer else None
     out["plan"] = account.plan.title if account.plan else None
     out["panel"] = account.panel.name if account.panel else None
+    out["auto_renew"] = bool(account.auto_renew)
     return out
 
 

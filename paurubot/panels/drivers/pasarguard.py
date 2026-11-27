@@ -37,6 +37,13 @@ class PasarGuardDriver(TokenApiDriver):
     """PasarGuard: users belong to groups; expiry is ISO-8601 (PNL-01)."""
 
     kind = "pasarguard"
+    sub_formats = {
+        "v2ray": "v2ray",
+        "clash": "clash",
+        "clash-meta": "clash-meta",
+        "sing-box": "sing-box",
+        "xray-json": "v2ray-json",
+    }
 
     def expire_value(self, expire_at: datetime | None) -> Any:
         if not expire_at:
@@ -154,12 +161,18 @@ class PasarGuardDriver(TokenApiDriver):
                 json={"username": spec.username, "user_template_id": int(template_id), "note": spec.note},
             )
             user = self.parse_user(data)
-            if spec.data_limit or spec.expire_at:
-                user = await self.update_user(
-                    PanelRef(user.username or spec.username, user.data),
-                    expire_at=spec.expire_at,
-                    data_limit=spec.data_limit,
-                )
+            overrides: dict[str, Any] = {}
+            if spec.data_limit:
+                overrides["data_limit"] = int(spec.data_limit)
+            if spec.on_hold_days:
+                overrides.update(self.lifecycle_fields(spec))
+            elif spec.expire_at is not None:
+                overrides["expire"] = self.expire_value(spec.expire_at)
+            if spec.ip_limit:
+                overrides["hwid_limit"] = int(spec.ip_limit)
+            if overrides:
+                ref = PanelRef(user.username or spec.username, user.data)
+                user = self.parse_user(await self._user_call("PUT", ref, json=overrides))
             return user
         group_ids = [int(g) for g in opts.get("group_ids") or []] or await self.default_groups()
         payload: dict[str, Any] = {

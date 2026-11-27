@@ -163,7 +163,7 @@ def build(t: Texts, service: Service, link: str | None, *, qr: bool = True, foot
         gauge_value=gauge_value,
         gauge_caption=gauge_caption,
         rows=tuple(rows),
-        link=link if qr else None,
+        link=link if (qr and not (panel and panel.national_mode)) else None,
         qr_caption=t("infocard_scan"),
         footer=_clean(footer),
     )

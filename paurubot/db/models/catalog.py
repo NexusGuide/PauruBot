@@ -240,6 +240,7 @@ class DiscountCode(Base, TimestampMixin):
     used_count: Mapped[int] = mapped_column(Integer, default=0)
     per_customer_limit: Mapped[int] = mapped_column(Integer, default=1)
     plan_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+    account_plan_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
     first_purchase_only: Mapped[bool] = mapped_column(Boolean, default=False)
     sticky: Mapped[bool] = mapped_column(Boolean, default=False)
     starts_at: Mapped[datetime | None] = mapped_column()

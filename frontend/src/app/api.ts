@@ -8,7 +8,9 @@ import { servicePageUrl, type ServiceFilter } from "./service-pages";
 
 export interface ServiceAlertPolicy {
   warn_remaining_percent: number;
+  warn_remaining_gb?: number;
   warn_days: number;
+  warn_time_percent?: number;
 }
 
 export interface TransferPolicy { enabled: boolean; minimum: number; maximum: number; daily_maximum: number; currency: string }
@@ -30,7 +32,16 @@ export interface Me {
     /** The shop's own look (REF-08); missing from older servers. */
     brand?: { accent: string | null; logo: boolean; notice: string | null };
   };
-  trial: { available: boolean; reason: string | null; days: number; gb: number };
+  trial: {
+    available: boolean;
+    reason: string | null;
+    days: number;
+    hours?: number;
+    gb: number;
+    mb?: number;
+    choose_panel?: boolean;
+    panels?: { id: number; name: string; location: string | null; flag: string | null }[];
+  };
   referral: {
     enabled: boolean;
     percent: number;
@@ -42,7 +53,7 @@ export interface Me {
   };
   reseller: { active: boolean; discount_percent: number };
   panel_accounts: boolean;
-  extras: { enabled: boolean; gb_price: number; day_price: number; upgrade: boolean };
+  extras: { enabled: boolean; gb_price: number; day_price: number; upgrade: boolean; renew_queue?: boolean };
   payment_methods: string[];
   /** Gateway names the shop renamed in its bot texts; the rest keep the app's own names. */
   payment_labels?: Record<string, string>;
@@ -53,6 +64,9 @@ export interface Me {
   alerts_muted: boolean;
   /** Absent on older backends; never replace it with hard-coded UI thresholds. */
   alert_policy?: ServiceAlertPolicy | null;
+  maintenance?: boolean;
+  discounts_enabled?: boolean;
+  gateway_vpn_off_reminder?: boolean;
   profile: { phone_masked: string | null; member_since: string };
 }
 
@@ -142,6 +156,8 @@ export interface OwnAccount {
   users_count: number;
   max_users: number | null;
   expire_at: string | null;
+  created_at?: string | null;
+  plan_days?: number | null;
 }
 
 export interface OwnExtra { enabled: boolean; price: number; min: number; max: number; bounds?: [number, number] }
@@ -323,10 +339,13 @@ export interface Service {
   data_limit: number;
   used_bytes: number;
   expire_at: string | null;
+  plan_days?: number | null;
+  created_at?: string | null;
   /** When the data ran out (SEC-F15), when the server reports it. */
   limited_at?: string | null;
   subscription_url: string | null;
   location: string | null;
+  location_id?: number | null;
   plan_id: number | null;
   panel_id: number;
   extras: {
@@ -410,6 +429,7 @@ export interface Order {
     custom?: { gb: number; days: number };
     queued?: boolean;
     queued_until?: string;
+    queued_start_at?: string;
     account_plan_id?: number;
     account_id?: number;
     gb?: number;
@@ -556,6 +576,7 @@ export const api = {
     account_amount?: number;
     renew_package?: number;
     location_id?: number;
+    start_at?: string;
   }) => post<{ order: Order; balance: number; due: number }>("/orders", body),
   resellerDesk: (days: number) => get<ResellerDesk>(`/reseller/desk?days=${days}`),
   renewMany: (ids: number[]) =>
@@ -574,6 +595,7 @@ export const api = {
     return post<{ payment: PaymentStart }>("/wallet/topup", { amount, method, intent_key });
   },
   payment: (id: number) => get<{ id: number; status: string; amount: number; fulfilled: boolean; provider: string; order_id: number | null }>(`/payments/${id}`),
+  recheckPayment: (id: number) => post<{ id: number; status: string; amount: number; fulfilled: boolean; provider: string; order_id: number | null; checked: boolean }>(`/payments/${id}/recheck`),
   pendingPayments: (before?: number) => get<PendingPaymentList>(`/payments${before ? `?before=${before}` : ""}`),
   resumePayment: (id: number) => get<{ payment: PaymentStart }>(`/payments/${id}/resume`),
   receiptState: (id: number) => get<unknown>(`/payments/${id}/receipt-state`),
@@ -607,12 +629,12 @@ export const api = {
   myDiscounts: (orderId?: number) => get<MyDiscounts>(`/discounts${orderId ? `?order_id=${orderId}` : ""}`),
   claimReferral: () => post<{ order_id: number; cash: boolean; config: ReferralConfig | null }>("/referral/claim"),
   serviceDevices: (id: number) => get<ServiceDevices>(`/services/${id}/devices`),
-  cancelQuote: (id: number) => get<{ refund: number }>(`/services/${id}/cancel`),
-  cancelService: (id: number) => post<{ refund: number }>(`/services/${id}/cancel`),
+  cancelQuote: (id: number) => get<{ refund: number; requires_approval?: boolean; pending?: boolean }>(`/services/${id}/cancel`),
+  cancelService: (id: number, reason?: string) => post<{ refund: number; pending?: boolean; request_id?: number }>(`/services/${id}/cancel`, reason ? { reason } : {}),
   moveOptions: (id: number) =>
     get<{ price: number; targets: { location_id: number; title: string; flag: string | null }[] }>(`/services/${id}/move`),
   rename: (id: number, label: string) => post<{ service: Service }>(`/services/${id}/rename`, { label }),
-  trial: () => post<{ order: Order }>("/trial"),
+  trial: (panelId?: number) => post<{ order: Order }>("/trial", panelId ? { panel_id: panelId } : undefined),
   staffDashboard: () => get<StaffDashboard>("/staff/dashboard"),
   reviews: () => get<{ items: Review[] }>("/staff/reviews"),
   approve: (id: number) => post<{ status: string; order_settled: boolean }>(`/staff/reviews/${id}/approve`),
@@ -622,7 +644,57 @@ export const api = {
     if (!response.ok) throw new Error(`http_${response.status}`);
     return URL.createObjectURL(await response.blob());
   },
+  wheel: () => get<WheelInfo>("/wheel"),
+  spinWheel: () => post<WheelSpinResult>("/wheel/spin"),
+  lottery: () => get<{ lottery: LotteryInfo | null }>("/lottery"),
+  joinLottery: () => post<{ ok: boolean; joined: boolean; already_joined: boolean }>("/lottery/join"),
 };
+
+export interface WheelPrize {
+  label: string;
+  kind: "wallet" | "discount_percent" | "discount_fixed" | "none";
+  value: number;
+  weight?: number;
+}
+
+export interface WheelInfo {
+  enabled: boolean;
+  style: "wheel" | "dice" | "slot" | string;
+  buyers_only: boolean;
+  cooldown_hours: number;
+  can_spin: boolean;
+  reason: string | null;
+  next_spin_at: string | null;
+  prizes: WheelPrize[];
+  dice_prize_amount: number;
+  last_spin: { label: string; kind: string; value: number; at: string } | null;
+}
+
+export interface WheelSpinResult {
+  index: number;
+  prize: WheelPrize;
+  code: string | null;
+  rolled: number | null;
+  won: boolean;
+  balance: number;
+  next_spin_at: string | null;
+}
+
+export interface LotteryInfo {
+  id: number;
+  title: string;
+  mode: "join" | "purchases" | "points" | string;
+  prize: string;
+  prizes: { kind: string; amount?: number; gb?: number; days?: number; text?: string }[];
+  points_per: number;
+  ends_at: string;
+  joined: boolean;
+  my_points: number;
+  my_rank: number | null;
+  entrants: number;
+  total_tickets: number;
+  board: { rank: number; name: string; points: number; is_me: boolean }[];
+}
 
 export interface DeskService {
   id: number;

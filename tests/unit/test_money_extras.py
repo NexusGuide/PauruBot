@@ -388,6 +388,11 @@ async def test_nowpayments_ipn_signature_and_fields(session) -> None:  # type: i
         payment, cfg, {"raw": waiting, "signature": NowPaymentsProvider.signature(waiting, secret)}
     )
     assert not result.paid
+    missing_pid = json.dumps({**body, "payment_id": None}).encode()
+    no_pid = await provider.verify(
+        payment, cfg, {"raw": missing_pid, "signature": NowPaymentsProvider.signature(missing_pid, secret)}
+    )
+    assert not no_pid.paid and no_pid.detail == "missing payment_id"
 
 
 async def test_plisio_callback_signature(session) -> None:  # type: ignore[no-untyped-def]

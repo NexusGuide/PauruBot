@@ -8,6 +8,7 @@ from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +20,7 @@ from paurubot.bot.states import ResellerStates, TicketStates
 from paurubot.bot.utils import Btn, show
 from paurubot.core import customers, marketing, tickets, trials
 from paurubot.core.formatting import esc, jdate
-from paurubot.db.models import ApplicationStatus, Customer, ResellerApplication, Ticket
+from paurubot.db.models import ApplicationStatus, Customer, ResellerApplication, Ticket, TicketStatus
 from paurubot.db.models import Shop as ShopRow
 from paurubot.i18n import Texts
 from paurubot.worker import queue
@@ -77,6 +78,16 @@ async def marketing_choice(
 
 @router.message(Btn("btn_trial"))
 async def trial(message: Message, session: AsyncSession, customer: Customer, t: Texts) -> None:
+    reason = await trials.eligibility(session, customer)
+    if reason:
+        await message.answer(t(reason))
+        return
+    _, rules = await trials.effective_rules(session, customer.shop_id)
+    if rules.get("trial_choose_panel"):
+        panels = await trials.options(session, customer)
+        if len(panels) > 1:
+            await message.answer(t("trial_choose_panel"), reply_markup=keyboards.trial_panels_kb(t, panels))
+            return
     try:
         await trials.request(session, customer)
     except trials.TrialError as exc:
@@ -85,6 +96,25 @@ async def trial(message: Message, session: AsyncSession, customer: Customer, t: 
         return
     await session.commit()
     await message.answer(t("trial_processing"))
+
+
+@router.callback_query(Nav.filter(F.to == "trial"))
+async def trial_pick_panel(
+    call: CallbackQuery,
+    callback_data: Nav,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+) -> None:
+    try:
+        await trials.request(session, customer, panel_id=callback_data.arg or None)
+    except trials.TrialError as exc:
+        await session.rollback()
+        await call.answer(t(exc.key), show_alert=True)
+        return
+    await session.commit()
+    await call.answer()
+    await show(call, t("trial_processing"), None)
 
 
 @router.message(Btn("btn_referral"))
@@ -238,37 +268,139 @@ async def reseller_application(
 # --- tickets ------------------------------------------------------------------
 
 
+def _tickets_miniapp_url(cfg: dict[str, Any] | None) -> str | None:
+    if not (cfg or {}).get("ticket_miniapp_only"):
+        return None
+    from paurubot.config import get_settings
+
+    base = get_settings().public_url.rstrip("/")
+    return f"{base}/app/tickets" if base.startswith("https://") else None
+
+
 async def show_tickets(
-    event: Message | CallbackQuery, session: AsyncSession, customer: Customer, t: Texts
+    event: Message | CallbackQuery,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any] | None = None,
 ) -> None:
-    items = await tickets.for_customer(session, customer)
+    miniapp_url = _tickets_miniapp_url(cfg)
+    items = [] if miniapp_url else await tickets.for_customer(session, customer)
     support = t.context.get("support")
-    text = t("tickets_header") + (("\n" + t("support_contact", support=support)) if support else "")
-    await show(event, text, keyboards.tickets_kb(t, items))
+    header = t("tickets_miniapp_header") if miniapp_url else t("tickets_header")
+    text = header + (("\n" + t("support_contact", support=support)) if support else "")
+    faq = (cfg or {}).get("support_faq") or []
+    await show(event, text, keyboards.tickets_kb(t, items, has_faq=bool(faq), miniapp_url=miniapp_url))
 
 
 @router.message(Btn("btn_tickets"))
 async def tickets_entry(
-    message: Message, session: AsyncSession, customer: Customer, t: Texts, state: FSMContext
+    message: Message,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    state: FSMContext,
 ) -> None:
     await state.clear()
-    await show_tickets(message, session, customer, t)
+    await show_tickets(message, session, customer, t, cfg)
 
 
 @router.callback_query(TicketCb.filter(F.action == "list"))
-async def tickets_list(call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts) -> None:
+async def tickets_list(
+    call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts, cfg: dict[str, Any]
+) -> None:
     await call.answer()
-    await show_tickets(call, session, customer, t)
+    await show_tickets(call, session, customer, t, cfg)
+
+
+@router.callback_query(TicketCb.filter(F.action == "faq"))
+async def ticket_faq(call: CallbackQuery, t: Texts, cfg: dict[str, Any]) -> None:
+    faq = cfg.get("support_faq") or []
+    if not faq:
+        await call.answer(t("support_faq_empty"), show_alert=True)
+        return
+    await call.answer()
+    miniapp_url = _tickets_miniapp_url(cfg)
+    await show(call, t("support_faq_header"), keyboards.support_faq_kb(t, faq, miniapp_url=miniapp_url))
+
+
+@router.callback_query(TicketCb.filter(F.action == "faq_item"))
+async def ticket_faq_item(
+    call: CallbackQuery, callback_data: TicketCb, t: Texts, cfg: dict[str, Any]
+) -> None:
+    faq = cfg.get("support_faq") or []
+    if not 0 <= callback_data.id < len(faq):
+        await ticket_faq(call, t, cfg)
+        return
+    await call.answer()
+    item = faq[callback_data.id]
+    text = f"<b>{esc(str(item.get('q') or ''))}</b>\n\n{esc(str(item.get('a') or ''))}"
+    kb = InlineKeyboardBuilder()
+    btn_text = str(item.get("btn_text") or "").strip()
+    btn_url = str(item.get("btn_url") or "").strip()
+    if btn_text and btn_url.startswith("https://"):
+        kb.row(InlineKeyboardButton(text=btn_text[:40], url=btn_url))
+    miniapp_url = _tickets_miniapp_url(cfg)
+    if miniapp_url:
+        from aiogram.types import WebAppInfo
+
+        kb.row(InlineKeyboardButton(text=t("btn_tickets_miniapp"), web_app=WebAppInfo(url=miniapp_url)))
+    else:
+        kb.row(
+            InlineKeyboardButton(
+                text=t("btn_ticket_continue"), callback_data=TicketCb(action="new_direct").pack()
+            )
+        )
+    kb.row(
+        InlineKeyboardButton(text=t("btn_back_faq"), callback_data=TicketCb(action="faq").pack()),
+        InlineKeyboardButton(text=t("btn_back"), callback_data=TicketCb(action="list").pack()),
+    )
+    await show(call, text, kb.as_markup())
 
 
 @router.callback_query(TicketCb.filter(F.action == "new"))
 async def ticket_new(
-    call: CallbackQuery, session: AsyncSession, customer: Customer, t: Texts, state: FSMContext
+    call: CallbackQuery,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    state: FSMContext,
 ) -> None:
     await call.answer()
     await state.clear()
+    miniapp_url = _tickets_miniapp_url(cfg)
+    faq = cfg.get("support_faq") or []
+    if faq:
+        await show(call, t("support_faq_header"), keyboards.support_faq_kb(t, faq, miniapp_url=miniapp_url))
+        return
+    if miniapp_url:
+        await show_tickets(call, session, customer, t, cfg)
+        return
     desks = await tickets.departments(session, customer.shop_id)
     if desks:  # the customer picks who the ticket is for (F-14)
+        await show(call, t("ticket_ask_department"), keyboards.departments_kb(t, desks))
+        return
+    await _ask_subject(call, t, state)
+
+
+@router.callback_query(TicketCb.filter(F.action == "new_direct"))
+async def ticket_new_direct(
+    call: CallbackQuery,
+    session: AsyncSession,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    state: FSMContext,
+) -> None:
+    await call.answer()
+    await state.clear()
+    if _tickets_miniapp_url(cfg):
+        await show_tickets(call, session, customer, t, cfg)
+        return
+    desks = await tickets.departments(session, customer.shop_id)
+    if desks:
         await show(call, t("ticket_ask_department"), keyboards.departments_kb(t, desks))
         return
     await _ask_subject(call, t, state)
@@ -375,6 +507,9 @@ async def ticket_view(
     ticket = await _own_ticket(session, customer, callback_data.id)
     if ticket is None:
         await call.answer(t("ticket_not_found"), show_alert=True)
+        return
+    if ticket.status == TicketStatus.CLOSED:
+        await call.answer(t("ticket_closed"), show_alert=True)
         return
     await call.answer()
     lines = [

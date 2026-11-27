@@ -4,9 +4,9 @@
 #   bash <(curl -fsSL https://raw.githubusercontent.com/NexusGuide/PauruBot/main/install.sh)
 #
 # Without arguments it opens a menu. Every action also works non-interactively:
-#   install.sh install --domain bot.example.com --token 123:ABC --owner 123456 [--channel stable|beta] [--version v1.2.3] [--https-port 443]
-#   install.sh update [--channel stable|beta] [--version v1.2.3]
-#   install.sh rollback | status | logs [service] | restart | backup | restore FILE | setup-link | uninstall
+#   install.sh install --domain bot.example.com --token 123:ABC --owner 123456 [--channel stable|beta|dev] [--version v1.2.3] [--https-port 443]
+#   install.sh update [--channel stable|beta|dev] [--version v1.2.3] [--restore-backup FILE]
+#   install.sh rollback | repair | status | logs [service] | restart | backup | restore FILE | setup-link | uninstall
 #   install.sh enable-agent | disable-agent   (let the admin panel request updates and rollbacks)
 #
 # --https-port publishes the web panel on another HTTPS port (e.g. 8443) when a
@@ -174,6 +174,24 @@ latest_release() {
     sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1
 }
 
+branch_version() {
+  local branch=$1 token auth=()
+  token=$(github_token)
+  [[ -n $token ]] && auth=(-H "Authorization: Bearer $token")
+  curl -fsSL "${auth[@]}" -H "Accept: application/vnd.github.raw+json" \
+    "https://api.github.com/repos/$REPO/contents/pyproject.toml?ref=$branch" |
+    sed -n 's/^version = "\([^"]*\)"$/\1/p' | head -n1
+}
+
+latest_for_channel() {
+  local channel=${1:-stable}
+  case $channel in
+    dev) branch_version dev ;;
+    beta) branch_version main ;;
+    *) latest_release ;;
+  esac
+}
+
 repo_url() {
   local token
   token=$(github_token)
@@ -196,12 +214,15 @@ registry_login() {
 resolve_target() {
   local channel=$1 version=$2
   if [[ -n $version ]]; then
-    TARGET_REF=$version
+    TARGET_REF="v${version#v}"
     TARGET_IMAGE="$IMAGE_REPO:${version#v}"
+  elif [[ $channel == dev ]]; then
+    TARGET_REF=dev
+    TARGET_IMAGE="$IMAGE_REPO:dev"
   elif [[ $channel == beta ]]; then
     TARGET_REF=main
     TARGET_IMAGE="$IMAGE_REPO:edge"
-  else
+  elif [[ $channel == stable ]]; then
     TARGET_REF=$(latest_release || true)
     if [[ -z $TARGET_REF ]]; then
       warn "no stable release published yet; using the beta channel"
@@ -210,19 +231,34 @@ resolve_target() {
     else
       TARGET_IMAGE="$IMAGE_REPO:${TARGET_REF#v}"
     fi
+  else
+    die "unknown channel: $channel (expected stable, beta or dev)"
   fi
 }
 
 fetch_source() {
-  local ref=$1
+  local ref=$1 fallback=""
+  [[ $ref == *-dev* ]] && fallback=dev
   if [[ -d $DIR/.git ]]; then
     git -C "$DIR" remote set-url origin "$(repo_url)"
-    git -C "$DIR" fetch --depth 1 origin "$ref" -q
+    if ! git -C "$DIR" fetch --depth 1 origin "$ref" -q 2>/dev/null; then
+      if [[ -n $fallback ]]; then
+        git -C "$DIR" fetch --depth 1 origin "$fallback" -q
+      else
+        git -C "$DIR" fetch --depth 1 origin "$ref" -q
+      fi
+    fi
     git -C "$DIR" -c advice.detachedHead=false checkout -q --force FETCH_HEAD
   else
     mkdir -p "$DIR"
     # A release is a tag, so git would print its long "detached HEAD" notice: not an error.
-    git -c advice.detachedHead=false clone -q --depth 1 --branch "$ref" "$(repo_url)" "$DIR.tmp"
+    if ! git -c advice.detachedHead=false clone -q --depth 1 --branch "$ref" "$(repo_url)" "$DIR.tmp" 2>/dev/null; then
+      if [[ -n $fallback ]]; then
+        git -c advice.detachedHead=false clone -q --depth 1 --branch "$fallback" "$(repo_url)" "$DIR.tmp"
+      else
+        git -c advice.detachedHead=false clone -q --depth 1 --branch "$ref" "$(repo_url)" "$DIR.tmp"
+      fi
+    fi
     cp -a "$DIR.tmp/." "$DIR/"
     rm -rf "$DIR.tmp"
   fi
@@ -234,7 +270,7 @@ fetch_source() {
 verify_signature() {
   local digest=$1 identity_repo=${REPO//./\\.}
   cosign verify "$digest" \
-    --certificate-identity-regexp "^https://github\.com/$identity_repo/\.github/workflows/release\.yml@refs/(heads/main|tags/v[^/]+)$" \
+    --certificate-identity-regexp "^https://github\.com/$identity_repo/\.github/workflows/release\.yml@refs/(heads/(main|dev)|tags/v[^/]+)$" \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null ||
     die "the signature of $digest does not verify; refusing to run it"
 }
@@ -371,8 +407,14 @@ EOF
   chmod 600 "$ENV_FILE"
   pick_base_images
   fetch_image "$TARGET_IMAGE"
+  local installed_ver=$TARGET_REF
+  if [[ ($TARGET_REF == dev || $TARGET_REF == main) && -f $DIR/pyproject.toml ]]; then
+    installed_ver=$(sed -n 's/^version = "\([^"]*\)"$/\1/p' "$DIR/pyproject.toml" | head -n1)
+    installed_ver=${installed_ver:-$TARGET_REF}
+  fi
   env_set PAURUBOT_IMAGE "$PINNED_IMAGE"
-  env_set PAURUBOT_VERSION "$TARGET_REF"
+  env_set PAURUBOT_VERSION "$installed_ver"
+  env_set PAURUBOT_REF "$TARGET_REF"
   compose up -d --remove-orphans
   link_cli
   if confirm "Allow updates and rollbacks from the admin panel?" y; then
@@ -393,13 +435,16 @@ EOF
 
 cmd_update() {
   need_root
-  local channel version=""
-  channel=$(env_get PAURUBOT_CHANNEL)
-  channel=${channel:-stable}
+  local channel version="" explicit_backup=""
+  local old_channel old_version old_image old_ref
+  old_channel=$(env_get PAURUBOT_CHANNEL)
+  old_channel=${old_channel:-stable}
+  channel=$old_channel
   while (($#)); do
     case $1 in
       --channel) channel=$2; shift 2 ;;
       --version) version=$2; shift 2 ;;
+      --restore-backup) explicit_backup=$2; shift 2 ;;
       *) die "unknown option $1" ;;
     esac
   done
@@ -415,34 +460,152 @@ cmd_update() {
   backup_file=$(printf '%s\n' "$backup_out" | sed -n 's/^\(\/[^ ]*\.pbak\) ([0-9]* bytes)$/\1/p' | tail -n1)
   [[ -n $backup_file ]] || die "backup before update gave no file; update aborted without changing the installed release"
   ok "backup written: $backup_file"
-  local previous
-  previous=$(env_get PAURUBOT_IMAGE)
-  fetch_source "$TARGET_REF"
+
+  old_image=$(env_get PAURUBOT_IMAGE)
+  old_version=$(env_get PAURUBOT_VERSION)
+  old_ref=$(env_get PAURUBOT_REF)
+  if [[ -z $old_ref ]]; then
+    case $old_channel in
+      dev) old_ref=dev ;;
+      beta) old_ref=main ;;
+      *) old_ref=${old_version:-main} ;;
+    esac
+  fi
+
+  # Pull and verify the target image before touching .env, git checkout, or running containers.
   fetch_image "$TARGET_IMAGE"
+
+  # SEC-F22: verify the target release can run on the current schema before switching.
+  # Switching from dev back to main (stable/beta) after dev migrations requires restoring a
+  # pre-migration backup with the target release, or aborting cleanly without changing anything.
+  local state=0 restore=0 restore_backup=""
+  PAURUBOT_IMAGE=$PINNED_IMAGE compose run --rm --no-deps -T migrate schema-status || state=$?
+  case $state in
+    0 | 3 | 5) ;;
+    4)
+      restore=1
+      restore_backup=$explicit_backup
+      if [[ -z $restore_backup && $old_channel == dev && $channel != dev ]]; then
+        restore_backup=$(env_get PAURUBOT_PRE_DEV_BACKUP)
+      fi
+      if [[ -z $restore_backup && $PINNED_IMAGE == "$(env_get PAURUBOT_PREVIOUS_IMAGE)" ]]; then
+        restore_backup=$(env_get PAURUBOT_PREVIOUS_BACKUP)
+      fi
+      [[ -n $restore_backup ]] || die "the database was migrated past $TARGET_REF; switching to $channel requires restoring a pre-migration backup (pass --restore-backup FILE or run 'pauru rollback'; see docs/ops/rollback.md)"
+      [[ -z ${PAURUBOT_AGENT:-} ]] || die "switching to $TARGET_REF ($channel) requires restoring the pre-migration backup ($restore_backup); run 'pauru update --channel $channel' (or 'pauru rollback') on the server"
+      warn "the database was migrated past $TARGET_REF ($channel): switching restores the backup taken before migrating"
+      warn "  $restore_backup — everything written since that backup is lost"
+      confirm "Restore that backup and switch to $TARGET_REF ($channel)?" || die "update canceled; nothing was changed"
+      ;;
+    *)
+      die "could not compare the database with $TARGET_REF (schema-status exit $state); nothing was changed"
+      ;;
+  esac
+
+  local prev_backup_before prev_image_before prev_ver_before prev_chan_before prev_ref_before
+  prev_backup_before=$(env_get PAURUBOT_PREVIOUS_BACKUP)
+  prev_image_before=$(env_get PAURUBOT_PREVIOUS_IMAGE)
+  prev_ver_before=$(env_get PAURUBOT_PREVIOUS_VERSION)
+  prev_chan_before=$(env_get PAURUBOT_PREVIOUS_CHANNEL)
+  prev_ref_before=$(env_get PAURUBOT_PREVIOUS_REF)
+
+  fetch_source "$TARGET_REF"
+  local new_ver=$TARGET_REF
+  if [[ ($TARGET_REF == dev || $TARGET_REF == main) && -f $DIR/pyproject.toml ]]; then
+    new_ver=$(sed -n 's/^version = "\([^"]*\)"$/\1/p' "$DIR/pyproject.toml" | head -n1)
+    new_ver=${new_ver:-$TARGET_REF}
+  fi
+
+  # Preserve a dedicated snapshot when entering dev from main so repeated dev updates still allow
+  # returning cleanly to main (stable/beta).
+  if [[ $old_channel != dev && $channel == dev ]]; then
+    env_set PAURUBOT_PRE_DEV_BACKUP "$backup_file"
+    env_set PAURUBOT_PRE_DEV_IMAGE "$old_image"
+    env_set PAURUBOT_PRE_DEV_VERSION "$old_version"
+    env_set PAURUBOT_PRE_DEV_CHANNEL "$old_channel"
+    env_set PAURUBOT_PRE_DEV_REF "$old_ref"
+  fi
+
   env_set PAURUBOT_PREVIOUS_BACKUP "$backup_file"
-  env_set PAURUBOT_PREVIOUS_IMAGE "$previous"
-  env_set PAURUBOT_PREVIOUS_VERSION "$(env_get PAURUBOT_VERSION)"
+  env_set PAURUBOT_PREVIOUS_IMAGE "$old_image"
+  env_set PAURUBOT_PREVIOUS_VERSION "$old_version"
+  env_set PAURUBOT_PREVIOUS_CHANNEL "$old_channel"
+  env_set PAURUBOT_PREVIOUS_REF "$old_ref"
   env_set PAURUBOT_IMAGE "$PINNED_IMAGE"
-  env_set PAURUBOT_VERSION "$TARGET_REF"
+  env_set PAURUBOT_VERSION "$new_ver"
   env_set PAURUBOT_CHANNEL "$channel"
+  env_set PAURUBOT_REF "$TARGET_REF"
+
+  if ((restore)); then
+    compose stop api bot worker
+    if ! compose run --rm --no-deps -T migrate restore "$restore_backup" --yes; then
+      env_set PAURUBOT_IMAGE "$old_image"
+      env_set PAURUBOT_VERSION "$old_version"
+      env_set PAURUBOT_CHANNEL "$old_channel"
+      env_set PAURUBOT_REF "$old_ref"
+      env_set PAURUBOT_PREVIOUS_BACKUP "$prev_backup_before"
+      env_set PAURUBOT_PREVIOUS_IMAGE "$prev_image_before"
+      env_set PAURUBOT_PREVIOUS_VERSION "$prev_ver_before"
+      env_set PAURUBOT_PREVIOUS_CHANNEL "$prev_chan_before"
+      env_set PAURUBOT_PREVIOUS_REF "$prev_ref_before"
+      if [[ -n $old_ref ]]; then
+        fetch_source "$old_ref" || true
+      fi
+      compose up -d --remove-orphans
+      die "restore failed; the database is unchanged and the current release was started again"
+    fi
+    if [[ $restore_backup == "$(env_get PAURUBOT_PRE_DEV_BACKUP)" ]]; then
+      env_set PAURUBOT_PRE_DEV_BACKUP ""
+      env_set PAURUBOT_PRE_DEV_IMAGE ""
+      env_set PAURUBOT_PRE_DEV_VERSION ""
+      env_set PAURUBOT_PRE_DEV_CHANNEL ""
+      env_set PAURUBOT_PRE_DEV_REF ""
+    fi
+  elif [[ $old_channel == dev && $channel != dev ]]; then
+    env_set PAURUBOT_PRE_DEV_BACKUP ""
+    env_set PAURUBOT_PRE_DEV_IMAGE ""
+    env_set PAURUBOT_PRE_DEV_VERSION ""
+    env_set PAURUBOT_PRE_DEV_CHANNEL ""
+    env_set PAURUBOT_PRE_DEV_REF ""
+  fi
+
+  if [[ -f $DIR/install.sh ]] && declare -F link_cli >/dev/null; then
+    link_cli
+    if [[ -z ${PAURUBOT_AGENT:-} ]] && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet paurubot-agent 2>/dev/null; then
+      systemctl restart paurubot-agent || true
+    fi
+  fi
+
   # Migrations run with the new image before any new process starts (the migrate service).
   compose up -d --remove-orphans
   if wait_healthy; then
-    ok "updated to $TARGET_REF"
+    ok "updated to $new_ver ($channel)"
   else
     warn "the new version is not healthy; run: pauru rollback"
   fi
 }
 
 swap_release() {
-  # Exchange the current and previous image/version records (rollback, or undoing one).
-  local image version
+  # Exchange the current and previous image/version/channel/ref records (rollback, or undoing one).
+  local image version channel ref prev_channel prev_ref
   image=$(env_get PAURUBOT_IMAGE)
   version=$(env_get PAURUBOT_VERSION)
+  channel=$(env_get PAURUBOT_CHANNEL)
+  ref=$(env_get PAURUBOT_REF)
+  prev_channel=$(env_get PAURUBOT_PREVIOUS_CHANNEL)
+  prev_ref=$(env_get PAURUBOT_PREVIOUS_REF)
   env_set PAURUBOT_IMAGE "$(env_get PAURUBOT_PREVIOUS_IMAGE)"
   env_set PAURUBOT_VERSION "$(env_get PAURUBOT_PREVIOUS_VERSION)"
   env_set PAURUBOT_PREVIOUS_IMAGE "$image"
   env_set PAURUBOT_PREVIOUS_VERSION "$version"
+  if [[ -n $prev_channel || -n $channel ]]; then
+    env_set PAURUBOT_CHANNEL "${prev_channel:-$channel}"
+    env_set PAURUBOT_PREVIOUS_CHANNEL "$channel"
+  fi
+  if [[ -n $prev_ref || -n $ref ]]; then
+    env_set PAURUBOT_REF "${prev_ref:-$ref}"
+    env_set PAURUBOT_PREVIOUS_REF "$ref"
+  fi
 }
 
 # Migrations only go forward (SEC-F22). An older release must never start on a schema a newer
@@ -479,9 +642,34 @@ cmd_rollback() {
       die "restore failed; the database is unchanged and the current release was started again"
     fi
     env_set PAURUBOT_PREVIOUS_BACKUP ""
+    if [[ $backup == "$(env_get PAURUBOT_PRE_DEV_BACKUP)" ]]; then
+      env_set PAURUBOT_PRE_DEV_BACKUP ""
+      env_set PAURUBOT_PRE_DEV_IMAGE ""
+      env_set PAURUBOT_PRE_DEV_VERSION ""
+      env_set PAURUBOT_PRE_DEV_CHANNEL ""
+      env_set PAURUBOT_PRE_DEV_REF ""
+    fi
+  fi
+  local target_ref
+  target_ref=$(env_get PAURUBOT_REF)
+  if [[ -z $target_ref ]]; then
+    case $(env_get PAURUBOT_CHANNEL) in
+      dev) target_ref=dev ;;
+      beta) target_ref=main ;;
+      *) target_ref=$(env_get PAURUBOT_VERSION) ;;
+    esac
+  fi
+  if [[ -n $target_ref ]] && declare -F fetch_source >/dev/null; then
+    fetch_source "$target_ref" || warn "could not check out source ref $target_ref; continuing with existing files"
+  fi
+  if [[ -f $DIR/install.sh ]] && declare -F link_cli >/dev/null; then
+    link_cli
+    if [[ -z ${PAURUBOT_AGENT:-} ]] && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet paurubot-agent 2>/dev/null; then
+      systemctl restart paurubot-agent || true
+    fi
   fi
   compose up -d --remove-orphans
-  wait_healthy && ok "rolled back" || warn "still not healthy; check: pauru logs api"
+  wait_healthy && ok "rolled back to $(env_get PAURUBOT_VERSION) ($(env_get PAURUBOT_CHANNEL))" || warn "still not healthy; check: pauru logs api"
 }
 
 cmd_status() {
@@ -490,9 +678,36 @@ cmd_status() {
   compose exec -T api paurubot doctor || true
   say ""
   say "version: $(env_get PAURUBOT_VERSION)  channel: $(env_get PAURUBOT_CHANNEL)"
+  local pre_dev
+  pre_dev=$(env_get PAURUBOT_PRE_DEV_BACKUP)
+  [[ -n $pre_dev ]] && say "pre-dev backup: $pre_dev"
 }
 
 cmd_logs() { compose logs --tail=200 -f "${1:-}"; }
+
+cmd_repair() {
+  require_root
+  [[ -f $ENV_FILE ]] || die "not installed yet — run: install.sh install"
+  local channel version ref image
+  channel=$(env_get PAURUBOT_CHANNEL)
+  channel=${channel:-stable}
+  version=$(env_get PAURUBOT_VERSION)
+  ref=$(ref_for_channel "$channel" "$version")
+  image=$(env_get PAURUBOT_IMAGE)
+  image=${image:-$IMAGE_REPO:${version:-latest}}
+
+  say "Taking a safety backup before repair..."
+  cmd_backup || warn "backup failed; continuing with container repair"
+
+  say "Refreshing compose stack from $ref..."
+  fetch_repo_files "$ref"
+  say "Pulling $image..."
+  docker pull "$image"
+  compose up -d --force-recreate --remove-orphans
+  wait_healthy
+  say "${GREEN}Repair complete.${RESET}"
+  cmd_status
+}
 
 cmd_restart() {
   need_root
@@ -583,13 +798,25 @@ link_cli() {
 AGENT_UNIT=/etc/systemd/system/paurubot-agent.service
 AGENT_LOG=/var/log/paurubot-agent.log
 
-rset() { compose exec -T redis redis-cli SET "$1" "$2" EX "${3:-180}" >/dev/null 2>&1 || true; }
+rcli() {
+  local pw
+  pw=$(env_get REDIS_PASSWORD)
+  if [[ -n $pw ]]; then
+    compose exec -T -e "REDISCLI_AUTH=$pw" redis redis-cli --no-auth-warning "$@"
+  else
+    compose exec -T redis redis-cli "$@"
+  fi
+}
+
+rset() { rcli SET "$1" "$2" EX "${3:-180}" >/dev/null 2>&1 || true; }
 
 agent_report() {
   rset updater:heartbeat "$(date +%s)"
   rset updater:version "$(env_get PAURUBOT_VERSION)"
   rset updater:channel "$(env_get PAURUBOT_CHANNEL)"
   rset updater:previous "$(env_get PAURUBOT_PREVIOUS_VERSION)"
+  rset updater:previous_channel "$(env_get PAURUBOT_PREVIOUS_CHANNEL)"
+  rset updater:pre_dev_backup "$(env_get PAURUBOT_PRE_DEV_BACKUP)"
 }
 
 json_field() { sed -n "s/.*\"$1\": *\"\([^\"]*\)\".*/\1/p" <<<"$2" | head -n1; }
@@ -597,28 +824,29 @@ json_field() { sed -n "s/.*\"$1\": *\"\([^\"]*\)\".*/\1/p" <<<"$2" | head -n1; }
 cmd_agent() {
   need_root
   [[ -f $ENV_FILE ]] || die "not installed"
-  local latest_checked=0 request action channel version result
+  local latest_checked=0 request action channel version result cli_before cli_after
   say "PauruBot agent watching for update requests"
   while true; do
     agent_report
     if (($(date +%s) - latest_checked > 3600)); then
-      rset updater:latest "$(latest_release || true)" 7200
+      rset updater:latest "$(latest_for_channel "$(env_get PAURUBOT_CHANNEL)" || true)" 7200
       latest_checked=$(date +%s)
     fi
-    request=$(compose exec -T redis redis-cli GETDEL updater:request 2>/dev/null | tr -d '\r' || true)
+    request=$(rcli GETDEL updater:request 2>/dev/null | tr -d '\r' || true)
     if [[ -n $request && $request != "(nil)" ]]; then
       action=$(json_field action "$request")
       channel=$(json_field channel "$request")
       version=$(json_field version "$request")
-      [[ $channel =~ ^(stable|beta)?$ && $version =~ ^(v?[0-9][0-9A-Za-z.-]*)?$ ]] || action="invalid"
+      [[ $channel =~ ^(stable|beta|dev)?$ && $version =~ ^(v?[0-9][0-9A-Za-z.-]*)?$ ]] || action="invalid"
       rset updater:state running 7200
       rset updater:last_action "$action ${version:-$channel}" 2592000
       local args=()
       [[ -n $channel ]] && args+=(--channel "$channel")
       [[ -n $version ]] && args+=(--version "$version")
+      cli_before=$(sha256sum /usr/local/bin/pauru 2>/dev/null | awk '{print $1}' || true)
       result="done"
       case $action in
-        update) (cmd_update "${args[@]}") >"$AGENT_LOG" 2>&1 || result=failed ;;
+        update) (PAURUBOT_AGENT=1 cmd_update "${args[@]}") >"$AGENT_LOG" 2>&1 || result=failed ;;
         rollback) (PAURUBOT_AGENT=1 cmd_rollback) >"$AGENT_LOG" 2>&1 || result=failed ;;
         *)
           echo "unknown action $action" >"$AGENT_LOG"
@@ -627,9 +855,15 @@ cmd_agent() {
       esac
       grep -qi "not healthy" "$AGENT_LOG" && result=failed
       tail -n 40 "$AGENT_LOG" | sed 's/\x1b\[[0-9;]*m//g' |
-        compose exec -T redis redis-cli -x SET updater:log >/dev/null 2>&1 || true
+        rcli -x SET updater:log >/dev/null 2>&1 || true
       rset updater:state "$result" 2592000
+      rset updater:latest "$(latest_for_channel "$(env_get PAURUBOT_CHANNEL)" || true)" 7200
+      latest_checked=$(date +%s)
       agent_report
+      cli_after=$(sha256sum /usr/local/bin/pauru 2>/dev/null | awk '{print $1}' || true)
+      if [[ -n $cli_after && $cli_after != "$cli_before" && -x /usr/local/bin/pauru ]]; then
+        exec /usr/local/bin/pauru agent
+      fi
     fi
     sleep 15
   done
@@ -674,6 +908,7 @@ menu() {
     say "  4) Status         5) Logs           6) Restart"
     say "  7) Backup now     8) Restore        9) Edit settings"
     say " 10) Setup link    11) Uninstall     12) Panel updates on"
+    say " 13) Repair"
     say "  0) Exit"
     local choice
     read -r -p "> " choice </dev/tty || exit 0
@@ -690,6 +925,7 @@ menu() {
       10) show_setup_link ;;
       11) cmd_uninstall ;;
       12) cmd_enable_agent ;;
+      13) cmd_repair ;;
       0 | q) exit 0 ;;
       *) warn "pick a number from the menu" ;;
     esac
@@ -704,6 +940,7 @@ main() {
     install) cmd_install "$@" ;;
     update) cmd_update "$@" ;;
     rollback) cmd_rollback ;;
+    repair) cmd_repair ;;
     status) cmd_status ;;
     logs) cmd_logs "$@" ;;
     restart) cmd_restart ;;

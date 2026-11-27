@@ -43,8 +43,9 @@ class Settings(BaseSettings):
     backup_hour: int = Field(default=4, ge=0, le=23)
     backup_keep: int = Field(default=14, ge=1, le=365)
     backup_to_telegram: bool = True
-    # Set by `pauru update`: the backup a `pauru rollback` restores, so pruning must keep it.
+    # Set by `pauru update`: backups needed for rollback or returning from dev, protected from pruning.
     paurubot_previous_backup: str = ""
+    paurubot_pre_dev_backup: str = ""
 
     allow_private_panel_hosts: bool = False
     http_connect_timeout: float = 5.0

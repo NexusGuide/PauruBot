@@ -39,16 +39,32 @@ SPECS: dict[str, Spec] = {
     # typed second step for destructive staff actions on the web (F-22)
     "typed_confirm_enabled": Spec(bool, False, "general"),
     "typed_confirm_refund_min": Spec(int, 1_000_000, "general"),
+    "discounts_enabled": Spec(bool, True, "general"),
+    # Days to keep audit log entries before background pruning (0: keep forever).
+    "audit_retention_days": Spec(int, 180, "general"),
+    # Skip alternate ticks of non-critical background sync/monitor loops on small VPSs.
+    "light_mode": Spec(bool, False, "general"),
+    "cron_overrides": Spec(dict, {}, "general"),
     # trial (CAT-04)
     "trial_enabled": Spec(bool, True, "trial"),
     "trial_panel_id": Spec(int, None, "trial"),
+    # Panels that offer trials; empty falls back to trial_panel_id, or all allowed panels.
+    "trial_panel_ids": Spec(list, [], "trial"),
+    # Let the customer choose which allowed panel to take a trial on when 2+ panels qualify.
+    "trial_choose_panel": Spec(bool, True, "trial"),
     "trial_days": Spec(int, 1, "trial"),
+    # Optional hour-based trial duration; > 0 overrides trial_days (0 uses trial_days).
+    "trial_hours": Spec(int, 0, "trial"),
     "trial_gb": Spec(int, 1, "trial"),
+    # Optional sub-GB trial volume in MB; > 0 overrides trial_gb (0 uses trial_gb).
+    "trial_mb": Spec(int, 0, "trial"),
     "trial_generation": Spec(int, 1, "trial"),
     "trial_daily_quota": Spec(int, 0, "trial"),
     "trial_requires_phone": Spec(bool, False, "trial"),
     # Minutes a new account waits before its free trial; 0 is off (REF-04).
     "trial_min_account_minutes": Spec(int, 0, "trial"),
+    # Hide the trial button from the customer menu once they used the current round.
+    "trial_hide_after_use": Spec(bool, False, "trial"),
     # referral (GRW-01)
     "referral_enabled": Spec(bool, True, "growth"),
     # A newcomer must come with an inviter (a link or the inviter's code) before using the shop.
@@ -139,6 +155,10 @@ SPECS: dict[str, Spec] = {
     "nowpayments_ipn_secret": Spec(str, "", "payments", secret=True),
     "plisio_enabled": Spec(bool, False, "payments"),
     "plisio_api_key": Spec(str, "", "payments", secret=True),
+    # Remind customers to turn off VPN before opening an Iranian payment gateway.
+    "gateway_vpn_off_reminder": Spec(bool, True, "payments"),
+    # Preset rejection reasons shown to staff when rejecting receipts or cancellations.
+    "reject_reasons": Spec(list, [], "payments"),
     # Telegram Business automation (BOT-07)
     "business_enabled": Spec(bool, False, "business"),
     "business_reply": Spec(str, "", "business"),
@@ -147,6 +167,14 @@ SPECS: dict[str, Spec] = {
     "business_rules": Spec(list, [], "business"),
     # Close answered tickets the customer left alone this many days (0: never).
     "ticket_auto_close_days": Spec(int, 0, "tickets"),
+    # Remind staff about open tickets waiting for a reply after this many minutes (0: off).
+    "ticket_reminder_minutes": Spec(int, 0, "tickets"),
+    # Alert staff once per open ticket until staff replies (anti-spam).
+    "ticket_single_alert": Spec(bool, False, "tickets"),
+    # Open support tickets only inside the Mini App instead of Telegram text prompts.
+    "ticket_miniapp_only": Spec(bool, False, "tickets"),
+    # FAQ items shown before opening a ticket: [{"q", "a", "btn_text"?, "btn_url"?}].
+    "support_faq": Spec(list, [], "tickets"),
     # a reseller's own bot (TEN-04); set on that bot's shop
     "resale_markup_percent": Spec(int, 20, "resale"),
     "resale_prices": Spec(dict, {}, "resale"),
@@ -167,6 +195,7 @@ SPECS: dict[str, Spec] = {
     "miniapp_accent": Spec(str, "", "appearance"),
     "miniapp_logo": Spec(bool, False, "appearance"),
     "miniapp_notice": Spec(str, "", "appearance"),
+    "miniapp_notice_expires_at": Spec(str, "", "appearance"),
     # guest purchase on the web (CAT-08)
     "guest_buy_enabled": Spec(bool, False, "guest"),
     "guest_plan_ids": Spec(list, [], "guest"),
@@ -227,6 +256,9 @@ SPECS: dict[str, Spec] = {
     "renew_resets_usage": Spec(bool, True, "services"),
     "renew_mode": Spec(str, "", "services"),  # "" follows renew_resets_usage (SVC-13)
     "warn_remaining_percent": Spec(int, 10, "services"),
+    # Warn when remaining data drops to or below this many GB; 0 is off.
+    "warn_remaining_gb": Spec(int, 0, "services"),
+    "on_hold_remind_hours": Spec(int, 24, "services"),
     # Tell staff when a panel's services reach this percent of its capacity; 0 is off.
     "capacity_warn_percent": Spec(int, 0, "services"),
     # Local hours (0-23) when customer alerts wait for the morning; off unless both are set.
@@ -235,6 +267,8 @@ SPECS: dict[str, Spec] = {
     "first_use_nudge_hours": Spec(int, 0, "services"),
     "alerts_quiet_end": Spec(int, None, "services"),
     "warn_days": Spec(int, 2, "services"),
+    # Warn when remaining time drops to this percent of the service period; 0 is off.
+    "warn_time_percent": Spec(int, 0, "services"),
     "delete_expired_after_days": Spec(int, 7, "services"),
     # Days before that cleanup the customer is warned; the deletion waits that long after it. 0 is off.
     "delete_warn_days": Spec(int, 2, "services"),
@@ -258,6 +292,7 @@ SPECS: dict[str, Spec] = {
     "move_price": Spec(int, 0, "services"),
     "self_delete_enabled": Spec(bool, False, "services"),
     "self_delete_refund_percent": Spec(int, 80, "services"),
+    "self_delete_require_approval": Spec(bool, False, "services"),
     "ip_notice_enabled": Spec(bool, True, "services"),
     # Shop-wide caps for customers (resellers follow their own profile's caps); 0 is no cap.
     "max_active_services": Spec(int, 0, "services"),
@@ -274,6 +309,8 @@ SPECS: dict[str, Spec] = {
     # ClockBot parity: the QR photo after delivery can be turned off, and can carry the link.
     "qr_send_enabled": Spec(bool, True, "services"),
     "qr_show_link": Spec(bool, False, "services"),
+    "qr_caption": Spec(str, "", "services"),
+    "qr_background_url": Spec(str, "", "services"),
     # custom purchase: the customer picks data and days (CAT-03)
     "custom_buy_enabled": Spec(bool, False, "custom"),
     "custom_panel_id": Spec(int, None, "custom"),
@@ -373,9 +410,11 @@ DAILY_SECTIONS = ("summary", "money", "panels")
 REPORT_TOPICS = (
     "orders",
     "payments",
+    "receipts",
     "users",
     "errors",
     "services",
+    "crons",
     "reports",
     "backups",
     "resellers",
@@ -383,10 +422,12 @@ REPORT_TOPICS = (
     "tickets",
     "trials",
     "referrals",
+    "other",
 )
 STAFF_EVENTS = (
     "receipt",
     "service_claim",
+    "cancellation_request",
     "card_verify",
     "order_failed",
     "reseller_application",
@@ -474,6 +515,14 @@ def _check(key: str, value: Any) -> None:
         raise SettingError("bulk_buy_tiers_invalid")
     if key == "delete_warn_days" and not 0 <= value <= 30:
         raise SettingError("delete_warn_days_invalid")
+    if key == "warn_time_percent" and not 0 <= value <= 99:
+        raise SettingError("warn_time_percent_invalid")
+    if key == "qr_caption" and len(str(value)) > 800:
+        raise SettingError("qr_caption_invalid")
+    if key == "qr_background_url" and value:
+        url = str(value).strip()
+        if len(url) > 500 or not url.startswith("https://"):
+            raise SettingError("qr_background_url_invalid")
     if key == "ticket_auto_close_days" and not 0 <= value <= 365:
         raise SettingError("ticket_auto_close_days_invalid")
     if key == "catalog_discount_percent" and not 0 <= value <= 90:
@@ -529,6 +578,70 @@ def _check(key: str, value: Any) -> None:
         raise SettingError(f"{key} must be an hour from 0 to 23")
     if key in {"max_active_services", "max_daily_purchases"} and value < 0:
         raise SettingError(f"{key} must not be negative")
+    if key == "trial_hours" and not 0 <= value <= 720:
+        raise SettingError("trial_hours must be between 0 and 720")
+    if key == "trial_mb" and not 0 <= value <= 102_400:
+        raise SettingError("trial_mb must be between 0 and 102400")
+    if key == "trial_panel_ids" and not all(
+        isinstance(item, int) and not isinstance(item, bool) and item > 0 for item in value
+    ):
+        raise SettingError("trial_panel_ids_invalid")
+    if key == "warn_remaining_gb" and not 0 <= value <= 10_000:
+        raise SettingError("warn_remaining_gb must be between 0 and 10000")
+    if key == "ticket_reminder_minutes" and not 0 <= value <= 10_080:
+        raise SettingError("ticket_reminder_minutes must be between 0 and 10080")
+    if key == "audit_retention_days" and value != 0 and not 7 <= value <= 3650:
+        raise SettingError("audit_retention_days must be 0 or between 7 and 3650")
+    if key == "reject_reasons":
+        if len(value) > 12 or not all(
+            isinstance(item, str) and 0 < len(item.strip()) <= 120 for item in value
+        ):
+            raise SettingError("reject_reasons_invalid")
+    if key == "support_faq":
+        if len(value) > 20:
+            raise SettingError("support_faq_invalid")
+        for item in value:
+            if not isinstance(item, dict):
+                raise SettingError("support_faq_invalid")
+    if key == "on_hold_remind_hours" and not 0 <= value <= 720:
+        raise SettingError("on_hold_remind_hours must be between 0 and 720")
+    if key == "miniapp_notice_expires_at" and value:
+        from datetime import datetime as _dt
+
+        try:
+            _dt.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            raise SettingError("miniapp_notice_expires_at_invalid") from None
+    if key == "cron_overrides":
+        if not isinstance(value, dict) or len(value) > 60:
+            raise SettingError("cron_overrides_invalid")
+        for cname, cfg in value.items():
+            if not isinstance(cname, str) or not cname or len(cname) > 64 or not isinstance(cfg, dict):
+                raise SettingError("cron_overrides_invalid")
+            enabled = cfg.get("enabled", True)
+            if not isinstance(enabled, bool):
+                raise SettingError("cron_overrides_invalid")
+            if cname == "worker.heartbeat" and not enabled:
+                raise SettingError("cron_protected")
+            interval = cfg.get("interval_seconds")
+            if interval is not None and (
+                isinstance(interval, bool) or not isinstance(interval, int) or not 30 <= interval <= 7 * 86400
+            ):
+                raise SettingError("cron_interval_invalid")
+            q, a = item.get("q"), item.get("a")
+            btn_text = str(item.get("btn_text") or "").strip()
+            btn_url = str(item.get("btn_url") or "").strip()
+            if (
+                not isinstance(q, str)
+                or not 0 < len(q.strip()) <= 60
+                or not isinstance(a, str)
+                or not 0 < len(a.strip()) <= 2000
+                or len(btn_text) > 40
+                or len(btn_url) > 300
+                or bool(btn_text) != bool(btn_url)
+                or (btn_url and not btn_url.startswith("https://"))
+            ):
+                raise SettingError("support_faq_invalid")
 
 
 def defaults() -> dict[str, Any]:

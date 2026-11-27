@@ -19,6 +19,10 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `terms_when` | str | "entry" | When to ask for the terms. Entry: before anything in the bot and Mini App. Purchase: only before buying (and after each new version) |
 | `typed_confirm_enabled` | bool | false | Type to confirm deletions. Deleting a service, a bulk delete or disable, and a large refund need a typed confirmation. Turn it on after the panel shows the confirm dialog |
 | `typed_confirm_refund_min` | int | 1000000 | Typed confirmation for refunds from (Toman). Refunds of this amount or more need the amount typed. Empty: never |
+| `discounts_enabled` | bool | true | Enable discount codes. Turn off to temporarily hide and block discount codes in both bot and Mini App |
+| `audit_retention_days` | int | 180 | Audit log retention (days). Delete audit log entries older than this many days (0 keeps forever; 7–3650) |
+| `light_mode` | bool | false | Light mode (low-resource VPS). Skip alternate ticks of heavy background sync loops to reduce CPU and panel load |
+| `cron_overrides` | dict | {} | Cron schedule overrides |
 | `auto_replies` | list | [] | Auto replies. When a free message contains one of these words, the bot answers with this instead of the menu |
 
 ## Free trial
@@ -26,13 +30,18 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `trial_enabled` | bool | true | Free trial on |
-| `trial_panel_id` | int | — | Trial panel. Panel number; empty uses the first active panel |
+| `trial_panel_id` | int | — | Trial panel. Legacy single-panel pin; leave empty to use Trial panels list or all allowed panels |
+| `trial_panel_ids` | list | [] | Trial panels. Choose any number of panels that offer trials. Empty allows every active panel with trials enabled |
+| `trial_choose_panel` | bool | true | Let customers choose trial server. When 2 or more panels allow trials, ask the customer which server to test before creating the trial |
 | `trial_days` | int | 1 | Trial days |
+| `trial_hours` | int | 0 | Trial hours. Optional hour-based duration (e.g. 2 or 6). When > 0, overrides Trial days |
 | `trial_gb` | int | 1 | Trial data (GB) |
+| `trial_mb` | int | 0 | Trial data (MB). Optional sub-GB data limit in MB (e.g. 200 or 500). When > 0, overrides Trial data (GB) |
 | `trial_generation` | int | 1 | Trial round. Raising it lets everyone take a trial again |
 | `trial_daily_quota` | int | 0 | Daily trial limit. 0 means no limit |
 | `trial_requires_phone` | bool | false | Trial needs phone |
 | `trial_min_account_minutes` | int | 0 | New account wait before trial (minutes). A brand-new account gets no free trial until this much time has passed. 0 turns it off. Makes accounts created only for a trial costlier |
+| `trial_hide_after_use` | bool | false | Hide trial button after use. Hide the free trial button from the customer menu once they used the current round |
 
 ## Referrals
 
@@ -109,6 +118,8 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `nowpayments_ipn_secret` | str (secret) | — | NowPayments IPN secret |
 | `plisio_enabled` | bool | false | Plisio |
 | `plisio_api_key` | str (secret) | — | Plisio API key |
+| `gateway_vpn_off_reminder` | bool | true | VPN-off reminder before gateway. Remind customers to turn off VPN before opening an Iranian payment gateway |
+| `reject_reasons` | list | [] | Preset rejection reasons. Quick-pick reasons shown to staff when rejecting receipts (up to 12 items) |
 
 ## Telegram Business
 
@@ -125,6 +136,10 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `ticket_auto_close_days` | int | 0 | Auto-close answered tickets. When you answered a ticket and the customer wrote nothing for this many days, it closes by itself. A ticket where the customer waits on you never closes by itself. 0 turns it off (0–365 days) |
+| `ticket_reminder_minutes` | int | 0 | Unanswered ticket reminder (minutes). Remind staff about open customer tickets waiting longer than this many minutes (0 disables) |
+| `ticket_single_alert` | bool | false | One alert per open ticket. Avoid repeated staff DMs on consecutive customer messages until staff replies |
+| `ticket_miniapp_only` | bool | false | Tickets in Mini App only. Send customers to the Mini App tickets screen instead of creating tickets inside Telegram chat (requires an HTTPS public URL) |
+| `support_faq` | list | [] | Support FAQ items. Common Q&A buttons shown before opening a new support ticket: [{"q": "...", "a": "..."}] |
 
 ## Resale
 
@@ -153,6 +168,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `miniapp_accent` | str | "" | Mini App accent colour. Presets only, so text stays readable in light and dark. Each reseller bot has its own |
 | `miniapp_logo` | bool | false | Mini App logo from the bot's profile photo. The bot's Telegram profile photo shows beside the shop name on the Mini App home screen (cached for a few hours) |
 | `miniapp_notice` | str | "" | Mini App home notice. One short paragraph (300 characters at most) above the wallet. Empty means none |
+| `miniapp_notice_expires_at` | str | "" | Mini App notice expiry (UTC ISO). Optional ISO timestamp (e.g. 2026-12-01T20:00:00Z) to automatically clear the Mini App notice banner |
 | `menu_layout` | list | [] | — |
 | `button_styles` | dict | {} | — |
 | `button_looks` | dict | {} | — |
@@ -239,11 +255,14 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `renew_resets_usage` | bool | true | Renewal resets usage. When off, leftover data carries over |
 | `renew_mode` | str | "" | When renewing. extend_reset, extend_carry, restart_reset or restart_carry; empty follows "Renewal resets usage". A plan can choose its own |
 | `warn_remaining_percent` | int | 10 | Low data warning (% left) |
+| `warn_remaining_gb` | int | 0 | Low volume alert (fixed GB). Warn when remaining traffic drops to or below this many GB (0 disables) |
+| `on_hold_remind_hours` | int | 24 | On-hold reminder after (hours). Remind customers whose ON_HOLD service has not connected yet after this many hours (0 disables) |
 | `capacity_warn_percent` | int | 0 | Panel capacity warning (%). Staff hear once when a panel's services reach this share of its capacity. 0 is off |
 | `alerts_quiet_start` | int | — | Reminders quiet from. Hour 0–23, server time. Data and expiry alerts due in this window go out in the morning. Empty is off |
 | `first_use_nudge_hours` | int | 0 | First-connection reminder (hours after purchase). If the service has no use at all by then, the customer is reminded of the connection guide once. 0 is off |
 | `alerts_quiet_end` | int | — | Reminders quiet until. E.g. 0 to 8: alerts due at midnight go out at 8:00 |
 | `warn_days` | int | 2 | Expiry warning (days left) |
+| `warn_time_percent` | int | 0 | Expiry warning (% time left). Warn when remaining time drops to this percent of the service period; 0 is off |
 | `delete_expired_after_days` | int | 7 | Delete expired after (days). 0 means never |
 | `delete_warn_days` | int | 2 | Warn before deletion (days). The customer is told this many days before the automatic deletion, and the deletion waits at least that long after the warning. 0 means no warning |
 | `usage_sync_minutes` | int | 10 | Usage sync interval (minutes) |
@@ -264,6 +283,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `move_price` | int | 0 | Location change price. 0 means free |
 | `self_delete_enabled` | bool | false | Customers can delete their own services |
 | `self_delete_refund_percent` | int | 80 | Refund of the unused value (%). What share of the unused part (time or data, whichever is less) of the last payment goes back to the wallet. 0 means no refund |
+| `self_delete_require_approval` | bool | false | Require staff approval for self-delete. Customers submit a cancellation request instead of deleting the service immediately; staff approve or reject it on the Services page |
 | `ip_notice_enabled` | bool | true | Tell customers when a device is cut off. For plans with a device limit on 3x-ui and Rebecca panels: when a new device pushes an older one off, the customer gets a short notice (at most once an hour) |
 | `max_active_services` | int | 0 | Most active services per customer. Active services plus orders on their way. 0 is no cap; resellers have their own |
 | `service_import_enabled` | bool | false | Add a previous service. A button in My services lets a customer add a service they have on these panels by its subscription link or username |
@@ -275,6 +295,8 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `info_card_qr` | bool | true | QR on the card. Turn off if customers share cards publicly and the link should stay private |
 | `qr_send_enabled` | bool | true | Send the QR after delivery |
 | `qr_show_link` | bool | false | Subscription link under the QR |
+| `qr_caption` | str | "" | Custom QR caption. Optional caption sent with the QR photo. Supports {name}, {username}, {shop} and {link}. Leave blank for the default text |
+| `qr_background_url` | str | "" | QR background image (HTTPS URL). Optional HTTPS image URL placed behind the delivered QR code on a white tile (max 2 MB) |
 | `username_method` | str | "telegram_id" | Default username style |
 | `username_prefix` | str | "" | Default prefix |
 | `username_suffix` | str | "" | Fixed username suffix. Added after every new panel username (up to 8 letters). Empty is none |

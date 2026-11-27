@@ -63,14 +63,19 @@ class UnsupportedChange(ValueError):
 
 
 def policy_for(
-    kind: OrderKind, mode: str = DEFAULT_MODE, *, queued: bool = False, lapsed: bool = False
+    kind: OrderKind,
+    mode: str = DEFAULT_MODE,
+    *,
+    queued: bool = False,
+    lapsed: bool = False,
+    carry_queued: bool = False,
 ) -> Policy:
     """The policy a change of `kind` follows. `mode` only matters for renewals."""
     if kind == OrderKind.RENEW:
         if lapsed:
             return FRESH
         policy = MODE_POLICIES.get(mode, MODE_POLICIES[DEFAULT_MODE])
-        if queued and policy.volume == "append":
+        if queued and not carry_queued and policy.volume == "append":
             # A queued renewal starts when the period ends, with fresh data.
             policy = MODE_POLICIES[DEFAULT_MODE]
         return policy

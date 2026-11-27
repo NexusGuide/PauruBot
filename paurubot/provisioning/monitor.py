@@ -82,6 +82,8 @@ async def _recent_failures(session: AsyncSession, panel_id: int, limit: int) -> 
 
 async def check_panel(session: AsyncSession, panel: Panel, now: datetime | None = None) -> CheckResult:
     """Probe one panel, store the check and stats, and queue alerts for state changes. Caller commits."""
+    if panel.national_mode:
+        return CheckResult(False, None, "national_network_mode", [])
     now = now or utcnow()
     started = time.monotonic()
     error: str | None = None
@@ -148,7 +150,13 @@ async def _quota_warning(session: AsyncSession, panel: Panel) -> list[str]:
 
 async def run(session: AsyncSession) -> int:
     """Check every active panel. Commits per panel; returns how many were checked."""
-    ids = list(await session.scalars(select(Panel.id).where(Panel.is_active.is_(True)).order_by(Panel.id)))
+    ids = list(
+        await session.scalars(
+            select(Panel.id)
+            .where(Panel.is_active.is_(True), Panel.national_mode.is_(False))
+            .order_by(Panel.id)
+        )
+    )
     for panel_id in ids:
         panel = await session.get(Panel, panel_id)
         if panel is None:

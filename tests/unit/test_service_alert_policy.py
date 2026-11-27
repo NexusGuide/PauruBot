@@ -22,7 +22,12 @@ def test_projection_is_only_two_non_secret_thresholds_without_mutating_cfg():
     cfg = settings.defaults()
     cfg.update(zarinpal_merchant="SYNTHETIC-SECRET", warn_days=4, warn_remaining_percent=30)
     original = dict(cfg)
-    assert alert_policy.service_alert_policy(cfg) == {"warn_days": 4, "warn_remaining_percent": 30}
+    assert alert_policy.service_alert_policy(cfg) == {
+        "warn_days": 4,
+        "warn_remaining_percent": 30,
+        "warn_remaining_gb": 0,
+        "warn_time_percent": 0,
+    }
     assert cfg == original
     assert "SYNTHETIC-SECRET" not in json.dumps(alert_policy.service_alert_policy(cfg))
 
@@ -30,12 +35,32 @@ def test_projection_is_only_two_non_secret_thresholds_without_mutating_cfg():
 @pytest.mark.parametrize(
     "percent,days,expected",
     [
-        (10, 2, {"warn_remaining_percent": 10, "warn_days": 2}),
-        (None, None, {"warn_remaining_percent": 0, "warn_days": 0}),
-        (0, 0, {"warn_remaining_percent": 0, "warn_days": 0}),
-        (-1, -2, {"warn_remaining_percent": -1, "warn_days": -2}),
-        (120, 40, {"warn_remaining_percent": 120, "warn_days": 40}),
-        ("10", "2", {"warn_remaining_percent": 10, "warn_days": 2}),
+        (
+            10,
+            2,
+            {"warn_remaining_percent": 10, "warn_remaining_gb": 0, "warn_days": 2, "warn_time_percent": 0},
+        ),
+        (
+            None,
+            None,
+            {"warn_remaining_percent": 0, "warn_remaining_gb": 0, "warn_days": 0, "warn_time_percent": 0},
+        ),
+        (0, 0, {"warn_remaining_percent": 0, "warn_remaining_gb": 0, "warn_days": 0, "warn_time_percent": 0}),
+        (
+            -1,
+            -2,
+            {"warn_remaining_percent": -1, "warn_remaining_gb": 0, "warn_days": -2, "warn_time_percent": 0},
+        ),
+        (
+            120,
+            40,
+            {"warn_remaining_percent": 120, "warn_remaining_gb": 0, "warn_days": 40, "warn_time_percent": 0},
+        ),
+        (
+            "10",
+            "2",
+            {"warn_remaining_percent": 10, "warn_remaining_gb": 0, "warn_days": 2, "warn_time_percent": 0},
+        ),
     ],
 )
 def test_projection_preserves_existing_integer_semantics(percent, days, expected):
@@ -224,3 +249,77 @@ async def test_a_service_never_used_gets_one_first_use_nudge(monkeypatch, age_ho
     assert ("first_use" in result) == expected
     if expected:  # once only
         assert "first_use" not in await sync.evaluate_alerts(object(), service, ServiceStatus.ACTIVE)
+
+
+@pytest.mark.asyncio
+async def test_low_volume_and_limited_dedupe_keys_include_period(monkeypatch):
+    """Renewing to the same data_limit starts a fresh dedupe key so alerts are not suppressed."""
+    monkeypatch.setattr(sync, "datetime", FixedDatetime)
+    policy = {"warn_days": 0, "warn_remaining_percent": 20, "warn_time_percent": 0}
+    monkeypatch.setattr(sync.shop_settings, "load", AsyncMock(return_value=policy))
+    monkeypatch.setattr(sync.orders, "has_queued", AsyncMock(return_value=False))
+    monkeypatch.setattr(sync.orders, "release_queued", AsyncMock(return_value=False))
+    enqueue = AsyncMock()
+    monkeypatch.setattr(sync.queue, "enqueue", enqueue)
+
+    s1 = SimpleNamespace(
+        id=7,
+        shop_id=42,
+        status=ServiceStatus.ACTIVE,
+        data_limit=100,
+        used_bytes=90,
+        alerts_sent={},
+        expire_at=NOW + timedelta(days=10),
+    )
+    assert await sync.evaluate_alerts(object(), s1, ServiceStatus.ACTIVE) == ["low_volume"]
+    key1 = enqueue.await_args.kwargs["dedupe_key"]
+
+    s2 = SimpleNamespace(
+        id=7,
+        shop_id=42,
+        status=ServiceStatus.ACTIVE,
+        data_limit=100,
+        used_bytes=90,
+        alerts_sent={},
+        expire_at=NOW + timedelta(days=40),
+    )
+    assert await sync.evaluate_alerts(object(), s2, ServiceStatus.ACTIVE) == ["low_volume"]
+    key2 = enqueue.await_args.kwargs["dedupe_key"]
+    assert key1 != key2
+
+
+@pytest.mark.asyncio
+async def test_warn_time_percent_triggers_expiring_even_when_warn_days_is_zero(monkeypatch):
+    monkeypatch.setattr(sync, "datetime", FixedDatetime)
+    policy = {"warn_days": 0, "warn_remaining_percent": 0, "warn_time_percent": 20}
+    monkeypatch.setattr(sync.shop_settings, "load", AsyncMock(return_value=policy))
+    monkeypatch.setattr(sync.orders, "has_queued", AsyncMock(return_value=False))
+    monkeypatch.setattr(sync.orders, "release_queued", AsyncMock(return_value=False))
+    enqueue = AsyncMock()
+    monkeypatch.setattr(sync.queue, "enqueue", enqueue)
+
+    # 30-day plan with 5 days left (16.7% <= 20%) -> expiring
+    service_warn = SimpleNamespace(
+        id=9,
+        shop_id=42,
+        status=ServiceStatus.ACTIVE,
+        data_limit=0,
+        used_bytes=0,
+        alerts_sent={},
+        plan=SimpleNamespace(days=30),
+        expire_at=NOW + timedelta(days=5),
+    )
+    assert await sync.evaluate_alerts(object(), service_warn, ServiceStatus.ACTIVE) == ["expiring"]
+
+    # 30-day plan with 10 days left (33.3% > 20%) -> no warning
+    service_ok = SimpleNamespace(
+        id=10,
+        shop_id=42,
+        status=ServiceStatus.ACTIVE,
+        data_limit=0,
+        used_bytes=0,
+        alerts_sent={},
+        plan=SimpleNamespace(days=30),
+        expire_at=NOW + timedelta(days=10),
+    )
+    assert await sync.evaluate_alerts(object(), service_ok, ServiceStatus.ACTIVE) == []

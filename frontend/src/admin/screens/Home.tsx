@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { money } from "@shared/format";
+import { digits, money } from "@shared/format";
 import { call, type Dashboard, type InboxItem } from "../api";
 import { Columns } from "../chart";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
+import { BuildStatus } from "./BuildStatus";
 import { InboxResetButton } from "./ClockTools";
 import { Async, Badge, Button, Empty, Field, Icon, Money, Page, Section, Sheet, Textarea, When } from "../ui";
 
@@ -207,6 +208,39 @@ function MonthChart({ data }: { data: Dashboard }) {
   );
 }
 
+function HostHealth({ data }: { data: Dashboard }) {
+  const { t, locale } = useSession();
+  const host = data.host;
+  if (!host) return null;
+  const rows = [
+    { key: "cpu", label: t("dash_host_cpu"), value: host.cpu_percent },
+    { key: "ram", label: t("dash_host_ram"), value: host.ram_percent },
+    { key: "disk", label: t("dash_host_disk"), value: host.disk_percent },
+  ].filter((item): item is { key: string; label: string; value: number } => typeof item.value === "number");
+  if (rows.length === 0) return null;
+  return (
+    <Section title={t("dash_host")}>
+      <div className="flex flex-col gap-3">
+        {rows.map((row) => {
+          const pct = Math.max(0, Math.min(100, Math.round(row.value)));
+          const barTone = pct >= 85 ? "bg-anar-500" : pct >= 70 ? "bg-saffron-500" : "bg-pista-700";
+          return (
+            <div key={row.key} className="flex flex-col gap-1">
+              <div className="flex items-center justify-between text-[0.84rem]">
+                <span className="text-[var(--hint)]">{row.label}</span>
+                <span className="num font-semibold">{digits(pct, locale)}%</span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
+                <div className={`h-full rounded-full ${barTone}`} style={{ width: `${pct}%` }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
 function PanelHealth({ data }: { data: Dashboard }) {
   const { t } = useSession();
   if (!data.panels || data.panels.length === 0) return null;
@@ -246,6 +280,7 @@ const TYPE_LOOK = {
   order: { icon: "alert", tint: "bg-anar-100 text-anar-700" },
   job: { icon: "alert", tint: "bg-anar-100 text-anar-700" },
   application: { icon: "resellers", tint: "bg-[#2a2344] text-[#cdbbff]" },
+  cancellation: { icon: "alert", tint: "bg-saffron-100 text-saffron-700" },
 } as const;
 
 function InboxRow({
@@ -304,6 +339,18 @@ function InboxRow({
             )}
             {item.type === "job" && <span dir="ltr">{item.kind}</span>}
             {item.type === "application" && t("inbox_application_title", { id: item.id })}
+            {item.type === "cancellation" && (
+              <>
+                <bdi>{item.subject}</bdi>{" "}
+                <bdi className="text-[var(--hint)]">{item.customer}</bdi>
+                {item.amount ? (
+                  <>
+                    {" · "}
+                    <Money amount={item.amount} />
+                  </>
+                ) : null}
+              </>
+            )}
           </p>
           {item.error && <p className="line-clamp-2 text-[0.8rem] text-anar-700" dir="auto">{item.error}</p>}
         </div>
@@ -334,6 +381,11 @@ function InboxRow({
           )}
           {item.type === "application" && (
             <Link className="text-[0.85rem] font-semibold text-firouzeh-700" to="/resellers">
+              {t("review")}
+            </Link>
+          )}
+          {item.type === "cancellation" && (
+            <Link className="text-[0.85rem] font-semibold text-firouzeh-700" to="/services">
               {t("review")}
             </Link>
           )}
@@ -525,7 +577,7 @@ export function Home() {
     day: "numeric",
     month: "long",
   }).format(new Date());
-  const inbox = can("payments.read") || can("tickets.read") || can("orders.read");
+  const inbox = can("payments.read") || can("tickets.read") || can("orders.read") || can("services.read");
   return (
     <Page title={t("home_hello", { name })} wide>
       <p className="-mt-4 text-[0.85rem] text-[var(--hint)] md:-mt-5">{today}</p>
@@ -543,6 +595,8 @@ export function Home() {
                 <div className="flex flex-col gap-4">
                   <Tiles data={value} />
                   <PanelHealth data={value} />
+                  <HostHealth data={value} />
+                  <BuildStatus />
                 </div>
               </div>
               {inbox && <Inbox />}

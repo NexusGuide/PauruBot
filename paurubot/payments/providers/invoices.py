@@ -150,9 +150,10 @@ class NowPaymentsProvider(_Invoice):
             return Verification(False, detail=f"canceled: {status}")
         if status != "finished":
             return Verification(False, detail=f"waiting: {status}")
-        return Verification(
-            True, provider_tx_id=f"np:{data.get('payment_id')}", amount=payment.amount, currency="IRT"
-        )
+        pid = data.get("payment_id")
+        if pid is None or not str(pid).strip():
+            return Verification(False, detail="missing payment_id")
+        return Verification(True, provider_tx_id=f"np:{pid}", amount=payment.amount, currency="IRT")
 
 
 class PlisioProvider(_Invoice):

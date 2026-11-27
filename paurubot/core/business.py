@@ -8,6 +8,7 @@ for accounts that are not staff, and never answers itself.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,7 +36,7 @@ def validate_rules(value: Any) -> list[dict[str, Any]]:
         if not isinstance(item, dict):
             raise BusinessError("business_rules_invalid")
         raw = item.get("keywords")
-        words = raw.split(",") if isinstance(raw, str) else raw if isinstance(raw, list) else []
+        words = re.split(r"[,\u060c]", raw) if isinstance(raw, str) else raw if isinstance(raw, list) else []
         keywords = [str(w).strip().lower()[:40] for w in words if str(w).strip()][:10]
         reply = str(item.get("reply") or "").strip()
         if not keywords or not reply or len(reply) > MAX_REPLY:
@@ -90,16 +91,16 @@ async def reply_for(
         return None
     if await kv.get_redis().exists(_quiet_key(row.id, chat_id)):
         return None
+    link = f"https://t.me/{bot_username}" if bot_username else ""
     answer = match(cfg.get("business_rules") or [], text)
     if answer:
         allowed, _ = await kv.hit(f"biz:replies:{row.id}:{chat_id}", REPLIES_PER_HOUR, 3600)
         # Someone repeating keywords must not make the owner's account spam them back.
-        return answer if allowed else None
+        return answer.replace("{bot}", link) if allowed else None
     standard = str(cfg.get("business_reply") or "").strip()
     if not standard:
         return None
     hours = max(1, int(cfg.get("business_reply_every_hours") or 12))
     if not await kv.set_once(f"biz:standard:{row.id}:{chat_id}", hours * 3600):
         return None
-    link = f"https://t.me/{bot_username}" if bot_username else ""
     return standard.replace("{bot}", link)

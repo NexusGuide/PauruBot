@@ -11,7 +11,31 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from paurubot.db.models import AuditLog
 from paurubot.logs import correlation_id
 
-SECRET_FIELDS = {"password_hash", "password_enc", "bot_token_enc", "webhook_secret_enc", "tls_cert_pem"}
+SECRET_FIELDS = {
+    "password_hash",
+    "password_enc",
+    "bot_token_enc",
+    "webhook_secret_enc",
+    "tls_cert_pem",
+    "key_hash",
+    "payload_enc",
+    "guest_token",
+    "credentials_enc",
+    "token_enc",
+    "secret_enc",
+}
+
+
+def _scrub(value: Any) -> Any:
+    """Recursively mask secret fields in plain dict/list data (JSON columns included)."""
+    if isinstance(value, dict):
+        return {
+            key: "***" if key in SECRET_FIELDS and item is not None else _scrub(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_scrub(item) for item in value]
+    return value
 
 
 @dataclass(slots=True, frozen=True)
@@ -40,6 +64,8 @@ def snapshot(obj: Any, fields: list[str] | None = None) -> dict[str, Any]:
             value = value.isoformat()
         elif hasattr(value, "value") and not isinstance(value, (int, str)):
             value = value.value
+        elif isinstance(value, (dict, list)):
+            value = _scrub(value)
         data[key] = value
     return data
 

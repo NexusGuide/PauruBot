@@ -79,7 +79,9 @@ def auto_reply(text: str, rules: list[Any]) -> str | None:
     if not folded.strip():
         return None
     for rule in rules:
-        if isinstance(rule, dict) and any(_fold(str(w)).strip() in folded for w in rule.get("words") or []):
+        if isinstance(rule, dict) and any(
+            (kw := _fold(str(w)).strip()) and kw in folded for w in rule.get("words") or []
+        ):
             return str(rule.get("text") or "") or None
     return None
 

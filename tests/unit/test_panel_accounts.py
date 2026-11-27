@@ -385,11 +385,11 @@ async def test_renewal_packages_and_a_custom_renewal_per_plan(session, env) -> N
 
 
 def test_renewal_packages_are_validated() -> None:
-    good = [{"days": 30, "gb": 0, "price": 0}]
+    good = [{"days": 30, "gb": 0, "price": 0}, {"days": 0, "gb": 0, "price": 0}]
     assert panel_accounts.clean_packages(good) == good
     for bad in (
         "x",
-        [{"days": 0, "gb": 1, "price": 1}],
+        [{"days": -1, "gb": 1, "price": 1}],
         [{"days": 30, "gb": -1, "price": 1}],
         [{"days": 30, "gb": 1, "price": True}],
         [{"days": 30, "gb": 1}],

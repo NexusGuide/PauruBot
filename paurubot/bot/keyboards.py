@@ -13,7 +13,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from paurubot.bot.callbacks import Lang, Nav, Pay, Shop, Svc, Ticket, Wallet
 from paurubot.core.formatting import money
-from paurubot.db.models import Category, ForcedChannel, Location, Plan, Service, ServiceStatus
+from paurubot.db.models import Category, ForcedChannel, Location, Panel, Plan, Service, ServiceStatus
 from paurubot.i18n import Texts
 
 STATUS_ICON = {
@@ -91,6 +91,21 @@ def back(t: Texts, callback: str, label: str = "btn_back") -> InlineKeyboardMark
     return InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text=t(label), callback_data=callback)]]
     )
+
+
+def trial_panels_kb(t: Texts, panels: Sequence[Panel]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for panel in panels:
+        loc = panel.location if "location" in panel.__dict__ and panel.location is not None else None
+        if loc is not None:
+            prefix = f"{loc.flag} {loc.title}" if loc.flag else loc.title
+            label = f"{prefix} · {panel.name}" if panel.name != loc.title else prefix
+        else:
+            label = panel.name
+        kb.button(text=label[:60], callback_data=Nav(to="trial", arg=panel.id))
+    kb.adjust(2)
+    kb.row(InlineKeyboardButton(text=t("btn_cancel"), callback_data=Nav(to="home").pack()))
+    return kb.as_markup()
 
 
 def locations_kb(t: Texts, items: Sequence[Location]) -> InlineKeyboardMarkup:
@@ -479,21 +494,70 @@ def confirm(t: Texts, yes: str, no: str) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def tickets_kb(t: Texts, items: Sequence[Any]) -> InlineKeyboardMarkup:
+def _ticket_open_button(
+    t: Texts, label_key: str, *, miniapp_url: str | None = None, action: str = "new"
+) -> InlineKeyboardButton:
+    if miniapp_url:
+        from aiogram.types import WebAppInfo
+
+        return InlineKeyboardButton(text=t(label_key), web_app=WebAppInfo(url=miniapp_url))
+    return InlineKeyboardButton(text=t(label_key), callback_data=Ticket(action=action).pack())
+
+
+def tickets_kb(
+    t: Texts,
+    items: Sequence[Any],
+    *,
+    has_faq: bool = False,
+    miniapp_url: str | None = None,
+) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    for ticket in items:
+    if not miniapp_url:
+        for ticket in items:
+            kb.row(
+                InlineKeyboardButton(
+                    text=t(
+                        "ticket_button",
+                        id=ticket.id,
+                        subject=ticket.subject,
+                        status=t(f"ticket_status_{ticket.status.value}"),
+                    ),
+                    callback_data=Ticket(action="view", id=ticket.id).pack(),
+                )
+            )
+    if has_faq:
+        kb.row(InlineKeyboardButton(text=t("btn_support_faq"), callback_data=Ticket(action="faq").pack()))
+    kb.row(
+        _ticket_open_button(
+            t,
+            "btn_tickets_miniapp" if miniapp_url else "btn_new_ticket",
+            miniapp_url=miniapp_url,
+            action="new",
+        )
+    )
+    return kb.as_markup()
+
+
+def support_faq_kb(
+    t: Texts, items: Sequence[dict[str, Any]], *, miniapp_url: str | None = None
+) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for idx, item in enumerate(items):
         kb.row(
             InlineKeyboardButton(
-                text=t(
-                    "ticket_button",
-                    id=ticket.id,
-                    subject=ticket.subject,
-                    status=t(f"ticket_status_{ticket.status.value}"),
-                ),
-                callback_data=Ticket(action="view", id=ticket.id).pack(),
+                text=str(item.get("q") or "")[:60],
+                callback_data=Ticket(action="faq_item", id=idx).pack(),
             )
         )
-    kb.row(InlineKeyboardButton(text=t("btn_new_ticket"), callback_data=Ticket(action="new").pack()))
+    kb.row(
+        _ticket_open_button(
+            t,
+            "btn_tickets_miniapp" if miniapp_url else "btn_ticket_continue",
+            miniapp_url=miniapp_url,
+            action="new_direct",
+        )
+    )
+    kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Ticket(action="list").pack()))
     return kb.as_markup()
 
 

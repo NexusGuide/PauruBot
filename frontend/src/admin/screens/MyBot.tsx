@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { call, type CatalogData } from "../api";
+import { call, type BotWebhookStatus, type CatalogData } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
 import { Async, Badge, Button, Facts, Field, Input, Money, NumberInput, Page, Section, Toggle, useConfirm } from "../ui";
+import { BotLogsSheet } from "./BotLogsSheet";
 import { CardAccounts, type CardAccount } from "./System";
 
 interface BotSettings {
@@ -34,6 +35,69 @@ export interface ResellerBot {
 
 const round100 = (value: number) => Math.round(value / 100) * 100;
 
+export function WebhookHealth({
+  basePath,
+  compact = false,
+}: {
+  basePath: string;
+  compact?: boolean;
+}) {
+  const { t, toast, errorText } = useSession();
+  const [info, setInfo] = useState<BotWebhookStatus | null>(null);
+  const [busy, run] = useAction();
+  const check = async () => {
+    try {
+      const res = await run(() => call<BotWebhookStatus>(`${basePath}/webhook`));
+      if (res) setInfo(res);
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  const repoint = async () => {
+    try {
+      const res = await run(() => call<BotWebhookStatus>(`${basePath}/webhook/repoint`, { method: "POST" }));
+      if (res) setInfo(res);
+      toast(t("webhook_repointed"));
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <div className={compact ? "flex flex-col gap-2" : "flex flex-col gap-2 rounded-xl bg-[var(--bg)] px-3 py-2.5"}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button small tone="quiet" busy={busy} onClick={() => void check()}>
+          {t("webhook_check")}
+        </Button>
+        <Button small tone="quiet" busy={busy} onClick={() => void repoint()}>
+          {t("webhook_repoint")}
+        </Button>
+        {info && (
+          <Badge tone={info.ok ? "health" : "loss"}>
+            {info.ok ? t("webhook_ok") : info.error ? t("webhook_error") : t("webhook_mismatch")}
+          </Badge>
+        )}
+      </div>
+      {info && (
+        <div className="flex flex-col gap-1 text-[0.78rem] text-[var(--hint)]">
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <span>{t("webhook_pending", { count: info.pending_update_count })}</span>
+            {info.url && (
+              <span className="truncate" dir="ltr">
+                {info.url}
+              </span>
+            )}
+          </div>
+          {(info.last_error_message || info.error) && (
+            <p className="text-[var(--loss)]" dir="ltr">
+              {info.last_error_message || info.error}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function BotFigures({ data }: { data: ResellerBot }) {
   const { t } = useSession();
   return (
@@ -59,6 +123,7 @@ export function MyBot() {
   const [token, setToken] = useState("");
   const [title, setTitle] = useState("");
   const [draft, setDraft] = useState<BotSettings | null>(null);
+  const [logsOpen, setLogsOpen] = useState(false);
 
   useEffect(() => {
     if (state.data?.settings) setDraft(state.data.settings);
@@ -115,12 +180,42 @@ export function MyBot() {
                 <Button tone="primary" busy={busy} disabled={!token.trim() || data.metered || data.blocked} onClick={() => void save(true)}>
                   {data.connected ? t("my_bot_replace") : t("my_bot_connect")}
                 </Button>
+                {data.shop_id && (
+                  <Button tone="quiet" onClick={() => setLogsOpen(true)}>
+                    {t("bot_logs_open")}
+                  </Button>
+                )}
                 {data.connected && <Button tone="danger" busy={busy} onClick={() => void stop()}>{t("my_bot_stop")}</Button>}
               </div>
+              {data.connected && (
+                <div className="mt-3">
+                  <WebhookHealth basePath="/api/admin/my-bot" />
+                </div>
+              )}
+              {logsOpen && data.shop_id && (
+                <BotLogsSheet
+                  basePath="/api/admin/my-bot/logs"
+                  title={data.bot_username ? `@${data.bot_username}` : data.title ?? t("nav_my_bot")}
+                  onClose={() => setLogsOpen(false)}
+                />
+              )}
             </Section>
             {data.connected && draft && (
               <>
-                <Section title={t("my_bot_prices")}>
+                <Section
+                  title={t("my_bot_prices")}
+                  actions={
+                    Object.keys(draft.resale_prices).length > 0 ? (
+                      <Button
+                        small
+                        tone="quiet"
+                        onClick={() => setDraft({ ...draft, resale_prices: {} })}
+                      >
+                        {t("my_bot_prices_reset")}
+                      </Button>
+                    ) : undefined
+                  }
+                >
                   <div className="flex flex-col gap-4">
                     <Field label={t("my_bot_markup")} hint={t("my_bot_markup_hint")}>
                       {(id) => <NumberInput id={id} value={draft.resale_markup_percent} onChange={(v) => setDraft({ ...draft, resale_markup_percent: v ?? 0 })} />}

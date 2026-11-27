@@ -146,23 +146,32 @@ function LayoutEditor({
         >
           {t("menu_new_row")}
         </div>
-        <div className="rounded-xl bg-[var(--surface)] px-2 py-2.5 text-center text-[0.82rem] font-semibold ring-1 ring-[var(--line)]">
+        <button
+          type="button"
+          onClick={() => setSelected(selected === "admin" ? null : "admin")}
+          aria-pressed={selected === "admin"}
+          className={`rounded-xl px-2 py-2.5 text-center text-[0.82rem] font-semibold ${STYLE_CLASS[styles.admin?.style ?? ""]} ${
+            selected === "admin" ? "outline outline-2 outline-offset-2 outline-saffron-500" : ""
+          }`}
+        >
           {t("menu_btn_admin")}
-        </div>
+        </button>
       </div>
 
       {selected && (
         <div className="flex flex-col gap-3 rounded-xl bg-[var(--bg)] p-3">
-          <p className="text-[0.88rem] font-bold">{t(LABEL_KEY[selected] ?? selected)}</p>
-          <div className="flex flex-wrap gap-2">
-            <Button small onClick={() => nudge(-1, 0)}>{t("move_up")}</Button>
-            <Button small onClick={() => nudge(1, 0)}>{t("move_down")}</Button>
-            <Button small onClick={() => nudge(0, -1)}>{t("move_start")}</Button>
-            <Button small onClick={() => nudge(0, 1)}>{t("move_end")}</Button>
-            {selected !== "buy" && selected !== "services" && (
-              <Button small tone="danger" onClick={hide}>{t("hide_button")}</Button>
-            )}
-          </div>
+          <p className="text-[0.88rem] font-bold">{t(selected === "admin" ? "menu_btn_admin" : (LABEL_KEY[selected] ?? selected))}</p>
+          {selected !== "admin" && (
+            <div className="flex flex-wrap gap-2">
+              <Button small onClick={() => nudge(-1, 0)}>{t("move_up")}</Button>
+              <Button small onClick={() => nudge(1, 0)}>{t("move_down")}</Button>
+              <Button small onClick={() => nudge(0, -1)}>{t("move_start")}</Button>
+              <Button small onClick={() => nudge(0, 1)}>{t("move_end")}</Button>
+              {selected !== "buy" && selected !== "services" && (
+                <Button small tone="danger" onClick={hide}>{t("hide_button")}</Button>
+              )}
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={t("button_colour")} hint={t("button_colour_hint")}>
               {(id) => (
@@ -175,10 +184,20 @@ function LayoutEditor({
                 </Select>
               )}
             </Field>
-            <Field label={t("button_emoji_id")} hint={t("button_emoji_id_hint")}>
+            <Field
+              label={t("button_emoji_id")}
+              hint={selected === "miniapp" ? t("button_emoji_miniapp_disabled") : t("button_emoji_id_hint")}
+            >
               {(id) => (
-                <Input id={id} dir="ltr" inputMode="numeric" maxLength={25} value={style.emoji_id ?? ""}
-                  onChange={(e) => setStyle({ emoji_id: e.target.value.replace(/\D/g, "") })} />
+                <Input
+                  id={id}
+                  dir="ltr"
+                  inputMode="numeric"
+                  maxLength={25}
+                  disabled={selected === "miniapp"}
+                  value={selected === "miniapp" ? "" : (style.emoji_id ?? "")}
+                  onChange={(e) => setStyle({ emoji_id: e.target.value.replace(/\D/g, "") })}
+                />
               )}
             </Field>
           </div>
@@ -287,6 +306,36 @@ export function BotMenu() {
     setGuides((values.connection_guides as Guide[]) ?? []);
     setMenuMode((values.menu_mode as string) || "reply");
   }, [data, values]);
+
+  const dirty = useMemo(() => {
+    if (!data) return false;
+    const savedLayout = (values.menu_layout as Layout | undefined);
+    const baseLayout = savedLayout && savedLayout.length ? savedLayout : DEFAULT_LAYOUT;
+    const baseHelp = ((values.help_items as HelpItem[]) ?? []).map((h) => ({ title: h.title, text: h.text ?? "", url: h.url ?? "" }));
+    const baseApps = ((values.download_apps as AppItem[]) ?? []).map((a) => ({ ...a, repo: a.repo ?? "", pattern: a.pattern ?? "", store_url: a.store_url ?? "" }));
+    return (
+      JSON.stringify({ layout, styles, help, apps, cacheChat, guides, menuMode }) !==
+      JSON.stringify({
+        layout: baseLayout,
+        styles: (values.button_styles as Styles) ?? {},
+        help: baseHelp,
+        apps: baseApps,
+        cacheChat: (values.app_cache_chat_id as number | null) ?? null,
+        guides: (values.connection_guides as Guide[]) ?? [],
+        menuMode: (values.menu_mode as string) || "reply",
+      })
+    );
+  }, [data, values, layout, styles, help, apps, cacheChat, guides, menuMode]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const onUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
+  }, [dirty]);
 
   const save = async () => {
     try {

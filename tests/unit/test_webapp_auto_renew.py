@@ -29,8 +29,15 @@ class Savepoint:
 
 @pytest.fixture
 def auto_api(monkeypatch):  # type: ignore[no-untyped-def]
-    service = SimpleNamespace(id=19, auto_renew=None, status=ServiceStatus.ACTIVE, is_trial=False)
-    session = SimpleNamespace(begin_nested=lambda: Savepoint(service), flush=AsyncMock(), commit=AsyncMock())
+    service = SimpleNamespace(
+        id=19, panel_id=None, auto_renew=None, status=ServiceStatus.ACTIVE, is_trial=False
+    )
+    session = SimpleNamespace(
+        begin_nested=lambda: Savepoint(service),
+        flush=AsyncMock(),
+        commit=AsyncMock(),
+        get=AsyncMock(return_value=None),
+    )
     ctx = SimpleNamespace(
         session=session, customer=SimpleNamespace(id=7), shop=SimpleNamespace(id=9), real_view=route._view
     )
@@ -268,7 +275,7 @@ async def test_preview_uses_real_draft_validation_but_no_order_or_wallet_charge(
         SimpleNamespace(id=3, title="Monthly", renewable=True, delivery="subscription"),
         SimpleNamespace(id=4, renewable=False),
     ]
-    monkeypatch.setattr(route.catalog, "plans", AsyncMock(return_value=offered))
+    monkeypatch.setattr(route.catalog, "plans_for_service", AsyncMock(return_value=offered))
 
     async def draft(db, customer, kind, **kwargs):  # type: ignore[no-untyped-def]
         if kwargs.get("extra_days"):

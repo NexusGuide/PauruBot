@@ -179,7 +179,13 @@ async def find_code(session: AsyncSession, shop_id: int, text: str) -> DiscountC
 
 
 async def validate_code(
-    session: AsyncSession, code: DiscountCode, customer: Customer, *, plan_id: int | None, amount: int
+    session: AsyncSession,
+    code: DiscountCode,
+    customer: Customer,
+    *,
+    plan_id: int | None,
+    amount: int,
+    account_plan_id: int | None = None,
 ) -> None:
     now = datetime.now(UTC)
     if not code.is_active or code.shop_id != customer.shop_id:
@@ -192,8 +198,13 @@ async def validate_code(
         raise DiscountError("discount_expired")
     if code.max_uses is not None and code.used_count >= code.max_uses:
         raise DiscountError("discount_used_up")
-    if code.plan_ids and plan_id not in code.plan_ids:
-        raise DiscountError("discount_wrong_plan")
+    acct_plans = list(getattr(code, "account_plan_ids", None) or [])
+    if code.plan_ids or acct_plans:
+        if account_plan_id is not None:
+            if account_plan_id not in acct_plans:
+                raise DiscountError("discount_wrong_plan")
+        elif plan_id not in (code.plan_ids or []):
+            raise DiscountError("discount_wrong_plan")
     if amount < code.min_amount:
         raise DiscountError("discount_min_amount")
     if code.per_customer_limit:

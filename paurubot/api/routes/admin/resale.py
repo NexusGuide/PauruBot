@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -164,3 +165,88 @@ async def allow_reseller_bot(profile_id: int, ctx: Manager, db: DB) -> dict[str,
         )
     await db.commit()
     return await _view(db, profile)
+
+
+async def _webhook_check(db: DB, profile: ResellerProfile) -> dict[str, Any]:
+    shop = await resale.shop_of(db, profile)
+    if shop is None or shop.bot_token_enc is None:
+        raise HTTPException(status_code=422, detail="reseller_bot_not_connected")
+    return await resale.webhook_status(shop.id)
+
+
+async def _webhook_repoint(db: DB, ctx: StaffContext, profile: ResellerProfile) -> dict[str, Any]:
+    shop = await resale.shop_of(db, profile)
+    if shop is None or shop.bot_token_enc is None:
+        raise HTTPException(status_code=422, detail="reseller_bot_not_connected")
+    try:
+        await resale.point_webhook(shop.id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)[:200]) from None
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="reseller_bot.webhook_repoint",
+        entity="reseller_profile",
+        entity_id=profile.id,
+        after={"shop_id": shop.id},
+    )
+    await db.commit()
+    return await resale.webhook_status(shop.id)
+
+
+@router.get("/my-bot/webhook")
+async def my_bot_webhook(ctx: OwnBot, db: DB) -> dict[str, Any]:
+    return await _webhook_check(db, await _own_profile(db, ctx))
+
+
+@router.post("/my-bot/webhook/repoint")
+async def repoint_my_bot_webhook(ctx: OwnBot, db: DB) -> dict[str, Any]:
+    return await _webhook_repoint(db, ctx, await _own_profile(db, ctx))
+
+
+@router.get("/resellers/{profile_id}/bot/webhook")
+async def reseller_bot_webhook(profile_id: int, ctx: Manager, db: DB) -> dict[str, Any]:
+    return await _webhook_check(db, await owned(db, ResellerProfile, profile_id, ctx))
+
+
+@router.post("/resellers/{profile_id}/bot/webhook/repoint")
+async def repoint_reseller_bot_webhook(profile_id: int, ctx: Manager, db: DB) -> dict[str, Any]:
+    return await _webhook_repoint(db, ctx, await owned(db, ResellerProfile, profile_id, ctx))
+
+
+@router.get("/my-bot/logs")
+async def my_bot_logs(
+    ctx: OwnBot,
+    db: DB,
+    category: Literal["all", "errors", "orders", "payments", "jobs", "audit"] = "all",
+    q: str | None = Query(default=None, max_length=120),
+    limit: int = Query(default=100, ge=10, le=300),
+) -> dict[str, Any]:
+    """Activity, order, payment and queue logs for the reseller's own dedicated bot."""
+    profile = await _own_profile(db, ctx)
+    shop = await resale.shop_of(db, profile)
+    if shop is None:
+        raise HTTPException(status_code=422, detail="reseller_bot_not_connected")
+    return await resale.bot_logs(db, shop, category=category, q=q, limit=limit, staff=False)
+
+
+@router.get("/my-bot/logs.csv")
+async def my_bot_logs_csv(
+    ctx: OwnBot,
+    db: DB,
+    category: Literal["all", "errors", "orders", "payments", "jobs", "audit"] = "all",
+    q: str | None = Query(default=None, max_length=120),
+    limit: int = Query(default=300, ge=10, le=300),
+) -> Response:
+    """Export the reseller's own bot logs as CSV."""
+    profile = await _own_profile(db, ctx)
+    shop = await resale.shop_of(db, profile)
+    if shop is None:
+        raise HTTPException(status_code=422, detail="reseller_bot_not_connected")
+    data = await resale.bot_logs(db, shop, category=category, q=q, limit=limit, staff=False)
+    return Response(
+        content=resale.bot_logs_csv(data),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="my-bot-{shop.id}-logs.csv"'},
+    )

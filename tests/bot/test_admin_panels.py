@@ -264,9 +264,10 @@ async def test_trial_toggle_changes_selection_and_provisioning(session, env):  #
     other = await factories.panel(session, env["shop"])
     panel.options = {"allow_trials": False}
     await session.commit()
-    with pytest.raises(trials.TrialError, match="trial_disabled"):
-        await trials._trial_panel(session, panel.shop_id, panel.id)
-    assert (await trials._trial_panel(session, panel.shop_id, None)).id == other.id
+    rules = await shop_settings.load(session, panel.shop_id)
+    with pytest.raises(trials.TrialError, match="trial_panel_unavailable"):
+        await trials._trial_panel(session, panel.shop_id, rules, chosen_panel_id=panel.id)
+    assert (await trials._trial_panel(session, panel.shop_id, rules)).id == other.id
     order = Order(
         shop_id=panel.shop_id,
         customer_id=(await factories.customer(session, env["shop"])).id,

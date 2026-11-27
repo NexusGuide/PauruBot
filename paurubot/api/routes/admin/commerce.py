@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -22,7 +22,17 @@ from paurubot.api.admin_common import (
 from paurubot.api.confirmations import ConfirmFields, challenge, guard
 from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record
-from paurubot.db.models import Order, OrderStatus, Payment, PaymentStatus
+from paurubot.db.models import (
+    AccountPlan,
+    Order,
+    OrderKind,
+    OrderStatus,
+    Panel,
+    PanelAccount,
+    Payment,
+    PaymentStatus,
+    Service,
+)
 from paurubot.notifications import review_sync
 from paurubot.payments import engine as payments
 from paurubot.payments import voids
@@ -79,6 +89,122 @@ def payment_view(payment: Payment) -> dict[str, Any]:
     return data
 
 
+ACCOUNT_ORDER_KINDS: tuple[OrderKind, ...] = (
+    OrderKind.ACCOUNT_PURCHASE,
+    OrderKind.ACCOUNT_RENEW,
+    OrderKind.ACCOUNT_GB,
+    OrderKind.ACCOUNT_DAYS,
+    OrderKind.ACCOUNT_USERS,
+)
+
+
+def _positive_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _order_details(order: Order) -> dict[str, int]:
+    params = order.params if isinstance(order.params, dict) else {}
+    out: dict[str, int] = {}
+    if order.kind == OrderKind.ACCOUNT_RENEW:
+        raw_renew = params.get("renew")
+        renew: dict[str, Any] = raw_renew if isinstance(raw_renew, dict) else {}
+        days = _positive_int(renew.get("days"))
+        gb = _positive_int(renew.get("gb"))
+        if days:
+            out["days"] = days
+        if gb:
+            out["gb"] = gb
+        return out
+    if order.kind in (OrderKind.ACCOUNT_GB, OrderKind.EXTRA_VOLUME):
+        gb = _positive_int(params.get("gb") or params.get("extra_gb"))
+        if gb:
+            out["gb"] = gb
+    elif order.kind in (OrderKind.ACCOUNT_DAYS, OrderKind.EXTRA_DAYS):
+        days = _positive_int(params.get("days") or params.get("extra_days"))
+        if days:
+            out["days"] = days
+    elif order.kind == OrderKind.ACCOUNT_USERS:
+        users = _positive_int(params.get("users"))
+        if users:
+            out["users"] = users
+    return out
+
+
+async def enrich_orders(db: Any, orders: list[Order]) -> dict[int, dict[str, Any]]:
+    """Resolve plan title, panel account username, service label, and size specs for orders."""
+    if not orders:
+        return {}
+    account_plan_ids: set[int] = set()
+    account_ids: set[int] = set()
+    service_ids: set[int] = set()
+    for order in orders:
+        params = order.params if isinstance(order.params, dict) else {}
+        ap_id = _positive_int(params.get("account_plan_id"))
+        if ap_id:
+            account_plan_ids.add(ap_id)
+        acc_id = _positive_int(params.get("account_id"))
+        if acc_id:
+            account_ids.add(acc_id)
+        if order.service_id:
+            service_ids.add(order.service_id)
+
+    account_plans: dict[int, AccountPlan] = {}
+    if account_plan_ids:
+        ap_rows = await db.scalars(select(AccountPlan).where(AccountPlan.id.in_(account_plan_ids)))
+        account_plans = {row.id: row for row in ap_rows}
+
+    accounts: dict[int, PanelAccount] = {}
+    if account_ids:
+        acc_rows = await db.scalars(select(PanelAccount).where(PanelAccount.id.in_(account_ids)))
+        accounts = {row.id: row for row in acc_rows}
+
+    services: dict[int, Service] = {}
+    if service_ids:
+        svc_rows = await db.scalars(select(Service).where(Service.id.in_(service_ids)))
+        services = {row.id: row for row in svc_rows}
+
+    panel_ids = {ap.panel_id for ap in account_plans.values() if ap.panel_id}
+    panels: dict[int, str] = {}
+    if panel_ids:
+        p_rows = await db.execute(select(Panel.id, Panel.name).where(Panel.id.in_(panel_ids)))
+        panels = {int(pid): str(name) for pid, name in p_rows}
+
+    meta: dict[int, dict[str, Any]] = {}
+    for order in orders:
+        params = order.params if isinstance(order.params, dict) else {}
+        ap_id = _positive_int(params.get("account_plan_id"))
+        acc_id = _positive_int(params.get("account_id"))
+        ap = account_plans.get(ap_id) if ap_id else None
+        acc = accounts.get(acc_id) if acc_id else None
+        svc = services.get(order.service_id) if order.service_id else None
+        plan_title = (
+            order.plan.title
+            if order.plan
+            else (ap.title if ap else (acc.plan.title if acc and acc.plan else None))
+        )
+        raw_user = params.get("username")
+        account_username = acc.username if acc else (str(raw_user) if raw_user else None)
+        service_username = (svc.label or svc.panel_username) if svc else None
+        panel_name = (
+            (acc.panel.name if acc and acc.panel else None)
+            or (svc.panel.name if svc and svc.panel else None)
+            or (panels.get(ap.panel_id) if ap else None)
+        )
+        meta[order.id] = {
+            "plan": plan_title,
+            "account_id": acc.id if acc else acc_id,
+            "account_username": account_username,
+            "service_username": service_username,
+            "panel": panel_name,
+            "details": _order_details(order),
+        }
+    return meta
+
+
 ORDER_SORT = {"id": Order.id, "amount": Order.amount, "created_at": Order.created_at, "status": Order.status}
 PAYMENT_SORT = {
     "id": Payment.id,
@@ -96,6 +222,7 @@ async def list_orders(
     status: OrderStatus | None = None,
     customer_id: int | None = None,
     order_id: int | None = Query(None, alias="id"),
+    group: Literal["services", "accounts"] | None = None,
     sort: str | None = Depends(sort_params),
 ) -> dict[str, Any]:
     stmt = select(Order).where(Order.shop_id == ctx.shop_id)
@@ -108,12 +235,17 @@ async def list_orders(
         stmt = stmt.where(Order.status == status)
     if customer_id:
         stmt = stmt.where(Order.customer_id == customer_id)
+    if group == "accounts":
+        stmt = stmt.where(Order.kind.in_(ACCOUNT_ORDER_KINDS))
+    elif group == "services":
+        stmt = stmt.where(Order.kind.not_in(ACCOUNT_ORDER_KINDS))
     rows, total = await paginate(db, apply_sort(stmt, sort, ORDER_SORT, Order.id), page)
+    meta = await enrich_orders(db, rows)
     items = []
     for order in rows:
         data = plain(order, ORDER_FIELDS)
         data["customer"] = order.customer.staff_label
-        data["plan"] = order.plan.title if order.plan else None
+        data.update(meta[order.id])
         items.append(data)
     return {"items": items, "total": total}
 

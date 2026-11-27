@@ -39,7 +39,18 @@ def steps_within(steps: list[int], low: int, high: int) -> list[int]:
 
 
 def renewal_line(t: Texts, days: int, gb: int) -> str:
-    return t("acc_renew_line", days=days, gb=gb or t("unlimited"))
+    gb_val = gb or t("unlimited")
+    if days <= 0:
+        return t("acc_renew_line_unlimited_days", gb=gb_val)
+    return t("acc_renew_line", days=days, gb=gb_val)
+
+
+def package_label(t: Texts, item: dict[str, int]) -> str:
+    gb_val = item["gb"] or t("unlimited")
+    price_val = money(item["price"])
+    if item["days"] <= 0:
+        return t("acc_renew_package_unlimited_days", gb=gb_val, price=price_val)
+    return t("acc_renew_package", days=item["days"], gb=gb_val, price=price_val)
 
 
 def _gb(value: int) -> str:
@@ -369,13 +380,6 @@ async def got_discount(
     if code is None:
         await message.answer(t("discount_invalid"))
         return
-    try:
-        await pricing.validate_code(session, code, customer, plan_id=None, amount=10**12)
-    except pricing.DiscountError as exc:
-        if exc.key != "discount_min_amount":
-            await message.answer(t(exc.key))
-            return
-    await state.set_state(None)
     kind = OrderKind(str(asked.get("kind") or ""))
     plan = (
         await panel_accounts.plan_for(session, customer.shop_id, int(asked["plan_id"]), customer)
@@ -387,6 +391,16 @@ async def got_discount(
         if asked.get("account_id")
         else None
     )
+    account_plan_id = plan.id if plan is not None else (account.plan_id if account is not None else None)
+    try:
+        await pricing.validate_code(
+            session, code, customer, plan_id=None, account_plan_id=account_plan_id, amount=10**12
+        )
+    except pricing.DiscountError as exc:
+        if exc.key != "discount_min_amount":
+            await message.answer(t(exc.key))
+            return
+    await state.set_state(None)
     await message.answer(t("discount_applied"), reply_markup=menu(t, cfg, staff))
     await _checkout(
         message,
@@ -481,12 +495,7 @@ async def renew(
     kb = InlineKeyboardBuilder()
     for index, item in enumerate(panel_accounts.renew_packages(plan)):
         kb.button(
-            text=t(
-                "acc_renew_package",
-                days=item["days"],
-                gb=item["gb"] or t("unlimited"),
-                price=money(item["price"]),
-            ),
+            text=package_label(t, item),
             callback_data=Acc(action="rpkg", id=account.id, value=index),
         )
     if panel_accounts.custom_renewal(plan):
@@ -788,12 +797,7 @@ async def auto_renew(
     for option in options:
         if "package" in option:
             item = packages[option["package"]]
-            text = t(
-                "acc_renew_package",
-                days=item["days"],
-                gb=item["gb"] or t("unlimited"),
-                price=money(item["price"]),
-            )
+            text = package_label(t, item)
         else:
             text = t("acc_auto_plain", price=money(plan.price if plan else 0))
         kb.button(

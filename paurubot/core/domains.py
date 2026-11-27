@@ -37,6 +37,10 @@ MAX_PER_SHOP = 20
 MARK_PATH = "/s/_/domain"
 DNS_TIMEOUT, CONNECT_TIMEOUT = 5.0, 30.0  # the first handshake waits while Caddy gets the certificate
 PARALLEL_CHECKS = 8
+MAX_MARK_BYTES = 32 * 1024
+CERT_WARN_DAYS = 14
+ALERT_COOLDOWN = 86_400
+_FAILED_STATUSES = frozenset({DNS, TLS, UNREACHABLE, NOT_OURS})
 
 _LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
 _TLD = re.compile(r"^(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$")
@@ -218,12 +222,40 @@ class NetProbe:
         except (OSError, TimeoutError) as exc:
             raise ProbeError(str(exc)[:200] or "timeout", unreachable=True) from exc
 
+    @staticmethod
+    async def _close(writer: asyncio.StreamWriter) -> None:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except (OSError, ssl.SSLError):
+            pass
+
+    @staticmethod
+    def _decode_chunked(body: bytes) -> bytes:
+        out = bytearray()
+        pos = 0
+        while pos < len(body):
+            line_end = body.find(b"\r\n", pos)
+            if line_end == -1:
+                break
+            size_part = body[pos:line_end].split(b";", 1)[0].strip()
+            try:
+                size = int(size_part, 16)
+            except ValueError:
+                return body
+            pos = line_end + 2
+            if size <= 0:
+                break
+            out.extend(body[pos : pos + size])
+            pos += size + 2
+        return bytes(out)
+
     async def certificate(self, host: str) -> CertInfo:
         _, writer = await self._open(host)
         try:
             cert = writer.get_extra_info("peercert") or {}
         finally:
-            writer.close()
+            await self._close(writer)
         expires = None
         if cert.get("notAfter"):
             expires = datetime.fromtimestamp(ssl.cert_time_to_seconds(cert["notAfter"]), tz=UTC)
@@ -242,14 +274,23 @@ class NetProbe:
                 "Connection: close\r\n\r\n".encode()
             )
             await writer.drain()
-            raw = await asyncio.wait_for(reader.read(8192), timeout=CONNECT_TIMEOUT)
+            chunks = bytearray()
+            async with asyncio.timeout(CONNECT_TIMEOUT):
+                while len(chunks) < MAX_MARK_BYTES:
+                    chunk = await reader.read(min(4096, MAX_MARK_BYTES - len(chunks)))
+                    if not chunk:
+                        break
+                    chunks.extend(chunk)
+            raw = bytes(chunks)
         except (OSError, TimeoutError) as exc:
             raise ProbeError(str(exc)[:200] or "timeout", unreachable=True) from exc
         finally:
-            writer.close()
-        head, _, body = raw.partition(b"\r\n\r\n")
-        if not head.startswith(b"HTTP/1.1 200") and not head.startswith(b"HTTP/1.0 200"):
+            await self._close(writer)
+        head, sep, body = raw.partition(b"\r\n\r\n")
+        if not sep or (not head.startswith(b"HTTP/1.1 200") and not head.startswith(b"HTTP/1.0 200")):
             raise ProbeError(head.split(b"\r\n", 1)[0].decode("latin-1")[:120] or "no answer")
+        if b"transfer-encoding: chunked" in head.lower():
+            body = self._decode_chunked(body)
         return body.decode("ascii", "replace").strip()
 
 
@@ -298,6 +339,58 @@ async def check_row(session: AsyncSession, row: ShopDomain, *, probe: Probe | No
     return row
 
 
+async def _notify_changes(
+    session: AsyncSession, row: ShopDomain, previous_status: str, result: CheckResult
+) -> None:
+    """Alert staff when a domain carrying shop links breaks, recovers, or nears cert expiry."""
+    if not row.for_links:
+        return
+    from paurubot import kv
+    from paurubot.worker import queue
+
+    if previous_status == OK and result.status in _FAILED_STATUSES:
+        if await kv.set_once(f"domain:{row.id}:down", ALERT_COOLDOWN):
+            await queue.enqueue(
+                session,
+                "notify",
+                "domain_alert",
+                {
+                    "domain_id": row.id,
+                    "host": row.host,
+                    "event": "down",
+                    "error": (result.error or result.status)[:200],
+                },
+                shop_id=row.shop_id,
+            )
+    elif previous_status in _FAILED_STATUSES and result.status == OK:
+        await kv.unmark(f"domain:{row.id}:down")
+        await queue.enqueue(
+            session,
+            "notify",
+            "domain_alert",
+            {"domain_id": row.id, "host": row.host, "event": "up"},
+            shop_id=row.shop_id,
+        )
+    if result.status == OK and row.cert_expires_at is not None:
+        days_left = (row.cert_expires_at - utcnow()).days
+        if days_left <= CERT_WARN_DAYS:
+            if await kv.set_once(f"domain:{row.id}:cert_expiring", ALERT_COOLDOWN):
+                await queue.enqueue(
+                    session,
+                    "notify",
+                    "domain_alert",
+                    {
+                        "domain_id": row.id,
+                        "host": row.host,
+                        "event": "cert_expiring",
+                        "days": max(0, days_left),
+                    },
+                    shop_id=row.shop_id,
+                )
+        else:
+            await kv.unmark(f"domain:{row.id}:cert_expiring")
+
+
 async def run_checks(session: AsyncSession, *, probe: Probe | None = None) -> int:
     """Check every registered domain; commits. Returns how many were checked."""
     rows: Sequence[ShopDomain] = list(await session.scalars(select(ShopDomain).order_by(ShopDomain.id)))
@@ -309,7 +402,9 @@ async def run_checks(session: AsyncSession, *, probe: Probe | None = None) -> in
 
     results = await asyncio.gather(*(one(row.host) for row in rows))
     for row, result in zip(rows, results, strict=True):
+        previous = row.status
         apply(row, result)
+        await _notify_changes(session, row, previous, result)
     await session.commit()
     if rows:
         from paurubot.core import settings as shop_settings

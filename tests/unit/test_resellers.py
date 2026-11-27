@@ -166,7 +166,8 @@ async def test_usage_billing_debt_suspend_and_resume(session, env) -> None:  # t
             select(ResellerBillingSnapshot).where(ResellerBillingSnapshot.profile_id == profile.id)
         )
     )
-    assert [s.amount for s in snapshots] == [2_500, 2_000]
+    assert [s.amount for s in snapshots] == [2_500, 2_000, 0]
+    assert snapshots[-1].charged == 1_500  # the debt payment is visible too
 
 
 async def test_hourly_billing_counts_active_service_hours(session, env) -> None:  # type: ignore[no-untyped-def]

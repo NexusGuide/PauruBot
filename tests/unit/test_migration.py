@@ -147,11 +147,13 @@ def test_wizwiz_sqlite_extract(tmp_path: Path) -> None:
 
 async def test_upload_and_queue_through_the_admin_api(session, tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     from paurubot.config import get_settings
+    from paurubot.core.shops import root_shop
     from paurubot.db.models import Job
     from tests.unit.test_bulk import _owner
 
     monkeypatch.setattr(get_settings(), "backup_dir", str(tmp_path))
-    shop = await factories.shop(session)
+    # Import/deletion is server-wide: use the database's root shop when another test left one.
+    shop = await root_shop(session) or await factories.shop(session)
     panel = await factories.panel(session, shop)
     await session.commit()
     async with _owner(session, shop) as (client, csrf):

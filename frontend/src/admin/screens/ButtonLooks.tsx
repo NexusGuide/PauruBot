@@ -5,7 +5,7 @@ import { call } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
 import { SECTIONS, sectionOf, type Section as TextSection } from "../texts-layout";
-import { Async, Button, Input, Page, SearchBox, Section, Intro } from "../ui";
+import { Async, Button, Input, Page, SearchBox, Section, Intro, useConfirm } from "../ui";
 
 export type Tone = "" | "primary" | "success" | "danger";
 export interface Look { style?: Tone; emoji_id?: string }
@@ -33,17 +33,47 @@ export function cleanLooks(looks: Looks): Looks {
 
 export function ButtonLooks() {
   const { t, locale, can, toast, errorText } = useSession();
+  const confirm = useConfirm();
   const { data, error, reload } = useLoad<{ items: Item[]; looks: Looks }>("/api/admin/button-looks");
   const [looks, setLooks] = useState<Looks>({});
   const [query, setQuery] = useState("");
+  const [onlyStyled, setOnlyStyled] = useState(false);
   const [busy, run] = useAction();
   useEffect(() => { if (data) setLooks(data.looks ?? {}); }, [data]);
-  const dirty = useMemo(() => JSON.stringify(cleanLooks(looks)) !== JSON.stringify(cleanLooks(data?.looks ?? {})), [looks, data]);
+  const cleaned = useMemo(() => cleanLooks(looks), [looks]);
+  const styledCount = Object.keys(cleaned).length;
+  const dirty = useMemo(() => JSON.stringify(cleaned) !== JSON.stringify(cleanLooks(data?.looks ?? {})), [cleaned, data]);
+  useEffect(() => {
+    if (!dirty) return;
+    const onUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
+  }, [dirty]);
   const writable = can("settings.write");
   const set = (key: string, patch: Look) => setLooks((all) => ({ ...all, [key]: { ...all[key], ...patch } }));
   const save = async () => {
     try {
-      await run(() => call("/api/admin/settings", { method: "PUT", body: { values: { button_looks: cleanLooks(looks) } } }));
+      await run(() => call("/api/admin/settings", { method: "PUT", body: { values: { button_looks: cleaned } } }));
+      toast(t("saved"));
+      void reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  const resetAll = async () => {
+    const ok = await confirm({
+      title: t("blooks_reset_all"),
+      body: t("blooks_reset_all_body"),
+      confirm: t("blooks_reset_all"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await run(() => call("/api/admin/settings", { method: "PUT", body: { values: { button_looks: {} } } }));
+      setLooks({});
       toast(t("saved"));
       void reload();
     } catch (err) {
@@ -51,16 +81,36 @@ export function ButtonLooks() {
     }
   };
   return (
-    <Page title={t("nav_button_looks")} wide>
+    <Page
+      title={t("nav_button_looks")}
+      wide
+      actions={
+        writable && styledCount > 0 ? (
+          <Button small tone="danger" busy={busy} onClick={() => void resetAll()}>
+            {t("blooks_reset_all")}
+          </Button>
+        ) : null
+      }
+    >
       <Async data={data} error={error} reload={() => void reload()}>
         {({ items }) => {
           const q = query.trim().toLowerCase();
-          const shown = items.filter((i) => !q || i.key.includes(q) || i.fa.toLowerCase().includes(q) || i.en.toLowerCase().includes(q));
+          const shown = items.filter((i) => {
+            if (onlyStyled && !cleaned[i.key]) return false;
+            return !q || i.key.includes(q) || i.fa.toLowerCase().includes(q) || i.en.toLowerCase().includes(q);
+          });
           const grouped = SECTIONS.map((s) => [s, shown.filter((i) => sectionOf(i.key) === s)] as const).filter(([, list]) => list.length);
           return (
             <div className="flex flex-col gap-4 pb-24">
               <Intro>{t("blooks_intro")}</Intro>
-              <SearchBox value={query} onChange={setQuery} placeholder={t("blooks_search")} />
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <SearchBox value={query} onChange={setQuery} placeholder={t("blooks_search")} />
+                </div>
+                <Button small tone={onlyStyled ? "primary" : "quiet"} aria-pressed={onlyStyled} onClick={() => setOnlyStyled((v) => !v)}>
+                  {t("blooks_only_styled")} · {styledCount}
+                </Button>
+              </div>
               {grouped.map(([section, list]) => (
                 <Section key={section} title={t(`texts_section_${section as TextSection}`)}>
                   <ul className="flex flex-col divide-y divide-[var(--line)]">

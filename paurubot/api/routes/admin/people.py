@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import csv
+import io
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
+from urllib.parse import unquote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 
 from paurubot.api.admin_common import (
     Page,
@@ -38,9 +42,11 @@ from paurubot.db.models import (
     ResellerProfile,
     Service,
     Staff,
+    StaffApiKey,
     StaffRole,
     Ticket,
     TicketDepartment,
+    TicketMessage,
     TicketStatus,
 )
 from paurubot.worker import queue
@@ -322,10 +328,11 @@ async def upsert_profile(body: ProfileBody, ctx: Manager, db: DB) -> dict[str, A
     if body.billing_mode == "hourly" and body.hourly_price <= 0:
         raise HTTPException(status_code=422, detail="hourly_price_required")
     before = snapshot(profile) if profile else None
+    was_metered = profile is not None and profile.billing_mode in {"usage", "hourly"}
     if profile is None:
         profile = ResellerProfile(shop_id=ctx.shop_id, customer_id=customer.id)
         db.add(profile)
-    switching_to_metered = body.billing_mode != "prepaid" and profile.billing_mode == "prepaid"
+    switching_to_metered = body.billing_mode != "prepaid" and not was_metered
     for key, value in body.model_dump(exclude={"customer_id"}).items():
         setattr(profile, key, value)
     if switching_to_metered:
@@ -367,8 +374,6 @@ async def _start_metering(db: DB, profile: ResellerProfile) -> None:
     from paurubot.db.base import utcnow
 
     profile.last_billed_at = utcnow()
-    if profile.id is None:
-        return
     services = await db.scalars(select(Service).where(Service.customer_id == profile.customer_id))
     for service in services:
         service.billed_bytes = int(service.used_bytes or 0)
@@ -430,9 +435,114 @@ async def _billing_view(db: DB, profile: ResellerProfile) -> dict[str, Any]:
     }
 
 
+async def _billing_csv(db: DB, profile: ResellerProfile) -> Response:
+    rows = list(
+        await db.scalars(
+            select(ResellerBillingSnapshot)
+            .where(ResellerBillingSnapshot.profile_id == profile.id)
+            .order_by(ResellerBillingSnapshot.id.desc())
+            .limit(500)
+        )
+    )
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        [
+            "id",
+            "period_start",
+            "period_end",
+            "used_bytes",
+            "service_hours",
+            "active_services",
+            "amount",
+            "charged",
+            "debt_after",
+        ]
+    )
+    for row in rows:
+        writer.writerow(
+            [
+                row.id,
+                row.period_start.isoformat(),
+                row.period_end.isoformat(),
+                int(row.used_bytes or 0),
+                int(row.service_hours or 0),
+                int(row.active_services or 0),
+                int(row.amount or 0),
+                int(row.charged or 0),
+                int(row.debt_after or 0),
+            ]
+        )
+    body = ("﻿" + buf.getvalue()).encode("utf-8")
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="reseller-{profile.id}-billing.csv"'},
+    )
+
+
 @router.get("/resellers/{profile_id}/billing")
 async def reseller_billing(profile_id: int, ctx: Manager, db: DB) -> dict[str, Any]:
     return await _billing_view(db, await owned(db, ResellerProfile, profile_id, ctx))
+
+
+@router.get("/resellers/{profile_id}/billing.csv")
+async def reseller_billing_csv(profile_id: int, ctx: Manager, db: DB) -> Response:
+    return await _billing_csv(db, await owned(db, ResellerProfile, profile_id, ctx))
+
+
+@router.post("/resellers/{profile_id}/billing/bill-now")
+async def reseller_bill_now(profile_id: int, ctx: Manager, db: DB) -> dict[str, Any]:
+    from paurubot.core import resellers
+
+    profile = await owned(db, ResellerProfile, profile_id, ctx)
+    if not profile.is_metered:
+        raise HTTPException(status_code=422, detail="reseller_not_metered")
+    res = await resellers.bill_now(db, profile)
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="reseller.bill_now",
+        entity="reseller_profile",
+        entity_id=profile.id,
+        after={
+            "amount": res.snapshot.amount if res.snapshot else 0,
+            "charged": res.snapshot.charged if res.snapshot else 0,
+            "debt": profile.billing_debt,
+            "suspended": res.suspended,
+            "resumed": res.resumed,
+        },
+    )
+    view = await _billing_view(db, profile)
+    view.update(
+        billed=res.snapshot is not None,
+        amount=res.snapshot.amount if res.snapshot else 0,
+        charged=res.snapshot.charged if res.snapshot else 0,
+        suspended=res.suspended,
+        resumed=res.resumed,
+    )
+    return view
+
+
+@router.post("/resellers/{profile_id}/billing/settle")
+async def reseller_settle_debt(profile_id: int, ctx: Manager, db: DB) -> dict[str, Any]:
+    from paurubot.core import resellers
+
+    profile = await owned(db, ResellerProfile, profile_id, ctx)
+    res = await resellers.settle_debt(db, profile)
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="reseller.debt_settled",
+        entity="reseller_profile",
+        entity_id=profile.id,
+        after={"charged": res.charged, "debt_after": res.debt_after, "resumed": res.resumed},
+    )
+    view = await _billing_view(db, profile)
+    view.update(charged=res.charged, resumed=res.resumed)
+    return view
 
 
 # What the reseller itself sees of an audit row; staff also get who did it and the before/after.
@@ -478,6 +588,36 @@ async def my_billing(
     return await _billing_view(db, profile)
 
 
+@router.get("/my/billing.csv")
+async def my_billing_csv(
+    ctx: Annotated[StaffContext, Depends(require("dashboard.view"))], db: DB
+) -> Response:
+    profile = await _own_profile(db, ctx)
+    return await _billing_csv(db, profile)
+
+
+@router.post("/my/billing/settle")
+async def my_settle_debt(
+    ctx: Annotated[StaffContext, Depends(require("dashboard.view"))], db: DB
+) -> dict[str, Any]:
+    from paurubot.core import resellers
+
+    profile = await _own_profile(db, ctx)
+    res = await resellers.settle_debt(db, profile)
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="reseller.debt_settled",
+        entity="reseller_profile",
+        entity_id=profile.id,
+        after={"charged": res.charged, "debt_after": res.debt_after, "resumed": res.resumed},
+    )
+    view = await _billing_view(db, profile)
+    view.update(charged=res.charged, resumed=res.resumed)
+    return view
+
+
 @router.get("/my/hub")
 async def my_hub(ctx: Annotated[StaffContext, Depends(require("dashboard.view"))], db: DB) -> dict[str, Any]:
     profile = await reseller_profile(db, ctx)
@@ -497,9 +637,11 @@ async def sub_resellers(ctx: SubManager, db: DB) -> dict[str, Any]:
         for c in await db.scalars(select(Customer).where(Customer.id.in_([r.customer_id for r in rows])))
     }
     balances = await _balances(db, ctx.shop_id, [r.customer_id for r in rows])
+    stats = await resellers.sub_reseller_stats(db, parent, rows)
     return {
         "max_discount": parent.discount_percent,
         "limit": parent.max_subresellers,
+        "total_commission_month": sum(s.commission_month for s in stats.values()),
         "items": [
             {
                 **plain(r, SUB_FIELDS),
@@ -507,6 +649,9 @@ async def sub_resellers(ctx: SubManager, db: DB) -> dict[str, Any]:
                 "telegram_id": names[r.customer_id].telegram_id if r.customer_id in names else None,
                 "discount_percent": r.discount_percent,
                 "balance": balances.get(r.customer_id, 0),
+                "orders_month": stats[r.id].orders_month,
+                "sales_month": stats[r.id].sales_month,
+                "commission_month": stats[r.id].commission_month,
             }
             for r in rows
         ],
@@ -663,7 +808,7 @@ async def list_staff(
 async def create_staff(
     body: StaffBody, ctx: Annotated[StaffContext, Depends(require("staff.manage"))], db: DB
 ) -> dict[str, Any]:
-    if body.role == StaffRole.OWNER:
+    if body.role in {StaffRole.OWNER, StaffRole.MERCHANT}:
         raise HTTPException(status_code=422, detail="cannot_create_owner")
     if body.role == StaffRole.RESELLER:
         if body.reseller_profile_id is None:
@@ -711,22 +856,32 @@ async def update_staff(
     row = await owned(db, Staff, staff_id, ctx)
     if row.id == ctx.staff.id and (body.role is not None or body.is_active is False):
         raise HTTPException(status_code=422, detail="cannot_change_own_role")
-    if row.role == StaffRole.OWNER or body.role == StaffRole.OWNER:
+    if row.role == StaffRole.OWNER or body.role in {StaffRole.OWNER, StaffRole.MERCHANT}:
         raise HTTPException(status_code=422, detail="owner_is_fixed")
+    if body.role == StaffRole.RESELLER and row.reseller_profile_id is None:
+        raise HTTPException(status_code=422, detail="reseller_profile_required")
     before = snapshot(row)
-    if body.role is not None:
+    access_changed = False
+    if body.role is not None and body.role != row.role:
         row.role = body.role
         row.session_version += 1
-    if body.is_active is not None:
+        access_changed = True
+    if body.is_active is not None and body.is_active != row.is_active:
         row.is_active = body.is_active
         row.session_version += 1
+        access_changed = True
     if body.telegram_id is not None:
         row.telegram_id = body.telegram_id
     if body.display_name is not None:
         row.display_name = body.display_name
     if body.password:
         await staff_service.change_password(db, row, body.password)
-    else:
+    elif access_changed:
+        await db.execute(
+            update(StaffApiKey)
+            .where(StaffApiKey.staff_id == row.id, StaffApiKey.revoked_at.is_(None))
+            .values(revoked_at=datetime.now(UTC))
+        )
         await sessions.destroy_all(row.id)
     await record(
         db,
@@ -837,6 +992,81 @@ async def _ticket(db: DB, ticket_id: int, ctx: StaffContext) -> Ticket:
     return ticket
 
 
+@router.get("/tickets/stats")
+async def ticket_stats(
+    ctx: Annotated[StaffContext, Depends(require("tickets.read"))], db: DB
+) -> dict[str, Any]:
+    """Help-desk KPIs: counts by status, awaiting reply, average first response time, CSAT."""
+    owner = await reseller_customer_id(db, ctx)
+    base = [Ticket.shop_id == ctx.shop_id]
+    if owner is not None:
+        base.append(Ticket.customer_id == owner)
+
+    status_rows = (
+        await db.execute(select(Ticket.status, func.count(Ticket.id)).where(*base).group_by(Ticket.status))
+    ).all()
+    by_status = {st.value if hasattr(st, "value") else str(st): int(cnt) for st, cnt in status_rows}
+    awaiting = int(
+        await db.scalar(
+            select(func.count(Ticket.id)).where(
+                *base,
+                Ticket.status != TicketStatus.CLOSED,
+                Ticket.last_customer_at.is_not(None),
+                (Ticket.last_staff_at.is_(None)) | (Ticket.last_customer_at > Ticket.last_staff_at),
+            )
+        )
+        or 0
+    )
+
+    first_staff = (
+        select(
+            TicketMessage.ticket_id.label("tid"),
+            func.min(TicketMessage.created_at).label("first_reply"),
+        )
+        .where(TicketMessage.author_type == "staff", TicketMessage.is_internal.is_(False))
+        .group_by(TicketMessage.ticket_id)
+        .subquery()
+    )
+    reply_pairs = (
+        await db.execute(
+            select(Ticket.created_at, first_staff.c.first_reply)
+            .join(first_staff, first_staff.c.tid == Ticket.id)
+            .where(*base)
+            .order_by(Ticket.id.desc())
+            .limit(500)
+        )
+    ).all()
+    deltas = [
+        max(0.0, (replied - opened).total_seconds() / 60.0)
+        for opened, replied in reply_pairs
+        if opened is not None and replied is not None
+    ]
+    avg_minutes = round(sum(deltas) / len(deltas), 1) if deltas else None
+
+    react_rows = (
+        await db.execute(
+            select(TicketMessage.reaction, func.count(TicketMessage.id))
+            .join(Ticket, Ticket.id == TicketMessage.ticket_id)
+            .where(*base, TicketMessage.reaction.in_(["up", "down"]))
+            .group_by(TicketMessage.reaction)
+        )
+    ).all()
+    reacts = {str(r): int(cnt) for r, cnt in react_rows}
+    up, down = reacts.get("up", 0), reacts.get("down", 0)
+    total_reacts = up + down
+    satisfaction = round(up * 100.0 / total_reacts, 1) if total_reacts else None
+    return {
+        "open": by_status.get("open", 0),
+        "answered": by_status.get("answered", 0),
+        "closed": by_status.get("closed", 0),
+        "awaiting": awaiting,
+        "avg_first_reply_minutes": avg_minutes,
+        "reactions_up": up,
+        "reactions_down": down,
+        "satisfaction_percent": satisfaction,
+    }
+
+
 @router.get("/tickets/{ticket_id}")
 async def ticket_detail(
     ticket_id: int, ctx: Annotated[StaffContext, Depends(require("tickets.read"))], db: DB
@@ -929,8 +1159,90 @@ async def close(
     ticket_id: int, ctx: Annotated[StaffContext, Depends(require("tickets.reply"))], db: DB
 ) -> dict[str, Any]:
     ticket = await _ticket(db, ticket_id, ctx)
+    was_closed = ticket.status == TicketStatus.CLOSED
     await tickets.close(db, ticket)
+    if not was_closed and await reseller_customer_id(db, ctx) is None:
+        await record(
+            db,
+            shop_id=ctx.shop_id,
+            actor=ctx.actor,
+            action="ticket.close",
+            entity="ticket",
+            entity_id=ticket.id,
+        )
+        await queue.enqueue(
+            db,
+            "notify",
+            "ticket_closed",
+            {"customer_id": ticket.customer_id, "ticket_id": ticket.id, "subject": ticket.subject},
+            shop_id=ctx.shop_id,
+            dedupe_key=f"ticket:{ticket.id}:closed:{int(ticket.updated_at.timestamp())}",
+        )
     return {"ok": True}
+
+
+@router.post("/tickets/{ticket_id}/reopen")
+async def reopen_ticket(
+    ticket_id: int, ctx: Annotated[StaffContext, Depends(require("tickets.reply"))], db: DB
+) -> dict[str, Any]:
+    ticket = await _staff_ticket(db, ticket_id, ctx)
+    changed = await tickets.reopen(db, ticket)
+    if changed:
+        await record(
+            db,
+            shop_id=ctx.shop_id,
+            actor=ctx.actor,
+            action="ticket.reopen",
+            entity="ticket",
+            entity_id=ticket.id,
+        )
+    return {"ok": True, "ticket": _ticket_row(ticket)}
+
+
+@router.post("/tickets/{ticket_id}/attachments")
+async def upload_ticket_attachment(
+    ticket_id: int,
+    request: Request,
+    ctx: Annotated[StaffContext, Depends(require("tickets.reply"))],
+    db: DB,
+) -> dict[str, Any]:
+    """Staff uploads an image or text file directly into a ticket thread and delivers it to the user."""
+    from paurubot.core import ticket_media
+
+    ticket = await _staff_ticket(db, ticket_id, ctx)
+    if ticket.status == TicketStatus.CLOSED:
+        raise HTTPException(status_code=409, detail="ticket_closed")
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > ticket_media.MAX_BYTES:
+            raise HTTPException(status_code=413, detail="ticket_file_too_large")
+        data.extend(chunk)
+    mime = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    clean, mime, name = ticket_media.validate(bytes(data), mime)
+    await ticket_media.quota(db, ticket, len(clean))
+    raw_caption = request.headers.get("x-ticket-caption", "")
+    caption = unquote(raw_caption).strip()[:1000] if raw_caption else None
+    try:
+        message = await tickets.add_message(
+            db,
+            ticket,
+            author_type="staff",
+            author_id=ctx.staff.id,
+            text=caption or None,
+            attachment_kind="photo" if mime.startswith("image/") else "document",
+        )
+    except tickets.TicketError as exc:
+        raise HTTPException(status_code=409, detail=exc.key) from exc
+    message.attachment_data, message.attachment_size = clean, len(clean)
+    message.attachment_mime, message.attachment_name = mime, name
+    await queue.enqueue(
+        db,
+        "notify",
+        "ticket_reply",
+        {"ticket_id": ticket.id, "message_id": message.id},
+        shop_id=ctx.shop_id,
+    )
+    return {"id": message.id, "ticket": _ticket_row(ticket)}
 
 
 # --- the help desk: departments, priorities, assignees, notes, canned replies (F-14) ------------
