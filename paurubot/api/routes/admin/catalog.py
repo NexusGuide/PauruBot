@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
@@ -413,7 +413,7 @@ async def list_stock(plan_id: int, ctx: Writer, db: DB, status: str | None = Non
 
     plan = await _stock_plan(db, ctx, plan_id)
     stmt = select(StockItem).where(StockItem.plan_id == plan.id).order_by(StockItem.id.desc()).limit(200)
-    if status in {stock.AVAILABLE, stock.SOLD, stock.DISABLED}:
+    if status in {stock.AVAILABLE, stock.RESERVED, stock.SOLD, stock.DISABLED}:
         stmt = stmt.where(StockItem.status == status)
     items = []
     for item in await db.scalars(stmt):
@@ -456,11 +456,12 @@ async def add_stock(plan_id: int, body: StockBody, ctx: Writer, db: DB) -> dict[
 
 
 @router.get("/stock/{item_id}")
-async def show_stock_item(item_id: int, ctx: Writer, db: DB) -> dict[str, Any]:
+async def show_stock_item(item_id: int, ctx: Writer, db: DB, response: Response) -> dict[str, Any]:
     """The full config, for support. Every look is audited."""
     from paurubot.core import stock
     from paurubot.db.models import StockItem
 
+    response.headers["Cache-Control"] = "no-store"
     item = await owned(db, StockItem, item_id, ctx)
     await record(
         db, shop_id=ctx.shop_id, actor=ctx.actor, action="stock.view", entity="stock", entity_id=item.id

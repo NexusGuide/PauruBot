@@ -10,6 +10,7 @@ const copy = {
     plain: ["Plain text only. HTML-looking text is delivered literally. No real message is sent by opening this screen.", "فقط متن ساده؛ متن شبیه HTML عیناً ارسال می‌شود. باز کردن این صفحه پیامی ارسال نمی‌کند."],
     text: ["Message", "متن پیام"], all: ["All customers", "همه مشتریان"], buyers: ["Non-trial service holders", "دارندگان سرویس غیرآزمایشی"], resellers: ["Active resellers", "نمایندگان فعال"],
     active: ["Customers with an active non-trial service", "دارندگان سرویس غیرآزمایشی فعال"], inactive: ["Service holders with no service activity in the last week", "دارندگان سرویس بدون فعالیت در هفته اخیر"], never_bought: ["No non-trial service", "مشتریان بدون سرویس غیرآزمایشی"],
+    account_buyers: ["Panel admin account holders", "دارندگان اکانت ادمین پنل"],
     panel: ["Buyers on one panel", "خریداران یک پنل"], idle: ["People who have not used the bot for a while", "کسانی که مدتی از ربات استفاده نکرده‌اند"],
     pickPanel: ["Panel", "پنل"], idleDays: ["Days without using the bot", "چند روز بی‌استفاده از ربات"],
     audienceError: ["Pick the panel, or a number of days from 1 to 365.", "پنل را انتخاب کن یا تعداد روز را بین ۱ تا ۳۶۵ بنویس."],

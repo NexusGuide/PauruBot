@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
+import json
+import os
 from datetime import date, datetime, time, timedelta
 from typing import Annotated, Any, Literal
 
@@ -23,8 +25,10 @@ from paurubot.core import channels as channel_rules
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import utcnow
 from paurubot.db.models import (
+    AccountPlan,
     AuditLog,
     BotText,
+    Customer,
     ForcedChannel,
     Job,
     JobStatus,
@@ -414,8 +418,11 @@ async def set_text(
         db.add(BotText(shop_id=ctx.shop_id, locale=locale, key=key, value=body.value))
     else:
         row.value = body.value
+    from paurubot.bot import button_looks
+
     await db.flush()
     i18n.invalidate(ctx.shop_id)
+    button_looks.forget(ctx.shop_id)
     await record(
         db,
         shop_id=ctx.shop_id,
@@ -437,10 +444,13 @@ async def reset_texts(
     body: ResetTexts, ctx: Annotated[StaffContext, Depends(require("texts.write"))], db: DB
 ) -> dict[str, int]:
     """Put many texts back to the shipped wording at once, in every language (a whole tab)."""
+    from paurubot.bot import button_looks
+
     result = await db.execute(
         delete(BotText).where(BotText.shop_id == ctx.shop_id, BotText.key.in_(sorted(set(body.keys))))
     )
     i18n.invalidate(ctx.shop_id)
+    button_looks.forget(ctx.shop_id)
     count = int(getattr(result, "rowcount", 0) or 0)
     await record(
         db,
@@ -458,10 +468,13 @@ async def reset_text(
     locale: str, key: str, ctx: Annotated[StaffContext, Depends(require("texts.write"))], db: DB
 ) -> dict[str, Any]:
     _check_text_target(locale, key)
+    from paurubot.bot import button_looks
+
     await db.execute(
         delete(BotText).where(BotText.shop_id == ctx.shop_id, BotText.locale == locale, BotText.key == key)
     )
     i18n.invalidate(ctx.shop_id)
+    button_looks.forget(ctx.shop_id)
     await record(
         db,
         shop_id=ctx.shop_id,
@@ -471,6 +484,46 @@ async def reset_text(
         after={"key": key, "locale": locale},
     )
     return {"key": key, "locale": locale, "value": i18n.catalog(locale).get(key, "")}
+
+
+@router.post("/texts/{locale}/{key}/preview")
+async def preview_text(
+    locale: str,
+    key: str,
+    body: TextBody,
+    ctx: Annotated[StaffContext, Depends(require("texts.write"))],
+    db: DB,
+) -> dict[str, bool]:
+    """Send a rendered test preview of a bot text to the signed-in staff member's Telegram."""
+    from paurubot.notifications import telegram
+
+    _check_text_target(locale, key)
+    problems = i18n.validate_override(key, body.value)
+    if problems:
+        raise HTTPException(status_code=422, detail={"problems": problems})
+    if not ctx.staff.telegram_id:
+        raise HTTPException(status_code=409, detail="staff_telegram_required")
+    cfg = await shop_settings.load(db, ctx.shop_id)
+    sample_name = ctx.staff.display_name or ctx.staff.username
+    params: dict[str, Any] = {
+        "name": sample_name,
+        "first_name": sample_name,
+        "username": ctx.staff.username,
+        "shop": str(cfg.get("shop_name") or "PauruBot"),
+        "support": str(cfg.get("support_username") or "@support"),
+    }
+    for var in i18n.fields(body.value):
+        params.setdefault(var, f"{{{var}}}")
+    rendered = i18n.render(body.value, params)
+    try:
+        sent = await telegram.send_text(ctx.staff.telegram_id, rendered, shop_id=ctx.shop_id)
+    except telegram.Undeliverable as exc:
+        raise HTTPException(status_code=422, detail="undeliverable") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="preview_send_failed") from exc
+    if sent is None:
+        raise HTTPException(status_code=422, detail="preview_send_failed")
+    return {"sent": True}
 
 
 # ---------------------------------------------------------------- channels and contacts
@@ -590,6 +643,82 @@ async def check_channel(body: ChannelCheckBody, ctx: Settings) -> dict[str, Any]
         "url": info.url,
         "bot_admin": info.bot_admin,
     }
+
+
+@router.post("/channels/verify")
+async def verify_channels(ctx: Settings, db: DB) -> dict[str, Any]:
+    """Re-check every active forced-join and trust channel with Telegram and refresh warnings."""
+    from paurubot.core import forced_join
+
+    shop = ctx.shop_id
+    forced = list(
+        await db.scalars(
+            select(ForcedChannel)
+            .where(ForcedChannel.shop_id == shop, ForcedChannel.is_active.is_(True))
+            .order_by(ForcedChannel.sort, ForcedChannel.id)
+        )
+    )
+    trust = list(
+        await db.scalars(
+            select(TrustChannel)
+            .where(TrustChannel.shop_id == shop, TrustChannel.is_active.is_(True))
+            .order_by(TrustChannel.sort, TrustChannel.id)
+        )
+    )
+    results: list[dict[str, Any]] = []
+    ok_count = 0
+    failed_count = 0
+    targets = [
+        ("forced", row.id, str(row.chat_id), row.title, f"join:{shop}:{row.chat_id}") for row in forced
+    ] + [
+        ("trust", row.id, str(row.chat_id), row.title, f"trust:{shop}:{row.chat_id}") for row in trust
+    ]
+    for kind, row_id, chat_id, title, mark_key in targets:
+        try:
+            info = await forced_join.resolve(shop, chat_id)
+        except forced_join.ForcedJoinError as exc:
+            failed_count += 1
+            await kv.mark(mark_key, 900, exc.key)
+            results.append(
+                {
+                    "kind": kind,
+                    "id": row_id,
+                    "chat_id": chat_id,
+                    "title": title,
+                    "ok": False,
+                    "detail": exc.key,
+                }
+            )
+            continue
+        if info.bot_admin:
+            ok_count += 1
+            await kv.unmark(mark_key)
+            results.append(
+                {"kind": kind, "id": row_id, "chat_id": chat_id, "title": title, "ok": True, "detail": "ok"}
+            )
+        else:
+            failed_count += 1
+            await kv.mark(mark_key, 900, "bot_not_admin")
+            results.append(
+                {
+                    "kind": kind,
+                    "id": row_id,
+                    "chat_id": chat_id,
+                    "title": title,
+                    "ok": False,
+                    "detail": "bot_not_admin",
+                }
+            )
+    await record(
+        db,
+        shop_id=shop,
+        actor=ctx.actor,
+        action="channel.verify",
+        entity="channel",
+        entity_id=None,
+        after={"checked": len(targets), "ok": ok_count, "failed": failed_count},
+    )
+    return {"checked": len(targets), "ok": ok_count, "failed": failed_count, "results": results}
 
 
 @router.post("/channels/forced")
@@ -775,6 +904,46 @@ async def remove_log_channel(row_id: int, ctx: Settings, db: DB) -> dict[str, bo
     return {"ok": True}
 
 
+class AutoSetupLogsBody(BaseModel):
+    chat_id: int
+
+
+@router.post("/channels/logs/auto-setup")
+async def auto_setup_log_channels(
+    body: AutoSetupLogsBody, ctx: Settings, db: DB
+) -> dict[str, list[str]]:
+    """Create missing Telegram forum topics in a supergroup and bind every report topic."""
+    from paurubot.core import log_topics
+
+    try:
+        res = await log_topics.auto_setup_forum_topics(db, ctx.shop_id, body.chat_id)
+    except log_topics.TopicSetupError as exc:
+        raise HTTPException(status_code=422, detail=exc.code) from None
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="channel.logs_auto_setup",
+        entity="channel",
+        after={"chat_id": body.chat_id, **res},
+    )
+    return res
+
+
+@router.post("/channels/logs/{row_id}/test")
+async def test_log_channel(row_id: int, ctx: Settings, db: DB) -> dict[str, Any]:
+    """Send a test message to verify bot permissions for a configured report topic."""
+    from paurubot.core import log_topics
+
+    row = await owned(db, LogChannel, row_id, ctx)
+    try:
+        return await log_topics.send_topic_test(db, ctx.shop_id, row)
+    except log_topics.TopicSetupError as exc:
+        raise HTTPException(status_code=422, detail=exc.code) from None
+    except Exception:
+        raise HTTPException(status_code=422, detail="topic_test_failed") from None
+
+
 @router.post("/contacts")
 async def add_contact(body: ContactBody, ctx: Settings, db: DB) -> dict[str, Any]:
     row = SupportContact(shop_id=ctx.shop_id, **body.model_dump())
@@ -826,6 +995,70 @@ async def audit_log(
         stmt = stmt.where(AuditLog.actor_type == "staff", AuditLog.actor_id == actor_id)
     rows, total = await paginate(db, stmt.order_by(AuditLog.id.desc()), page)
     return {"items": [plain(r, AUDIT_FIELDS) for r in rows], "total": total}
+
+
+@router.get("/audit.csv")
+async def audit_csv(
+    ctx: Annotated[StaffContext, Depends(require("audit.read"))],
+    db: DB,
+    action: str | None = Query(None, max_length=64),
+    entity: str | None = Query(None, max_length=32),
+    entity_id: int | None = None,
+    actor_id: int | None = None,
+) -> Response:
+    stmt = select(AuditLog).where(AuditLog.shop_id == ctx.shop_id)
+    if action:
+        stmt = stmt.where(AuditLog.action.startswith(action))
+    if entity:
+        stmt = stmt.where(AuditLog.entity == entity)
+    if entity_id is not None:
+        stmt = stmt.where(AuditLog.entity_id == entity_id)
+    if actor_id is not None:
+        stmt = stmt.where(AuditLog.actor_type == "staff", AuditLog.actor_id == actor_id)
+    rows = list(await db.scalars(stmt.order_by(AuditLog.id.desc()).limit(5000)))
+    buf = io.StringIO()
+    buf.write("\ufeff")
+    writer = csv.writer(buf)
+    writer.writerow(
+        [
+            "id",
+            "created_at",
+            "actor_type",
+            "actor_id",
+            "action",
+            "entity",
+            "entity_id",
+            "ip",
+            "before",
+            "after",
+        ]
+    )
+    for row in rows:
+        before_s = json.dumps(row.before, ensure_ascii=False, default=str) if row.before is not None else ""
+        after_s = json.dumps(row.after, ensure_ascii=False, default=str) if row.after is not None else ""
+        writer.writerow(
+            [
+                row.id,
+                row.created_at.isoformat(),
+                _csv_safe(row.actor_type),
+                row.actor_id if row.actor_id is not None else "",
+                _csv_safe(row.action),
+                _csv_safe(row.entity or ""),
+                row.entity_id if row.entity_id is not None else "",
+                _csv_safe(row.ip or ""),
+                _csv_safe(before_s),
+                _csv_safe(after_s),
+            ]
+        )
+    stamp = utcnow().strftime("%Y%m%d-%H%M")
+    return Response(
+        buf.getvalue().encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "content-disposition": f'attachment; filename="audit-{stamp}.csv"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.get("/jobs")
@@ -892,6 +1125,36 @@ async def retry_dead_jobs(
     return {"retried": retried}
 
 
+@router.post("/jobs/{job_id}/cancel")
+async def cancel_job(
+    job_id: int, ctx: Annotated[StaffContext, Depends(require("settings.write"))], db: DB
+) -> dict[str, bool]:
+    await owned(db, Job, job_id, ctx)
+    if not await queue.cancel_queued(db, job_id):
+        raise HTTPException(status_code=409, detail="not_cancelable")
+    await record(
+        db, shop_id=ctx.shop_id, actor=ctx.actor, action="job.cancel", entity="job", entity_id=job_id
+    )
+    return {"ok": True}
+
+
+@router.post("/jobs/clear-dead")
+async def clear_dead_jobs(
+    body: RetryDeadBody, ctx: Annotated[StaffContext, Depends(require("settings.write"))], db: DB
+) -> dict[str, int]:
+    cleared = await queue.clear_dead(db, ctx.shop_id, queue_name=body.queue)
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="job.clear_dead",
+        entity="job",
+        entity_id=None,
+        after={"queue": body.queue, "count": cleared},
+    )
+    return {"cleared": cleared}
+
+
 @router.get("/doctor")
 async def doctor(ctx: Annotated[StaffContext, Depends(require("settings.write"))]) -> dict[str, Any]:
     """Environment analyser (ADM-08)."""
@@ -921,6 +1184,7 @@ def _range(start: date | None, end: date | None) -> tuple[datetime, datetime, da
 
 async def _sales(db: DB, ctx: StaffContext, lo: datetime, hi: datetime) -> dict[str, Any]:
     scope = await reseller_scope(db, ctx)
+    from paurubot.core.orders import ACCOUNT_KINDS
     from paurubot.core.reports import real_buyer
 
     base = [
@@ -941,22 +1205,71 @@ async def _sales(db: DB, ctx: StaffContext, lo: datetime, hi: datetime) -> dict[
             .order_by(day)
         )
     ).all()
-    by_plan = (
+    account_titles = dict(
+        (
+            await db.execute(
+                select(AccountPlan.id, AccountPlan.title).where(AccountPlan.shop_id == ctx.shop_id)
+            )
+        ).all()
+    )
+    order_rows = (
         await db.execute(
-            select(Plan.title, Order.kind, func.count(Order.id), func.coalesce(func.sum(Order.amount), 0))
+            select(Plan.title, Order.kind, Order.amount, Order.params)
             .select_from(Order)
             .outerjoin(Plan, Plan.id == Order.plan_id)
             .where(*base)
-            .group_by(Plan.title, Order.kind)
-            .order_by(func.sum(Order.amount).desc())
         )
     ).all()
+    grouped: dict[tuple[str | None, str], list[int]] = {}
+    svc_orders = svc_amount = acc_orders = acc_amount = 0
+    for title, kind, amount, params in order_rows:
+        resolved = title
+        if not resolved and isinstance(params, dict) and params.get("account_plan_id"):
+            try:
+                resolved = account_titles.get(int(params["account_plan_id"]))
+            except (TypeError, ValueError):
+                resolved = None
+        key = (resolved, kind.value)
+        bucket = grouped.setdefault(key, [0, 0])
+        bucket[0] += 1
+        bucket[1] += int(amount or 0)
+        if kind in ACCOUNT_KINDS:
+            acc_orders += 1
+            acc_amount += int(amount or 0)
+        else:
+            svc_orders += 1
+            svc_amount += int(amount or 0)
+    plans_out = [
+        {"plan": title, "kind": kind_val, "orders": counts[0], "amount": counts[1]}
+        for (title, kind_val), counts in sorted(grouped.items(), key=lambda kv: (-kv[1][1], kv[0][1]))
+    ]
+    cur_orders = sum(int(n) for _, n, _ in by_day)
+    cur_amount = sum(int(a) for _, _, a in by_day)
+    prev_lo = lo - (hi - lo)
+    prev_base = [
+        Order.shop_id == ctx.shop_id,
+        Order.status.in_(SOLD),
+        Order.completed_at >= prev_lo,
+        Order.completed_at < lo,
+        real_buyer(),
+    ]
+    if scope is not None:
+        prev_base.append(Order.customer_id.in_(scope))
+    prev_orders, prev_amount = (
+        await db.execute(
+            select(func.count(Order.id), func.coalesce(func.sum(Order.amount), 0)).where(*prev_base)
+        )
+    ).one()
+    prev_orders_i, prev_amount_i = int(prev_orders or 0), int(prev_amount or 0)
+    change_pct = round((cur_amount - prev_amount_i) * 100 / prev_amount_i) if prev_amount_i > 0 else None
     result: dict[str, Any] = {
         "days": [{"day": d.isoformat(), "orders": int(n), "amount": int(a)} for d, n, a in by_day],
-        "plans": [{"plan": t, "kind": k.value, "orders": int(n), "amount": int(a)} for t, k, n, a in by_plan],
-        "totals": {
-            "orders": sum(int(n) for _, n, _ in by_day),
-            "amount": sum(int(a) for _, _, a in by_day),
+        "plans": plans_out,
+        "totals": {"orders": cur_orders, "amount": cur_amount},
+        "previous": {"orders": prev_orders_i, "amount": prev_amount_i, "change_percent": change_pct},
+        "breakdown": {
+            "services": {"orders": svc_orders, "amount": svc_amount},
+            "accounts": {"orders": acc_orders, "amount": acc_amount},
         },
     }
     if scope is None:
@@ -968,6 +1281,7 @@ async def _sales(db: DB, ctx: StaffContext, lo: datetime, hi: datetime) -> dict[
                     Payment.status == PaymentStatus.PAID,
                     Payment.paid_at >= lo,
                     Payment.paid_at < hi,
+                    Payment.customer_id.not_in(select(Customer.id).where(Customer.is_test.is_(True))),
                 )
                 .group_by(Payment.provider)
                 .order_by(Payment.provider)
@@ -1031,12 +1345,13 @@ EXPORT_PERMISSIONS = {
     "payments": "payments.read",
     "customers": "customers.read",
     "services": "services.read",
+    "accounts": "resellers.manage",
 }
 
 
 @router.get("/export/{kind}.xlsx")
 async def export_xlsx(
-    kind: Literal["orders", "payments", "customers", "services"],
+    kind: Literal["orders", "payments", "customers", "services", "accounts"],
     db: DB,
     ctx: Annotated[StaffContext, Depends(require("dashboard.view"))],
     start: date | None = None,
@@ -1103,12 +1418,24 @@ async def sales_csv(
 
 def _csv_safe(value: str) -> str:
     """Neutralise spreadsheet formulas in admin-supplied text (CSV injection)."""
-    return "'" + value if value[:1] in {"=", "+", "-", "@", "\t", "\r"} else value
+    lead = value.lstrip()
+    if value[:1] in {"=", "+", "-", "@", "\t", "\r"} or lead[:1] in {"=", "+", "-", "@"}:
+        return "'" + value
+    return value
 
 
 # ---------------------------------------------------------------- backups (OPS-05, OPS-06)
 
 Backups = Annotated[StaffContext, Depends(require("backups.manage"))]
+
+
+async def _require_root_shop(db: AsyncSession, ctx: StaffContext) -> Any:
+    from paurubot.core.shops import require_root_shop
+
+    shop = await require_root_shop(db)
+    if ctx.shop_id != shop.id:
+        raise HTTPException(status_code=403, detail="backup_root_only")
+    return shop
 
 
 async def _backup_schedule(db: AsyncSession) -> dict[str, Any]:
@@ -1127,6 +1454,7 @@ async def _backup_schedule(db: AsyncSession) -> dict[str, Any]:
 async def list_backups(ctx: Backups, db: DB) -> dict[str, Any]:
     from paurubot.ops import backup
 
+    await _require_root_shop(db, ctx)
     return {
         "items": [
             {"name": b.name, "size": b.size, "created_at": b.created_at.isoformat()} for b in backup.listing()
@@ -1145,15 +1473,12 @@ class BackupScheduleBody(BaseModel):
 
 @router.put("/backups/schedule")
 async def save_backup_schedule(body: BackupScheduleBody, ctx: Backups, db: DB) -> dict[str, Any]:
-    from paurubot.core.shops import require_root_shop
     from paurubot.ops import backup_schedule
 
     if body.every_hours > 24 and body.every_hours % 24:
         # Past a day the backup runs at the set hour, so the interval is whole days.
         raise HTTPException(status_code=422, detail="backup_every_whole_days")
-    shop = await require_root_shop(db)
-    if ctx.shop_id != shop.id:
-        raise HTTPException(status_code=403, detail="backup_root_only")
+    shop = await _require_root_shop(db, ctx)
     before = (await backup_schedule.load(db)).as_dict()
     values = {
         "backup_auto_enabled": body.enabled,
@@ -1181,6 +1506,7 @@ async def save_backup_schedule(body: BackupScheduleBody, ctx: Backups, db: DB) -
 async def start_backup(ctx: Backups, db: DB) -> dict[str, Any]:
     from paurubot.config import get_settings
 
+    await _require_root_shop(db, ctx)
     if not get_settings().backup_passphrase.get_secret_value():
         raise HTTPException(status_code=409, detail="backup_passphrase_missing")
     job_id = await queue.enqueue(
@@ -1202,6 +1528,7 @@ async def verify_backup(name: str, ctx: Backups, db: DB) -> dict[str, Any]:
     from paurubot.config import get_settings
     from paurubot.ops import backup
 
+    await _require_root_shop(db, ctx)
     try:
         path = backup.resolve(name)
         result = await backup.verify(
@@ -1240,11 +1567,7 @@ class BackupBotBody(BaseModel):
 @router.get("/backups/telegram")
 async def backup_bot_state(ctx: Backups, db: DB) -> dict[str, Any]:
     """Whether a separate backup bot is set (never its token) and its chats."""
-    from paurubot.core.shops import require_root_shop
-
-    shop = await require_root_shop(db)
-    if ctx.shop_id != shop.id:
-        raise HTTPException(status_code=403, detail="backup_root_only")
+    shop = await _require_root_shop(db, ctx)
     cfg = await shop_settings.load(db, shop.id, fresh=True)
     return {"bot": bool(cfg.get("backup_bot_token")), "chat_ids": list(cfg.get("backup_chat_ids") or [])}
 
@@ -1254,11 +1577,7 @@ async def backup_bot(body: BackupBotBody, ctx: Backups, db: DB) -> dict[str, Any
     """Send backups with a separate bot to chosen chats (ClockBot parity)."""
     import re
 
-    from paurubot.core.shops import require_root_shop
-
-    shop = await require_root_shop(db)
-    if ctx.shop_id != shop.id:
-        raise HTTPException(status_code=403, detail="backup_root_only")
+    shop = await _require_root_shop(db, ctx)
     values: dict[str, Any] = {"backup_chat_ids": body.chat_ids}
     if body.bot_token is not None:
         token = body.bot_token.strip()
@@ -1285,6 +1604,7 @@ async def download_backup(name: str, ctx: Backups, db: DB) -> Response:
 
     from paurubot.ops import backup
 
+    await _require_root_shop(db, ctx)
     try:
         path = backup.resolve(name)
     except backup.BackupError as exc:
@@ -1298,7 +1618,37 @@ async def download_backup(name: str, ctx: Backups, db: DB) -> Response:
         after={"name": name},
     )
     await db.commit()
-    return FileResponse(path, media_type="application/octet-stream", filename=name)
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        filename=name,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.delete("/backups/{name}")
+async def delete_backup(name: str, ctx: Backups, db: DB) -> dict[str, str]:
+    from paurubot.ops import backup
+
+    await _require_root_shop(db, ctx)
+    try:
+        backup.delete_archive(name)
+    except backup.BackupError as exc:
+        msg = str(exc)
+        if msg == "backup_protected":
+            raise HTTPException(status_code=409, detail="backup_protected") from exc
+        if msg == "invalid backup name":
+            raise HTTPException(status_code=422, detail="invalid_backup_name") from exc
+        raise HTTPException(status_code=404, detail="not_found") from exc
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="backup.deleted",
+        entity="backup",
+        after={"name": name},
+    )
+    return {"deleted": name}
 
 
 # ---------------------------------------------------------------- updates from the panel (OPS-07)
@@ -1313,7 +1663,7 @@ async def update_status(ctx: Backups) -> dict[str, Any]:
 
 class UpdateBody(BaseModel):
     action: Literal["update", "rollback"]
-    channel: Literal["stable", "beta"] | None = None
+    channel: Literal["stable", "beta", "dev"] | None = None
     version: str | None = Field(default=None, max_length=40)
 
 
@@ -1367,7 +1717,10 @@ async def export_bundle(ctx: Backups, db: DB) -> Response:
     return Response(
         json.dumps(data, ensure_ascii=False, indent=1, default=str),
         media_type="application/json",
-        headers={"content-disposition": f'attachment; filename="paurubot-bundle-{stamp}.json"'},
+        headers={
+            "content-disposition": f'attachment; filename="paurubot-bundle-{stamp}.json"',
+            "Cache-Control": "no-store",
+        },
     )
 
 
@@ -1416,12 +1769,13 @@ Owner = Annotated[StaffContext, Depends(require("backups.manage"))]
 
 
 @router.post("/migration/upload")
-async def migration_upload(ctx: Owner, file: UploadFile = File(...)) -> dict[str, Any]:
+async def migration_upload(ctx: Owner, db: DB, file: UploadFile = File(...)) -> dict[str, Any]:
     """Store a MySQL dump or SQLite file and describe what it holds."""
     import secrets as _secrets
 
     from paurubot.migration import runner
 
+    await _require_root_shop(db, ctx)
     token = _secrets.token_hex(12)
     path = runner.upload_path(token)
     await asyncio.to_thread(path.parent.mkdir, parents=True, exist_ok=True)
@@ -1434,6 +1788,7 @@ async def migration_upload(ctx: Owner, file: UploadFile = File(...)) -> dict[str
                 path.unlink(missing_ok=True)
                 raise HTTPException(status_code=413, detail="import_too_large")
             handle.write(chunk)
+    os.chmod(path, 0o600)
     try:
         extract = await runner.load(token, None)
     except (ValueError, UnicodeDecodeError) as exc:
@@ -1453,6 +1808,7 @@ class MigrationRunBody(BaseModel):
 async def migration_run(body: MigrationRunBody, ctx: Owner, db: DB) -> dict[str, Any]:
     from paurubot.migration import runner
 
+    await _require_root_shop(db, ctx)
     if not await asyncio.to_thread(runner.upload_path(body.token).is_file):
         raise HTTPException(status_code=404, detail="upload_missing")
     for panel_id in set(body.panel_map.values()):
@@ -1476,11 +1832,12 @@ async def migration_run(body: MigrationRunBody, ctx: Owner, db: DB) -> dict[str,
 
 
 @router.get("/migration/last")
-async def migration_last(ctx: Owner) -> dict[str, Any]:
+async def migration_last(ctx: Owner, db: DB) -> dict[str, Any]:
     import json as _json
 
     from paurubot import kv
 
+    await _require_root_shop(db, ctx)
     raw = await kv.get_redis().get(f"migration:{ctx.shop_id}:last")
     return {"report": _json.loads(raw) if raw else None}
 
@@ -1490,6 +1847,19 @@ async def migration_last(ctx: Owner) -> dict[str, Any]:
 EXPORT_FORMAT = "paurubot-settings"
 # Server-wide, per-bot or credential settings never travel in a file.
 _NOT_EXPORTED_GROUPS = {"backups", "own", "resale"}
+_SHOP_LOCAL_SETTINGS = frozenset(
+    {
+        "trial_generation",
+        "trial_panel_id",
+        "trial_panel_ids",
+        "custom_panel_id",
+        "custom_location_id",
+        "service_import_panel_ids",
+        "guest_plan_ids",
+        "start_media",
+        "app_cache_chat_id",
+    }
+)
 
 
 def _portable(key: str) -> bool:
@@ -1499,15 +1869,16 @@ def _portable(key: str) -> bool:
         and not spec.secret
         and spec.group not in _NOT_EXPORTED_GROUPS
         and not key.startswith("tonpay_custom_")
-        and key != "trial_generation"
+        and key not in _SHOP_LOCAL_SETTINGS
     )
 
 
 @router.get("/settings/export")
 async def export_settings(
-    ctx: Annotated[StaffContext, Depends(require("settings.write"))], db: DB
+    ctx: Annotated[StaffContext, Depends(require("settings.write"))], response: Response, db: DB
 ) -> dict[str, Any]:
     """The shop's settings and edited bot texts as one file, without any secret."""
+    response.headers["Cache-Control"] = "no-store"
     cfg = await shop_settings.load(db, ctx.shop_id, fresh=True)
     texts = await db.scalars(
         select(BotText).where(BotText.shop_id == ctx.shop_id).order_by(BotText.key, BotText.locale)
@@ -1574,6 +1945,11 @@ async def import_settings(
             else:
                 row.value = item.value
             imported_texts += 1
+    if imported_texts:
+        from paurubot.bot import button_looks
+
+        i18n.invalidate(ctx.shop_id)
+        button_looks.forget(ctx.shop_id)
     await record(
         db,
         shop_id=ctx.shop_id,
@@ -1587,3 +1963,280 @@ async def import_settings(
     if imported_texts:
         i18n.invalidate(ctx.shop_id)
     return {"settings": len(values), "texts": imported_texts, "skipped": skipped}
+
+
+# ---------------------------------------------------------------- maintenance
+
+
+@router.post("/system/maintenance/clear-cache")
+async def maintenance_clear_cache(
+    ctx: Annotated[StaffContext, Depends(require("settings.write"))], db: DB
+) -> dict[str, Any]:
+    """Clear safe in-memory and Redis UI/settings caches without touching sessions or leases."""
+    if ctx.scoped:
+        raise HTTPException(status_code=403, detail="forbidden")
+    from paurubot.bot import button_looks
+    from paurubot.bot import context as bot_context
+
+    shop_settings.invalidate(ctx.shop_id)
+    i18n.invalidate(ctx.shop_id)
+    button_looks.forget(ctx.shop_id)
+    bot_context._join_ok.clear()
+    removed_keys = 0
+    try:
+        redis = kv.get_redis()
+        cursor = 0
+        while True:
+            cursor, keys = await redis.scan(cursor=cursor, match=f"{kv.MARK_PREFIX}home:*", count=200)
+            if keys:
+                removed_keys += int(await redis.delete(*keys) or 0)
+            if cursor == 0:
+                break
+    except Exception:
+        pass
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="system.clear_cache",
+        entity="shop",
+        entity_id=ctx.shop_id,
+        after={"redis_keys": removed_keys},
+    )
+    await db.commit()
+    return {"ok": True, "redis_keys": removed_keys}
+
+
+@router.post("/system/maintenance/resync")
+async def maintenance_resync(
+    ctx: Annotated[StaffContext, Depends(require("settings.write"))], db: DB
+) -> dict[str, Any]:
+    """Run an immediate usage sync across all active panels of this shop."""
+    if ctx.scoped:
+        raise HTTPException(status_code=403, detail="forbidden")
+    from paurubot.provisioning import sync
+
+    panel_ids = list(
+        await db.scalars(
+            select(Panel.id).where(Panel.shop_id == ctx.shop_id, Panel.is_active.is_(True))
+        )
+    )
+    synced = 0
+    failed = 0
+    if panel_ids:
+        results = await sync.sync_all(panel_ids)
+        for result in results.values():
+            if isinstance(result, BaseException):
+                failed += 1
+            else:
+                synced += int(result[0])
+                failed += int(result[1])
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="system.resync",
+        entity="shop",
+        entity_id=ctx.shop_id,
+        after={"panels": len(panel_ids), "synced": synced, "failed": failed},
+    )
+    await db.commit()
+    return {"ok": True, "panels": len(panel_ids), "synced": synced, "failed": failed}
+
+
+_builds_cache: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
+
+
+@router.get("/system/builds")
+async def github_builds(
+    ctx: Annotated[StaffContext, Depends(require("settings.read"))],
+    branch: str = Query(default="dev", min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._/-]+$"),
+) -> dict[str, Any]:
+    """Live GitHub Actions workflow runs for the configured repo and branch (default: dev)."""
+    if ctx.scoped:
+        raise HTTPException(status_code=403, detail="forbidden")
+    import time as _time
+
+    import httpx
+
+    from paurubot.config import get_settings
+
+    repo = get_settings().update_repo
+    cache_key = (repo, branch)
+    cached = _builds_cache.get(cache_key)
+    now_mono = _time.monotonic()
+    if cached and cached[0] > now_mono:
+        return cached[1]
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "PauruBot-Admin",
+    }
+    token = os.environ.get("PAURUBOT_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    url = f"https://api.github.com/repos/{repo}/actions/runs"
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(url, params={"branch": branch, "per_page": 6}, headers=headers)
+        if resp.status_code != 200:
+            payload = {
+                "repo": repo,
+                "branch": branch,
+                "runs": [],
+                "error": f"github_http_{resp.status_code}",
+            }
+            _builds_cache[cache_key] = (now_mono + 15.0, payload)
+            return payload
+        raw_runs = resp.json().get("workflow_runs") or []
+        runs = [
+            {
+                "id": int(r.get("id") or 0),
+                "run_number": int(r.get("run_number") or 0),
+                "name": str(r.get("name") or ""),
+                "display_title": str(r.get("display_title") or ""),
+                "status": str(r.get("status") or ""),
+                "conclusion": r.get("conclusion"),
+                "head_branch": str(r.get("head_branch") or branch),
+                "head_sha": str(r.get("head_sha") or "")[:7],
+                "event": str(r.get("event") or ""),
+                "html_url": str(r.get("html_url") or ""),
+                "created_at": r.get("created_at"),
+                "updated_at": r.get("updated_at"),
+            }
+            for r in raw_runs[:6]
+        ]
+        payload = {"repo": repo, "branch": branch, "runs": runs, "error": None}
+    except Exception:
+        payload = {"repo": repo, "branch": branch, "runs": [], "error": "github_unreachable"}
+    _builds_cache[cache_key] = (now_mono + 15.0, payload)
+    return payload
+
+
+
+class CronUpdateBody(BaseModel):
+    enabled: bool | None = None
+    interval_seconds: int | None = None
+    reset_interval: bool = False
+
+
+@router.get("/system/crons")
+async def list_crons(
+    ctx: Annotated[StaffContext, Depends(require("settings.read"))],
+    db: DB,
+) -> dict[str, Any]:
+    """List all periodic worker crons with schedules, overrides, and last-run telemetry."""
+    if ctx.scoped:
+        raise HTTPException(status_code=403, detail="forbidden")
+    from paurubot.worker import jobs as worker_jobs
+    from paurubot.worker import runner
+
+    cfg = await shop_settings.load(db, ctx.shop_id)
+    overrides = cfg.get("cron_overrides") if isinstance(cfg.get("cron_overrides"), dict) else {}
+    names = [task.name for task in runner.PERIODIC]
+    states = await runner.get_cron_states(names)
+    items = []
+    for task in runner.PERIODIC:
+        ov = overrides.get(task.name) if isinstance(overrides.get(task.name), dict) else {}
+        protected = task.name in runner.CRON_PROTECTED
+        enabled = True if protected else bool(ov.get("enabled", True))
+        custom_int = ov.get("interval_seconds")
+        eff_int = (
+            int(custom_int)
+            if isinstance(custom_int, int)
+            and runner.CRON_MIN_INTERVAL <= custom_int <= runner.CRON_MAX_INTERVAL
+            else int(task.every)
+        )
+        st = states.get(task.name) or {}
+        items.append(
+            {
+                "name": task.name,
+                "category": worker_jobs.CRON_CATEGORIES.get(task.name, "system"),
+                "default_interval": int(task.every),
+                "effective_interval": eff_int,
+                "custom_interval": int(custom_int) if isinstance(custom_int, int) else None,
+                "enabled": enabled,
+                "protected": protected,
+                "last_run_at": st.get("last_run_at"),
+                "last_duration_ms": st.get("last_duration_ms"),
+                "last_status": st.get("last_status"),
+                "last_error": st.get("last_error"),
+                "run_count": int(st.get("run_count") or 0),
+            }
+        )
+    return {"items": items}
+
+
+@router.put("/system/crons/{name}")
+async def update_cron(
+    name: str, body: CronUpdateBody, ctx: Settings, db: DB
+) -> dict[str, Any]:
+    """Enable/disable or customize the run interval of a periodic worker cron."""
+    if ctx.scoped:
+        raise HTTPException(status_code=403, detail="forbidden")
+    from paurubot.worker import jobs as _worker_jobs  # noqa: F401
+    from paurubot.worker import runner
+
+    task = next((t for t in runner.PERIODIC if t.name == name), None)
+    if task is None:
+        raise HTTPException(status_code=404, detail="cron_not_found")
+    if name in runner.CRON_PROTECTED and body.enabled is False:
+        raise HTTPException(status_code=422, detail="cron_protected")
+    if body.interval_seconds is not None and not (
+        runner.CRON_MIN_INTERVAL <= body.interval_seconds <= runner.CRON_MAX_INTERVAL
+    ):
+        raise HTTPException(status_code=422, detail="cron_interval_invalid")
+
+    cfg = await shop_settings.load(db, ctx.shop_id, fresh=True)
+    raw = cfg.get("cron_overrides")
+    overrides: dict[str, dict[str, Any]] = {
+        k: dict(v) for k, v in raw.items() if isinstance(k, str) and isinstance(v, dict)
+    } if isinstance(raw, dict) else {}
+    entry = dict(overrides.get(name) or {})
+    if body.enabled is not None:
+        entry["enabled"] = body.enabled
+    if body.reset_interval:
+        entry.pop("interval_seconds", None)
+    elif body.interval_seconds is not None:
+        entry["interval_seconds"] = body.interval_seconds
+    if entry.get("enabled", True) is True and "interval_seconds" not in entry:
+        overrides.pop(name, None)
+    else:
+        overrides[name] = entry
+
+    await shop_settings.save(db, ctx.shop_id, {"cron_overrides": overrides})
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="system.cron_update",
+        entity="cron",
+        after={"name": name, "entry": entry},
+    )
+    return {
+        "name": name,
+        "enabled": True if name in runner.CRON_PROTECTED else bool(entry.get("enabled", True)),
+        "effective_interval": int(entry.get("interval_seconds") or task.every),
+        "custom_interval": entry.get("interval_seconds"),
+    }
+
+
+@router.post("/system/crons/{name}/run")
+async def run_cron_now(name: str, ctx: Settings, db: DB) -> dict[str, Any]:
+    """Request immediate execution of a periodic worker cron on the next scheduler tick."""
+    if ctx.scoped:
+        raise HTTPException(status_code=403, detail="forbidden")
+    from paurubot.worker import jobs as _worker_jobs  # noqa: F401
+    from paurubot.worker import runner
+
+    if not any(t.name == name for t in runner.PERIODIC):
+        raise HTTPException(status_code=404, detail="cron_not_found")
+    await runner.request_cron_run(name)
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="system.cron_run",
+        entity="cron",
+        after={"name": name},
+    )
+    return {"ok": True, "name": name}

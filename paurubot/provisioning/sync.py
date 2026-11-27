@@ -80,11 +80,21 @@ async def evaluate_alerts(
     if service.status == ServiceStatus.ACTIVE:
         if service.data_limit:
             remaining = max(0, service.data_limit - service.used_bytes)
-            if remaining * 100 <= alert_policy.warn_remaining_percent(cfg) * service.data_limit:
-                once("low_volume", f"{service.data_limit}", {"remaining": remaining})
+            if alert_policy.is_low_volume(
+                service.data_limit,
+                service.used_bytes,
+                alert_policy.warn_remaining_percent(cfg),
+                warn_gb=alert_policy.warn_remaining_gb(cfg),
+            ):
+                once("low_volume", f"{period}:{service.data_limit}", {"remaining": remaining})
         if service.expire_at:
             seconds = (service.expire_at - datetime.now(UTC)).total_seconds()
-            if 0 < seconds <= alert_policy.warn_days(cfg) * 86400:
+            if alert_policy.is_expiring(
+                seconds,
+                alert_policy.warn_days(cfg),
+                total_seconds=alert_policy.service_period_seconds(service),
+                warn_time_pct=alert_policy.warn_time_percent(cfg),
+            ):
                 once("expiring", period, {"days": max(1, int(seconds // 86400) + 1)})
         nudge = int(cfg.get("first_use_nudge_hours") or 0)
         created = getattr(service, "created_at", None)
@@ -96,7 +106,7 @@ async def evaluate_alerts(
     if service.status == ServiceStatus.EXPIRED and previous != ServiceStatus.EXPIRED:
         once("expired", period, {})
     if service.status == ServiceStatus.LIMITED and previous != ServiceStatus.LIMITED:
-        once("limited", f"{service.data_limit}", {})
+        once("limited", f"{period}:{service.data_limit}", {})
     service.alerts_sent = sent
     # Inside the shop's quiet hours the alerts wait for the morning (settings › reminders).
     later = alert_policy.quiet_until(datetime.now(UTC), cfg, get_settings().tz) if jobs else None

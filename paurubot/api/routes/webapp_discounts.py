@@ -90,8 +90,11 @@ async def _code_view(ctx: Any, code: DiscountCode, order: Order | None, *, stick
 
 @router.get("/discounts")
 async def discounts(ctx: WebApp, order_id: int | None = Query(None, ge=1, le=2**63 - 1)) -> dict[str, Any]:
+    enabled = bool(ctx.cfg.get("discounts_enabled", True))
     order = await _order(ctx, order_id)
     tier, upcoming = _tiers(ctx)
+    if not enabled:
+        return {"enabled": False, "tier": tier, "next_tier": upcoming, "codes": []}
     sticky = await pricing.sticky_code(ctx.session, ctx.customer)
     codes = [
         await _code_view(ctx, code, order, sticky=False)

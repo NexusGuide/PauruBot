@@ -119,7 +119,9 @@ def _permissions(call: Callable[..., Any] | None, dependant: Any) -> Iterator[st
 def _access(path: str, permissions: list[str]) -> str:
     if permissions:
         return ", ".join(f"`{p}`" for p in sorted(set(permissions)))
-    if path == "/api/auth/password" or path.startswith(("/api/admin", "/api/auth/api-keys", "/api/auth/me")):
+    if path == "/api/auth/password" or path.startswith(
+        ("/api/admin", "/api/auth/api-keys", "/api/auth/me", "/api/auth/sessions")
+    ):
         return "staff session"
     for start, label in (
         ("/api/webapp", "Mini App initData"),

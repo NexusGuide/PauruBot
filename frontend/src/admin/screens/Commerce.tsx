@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ApiError, call, type Order, type Payment } from "../api";
+import { ApiError, call, type Order, type OrderDetails, type Payment } from "../api";
 import { PAGE_SIZE, useAction, useList } from "../hooks";
 import { useSession } from "../session";
 import {
@@ -32,10 +32,22 @@ const ORDER_CHIPS = ["completed", "provisioning", "paid", "awaiting_payment", "p
 const VOID_REASONS = ["fake_receipt", "wrong_amount", "duplicate", "mistake", "other"];
 const PROVIDERS = ["card", "zarinpal", "stars", "usdt_trc20", "trx", "ton", "nowpayments", "plisio", "aqayepardakht", "tetra98", "variza", "abangateway", "blupal", "tronado", "cubepay", "atlaspay"];
 
+export function formatOrderSpecs(
+  details: OrderDetails | undefined,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  if (!details) return "";
+  const parts: string[] = [];
+  if (details.days) parts.push(t("order_spec_days", { n: details.days }));
+  if (details.gb) parts.push(t("order_spec_gb", { n: details.gb }));
+  if (details.users) parts.push(t("order_spec_users", { n: details.users }));
+  return parts.join(" · ");
+}
+
 export function Orders() {
   const { t, can, toast, errorText } = useSession();
   const typedConfirm = useTypedConfirm();
-  const list = useList<Order>("/api/admin/orders", ["status", "customer_id", "id"]);
+  const list = useList<Order>("/api/admin/orders", ["status", "customer_id", "id", "group"]);
   const [open, setOpen] = useState<Order | null>(null);
   const [busy, run] = useAction();
 
@@ -80,6 +92,8 @@ export function Orders() {
             </span>
             <span className="truncate text-[0.76rem] font-normal text-[var(--hint)]">
               #{o.id} · {o.plan ?? "—"}
+              {o.account_username ? ` · ${o.account_username}` : o.service_username ? ` · ${o.service_username}` : ""}
+              {formatOrderSpecs(o.details, t) ? ` · ${formatOrderSpecs(o.details, t)}` : ""}
             </span>
           </span>
         </span>
@@ -95,14 +109,24 @@ export function Orders() {
     <Page title={t("nav_orders")} wide>
       <div className="flex flex-col gap-3">
         <Chips
+          label={t("orders_group_filter")}
+          value={list.get("group") || "all"}
+          onChange={(group) => list.set({ group: group === "all" ? null : group })}
+          options={[
+            { value: "all", label: t("seg_all") },
+            { value: "services", label: t("orders_group_services") },
+            { value: "accounts", label: t("orders_group_accounts") },
+          ]}
+        />
+        <Chips
           label={t("filter_status")}
           value={list.get("status") || "all"}
           onChange={(status) => list.set({ status: status === "all" ? null : status })}
           options={[{ value: "all", label: t("seg_all") }, ...ORDER_CHIPS.map((status) => ({ value: status, label: t(`status_${status}`) }))]}
         />
-        {(list.get("customer_id") || list.get("id")) && (
+        {(list.get("customer_id") || list.get("id") || list.get("group")) && (
           <div>
-            <Button small icon="close" onClick={() => list.set({ customer_id: null, id: null })}>
+            <Button small icon="close" onClick={() => list.set({ customer_id: null, id: null, group: null })}>
               {t("clear_filters")}
             </Button>
           </div>
@@ -126,6 +150,16 @@ export function Orders() {
                 [t("col_status"), <Status key="s" value={open.status} />],
                 [t("col_customer"), <Link key="c" className="text-firouzeh-700" to={`/customers/${open.customer_id}`}>{open.customer}</Link>],
                 [t("col_plan"), open.plan],
+                ...(open.panel ? ([[t("col_panel"), open.panel]] as [string, string][]) : []),
+                ...(open.account_username
+                  ? ([[t("nav_admin_accounts"), <span key="au" className="num font-semibold" dir="ltr">{open.account_username}</span>]] as [string, ReactNode][])
+                  : []),
+                ...(open.service_username
+                  ? ([[t("nav_services"), <span key="su" className="num font-semibold" dir="ltr">{open.service_username}</span>]] as [string, ReactNode][])
+                  : []),
+                ...(formatOrderSpecs(open.details, t)
+                  ? ([[t("order_specs"), formatOrderSpecs(open.details, t)]] as [string, string][])
+                  : []),
                 [t("price_base"), <Money key="b" amount={open.base_price} />],
                 [t("discount_reseller"), <Money key="r" amount={open.reseller_discount} />],
                 [t("discount_code"), <Money key="d" amount={open.code_discount} />],
@@ -145,6 +179,14 @@ export function Orders() {
               {open.service_id && (
                 <Link className="text-[0.88rem] font-semibold text-firouzeh-700" to={`/services?customer_id=${open.customer_id}`}>
                   {t("open_service")}
+                </Link>
+              )}
+              {open.account_username && can("resellers.manage") && (
+                <Link
+                  className="text-[0.88rem] font-semibold text-firouzeh-700"
+                  to={`/admin-accounts?q=${encodeURIComponent(open.account_username)}`}
+                >
+                  {t("open_admin_account")}
                 </Link>
               )}
               {can("payments.refund") && ["completed", "failed"].includes(open.status) && open.amount > 0 && (
@@ -320,9 +362,21 @@ export function PaymentSheet({
           </p>
         )}
         {rejecting && (
-          <Field label={t("reject_reason")} hint={t("reject_reason_hint")}>
-            {(id) => <Textarea id={id} value={reason} maxLength={200} onChange={(event) => setReason(event.target.value)} />}
-          </Field>
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap gap-1.5">
+              {(["reject_preset_1", "reject_preset_2", "reject_preset_3", "reject_preset_4"] as const).map((key) => {
+                const label = t(key);
+                return (
+                  <Button key={key} small tone="ghost" onClick={() => setReason(label)}>
+                    {label}
+                  </Button>
+                );
+              })}
+            </div>
+            <Field label={t("reject_reason")} hint={t("reject_reason_hint")}>
+              {(id) => <Textarea id={id} value={reason} maxLength={200} onChange={(event) => setReason(event.target.value)} />}
+            </Field>
+          </div>
         )}
         {payment.void && (
           <div className="flex flex-col gap-1 rounded-xl bg-anar-100 px-3 py-2 text-[0.85rem] text-anar-700">

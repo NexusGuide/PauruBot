@@ -34,6 +34,27 @@ export async function call<T>(path: string, options: RequestOptions = {}): Promi
   }
 }
 
+export async function uploadRaw<T>(path: string, file: Blob, headers: Record<string, string> = {}): Promise<T> {
+  const res = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "content-type": file.type || "application/octet-stream",
+      "x-csrf-token": csrfToken || readCookie("pb_csrf"),
+      ...headers,
+    },
+    body: file,
+  });
+  if (res.status === 401) {
+    unauthorizedListeners.forEach((listener) => listener());
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new ApiError(res.status, typeof data?.detail === "string" ? data.detail : `http_${res.status}`, data);
+  }
+  return data as T;
+}
+
 export function qs(params: Record<string, string | number | boolean | null | undefined>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -81,6 +102,11 @@ export interface Dashboard {
   open_tickets?: number;
   series?: { day: string; revenue: number; orders: number }[];
   panels?: PanelHealth[];
+  host?: {
+    cpu_percent: number | null;
+    ram_percent: number | null;
+    disk_percent: number | null;
+  };
   reseller?: {
     balance: number;
     billing_mode: string;
@@ -94,7 +120,7 @@ export interface Dashboard {
   };
 }
 
-export type InboxType = "payment" | "ticket" | "order" | "job" | "application";
+export type InboxType = "payment" | "ticket" | "order" | "job" | "application" | "cancellation";
 
 export interface InboxItem {
   type: InboxType;
@@ -106,6 +132,7 @@ export interface InboxItem {
   subject?: string;
   error?: string | null;
   kind?: string;
+  service_id?: number;
 }
 
 export interface Customer {
@@ -129,8 +156,9 @@ export interface Customer {
   last_seen_at: string | null;
   blocked_bot_at: string | null;
   referrer_id: number | null;
-  /** List rows only: active services, the nearest end among them, the wallet balance. */
+  /** List rows only: active services, active panel accounts, nearest end, wallet balance. */
   active_services?: number;
+  active_accounts?: number;
   next_expiry?: string | null;
   balance?: number;
 }
@@ -161,6 +189,12 @@ export interface Service {
   customer: string | null;
 }
 
+export interface OrderDetails {
+  days?: number;
+  gb?: number;
+  users?: number;
+}
+
 export interface Order {
   id: number;
   customer_id: number;
@@ -179,6 +213,11 @@ export interface Order {
   completed_at: string | null;
   customer: string;
   plan: string | null;
+  account_id?: number | null;
+  account_username?: string | null;
+  service_username?: string | null;
+  panel?: string | null;
+  details?: OrderDetails;
 }
 
 export interface Payment {
@@ -221,14 +260,75 @@ export interface PaymentVoid {
   block_card: boolean;
 }
 
+export interface CustomerOrderRow {
+  id: number;
+  kind: string;
+  status: string;
+  service_id?: number | null;
+  amount: number;
+  created_at: string;
+  completed_at: string | null;
+  error: string | null;
+  plan?: string | null;
+  account_id?: number | null;
+  account_username?: string | null;
+  service_username?: string | null;
+  panel?: string | null;
+  details?: OrderDetails;
+}
+
+export interface CustomerResellerSummary {
+  id: number;
+  group_id: number | null;
+  group_title?: string | null;
+  active: boolean;
+  discount_percent?: number;
+  billing_mode?: string;
+  credit_limit?: number;
+  billing_debt?: number;
+  max_active_services?: number | null;
+  suspended_at?: string | null;
+  suspend_reason?: string | null;
+}
+
 export interface CustomerDetail {
   customer: Customer;
   balance: number;
+  total_spent?: number;
   referrals: number;
-  reseller: { id: number; group_id: number | null; active: boolean } | null;
+  reseller: CustomerResellerSummary | null;
+  trial?: {
+    status: string;
+    generation: number;
+    panel_id: number | null;
+    panel: string | null;
+    created_at: string;
+  } | null;
   services: Service[];
-  orders: { id: number; kind: string; status: string; amount: number; created_at: string; completed_at: string | null; error: string | null }[];
-  payments: { id: number; provider: string; status: string; amount: number; created_at: string; paid_at: string | null }[];
+  panel_accounts?: PanelAccountRow[];
+  orders: CustomerOrderRow[];
+  orders_total?: number;
+  account_orders?: CustomerOrderRow[];
+  account_orders_total?: number;
+  payments: {
+    id: number;
+    provider: string;
+    status: string;
+    amount: number;
+    purpose?: string | null;
+    order_id?: number | null;
+    created_at: string;
+    paid_at: string | null;
+  }[];
+  payments_total?: number;
+  tickets?: {
+    id: number;
+    subject: string;
+    status: string;
+    source: string;
+    created_at: string;
+    updated_at: string;
+  }[];
   ledger: { id: number; amount: number; balance_after: number; kind: string; memo: string | null; at: string }[];
 }
 
@@ -359,6 +459,7 @@ export interface Discount {
   used_count: number;
   per_customer_limit: number;
   plan_ids: number[];
+  account_plan_ids: number[];
   first_purchase_only: boolean;
   sticky: boolean;
   customer_telegram_id: number | null;
@@ -366,6 +467,7 @@ export interface Discount {
   expires_at: string | null;
   is_active: boolean;
   note: string | null;
+  auto_renew?: boolean;
   created_at: string;
 }
 
@@ -459,7 +561,22 @@ export interface SubReseller {
   is_active: boolean;
   expires_at: string | null;
   balance: number;
+  orders_month?: number;
+  sales_month?: number;
+  commission_month?: number;
   created_at: string;
+}
+
+export interface BotWebhookStatus {
+  ok: boolean;
+  bot_mode: string;
+  expected_url: string | null;
+  url: string;
+  matches: boolean;
+  pending_update_count: number;
+  last_error_date: string | null;
+  last_error_message: string | null;
+  error: string | null;
 }
 
 export interface ResellerData {
@@ -575,6 +692,11 @@ export interface SalesReport {
   plans: { plan: string | null; kind: string; orders: number; amount: number }[];
   providers?: { provider: string; payments: number; amount: number }[];
   totals: { orders: number; amount: number };
+  previous?: { orders: number; amount: number; change_percent: number | null };
+  breakdown?: {
+    services: { orders: number; amount: number };
+    accounts: { orders: number; amount: number };
+  };
 }
 
 export { ApiError };

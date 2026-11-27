@@ -174,8 +174,11 @@ async def list_api_keys(ctx: CurrentStaff, db: DB) -> dict:
 
 
 @router.post("/api-keys")
-async def create_api_key(body: ApiKeyBody, ctx: CurrentStaff, db: DB) -> dict:
+async def create_api_key(body: ApiKeyBody, ctx: CurrentStaff, response: Response, db: DB) -> dict:
     _cookie_only(ctx)
+    response.headers["Cache-Control"] = "no-store"
+    if body.expires_at is not None and (body.expires_at.tzinfo is None or body.expires_at <= utcnow()):
+        raise HTTPException(status_code=422, detail="expires_at_invalid")
     active = await db.scalar(
         select(func.count(StaffApiKey.id)).where(
             StaffApiKey.staff_id == ctx.staff.id, StaffApiKey.revoked_at.is_(None)
@@ -230,9 +233,34 @@ async def me(ctx: CurrentStaff) -> dict:
     return _me(ctx.staff, sorted(ctx.permissions), ctx.session.csrf)
 
 
+@router.get("/sessions")
+async def list_sessions(ctx: CurrentStaff, response: Response) -> dict:
+    _cookie_only(ctx)
+    response.headers["Cache-Control"] = "no-store"
+    return {"items": await sessions.list_for_staff(ctx.staff.id, ctx.session_id)}
+
+
+@router.delete("/sessions/others")
+async def revoke_other_sessions(ctx: CurrentStaff, response: Response, db: DB) -> dict:
+    _cookie_only(ctx)
+    response.headers["Cache-Control"] = "no-store"
+    removed = await sessions.destroy_others(ctx.staff.id, ctx.session_id)
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="auth.sessions_revoked",
+        entity="staff",
+        entity_id=ctx.staff.id,
+        after={"revoked": removed},
+    )
+    return {"revoked": removed}
+
+
 @router.post("/password")
 async def change_password(body: PasswordBody, ctx: CurrentStaff, response: Response, db: DB) -> dict:
     _cookie_only(ctx)
+    response.headers["Cache-Control"] = "no-store"
     locked = await db.scalar(
         select(Staff)
         .where(Staff.id == ctx.staff.id)
@@ -269,7 +297,10 @@ class ResetConfirmBody(BaseModel):
 
 
 @router.post("/password-reset/request")
-async def request_password_reset(body: ResetRequestBody, request: Request, db: DB) -> dict:
+async def request_password_reset(
+    body: ResetRequestBody, request: Request, response: Response, db: DB
+) -> dict:
+    response.headers["Cache-Control"] = "no-store"
     try:
         await password_reset.request(db, body.username, request_ip(request))
     except LoginLocked as exc:
@@ -282,7 +313,10 @@ async def request_password_reset(body: ResetRequestBody, request: Request, db: D
 
 
 @router.post("/password-reset/confirm")
-async def confirm_password_reset(body: ResetConfirmBody, request: Request, db: DB) -> dict:
+async def confirm_password_reset(
+    body: ResetConfirmBody, request: Request, response: Response, db: DB
+) -> dict:
+    response.headers["Cache-Control"] = "no-store"
     try:
         await password_reset.confirm(db, body.token, body.new_password, request_ip(request))
     except LoginLocked as exc:

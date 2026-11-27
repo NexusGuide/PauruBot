@@ -69,3 +69,27 @@ def test_a_manual_release_is_checked_before_anything_is_published() -> None:
     publish = release[release.index("Publish the release") :]
     assert 'ref="refs/tags/${RELEASE}" -f sha="${GITHUB_SHA}"' in publish
     assert "--verify-tag" in publish
+
+
+def test_dev_channel_is_wired_across_workflows_and_installer() -> None:
+    import subprocess
+
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    release = (ROOT / ".github" / "workflows" / "release.yml").read_text()
+    installer = (ROOT / "install.sh").read_text()
+    assert "branches: [main, dev]" in ci
+    assert "branches: [main, dev]" in release
+    assert "type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' && env.RELEASE == '' }}" in release
+    assert "heads/(main|dev)|tags/v[^/]+" in installer
+    assert "^(stable|beta|dev)?$" in installer
+    match = re.search(r"^resolve_target\(\) \{\n.*?^\}", installer, re.S | re.M)
+    assert match
+    script = (
+        "set -Eeuo pipefail\nIMAGE_REPO=ghcr.io/nexusguide/paurubot\n"
+        "die() { echo \"$*\" >&2; exit 19; }\n"
+        + match.group(0)
+        + "\nresolve_target dev \"\"\nprintf \"%s %s\\n\" \"$TARGET_REF\" \"$TARGET_IMAGE\"\n"
+    )
+    res = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=5)
+    assert res.returncode == 0, res.stderr
+    assert res.stdout.strip() == "dev ghcr.io/nexusguide/paurubot:dev"

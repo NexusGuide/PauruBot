@@ -194,7 +194,12 @@ def validate_prices(value: Any) -> dict[str, int]:
         raise ResaleError("resale_prices_invalid")
     out: dict[str, int] = {}
     for key, price in value.items():
-        if not str(key).isdigit() or not isinstance(price, int) or not 0 < price <= 10**10:
+        if (
+            not str(key).isdigit()
+            or isinstance(price, bool)
+            or not isinstance(price, int)
+            or not 0 < price <= 10**10
+        ):
             raise ResaleError("resale_prices_invalid")
         out[str(key)] = price
     return out
@@ -398,6 +403,7 @@ async def disconnect(
         return None
     if by_staff:
         await shop_settings.set_many(session, shop.id, {"resale_blocked": True})
+    await clear_webhook(shop.id)
     shop.status = ShopStatus.SUSPENDED
     shop.bot_token_enc = None
     shop.bot_user_id = None
@@ -419,7 +425,9 @@ async def update(session: AsyncSession, shop: Shop, values: dict[str, Any]) -> d
     if "resale_prices" in clean:
         clean["resale_prices"] = validate_prices(clean["resale_prices"])
     markup = clean.get("resale_markup_percent")
-    if markup is not None and (not isinstance(markup, int) or not 0 <= markup <= MAX_MARKUP):
+    if markup is not None and (
+        isinstance(markup, bool) or not isinstance(markup, int) or not 0 <= markup <= MAX_MARKUP
+    ):
         raise ResaleError("resale_markup_invalid")
     return await shop_settings.set_many(session, shop.id, clean)
 
@@ -469,6 +477,79 @@ async def point_webhook(shop_id: int) -> None:
             allowed_updates=dispatcher().resolve_used_update_types(),
         )
     await set_commands(bot, Texts("fa"), Texts("en"))
+
+
+async def clear_webhook(shop_id: int) -> None:
+    """Best-effort Telegram webhook cleanup before clearing a disconnected bot's token."""
+    from paurubot.config import get_settings
+    from paurubot.notifications.telegram import bot_for
+
+    if get_settings().bot_mode != "webhook":
+        return
+    try:
+        bot = await bot_for(shop_id)
+        if bot is not None:
+            await bot.delete_webhook(drop_pending_updates=False)
+    except Exception:
+        pass
+
+
+async def webhook_status(shop_id: int) -> dict[str, Any]:
+    """Live Telegram getWebhookInfo for a reseller or own-panel bot."""
+    from paurubot.config import get_settings
+    from paurubot.notifications.telegram import bot_for
+
+    settings = get_settings()
+    expected = (
+        f"{settings.public_url}/api/telegram/webhook/{shop_id}"
+        if settings.bot_mode == "webhook"
+        else None
+    )
+    bot = await bot_for(shop_id)
+    if bot is None:
+        return {
+            "ok": False,
+            "bot_mode": settings.bot_mode,
+            "expected_url": expected,
+            "url": "",
+            "matches": False,
+            "pending_update_count": 0,
+            "last_error_date": None,
+            "last_error_message": None,
+            "error": "bot_not_connected",
+        }
+    try:
+        info = await bot.get_webhook_info()
+    except Exception as exc:
+        return {
+            "ok": False,
+            "bot_mode": settings.bot_mode,
+            "expected_url": expected,
+            "url": "",
+            "matches": False,
+            "pending_update_count": 0,
+            "last_error_date": None,
+            "last_error_message": None,
+            "error": str(exc)[:240],
+        }
+    url = str(info.url or "")
+    matches = (url == expected) if expected else (url == "")
+    last_date = None
+    if info.last_error_date:
+        from datetime import UTC, datetime
+
+        last_date = datetime.fromtimestamp(int(info.last_error_date), UTC).isoformat()
+    return {
+        "ok": matches and not info.last_error_message,
+        "bot_mode": settings.bot_mode,
+        "expected_url": expected,
+        "url": url,
+        "matches": matches,
+        "pending_update_count": int(info.pending_update_count or 0),
+        "last_error_date": last_date,
+        "last_error_message": info.last_error_message,
+        "error": None,
+    }
 
 
 # --- rights and figures (TEN-17) ----------------------------------------------------------
@@ -546,3 +627,287 @@ async def allow(session: AsyncSession, profile: ResellerProfile) -> Shop | None:
     if shop is not None:
         await shop_settings.set_many(session, shop.id, {"resale_blocked": False})
     return shop
+
+
+# --- per-bot activity & error logs --------------------------------------------------------
+
+LOG_CATEGORIES = ("all", "errors", "orders", "payments", "jobs", "audit")
+
+
+def _csv_safe(value: object) -> str:
+    text = "" if value is None else str(value)
+    if text[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + text
+    return text
+
+
+async def bot_logs(
+    session: AsyncSession,
+    shop: Shop,
+    *,
+    category: str = "all",
+    q: str | None = None,
+    limit: int = 100,
+    staff: bool = True,
+) -> dict[str, Any]:
+    """Unified newest-first activity, order, payment, queue-job and audit log for one child bot."""
+    from sqlalchemy import and_, or_
+
+    from paurubot.db.models import (
+        AuditLog,
+        Job,
+        JobStatus,
+        OrderStatus,
+        PanelAccount,
+        Payment,
+        PaymentStatus,
+    )
+
+    cat = category if category in LOG_CATEGORIES else "all"
+    cap = max(10, min(300, int(limit or 100)))
+    per_source = min(150, cap)
+    needle = (q or "").strip().lower()
+    kind = "own" if shop.own_account_id is not None else "reseller"
+
+    items: list[dict[str, Any]] = []
+
+    # 1) Orders placed inside this dedicated/reseller bot
+    ord_rows = list(
+        await session.scalars(
+            select(Order).where(Order.shop_id == shop.id).order_by(Order.id.desc()).limit(per_source)
+        )
+    )
+    for row in ord_rows:
+        st = row.status
+        if st in {OrderStatus.FAILED, OrderStatus.REFUNDED} or row.error:
+            level = "error"
+        elif st in {OrderStatus.PENDING, OrderStatus.AWAITING_PAYMENT, OrderStatus.CANCELED}:
+            level = "warn"
+        else:
+            level = "info"
+        who = row.customer.staff_label if row.customer is not None else f"#{row.customer_id}"
+        plan_title = row.plan.title if row.plan is not None else None
+        wholesale = int((row.params or {}).get("wholesale") or 0)
+        parts = [p for p in [plan_title, f"#{row.id}"] if p]
+        meta: dict[str, Any] = {
+            "order_id": row.id,
+            "kind": row.kind.value,
+            "status": st.value,
+            "source": row.source,
+        }
+        if wholesale:
+            meta["wholesale"] = wholesale
+        items.append(
+            {
+                "id": f"order:{row.id}",
+                "at": (row.updated_at or row.created_at).isoformat(),
+                "category": "orders",
+                "level": level,
+                "title": f"order.{row.kind.value}",
+                "status": st.value,
+                "actor": who,
+                "detail": " · ".join(parts),
+                "error": row.error or None,
+                "amount": int(row.amount or 0),
+                "meta": meta,
+            }
+        )
+
+    # 2) Payments processed in this bot (cards, gateways, rejections, failures)
+    pay_rows = list(
+        await session.scalars(
+            select(Payment).where(Payment.shop_id == shop.id).order_by(Payment.id.desc()).limit(per_source)
+        )
+    )
+    for row in pay_rows:
+        st = row.status
+        if st in {PaymentStatus.FAILED, PaymentStatus.VOIDED, PaymentStatus.DISPUTED} or row.failure_reason:
+            level = "error"
+        elif st in {PaymentStatus.PENDING, PaymentStatus.VERIFYING, PaymentStatus.EXPIRED}:
+            level = "warn"
+        else:
+            level = "info"
+        who = row.customer.staff_label if row.customer is not None else f"#{row.customer_id}"
+        detail_parts = [row.provider, row.purpose.value, f"#{row.id}"]
+        if row.review_note:
+            detail_parts.append(row.review_note)
+        items.append(
+            {
+                "id": f"payment:{row.id}",
+                "at": (row.updated_at or row.created_at).isoformat(),
+                "category": "payments",
+                "level": level,
+                "title": f"payment.{row.provider}",
+                "status": st.value,
+                "actor": who,
+                "detail": " · ".join(detail_parts),
+                "error": row.failure_reason or None,
+                "amount": int(row.amount or 0),
+                "meta": {
+                    "payment_id": row.id,
+                    "order_id": row.order_id,
+                    "provider": row.provider,
+                    "purpose": row.purpose.value,
+                    "review_note": row.review_note,
+                },
+            }
+        )
+
+    # 3) Background jobs for this bot (provisioning, deliveries, broadcasts, alerts)
+    job_rows = list(
+        await session.scalars(
+            select(Job).where(Job.shop_id == shop.id).order_by(Job.id.desc()).limit(per_source)
+        )
+    )
+    for row in job_rows:
+        st = row.status
+        if st in {JobStatus.FAILED, JobStatus.DEAD} or row.last_error:
+            level = "error"
+        elif st in {JobStatus.PAUSED, JobStatus.CANCELED}:
+            level = "warn"
+        else:
+            level = "info"
+        items.append(
+            {
+                "id": f"job:{row.id}",
+                "at": (row.updated_at or row.created_at).isoformat(),
+                "category": "jobs",
+                "level": level,
+                "title": f"{row.queue}.{row.kind}",
+                "status": st.value,
+                "actor": f"worker ({row.attempts}/{row.max_attempts})",
+                "detail": f"job #{row.id}",
+                "error": row.last_error or None,
+                "amount": None,
+                "meta": (
+                    {"job_id": row.id, "queue": row.queue, "attempts": row.attempts, "payload": row.payload}
+                    if staff
+                    else {"job_id": row.id, "queue": row.queue, "attempts": row.attempts}
+                ),
+            }
+        )
+
+    # 4) Audit trail (child shop events + parent shop bot lifecycle events)
+    audit_conds = [AuditLog.shop_id == shop.id]
+    if shop.parent_id is not None:
+        if shop.reseller_profile_id is not None:
+            audit_conds.append(
+                and_(
+                    AuditLog.shop_id == shop.parent_id,
+                    AuditLog.entity == "reseller_profile",
+                    AuditLog.entity_id == shop.reseller_profile_id,
+                    AuditLog.action.startswith("reseller_bot."),
+                )
+            )
+        if shop.own_account_id is not None:
+            account = await session.get(PanelAccount, shop.own_account_id)
+            if account is not None:
+                audit_conds.append(
+                    and_(
+                        AuditLog.shop_id == shop.parent_id,
+                        AuditLog.entity == "customer",
+                        AuditLog.entity_id == account.customer_id,
+                        AuditLog.action.startswith("own_bot."),
+                    )
+                )
+    audit_rows = list(
+        await session.scalars(
+            select(AuditLog).where(or_(*audit_conds)).order_by(AuditLog.id.desc()).limit(per_source)
+        )
+    )
+    for row in audit_rows:
+        act = str(row.action or "")
+        if any(tok in act for tok in ("stop", "disconnect", "hold", "block", "delete", "reject")):
+            level = "warn"
+        else:
+            level = "info"
+        actor = f"{row.actor_type}#{row.actor_id}" if row.actor_id is not None else row.actor_type
+        entity_label = (
+            f"{row.entity} #{row.entity_id}" if row.entity and row.entity_id else (row.entity or "")
+        )
+        meta = {}
+        if staff:
+            if row.before:
+                meta["before"] = row.before
+            if row.after:
+                meta["after"] = row.after
+            if row.ip:
+                meta["ip"] = row.ip
+        items.append(
+            {
+                "id": f"audit:{row.id}",
+                "at": row.created_at.isoformat(),
+                "category": "audit",
+                "level": level,
+                "title": act,
+                "status": None,
+                "actor": actor if staff else row.actor_type,
+                "detail": entity_label,
+                "error": None,
+                "amount": None,
+                "meta": meta or None,
+            }
+        )
+
+    items.sort(key=lambda r: str(r["at"]), reverse=True)
+
+    if needle:
+        def _matches(entry: dict[str, Any]) -> bool:
+            hay = " ".join(
+                str(entry.get(k) or "")
+                for k in ("title", "status", "actor", "detail", "error", "category")
+            ).lower()
+            return needle in hay
+
+        items = [r for r in items if _matches(r)]
+
+    counts = {
+        "all": len(items),
+        "errors": sum(1 for r in items if r["level"] == "error"),
+        "orders": sum(1 for r in items if r["category"] == "orders"),
+        "payments": sum(1 for r in items if r["category"] == "payments"),
+        "jobs": sum(1 for r in items if r["category"] == "jobs"),
+        "audit": sum(1 for r in items if r["category"] == "audit"),
+    }
+    if cat == "errors":
+        filtered = [r for r in items if r["level"] == "error"]
+    elif cat != "all":
+        filtered = [r for r in items if r["category"] == cat]
+    else:
+        filtered = items
+
+    return {
+        "bot": {
+            "shop_id": shop.id,
+            "title": shop.title,
+            "bot_username": shop.bot_username,
+            "kind": kind,
+        },
+        "counts": counts,
+        "items": filtered[:cap],
+    }
+
+
+def bot_logs_csv(data: dict[str, Any]) -> bytes:
+    """Serialize `bot_logs()` output into Excel-safe UTF-8-BOM CSV."""
+    import csv
+    import io
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["at", "category", "level", "title", "status", "actor", "detail", "amount", "error"])
+    for row in data.get("items") or []:
+        writer.writerow(
+            [
+                _csv_safe(row.get("at")),
+                _csv_safe(row.get("category")),
+                _csv_safe(row.get("level")),
+                _csv_safe(row.get("title")),
+                _csv_safe(row.get("status")),
+                _csv_safe(row.get("actor")),
+                _csv_safe(row.get("detail")),
+                "" if row.get("amount") is None else int(row["amount"]),
+                _csv_safe(row.get("error")),
+            ]
+        )
+    return ("﻿" + buf.getvalue()).encode("utf-8")

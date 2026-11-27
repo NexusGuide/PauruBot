@@ -84,6 +84,7 @@ async def reward(session: AsyncSession, shop_id: int, cfg: dict[str, Any]) -> Re
             panel is None
             or panel.shop_id != shop_id
             or not panel.is_active
+            or panel.national_mode
             or type(gb) is not int
             or type(days) is not int
             or not GB_RANGE[0] <= gb <= GB_RANGE[1]
@@ -95,6 +96,15 @@ async def reward(session: AsyncSession, shop_id: int, cfg: dict[str, Any]) -> Re
     plan = await session.get(Plan, int(plan_id)) if plan_id else None
     if plan is None or plan.shop_id != shop_id or not plan.is_active:
         return None
+    if plan.panel_id is not None:
+        plan_panel = await session.get(Panel, plan.panel_id)
+        if (
+            plan_panel is None
+            or plan_panel.shop_id != shop_id
+            or not plan_panel.is_active
+            or plan_panel.national_mode
+        ):
+            return None
     return Reward(plan, int(plan.data_gb or 0), int(plan.days or 0), None)
 
 

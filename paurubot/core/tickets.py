@@ -179,9 +179,24 @@ def next_priority(current: str) -> str:
 
 
 async def close(session: AsyncSession, ticket: Ticket) -> None:
+    from paurubot import kv
+
     ticket.status = TicketStatus.CLOSED
     ticket.updated_at = utcnow()
+    try:
+        await kv.unmark(f"ticket_alerted:{ticket.id}")
+    except Exception:
+        pass
     await session.flush()
+
+
+async def reopen(session: AsyncSession, ticket: Ticket) -> bool:
+    if ticket.status != TicketStatus.CLOSED:
+        return False
+    ticket.status = TicketStatus.OPEN
+    ticket.updated_at = utcnow()
+    await session.flush()
+    return True
 
 
 async def auto_close(session: AsyncSession) -> int:

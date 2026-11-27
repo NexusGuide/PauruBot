@@ -4,6 +4,7 @@ import { Icon } from "../icons";
 import { useApp } from "../state";
 import { haptic, setThemePref, tg, themePref, type ThemePref } from "../telegram";
 import { CustomerSettings } from "../CustomerSettings";
+import { FunCards } from "./FunCards";
 import { ReferralReward } from "./ReferralReward";
 import { Item, Screen, Seg } from "../ui";
 
@@ -88,6 +89,8 @@ export function More() {
       </div>
 
       {me.referral.enabled && me.referral.config && <ReferralReward config={me.referral.config} />}
+
+      <FunCards />
 
       <CustomerSettings />
 

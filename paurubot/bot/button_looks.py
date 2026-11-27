@@ -75,29 +75,33 @@ async def looks_for(shop_id: int | None) -> dict[str, dict[str, str]]:
         return cached[1]
     from paurubot.core import settings as shop_settings
     from paurubot.core.shops import root_shop
+    from paurubot.db.models import Shop
     from paurubot.db.session import session_scope
     from paurubot.i18n import LOCALES, Texts, load_overrides
 
     by_text: dict[str, dict[str, str]] = {}
     try:
         async with session_scope() as session:
-            target = shop_id
-            if target is None:
-                shop = await root_shop(session)
-                target = shop.id if shop else None
+            shop = await session.get(Shop, shop_id) if shop_id is not None else await root_shop(session)
+            target = shop.id if shop else None
             if target is not None:
                 cfg = await shop_settings.load(session, target)
                 looks = cfg.get("button_looks") or {}
                 if looks:
                     overrides = await load_overrides(session, target)
+                    context = {
+                        "shop": str(cfg.get("shop_name") or (shop.name if shop else "") or ""),
+                        "support": str(cfg.get("support_username") or ""),
+                    }
                     for locale in LOCALES:
-                        t = Texts(locale, overrides)
+                        t = Texts(locale, overrides, context)
                         for key, look in looks.items():
                             label = t(key)
                             if label and label != key and isinstance(look, dict):
                                 by_text.setdefault(label, look)
-    except Exception:  # no database yet (setup) or a hiccup: buttons as they are
+    except Exception:  # no database yet (setup) or a hiccup: do not poison the cache
         log.debug("button looks unavailable", exc_info=True)
+        return by_text
     _cache[shop_id] = (time.monotonic(), by_text)
     return by_text
 

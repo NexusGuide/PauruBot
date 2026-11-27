@@ -306,8 +306,21 @@ async def request_fix(
     await _mark(call, t(review_sync.OUTCOMES[outcome], admin=esc(call.from_user.full_name)))
 
 
+def _reject_reason_kb(t: Texts, cfg: dict[str, Any]) -> Any:
+    from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
+
+    presets = [str(x).strip() for x in (cfg.get("reject_reasons") or []) if str(x).strip()]
+    if not presets:
+        presets = [t(f"reject_preset_{idx}") for idx in (1, 2, 3, 4)]
+    rows = [[KeyboardButton(text=item[:120])] for item in presets[:6]]
+    rows.append([KeyboardButton(text=t("btn_cancel"))])
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=True)
+
+
 @router.callback_query(Review.filter(F.action == "no"), StaffOnly("payments.review"))
-async def reject_ask(call: CallbackQuery, callback_data: Review, t: Texts, state: FSMContext) -> None:
+async def reject_ask(
+    call: CallbackQuery, callback_data: Review, t: Texts, cfg: dict[str, Any], state: FSMContext
+) -> None:
     await call.answer()
     await state.set_state(AdminStates.reject_reason)
     await state.update_data(
@@ -316,7 +329,7 @@ async def reject_ask(call: CallbackQuery, callback_data: Review, t: Texts, state
         review_message=call.message.message_id if call.message else None,
     )
     if isinstance(call.message, Message):
-        await call.message.answer(t("adm_reject_reason"), reply_markup=keyboards.cancel(t))
+        await call.message.answer(t("adm_reject_reason"), reply_markup=_reject_reason_kb(t, cfg))
 
 
 @router.message(AdminStates.reject_reason, F.text)

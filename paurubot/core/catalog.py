@@ -136,6 +136,29 @@ async def plans(
     return [p for p in (await session.scalars(stmt)).all() if p.panel_id is None or p.panel_id not in hidden]
 
 
+async def plans_for_service(
+    session: AsyncSession, shop_id: int, customer: Customer | None, service: Service
+) -> list[Plan]:
+    """Visible plans that can renew or upgrade `service`: panel-pinned or matching its location."""
+    panel = service.panel if "panel" in service.__dict__ and service.panel is not None else None
+    if panel is None:
+        panel = await session.get(Panel, service.panel_id)
+    location_id = panel.location_id if panel is not None else None
+    stmt = visible_plans_stmt(shop_id, customer)
+    if location_id is not None:
+        stmt = stmt.where(
+            or_(
+                Plan.panel_id == service.panel_id,
+                (Plan.panel_id.is_(None) & (Plan.location_id == location_id)),
+            )
+        )
+    else:
+        stmt = stmt.where(Plan.panel_id == service.panel_id)
+    stmt = stmt.order_by(Plan.sort, Plan.price, Plan.id)
+    hidden = await resale_hidden_panels(session, shop_id)
+    return [p for p in (await session.scalars(stmt)).all() if p.panel_id is None or p.panel_id not in hidden]
+
+
 async def resale_hidden_panels(session: AsyncSession, shop_id: int) -> set[int]:
     """In a reseller's own bot, the panels hidden from that reseller's group or from the reseller
     itself (TEN-04, TEN-12, CAT-10)."""

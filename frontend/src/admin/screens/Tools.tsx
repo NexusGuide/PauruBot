@@ -8,7 +8,7 @@ import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
 import { Button, Field, Money, NumberInput, Section, Select, Sheet, Table, useConfirm } from "../ui";
 
-export const AUDIENCES = ["all", "buyers", "active", "inactive", "never_bought", "resellers"] as const;
+export const AUDIENCES = ["all", "buyers", "active", "inactive", "never_bought", "resellers", "account_buyers"] as const;
 type Audience = (typeof AUDIENCES)[number];
 export const GIFT_MIN = 1_000;
 export const GIFT_MAX = 10_000_000;
@@ -134,27 +134,64 @@ export function PlanPricesButton({ onDone, samplePrice }: { onDone: () => void; 
 }
 
 export function TrialResetCard() {
-  const { t, can, toast, errorText } = useSession();
+  const { t, locale, can, toast, errorText } = useSession();
   const [busy, run] = useAction();
   const confirm = useConfirm();
-  if (!can("settings.write")) return null;
-  const reset = async () => {
-    const sure = await confirm({ title: t("tools_trial_title"), body: t("tools_trial_confirm"), confirm: t("tools_trial_go"), danger: true });
+  const allowed = can("settings.write");
+  const { data: preview, reload } = useLoad<{ generation: number; all: number; non_buyers: number }>(
+    allowed ? "/api/admin/tools/trial-reset/preview" : null,
+  );
+  if (!allowed) return null;
+  const reset = async (scope: "all" | "non_buyers") => {
+    const sure = await confirm({
+      title: t("tools_trial_title"),
+      body: scope === "non_buyers" ? t("tools_trial_non_buyers_confirm") : t("tools_trial_confirm"),
+      confirm: scope === "non_buyers" ? t("tools_trial_non_buyers_go") : t("tools_trial_go"),
+      danger: true,
+    });
     if (!sure) return;
     try {
-      await run(() => call("/api/admin/tools/trial-reset", { method: "POST" }));
-      toast(t("tools_trial_done"));
+      const res = await run(() =>
+        call<{ generation: number; reset_count?: number }>("/api/admin/tools/trial-reset", {
+          method: "POST",
+          body: { scope },
+        }),
+      );
+      toast(
+        scope === "non_buyers"
+          ? t("tools_trial_non_buyers_done", { count: digits(res.reset_count ?? 0, locale) })
+          : t("tools_trial_done"),
+      );
+      void reload();
     } catch (err) {
       toast(errorText(err), "error");
     }
   };
   return (
     <Section title={t("tools_trial_title")}>
-      <div className="flex flex-wrap items-center gap-3">
-        <p className="min-w-0 flex-1 text-[0.86rem] text-[var(--hint)]">{t("tools_trial_hint")}</p>
-        <Button tone="danger" busy={busy} onClick={() => void reset()}>
-          {t("tools_trial_go")}
-        </Button>
+      <div className="flex flex-col gap-3">
+        <p className="text-[0.86rem] text-[var(--hint)]">{t("tools_trial_hint")}</p>
+        {preview && (
+          <p className="text-[0.82rem] text-[var(--hint)]">
+            {t("tools_trial_preview", {
+              all: digits(preview.all, locale),
+              nonBuyers: digits(preview.non_buyers, locale),
+            })}
+          </p>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            tone="quiet"
+            busy={busy}
+            disabled={preview !== null && preview !== undefined && preview.non_buyers === 0}
+            onClick={() => void reset("non_buyers")}
+          >
+            {t("tools_trial_non_buyers_go")}
+          </Button>
+          <Button tone="danger" busy={busy} onClick={() => void reset("all")}>
+            {t("tools_trial_go")}
+          </Button>
+        </div>
       </div>
     </Section>
   );
@@ -277,5 +314,194 @@ export function ServiceClaims() {
         ]}
       />
     </Section>
+  );
+}
+
+interface CancellationRow {
+  id: number;
+  status: string;
+  service_id: number;
+  service: { id: number; label: string; username: string } | null;
+  customer: { id: number; name: string } | null;
+  reason: string | null;
+  quoted_refund: number;
+  created_at: string;
+}
+
+/** Customers' service cancellation requests waiting for staff approval (Services page). */
+export function CancellationRequests() {
+  const { t, locale, can, toast, errorText } = useSession();
+  const allowed = can("services.write");
+  const { data, reload } = useLoad<{ items: CancellationRow[] }>(
+    allowed ? "/api/admin/cancellations?status=pending" : null,
+  );
+  const [busy, run] = useAction();
+  if (!allowed || !data || data.items.length === 0) return null;
+  const decide = async (row: CancellationRow, approve: boolean) => {
+    try {
+      await run(() => call(`/api/admin/cancellations/${row.id}`, { method: "POST", body: { approve } }));
+      toast(t(approve ? "cancellations_approved" : "cancellations_rejected"));
+      void reload();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <Section flush title={`${t("cancellations_title")} · ${data.items.length}`}>
+      <Table
+        rows={data.items}
+        columns={[
+          {
+            key: "customer",
+            label: t("claims_customer"),
+            mobile: "title",
+            render: (r) =>
+              r.customer ? (
+                <a className="font-semibold text-firouzeh-700" href={`/admin/customers/${r.customer.id}`}>
+                  {r.customer.name}
+                </a>
+              ) : (
+                "—"
+              ),
+          },
+          {
+            key: "service",
+            label: t("cancellations_service"),
+            mobile: "meta",
+            render: (r) => <code dir="ltr">{r.service?.username ?? `#${r.service_id}`}</code>,
+          },
+          {
+            key: "refund",
+            label: t("cancellations_refund"),
+            render: (r) => r.quoted_refund.toLocaleString(locale === "fa" ? "fa-IR" : "en-US"),
+          },
+          {
+            key: "reason",
+            label: t("cancellations_reason"),
+            render: (r) => r.reason || "—",
+          },
+          {
+            key: "actions",
+            label: "",
+            mobile: "end",
+            render: (r) => (
+              <span className="flex gap-2">
+                <Button small tone="approve" disabled={busy} onClick={() => void decide(r, true)}>
+                  {t("claims_approve")}
+                </Button>
+                <Button small tone="danger" disabled={busy} onClick={() => void decide(r, false)}>
+                  {t("claims_reject")}
+                </Button>
+              </span>
+            ),
+          },
+        ]}
+      />
+    </Section>
+  );
+}
+
+
+export function ServiceGiftButton() {
+  const { t, can, toast, errorText } = useSession();
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"days" | "gb">("days");
+  const [value, setValue] = useState<number | null>(3);
+  const [panelId, setPanelId] = useState<string>("");
+  const panels = useLoad<{ items: { id: number; name: string }[] }>(
+    open && can("panels.read") ? "/api/admin/panels?limit=200" : null,
+  );
+  const limit = mode === "days" ? 3650 : 100_000;
+  const ok = value !== null && Number.isInteger(value) && value >= 1 && value <= limit;
+  const previewUrl = open && ok
+    ? `/api/admin/tools/service-gift?mode=${mode}&value=${value}${panelId ? `&panel_id=${panelId}` : ""}`
+    : null;
+  const size = useLoad<{ count: number; limit: number }>(previewUrl);
+  const [busy, run] = useAction();
+  const confirm = useConfirm();
+  if (!can("services.manage")) return null;
+  const send = async () => {
+    if (!ok) return;
+    const sure = await confirm({
+      title: t("tools_service_gift_title"),
+      body: t("tools_service_gift_confirm", {
+        count: size.data?.count ?? 0,
+        value,
+        unit: t(mode === "days" ? "tools_service_gift_days" : "tools_service_gift_gb"),
+      }),
+      confirm: t("tools_service_gift_send"),
+    });
+    if (!sure) return;
+    try {
+      const res = await run(() =>
+        call<{ queued: number }>("/api/admin/tools/service-gift", {
+          method: "POST",
+          body: { mode, value, panel_id: panelId ? Number(panelId) : null },
+        }),
+      );
+      toast(t("tools_service_gift_queued", { count: res?.queued ?? 0 }));
+      setOpen(false);
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+  return (
+    <>
+      <Button tone="quiet" icon="services" onClick={() => setOpen(true)}>
+        {t("tools_service_gift_title")}
+      </Button>
+      <Sheet
+        open={open}
+        onClose={() => setOpen(false)}
+        title={t("tools_service_gift_title")}
+        footer={
+          <Button
+            tone="primary"
+            busy={busy}
+            disabled={!ok || (size.data !== null && size.data.count === 0)}
+            onClick={() => void send()}
+          >
+            {t("tools_service_gift_send")}
+          </Button>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-[0.86rem] text-[var(--hint)]">{t("tools_service_gift_hint")}</p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("tools_service_gift_mode")}>
+              {(id) => (
+                <Select id={id} value={mode} onChange={(e) => setMode(e.target.value as "days" | "gb")}>
+                  <option value="days">{t("tools_service_gift_days")}</option>
+                  <option value="gb">{t("tools_service_gift_gb")}</option>
+                </Select>
+              )}
+            </Field>
+            <Field label={t("tools_service_gift_value")}>
+              {(id) => <NumberInput id={id} value={value} onChange={setValue} />}
+            </Field>
+          </div>
+          {panels.data && panels.data.items.length > 0 && (
+            <Field label={t("tools_service_gift_panel")}>
+              {(id) => (
+                <Select id={id} value={panelId} onChange={(e) => setPanelId(e.target.value)}>
+                  <option value="">{t("tools_service_gift_all_panels")}</option>
+                  {panels.data.items.map((pl) => (
+                    <option key={pl.id} value={String(pl.id)}>
+                      {pl.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          )}
+          {size.data && (
+            <p className="text-[0.88rem] font-semibold">
+              {t("tools_service_gift_reach", { count: size.data.count })}
+            </p>
+          )}
+          {size.error && <p className="text-[0.84rem] text-anar-600">{errorText(size.error)}</p>}
+        </div>
+      </Sheet>
+    </>
   );
 }

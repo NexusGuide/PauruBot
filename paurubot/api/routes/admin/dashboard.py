@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import shutil
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
@@ -13,6 +15,7 @@ from sqlalchemy.dialects.postgresql import insert
 from paurubot.api.deps import DB, StaffContext, require
 from paurubot.db.models import (
     ApplicationStatus,
+    CancellationRequest,
     Customer,
     InboxDismissal,
     Job,
@@ -30,6 +33,42 @@ from paurubot.db.models import (
 )
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+def _host_metrics() -> dict[str, Any]:
+    """Lightweight stdlib host load, RAM and disk snapshot for the admin dashboard."""
+    cpu_load: float | None = None
+    ram_percent: float | None = None
+    disk_percent: float | None = None
+    try:
+        load1 = os.getloadavg()[0]
+        cores = os.cpu_count() or 1
+        cpu_load = round(min(100.0, (load1 / cores) * 100.0), 1)
+    except (AttributeError, OSError):
+        cpu_load = None
+    try:
+        mem: dict[str, int] = {}
+        with open("/proc/meminfo", encoding="utf-8") as fh:
+            for line in fh:
+                parts = line.split(":")
+                if len(parts) == 2 and parts[0] in {"MemTotal", "MemAvailable"}:
+                    mem[parts[0]] = int(parts[1].strip().split()[0])
+        if mem.get("MemTotal"):
+            used = mem["MemTotal"] - mem.get("MemAvailable", 0)
+            ram_percent = round(max(0.0, min(100.0, (used / mem["MemTotal"]) * 100.0)), 1)
+    except (OSError, ValueError):
+        ram_percent = None
+    try:
+        usage = shutil.disk_usage("/")
+        if usage.total > 0:
+            disk_percent = round((usage.used / usage.total) * 100.0, 1)
+    except OSError:
+        disk_percent = None
+    return {
+        "cpu_percent": cpu_load,
+        "ram_percent": ram_percent,
+        "disk_percent": disk_percent,
+    }
 Viewer = Annotated[StaffContext, Depends(require("dashboard.view"))]
 
 
@@ -93,6 +132,7 @@ async def dashboard(ctx: Viewer, db: DB) -> dict[str, Any]:
             }
             for p in panels
         ],
+        "host": _host_metrics(),
     }
     if ctx.scoped:
         # Resellers see their own numbers only; shop-wide figures stay private.
@@ -137,7 +177,7 @@ async def dashboard(ctx: Viewer, db: DB) -> dict[str, Any]:
     return data
 
 
-InboxType = Literal["payment", "ticket", "order", "job", "application"]
+InboxType = Literal["payment", "ticket", "order", "job", "application", "cancellation"]
 
 
 @router.get("/inbox")
@@ -226,6 +266,33 @@ async def inbox(ctx: Viewer, db: DB) -> dict[str, Any]:
             )
         ):
             items.append({"type": "application", "id": app.id, "at": app.created_at.isoformat()})
+    if ctx.can("services.read"):
+        cancel_rows = (
+            await db.execute(
+                select(CancellationRequest, Customer, Service)
+                .join(Customer, Customer.id == CancellationRequest.customer_id)
+                .join(Service, Service.id == CancellationRequest.service_id)
+                .where(
+                    CancellationRequest.shop_id == shop,
+                    CancellationRequest.status == "pending",
+                )
+                .order_by(CancellationRequest.id)
+                .limit(50)
+            )
+        ).all()
+        for req, customer, service in cancel_rows:
+            items.append(
+                {
+                    "type": "cancellation",
+                    "id": req.id,
+                    "service_id": req.service_id,
+                    "customer": customer.staff_label,
+                    "subject": service.label or service.panel_username,
+                    "amount": int(req.quoted_refund or 0),
+                    "error": req.reason,
+                    "at": req.created_at.isoformat(),
+                }
+            )
     items = [i for i in items if (i["type"], i["id"]) not in dismissed]
     items.sort(key=lambda i: i["at"])
     return {"items": items}

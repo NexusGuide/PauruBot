@@ -247,7 +247,7 @@ def group_kb(t: Texts, staff: StaffIdentity, group: str, cfg: dict[str, Any]) ->
             kb.row(InlineKeyboardButton(text=t("adm_nav_open_app"), web_app=app))
     else:
         web_pages = {"addpanel": "panels", "updates": "updates", "guide": "help"}
-        if url and group in web_pages:
+        if url.startswith("https://") and group in web_pages:
             kb.row(InlineKeyboardButton(text=t("adm_nav_open_web"), url=f"{url}/admin/{web_pages[group]}"))
     kb.row(InlineKeyboardButton(text=t("adm_nav_home"), callback_data=Admin(section="home").pack()))
     return kb.as_markup()

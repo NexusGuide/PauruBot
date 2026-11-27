@@ -42,12 +42,25 @@ def telegram_id_of(user: PanelUser) -> int | None:
 async def all_users(panel: Panel) -> list[PanelUser]:
     driver = await driver_for(panel)
     users: list[PanelUser] = []
+    seen: set[str] = set()
     offset = 0
     while offset < MAX_USERS:
         page, total = await driver.list_users(offset, PAGE)
-        users.extend(page)
+        if not page:
+            break
+        added = 0
+        for user in page:
+            if user.username not in seen:
+                seen.add(user.username)
+                users.append(user)
+                added += 1
         offset += len(page)
-        if len(page) < PAGE or (total is not None and offset >= total):
+        if added == 0:
+            break
+        if total is not None:
+            if offset >= total:
+                break
+        elif len(page) < PAGE:
             break
     return users
 

@@ -337,7 +337,7 @@ export function AgencyAccount() {
                         }}
                         className="w-full rounded-3xl bg-[var(--surface)] p-4 text-center"
                       >
-                        <p className="num text-xl font-extrabold">{t("n_days", { days: money(item.days, locale) })}</p>
+                        <p className="num text-xl font-extrabold">{item.days ? t("n_days", { days: money(item.days, locale) }) : t("unlimited_time")}</p>
                         <p className="num text-xs text-[var(--hint)]">
                           {item.gb ? `${money(item.gb, locale)} ${t("gb")}` : t("unlimited_data")}
                         </p>
@@ -486,7 +486,7 @@ export function AgencyAccount() {
                   return (
                     <option key={choice.package ?? -1} value={choice.package ?? -1}>
                       {item
-                        ? `${t("n_days", { days: money(item.days, locale) })} · ${item.gb ? `${money(item.gb, locale)} ${t("gb")}` : t("unlimited_data")} · ${money(item.price, locale)} ${t("currency")}`
+                        ? `${item.days ? t("n_days", { days: money(item.days, locale) }) : t("unlimited_time")} · ${item.gb ? `${money(item.gb, locale)} ${t("gb")}` : t("unlimited_data")} · ${money(item.price, locale)} ${t("currency")}`
                         : `${t("agency_auto_renew_plain")} · ${money(account.price, locale)} ${t("currency")}`}
                     </option>
                   );

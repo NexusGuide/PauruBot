@@ -30,7 +30,9 @@ def eligible_conditions(shop_id: int) -> list[Any]:
     ]
 
 
-async def preview(session: AsyncSession, shop_id: int, mode: str, value: int) -> list[dict[str, Any]]:
+async def preview(
+    session: AsyncSession, shop_id: int, mode: str, value: int, *, panel_id: int | None = None
+) -> list[dict[str, Any]]:
     if mode not in {"days", "gb"} or not 1 <= value <= (3650 if mode == "days" else 100_000):
         raise ValueError("invalid gift")
     stmt = (
@@ -39,6 +41,8 @@ async def preview(session: AsyncSession, shop_id: int, mode: str, value: int) ->
         .join(Panel, Service.panel_id == Panel.id)
         .where(*eligible_conditions(shop_id))
     )
+    if panel_id is not None:
+        stmt = stmt.where(Service.panel_id == panel_id)
     stmt = stmt.where(Service.expire_at.is_not(None) if mode == "days" else Service.data_limit > 0)
     rows = list(await session.scalars(stmt.order_by(Service.id).limit(LIMIT + 1)))
     # Filter panel capabilities before counting; never invent a partial gift for fixed-plan panels.

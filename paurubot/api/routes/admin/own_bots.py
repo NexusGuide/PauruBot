@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
@@ -328,3 +329,87 @@ async def remove_own_bot_admin(customer_id: int, telegram_id: int, ctx: Manager,
     )
     await db.commit()
     return {"bot": await _bot(db, shop)}
+
+
+@router.get("/customers/{customer_id}/own-bot/webhook")
+async def own_bot_webhook(customer_id: int, ctx: Manager, db: DB) -> dict[str, Any]:
+    from paurubot.core import resale
+
+    _customer_row, shop = await _bot_shop(db, ctx, customer_id)
+    if shop.bot_token_enc is None:
+        raise HTTPException(status_code=422, detail="own_bot_not_connected")
+    return await resale.webhook_status(shop.id)
+
+
+@router.post("/customers/{customer_id}/own-bot/webhook/repoint")
+async def repoint_own_bot_webhook(customer_id: int, ctx: Manager, db: DB) -> dict[str, Any]:
+    from paurubot.core import resale
+
+    customer, shop = await _bot_shop(db, ctx, customer_id)
+    if shop.bot_token_enc is None:
+        raise HTTPException(status_code=422, detail="own_bot_not_connected")
+    try:
+        await resale.point_webhook(shop.id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)[:200]) from None
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="own_bot.webhook_repoint",
+        entity="customer",
+        entity_id=customer.id,
+        after={"shop_id": shop.id},
+    )
+    await db.commit()
+    return await resale.webhook_status(shop.id)
+
+
+async def _child_bot(db: DB, ctx: StaffContext, shop_id: int) -> Shop:
+    if ctx.scoped:
+        raise HTTPException(status_code=403, detail="forbidden")
+    shop = await db.get(Shop, shop_id)
+    if (
+        shop is None
+        or shop.parent_id != ctx.shop_id
+        or (shop.reseller_profile_id is None and shop.own_account_id is None)
+    ):
+        raise HTTPException(status_code=404, detail="not_found")
+    return shop
+
+
+@router.get("/customer-bots/{shop_id}/logs")
+async def customer_bot_logs(
+    shop_id: int,
+    ctx: Manager,
+    db: DB,
+    category: Literal["all", "errors", "orders", "payments", "jobs", "audit"] = "all",
+    q: str | None = Query(default=None, max_length=120),
+    limit: int = Query(default=100, ge=10, le=300),
+) -> dict[str, Any]:
+    """Unified activity, order, payment, job and audit logs for a selected customer/reseller bot."""
+    from paurubot.core import resale
+
+    shop = await _child_bot(db, ctx, shop_id)
+    return await resale.bot_logs(db, shop, category=category, q=q, limit=limit, staff=True)
+
+
+@router.get("/customer-bots/{shop_id}/logs.csv")
+async def customer_bot_logs_csv(
+    shop_id: int,
+    ctx: Manager,
+    db: DB,
+    category: Literal["all", "errors", "orders", "payments", "jobs", "audit"] = "all",
+    q: str | None = Query(default=None, max_length=120),
+    limit: int = Query(default=300, ge=10, le=300),
+) -> Response:
+    """Export the selected customer/reseller bot logs as CSV."""
+    from paurubot.core import resale
+
+    shop = await _child_bot(db, ctx, shop_id)
+    data = await resale.bot_logs(db, shop, category=category, q=q, limit=limit, staff=True)
+    return Response(
+        content=resale.bot_logs_csv(data),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="bot-{shop.id}-logs.csv"'},
+    )

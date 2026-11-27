@@ -2,6 +2,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     public code: string,
+    public fields?: string[],
+    public reason?: string,
   ) {
     super(code);
   }
@@ -33,13 +35,19 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   });
   if (!response.ok) {
     let code = `http_${response.status}`;
+    let fields: string[] | undefined;
+    let reason: string | undefined;
     try {
-      const data = (await response.json()) as { error?: unknown };
+      const data = (await response.json()) as { error?: unknown; fields?: unknown; reason?: unknown };
       if (typeof data.error === "string") code = data.error;
+      if (Array.isArray(data.fields)) {
+        fields = data.fields.filter((f): f is string => typeof f === "string" && f.length > 0);
+      }
+      if (typeof data.reason === "string" && data.reason) reason = data.reason;
     } catch {
       // non-JSON error body
     }
-    throw new ApiError(response.status, code);
+    throw new ApiError(response.status, code, fields, reason);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;

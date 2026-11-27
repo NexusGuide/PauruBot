@@ -207,8 +207,10 @@ async def connect(
 async def disconnect(session: AsyncSession, shop: Shop) -> None:
     """Stop the bot. Its customers, services, payments and plans stay; connecting again brings
     them back."""
+    from paurubot.core import resale
     from paurubot.notifications.telegram import forget_shop_bot
 
+    await resale.clear_webhook(shop.id)
     shop.status = ShopStatus.SUSPENDED
     shop.bot_token_enc = None
     shop.bot_user_id = None

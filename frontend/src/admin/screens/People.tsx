@@ -19,7 +19,8 @@ import {
 } from "../api";
 import { PAGE_SIZE, useAction, useList, useLoad } from "../hooks";
 import { useSession } from "../session";
-import { BotFigures, type ResellerBot } from "./MyBot";
+import { BotLogsSheet } from "./BotLogsSheet";
+import { BotFigures, WebhookHealth, type ResellerBot } from "./MyBot";
 import {
   Async,
   Badge,
@@ -383,21 +384,86 @@ function ProfileSheet({
           ))}
         </fieldset>
         {profile.id && <PlanPrices owner={{ profile_id: profile.id }} />}
-        {profile.billing_mode !== "prepaid" && <BillingHistory path={`/api/admin/resellers/${profile.id}/billing`} />}
+        {(profile.billing_mode !== "prepaid" || profile.billing_debt > 0) && (
+          <BillingHistory path={`/api/admin/resellers/${profile.id}/billing`} canBillNow onChanged={onSaved} />
+        )}
         {profile.id && <ResellerBotInfo profileId={profile.id} />}
       </div>
     </Sheet>
   );
 }
 
-export function BillingHistory({ path }: { path: string }) {
-  const { t } = useSession();
+export function BillingHistory({
+  path,
+  canBillNow = false,
+  onChanged,
+}: {
+  path: string;
+  canBillNow?: boolean;
+  onChanged?: () => void;
+}) {
+  const { t, toast, errorText } = useSession();
   const state = useLoad<BillingView>(path);
+  const [busy, run] = useAction();
+
+  const billNow = async () => {
+    try {
+      const res = await run(() =>
+        call<BillingView & { billed?: boolean; amount?: number; charged?: number }>(`${path}/bill-now`, {
+          method: "POST",
+        }),
+      );
+      toast(res?.billed ? t("billing_run_done") : t("billing_nothing_due"));
+      void state.reload();
+      onChanged?.();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  const settle = async () => {
+    try {
+      const res = await run(() =>
+        call<BillingView & { charged?: number; resumed?: boolean }>(`${path}/settle`, { method: "POST" }),
+      );
+      if ((res?.charged ?? 0) > 0) {
+        toast(res?.resumed ? t("debt_settled_resumed") : t("debt_settled"));
+      } else {
+        toast(t("debt_settle_none"));
+      }
+      void state.reload();
+      onChanged?.();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
   return (
     <Async {...state}>
       {(view) => (
         <div className="flex flex-col gap-2 border-t border-[var(--line)] pt-4">
-          <h3 className="text-[0.88rem] font-bold">{t("billing_history")}</h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-[0.88rem] font-bold">{t("billing_history")}</h3>
+            <div className="flex flex-wrap gap-2">
+              {canBillNow && view.billing_mode !== "prepaid" && (
+                <Button small tone="quiet" busy={busy} onClick={() => void billNow()}>
+                  {t("billing_bill_now")}
+                </Button>
+              )}
+              {view.debt > 0 && (
+                <Button small tone="primary" busy={busy} onClick={() => void settle()}>
+                  {t("billing_settle_debt")}
+                </Button>
+              )}
+              <a
+                href={`${path}.csv`}
+                download
+                className="inline-flex min-h-9 items-center rounded-xl bg-[var(--bg)] px-3 text-[0.82rem] font-semibold ring-1 ring-[var(--line)] hover:bg-[var(--line)]"
+              >
+                {t("billing_export_csv")}
+              </a>
+            </div>
+          </div>
           <Table
             rows={view.items}
             empty={<Empty title={t("no_billing_yet")} />}
@@ -406,6 +472,7 @@ export function BillingHistory({ path }: { path: string }) {
               { key: "used", label: t("col_usage"), render: (r) => <Bytes value={r.used_bytes} /> },
               { key: "hours", label: t("service_hours"), render: (r) => r.service_hours },
               { key: "amount", label: t("amount"), render: (r) => <Money amount={r.amount} /> },
+              { key: "charged", label: t("billing_charged"), mobile: "hide", render: (r) => <Money amount={r.charged} /> },
               { key: "debt", label: t("reseller_debt"), mobile: "end", render: (r) => <Money amount={r.debt_after} /> },
             ]}
           />
@@ -1078,14 +1145,20 @@ function SubSheet({
 
 export function SubResellers() {
   const { t, locale } = useSession();
-  const { data, error, reload } = useLoad<{ max_discount: number; limit: number | null; items: SubReseller[] }>(
-    "/api/admin/sub-resellers",
-  );
+  const { data, error, reload } = useLoad<{
+    max_discount: number;
+    limit: number | null;
+    total_commission_month?: number;
+    items: SubReseller[];
+  }>("/api/admin/sub-resellers");
   const [editing, setEditing] = useState<SubReseller | "new" | null>(null);
   const columns: Column<SubReseller>[] = [
     { key: "name", label: t("col_customer"), mobile: "title", render: (r) => <span className="font-semibold">{r.customer ?? `#${r.customer_id}`}</span> },
     { key: "discount", label: t("discount"), mobile: "meta", render: (r) => t("discount_value", { percent: money(r.discount_percent, locale) }) },
     { key: "balance", label: t("balance"), render: (r) => <Money amount={r.balance} /> },
+    { key: "orders", label: t("sub_orders_month"), mobile: "hide", render: (r) => money(r.orders_month ?? 0, locale) },
+    { key: "sales", label: t("sub_sales_month"), mobile: "hide", render: (r) => <Money amount={r.sales_month ?? 0} /> },
+    { key: "commission", label: t("sub_commission_month"), render: (r) => <Money amount={r.commission_month ?? 0} /> },
     { key: "status", label: t("col_status"), mobile: "end", render: (r) => (r.is_active ? <Badge tone="health">{t("active")}</Badge> : <Badge tone="loss">{t("inactive")}</Badge>) },
     { key: "created", label: t("col_created"), mobile: "hide", render: (r) => <When iso={r.created_at} /> },
   ];
@@ -1105,7 +1178,14 @@ export function SubResellers() {
             </Button>
           }
         >
-          <p className="-mt-2 text-[0.85rem] text-[var(--hint)]">{t("sub_resellers_intro", { percent: value.max_discount })}</p>
+          <div className="-mt-2 flex flex-wrap items-center justify-between gap-2 text-[0.85rem] text-[var(--hint)]">
+            <p>{t("sub_resellers_intro", { percent: value.max_discount })}</p>
+            {(value.total_commission_month ?? 0) > 0 && (
+              <Badge tone="brand">
+                {t("sub_total_commission")}: <Money amount={value.total_commission_month ?? 0} />
+              </Badge>
+            )}
+          </div>
           <Section flush>
             <Table
               columns={columns}
@@ -1149,6 +1229,7 @@ function ResellerBotInfo({ profileId }: { profileId: number }) {
   const { t, toast, errorText } = useSession();
   const state = useLoad<ResellerBot>(`/api/admin/resellers/${profileId}/bot`);
   const [busy, run] = useAction();
+  const [logsOpen, setLogsOpen] = useState(false);
   if (!state.data || !state.data.shop_id) return null;
   const stop = async () => {
     try {
@@ -1170,10 +1251,23 @@ function ResellerBotInfo({ profileId }: { profileId: number }) {
     <section className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
       <h3 className="text-[0.88rem] font-bold">{t("my_bot_owner_title")}</h3>
       <BotFigures data={state.data} />
-      {state.data.connected && (
-        <Button small tone="danger" busy={busy} className="self-start" onClick={() => void stop()}>
-          {t("my_bot_stop")}
+      {state.data.connected && <WebhookHealth basePath={`/api/admin/resellers/${profileId}/bot`} />}
+      <div className="flex flex-wrap gap-2">
+        <Button small tone="quiet" onClick={() => setLogsOpen(true)}>
+          {t("bot_logs_open")}
         </Button>
+        {state.data.connected && (
+          <Button small tone="danger" busy={busy} onClick={() => void stop()}>
+            {t("my_bot_stop")}
+          </Button>
+        )}
+      </div>
+      {logsOpen && (
+        <BotLogsSheet
+          basePath={`/api/admin/customer-bots/${state.data.shop_id}/logs`}
+          title={state.data.bot_username ? `@${state.data.bot_username}` : state.data.title ?? `#${state.data.shop_id}`}
+          onClose={() => setLogsOpen(false)}
+        />
       )}
       {state.data.blocked && (
         <Button small busy={busy} className="self-start" onClick={() => void allow()}>

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import secrets
+from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -15,8 +16,10 @@ from paurubot.audit.log import record, snapshot
 from paurubot.db.models import (
     Broadcast,
     Customer,
+    AccountPlan,
     DiscountCode,
     DiscountKind,
+    DiscountRedemption,
     GiftCode,
     GiftRedemption,
     JobStatus,
@@ -35,6 +38,7 @@ CODE_FIELDS = [
     "used_count",
     "per_customer_limit",
     "plan_ids",
+    "account_plan_ids",
     "first_purchase_only",
     "sticky",
     "starts_at",
@@ -69,6 +73,7 @@ class CodeBody(BaseModel):
     max_uses: int | None = Field(default=None, ge=1)
     per_customer_limit: int = Field(default=1, ge=0)
     plan_ids: list[int] = Field(default_factory=list)
+    account_plan_ids: list[int] = Field(default_factory=list)
     first_purchase_only: bool = False
     sticky: bool = False
     starts_at: datetime | None = None
@@ -84,10 +89,39 @@ def _validate(body: CodeBody) -> None:
         raise HTTPException(status_code=422, detail="percent_over_100")
 
 
+async def _check_plan_targets(
+    db: DB, shop_id: int, plan_ids: list[int], account_plan_ids: list[int]
+) -> tuple[list[int], list[int]]:
+    from paurubot.db.models import Plan
+
+    clean_plans = sorted({int(i) for i in plan_ids if int(i) > 0})
+    if clean_plans:
+        found = set(
+            await db.scalars(select(Plan.id).where(Plan.shop_id == shop_id, Plan.id.in_(clean_plans)))
+        )
+        if len(found) != len(clean_plans):
+            raise HTTPException(status_code=422, detail="plan_not_found")
+    clean_acc = sorted({int(i) for i in account_plan_ids if int(i) > 0})
+    if clean_acc:
+        found_acc = set(
+            await db.scalars(
+                select(AccountPlan.id).where(
+                    AccountPlan.shop_id == shop_id, AccountPlan.id.in_(clean_acc)
+                )
+            )
+        )
+        if len(found_acc) != len(clean_acc):
+            raise HTTPException(status_code=422, detail="account_plan_not_found")
+    return clean_plans, clean_acc
+
+
 async def _code_values(db: DB, ctx: StaffContext, body: CodeBody) -> dict[str, Any]:
     from paurubot.core import customers
 
     values = body.model_dump(exclude={"customer_telegram_id"})
+    values["plan_ids"], values["account_plan_ids"] = await _check_plan_targets(
+        db, ctx.shop_id, body.plan_ids, body.account_plan_ids
+    )
     values["customer_id"] = None
     if body.customer_telegram_id:
         owner = await customers.by_telegram(db, ctx.shop_id, body.customer_telegram_id)
@@ -162,7 +196,17 @@ async def update_code(
 ) -> dict[str, Any]:
     _validate(body)
     row = await owned(db, DiscountCode, code_id, ctx)
+    dup = await db.scalar(
+        select(DiscountCode.id).where(
+            DiscountCode.shop_id == ctx.shop_id,
+            DiscountCode.id != code_id,
+            func.lower(DiscountCode.code) == body.code.lower(),
+        )
+    )
+    if dup:
+        raise HTTPException(status_code=409, detail="code_exists")
     before = snapshot(row)
+    prev_customer_id = row.customer_id
     for key, value in (await _code_values(db, ctx, body)).items():
         setattr(row, key, value)
     await record(
@@ -175,10 +219,136 @@ async def update_code(
         before=before,
         after=snapshot(row),
     )
+    if row.customer_id and row.is_active and row.customer_id != prev_customer_id:
+        await queue.enqueue(
+            db,
+            "notify",
+            "private_code",
+            {"customer_id": row.customer_id, "code": row.code},
+            shop_id=ctx.shop_id,
+            dedupe_key=f"discount:{row.id}:private:{row.customer_id}",
+        )
     return await _code_out(db, row)
 
 
-AudienceKind = Literal["all", "resellers", "buyers", "active", "inactive", "never_bought", "panel", "idle"]
+@router.get("/discounts/{code_id}/redemptions")
+async def discount_redemptions(
+    code_id: int, ctx: Annotated[StaffContext, Depends(require("discounts.write"))], db: DB
+) -> dict[str, Any]:
+    await owned(db, DiscountCode, code_id, ctx)
+    rows = await db.execute(
+        select(DiscountRedemption, Customer)
+        .join(Customer, Customer.id == DiscountRedemption.customer_id)
+        .where(DiscountRedemption.code_id == code_id)
+        .order_by(DiscountRedemption.id.desc())
+        .limit(200)
+    )
+    return {
+        "items": [
+            {
+                "id": r.id,
+                "customer_id": c.id,
+                "customer": c.staff_label,
+                "order_id": r.order_id,
+                "amount": r.amount,
+                "at": r.created_at.isoformat(),
+            }
+            for r, c in rows.all()
+        ]
+    }
+
+
+@router.delete("/discounts/{code_id}")
+async def delete_code(
+    code_id: int, ctx: Annotated[StaffContext, Depends(require("discounts.write"))], db: DB
+) -> dict[str, bool]:
+    row = await owned(db, DiscountCode, code_id, ctx)
+    before = snapshot(row)
+    await db.delete(row)
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="discount.delete",
+        entity="discount",
+        entity_id=code_id,
+        before=before,
+    )
+    return {"ok": True}
+
+
+BULK_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def _random_code(prefix: str, length: int = 8) -> str:
+    body = "".join(secrets.choice(BULK_ALPHABET) for _ in range(length))
+    return f"{prefix}{body}"[:32]
+
+
+class BulkCodeBody(BaseModel):
+    count: int = Field(ge=2, le=100)
+    prefix: str = Field(default="", max_length=12, pattern=r"^[A-Za-z0-9_-]*$")
+    kind: DiscountKind = DiscountKind.PERCENT
+    value: int = Field(ge=1, le=10**10)
+    max_discount: int | None = Field(default=None, ge=1)
+    min_amount: int = Field(default=0, ge=0)
+    max_uses: int | None = Field(default=1, ge=1)
+    per_customer_limit: int = Field(default=1, ge=0)
+    plan_ids: list[int] = Field(default_factory=list)
+    account_plan_ids: list[int] = Field(default_factory=list)
+    first_purchase_only: bool = False
+    sticky: bool = False
+    starts_at: datetime | None = None
+    expires_at: datetime | None = None
+    is_active: bool = True
+    note: str | None = Field(default=None, max_length=255)
+
+
+@router.post("/discounts/bulk")
+async def create_codes_bulk(
+    body: BulkCodeBody, ctx: Annotated[StaffContext, Depends(require("discounts.write"))], db: DB
+) -> dict[str, Any]:
+    if body.kind == DiscountKind.PERCENT and body.value > 100:
+        raise HTTPException(status_code=422, detail="percent_over_100")
+    clean_plans, clean_acc = await _check_plan_targets(
+        db, ctx.shop_id, body.plan_ids, body.account_plan_ids
+    )
+    existing = {
+        c.lower()
+        for c in await db.scalars(
+            select(DiscountCode.code).where(DiscountCode.shop_id == ctx.shop_id)
+        )
+    }
+    prefix = body.prefix.upper()
+    codes: list[str] = []
+    while len(codes) < body.count:
+        cand = _random_code(prefix)
+        if cand.lower() not in existing:
+            existing.add(cand.lower())
+            codes.append(cand)
+    base = body.model_dump(exclude={"count", "prefix"})
+    base["plan_ids"] = clean_plans
+    base["account_plan_ids"] = clean_acc
+    rows: list[DiscountCode] = []
+    for code in codes:
+        row = DiscountCode(shop_id=ctx.shop_id, code=code, **base)
+        db.add(row)
+        rows.append(row)
+    await db.flush()
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="discount.bulk_create",
+        entity="discount",
+        after={"count": len(rows), "prefix": prefix, "kind": body.kind.value, "value": body.value},
+    )
+    return {"items": [await _code_out(db, r) for r in rows], "codes": codes}
+
+
+AudienceKind = Literal[
+    "all", "resellers", "buyers", "active", "inactive", "never_bought", "account_buyers", "panel", "idle"
+]
 PIN_HOURS_MAX = 24 * 30
 
 
@@ -559,6 +729,15 @@ async def update_gift(
     if not ctx.can("wallet.adjust"):
         raise HTTPException(status_code=403, detail="forbidden")
     row = await owned(db, GiftCode, code_id, ctx)
+    dup = await db.scalar(
+        select(GiftCode.id).where(
+            GiftCode.shop_id == ctx.shop_id,
+            GiftCode.id != code_id,
+            func.lower(GiftCode.code) == body.code.lower(),
+        )
+    )
+    if dup:
+        raise HTTPException(status_code=409, detail="code_exists")
     before = snapshot(row)
     for key, value in body.model_dump().items():
         setattr(row, key, value)
@@ -573,6 +752,73 @@ async def update_gift(
         after=snapshot(row),
     )
     return plain(row, GIFT_FIELDS)
+
+
+@router.delete("/gift-codes/{code_id}")
+async def delete_gift(
+    code_id: int, ctx: Annotated[StaffContext, Depends(require("discounts.write"))], db: DB
+) -> dict[str, bool]:
+    if not ctx.can("wallet.adjust"):
+        raise HTTPException(status_code=403, detail="forbidden")
+    row = await owned(db, GiftCode, code_id, ctx)
+    before = snapshot(row)
+    await db.delete(row)
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="gift.delete",
+        entity="gift",
+        entity_id=code_id,
+        before=before,
+    )
+    return {"ok": True}
+
+
+class BulkGiftBody(BaseModel):
+    count: int = Field(ge=2, le=100)
+    prefix: str = Field(default="", max_length=12, pattern=r"^[A-Za-z0-9_-]*$")
+    amount: int = Field(ge=1, le=10**10)
+    max_uses: int | None = Field(default=1, ge=1)
+    new_customers_only: bool = False
+    expires_at: datetime | None = None
+    is_active: bool = True
+    note: str | None = Field(default=None, max_length=255)
+
+
+@router.post("/gift-codes/bulk")
+async def create_gifts_bulk(
+    body: BulkGiftBody, ctx: Annotated[StaffContext, Depends(require("discounts.write"))], db: DB
+) -> dict[str, Any]:
+    if not ctx.can("wallet.adjust"):
+        raise HTTPException(status_code=403, detail="forbidden")
+    existing = {
+        c.lower()
+        for c in await db.scalars(select(GiftCode.code).where(GiftCode.shop_id == ctx.shop_id))
+    }
+    prefix = body.prefix.upper()
+    codes: list[str] = []
+    while len(codes) < body.count:
+        cand = _random_code(prefix)
+        if cand.lower() not in existing:
+            existing.add(cand.lower())
+            codes.append(cand)
+    base = body.model_dump(exclude={"count", "prefix"})
+    rows: list[GiftCode] = []
+    for code in codes:
+        row = GiftCode(shop_id=ctx.shop_id, code=code, **base)
+        db.add(row)
+        rows.append(row)
+    await db.flush()
+    await record(
+        db,
+        shop_id=ctx.shop_id,
+        actor=ctx.actor,
+        action="gift.bulk_create",
+        entity="gift",
+        after={"count": len(rows), "prefix": prefix, "amount": body.amount},
+    )
+    return {"items": [plain(r, GIFT_FIELDS) for r in rows], "codes": codes}
 
 
 @router.get("/gift-codes/{code_id}/redemptions")
@@ -804,7 +1050,13 @@ async def lottery_action(lottery_id: int, action: str, ctx: Sender, db: DB) -> d
     from paurubot.core import growth
     from paurubot.db.models import Lottery
 
-    row = await owned(db, Lottery, lottery_id, ctx)
+    row = await db.scalar(
+        select(Lottery)
+        .where(Lottery.id == lottery_id, Lottery.shop_id == ctx.shop_id)
+        .with_for_update()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="not_found")
     if row.status != "open":
         raise HTTPException(status_code=409, detail="lottery_closed")
     if action == "cancel":
@@ -832,3 +1084,139 @@ async def lottery_action(lottery_id: int, action: str, ctx: Sender, db: DB) -> d
         entity_id=row.id,
     )
     return plain(row, LOTTERY_FIELDS)
+
+
+# ---------------------------------------------------------------- referral leaderboard
+
+
+@router.get("/referrals/leaderboard")
+async def referral_leaderboard(
+    ctx: Annotated[StaffContext, Depends(require("customers.read"))],
+    db: DB,
+    days: int = Query(default=0, ge=0, le=365),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict[str, Any]:
+    """Top referrers by invited friends, qualified purchases, commission earned, and free configs."""
+    from paurubot.db.base import utcnow
+    from paurubot.db.models import (
+        LedgerAccount,
+        LedgerAccountKind,
+        LedgerEntry,
+        LedgerJournal,
+        Order,
+        OrderStatus,
+        ReferralClaim,
+    )
+
+    since = utcnow() - timedelta(days=days) if days > 0 else None
+
+    inv_conds = [Customer.shop_id == ctx.shop_id, Customer.referrer_id.is_not(None)]
+    if since is not None:
+        inv_conds.append(Customer.created_at >= since)
+    inv_rows = (
+        await db.execute(
+            select(Customer.referrer_id, func.count(Customer.id))
+            .where(*inv_conds)
+            .group_by(Customer.referrer_id)
+        )
+    ).all()
+    invited: dict[int, int] = {int(rid): int(cnt) for rid, cnt in inv_rows if rid is not None}
+
+    qual_conds = [
+        Customer.shop_id == ctx.shop_id,
+        Customer.referrer_id.is_not(None),
+        Customer.is_banned.is_(False),
+        Order.status == OrderStatus.COMPLETED,
+        Order.amount > 0,
+    ]
+    if since is not None:
+        qual_conds.append(Order.created_at >= since)
+    qual_rows = (
+        await db.execute(
+            select(Customer.referrer_id, func.count(func.distinct(Customer.id)))
+            .join(Order, Order.customer_id == Customer.id)
+            .where(*qual_conds)
+            .group_by(Customer.referrer_id)
+        )
+    ).all()
+    qualified: dict[int, int] = {int(rid): int(cnt) for rid, cnt in qual_rows if rid is not None}
+
+    comm_conds = [
+        LedgerAccount.shop_id == ctx.shop_id,
+        LedgerAccount.kind == LedgerAccountKind.WALLET,
+        LedgerAccount.customer_id.is_not(None),
+        LedgerEntry.amount > 0,
+        LedgerJournal.idempotency_key.like("referral:%"),
+    ]
+    if since is not None:
+        comm_conds.append(LedgerJournal.created_at >= since)
+    comm_rows = (
+        await db.execute(
+            select(LedgerAccount.customer_id, func.coalesce(func.sum(LedgerEntry.amount), 0))
+            .join(LedgerEntry, LedgerEntry.account_id == LedgerAccount.id)
+            .join(LedgerJournal, LedgerJournal.id == LedgerEntry.journal_id)
+            .where(*comm_conds)
+            .group_by(LedgerAccount.customer_id)
+        )
+    ).all()
+    commission: dict[int, int] = {int(cid): int(amt) for cid, amt in comm_rows if cid is not None}
+
+    claim_conds = [ReferralClaim.shop_id == ctx.shop_id]
+    if since is not None:
+        claim_conds.append(ReferralClaim.created_at >= since)
+    claim_rows = (
+        await db.execute(
+            select(ReferralClaim.customer_id, func.count(ReferralClaim.id))
+            .where(*claim_conds)
+            .group_by(ReferralClaim.customer_id)
+        )
+    ).all()
+    claims: dict[int, int] = {int(cid): int(cnt) for cid, cnt in claim_rows if cid is not None}
+
+    all_ids = set(invited) | set(qualified) | set(commission) | set(claims)
+    ranked_ids = sorted(
+        all_ids,
+        key=lambda cid: (
+            -invited.get(cid, 0),
+            -commission.get(cid, 0),
+            -qualified.get(cid, 0),
+            cid,
+        ),
+    )[:limit]
+    people = (
+        {
+            c.id: c
+            for c in await db.scalars(
+                select(Customer).where(Customer.shop_id == ctx.shop_id, Customer.id.in_(ranked_ids))
+            )
+        }
+        if ranked_ids
+        else {}
+    )
+    items = []
+    for rank, cid in enumerate(ranked_ids, start=1):
+        person = people.get(cid)
+        if person is None:
+            continue
+        items.append(
+            {
+                "rank": rank,
+                "customer_id": cid,
+                "name": person.display_name,
+                "username": person.username,
+                "telegram_id": person.telegram_id,
+                "invited": invited.get(cid, 0),
+                "qualified": qualified.get(cid, 0),
+                "commission": commission.get(cid, 0),
+                "config_claims": claims.get(cid, 0),
+            }
+        )
+    return {
+        "summary": {
+            "total_invited": sum(invited.values()),
+            "total_qualified": sum(qualified.values()),
+            "total_commission": sum(commission.values()),
+            "total_config_claims": sum(claims.values()),
+        },
+        "items": items,
+    }

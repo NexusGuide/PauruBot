@@ -219,7 +219,7 @@ async def _panel_for_new(session: AsyncSession, order: Order) -> Panel:
             panel = await session.get(Panel, int(order.params["panel_id"]))
         else:
             panel = await catalog.pick_panel(session, plan)
-    if panel is None or not panel.is_active:
+    if panel is None or not panel.is_active or panel.national_mode:
         raise ProvisionError("panel_unavailable")
     if order.kind == OrderKind.TRIAL and (panel.options or {}).get("allow_trials") is False:
         raise ProvisionError("panel_unavailable")
@@ -268,8 +268,25 @@ async def _create_service(session: AsyncSession, order: Order) -> Service:
     username = params["panel_username"]
     on_hold = False
     options: dict[str, Any] = {}
+    trial_hours = 0
+    trial_mb = 0
     if order.kind == OrderKind.TRIAL:
-        days, data_gb, ip_limit = int(params.get("days") or 1), int(params.get("gb") or 1), 0
+        trial_hours = max(0, int(params.get("hours") or 0))
+        trial_mb = max(0, int(params.get("mb") or 0))
+        days = int(params.get("days") or 1)
+        data_gb = int(params.get("gb") or 1)
+        ip_limit = 0
+        panel_opts = panel.options or {}
+        for src, dst in (
+            ("trial_group_ids", "group_ids"),
+            ("trial_service_ids", "service_ids"),
+            ("trial_squad_ids", "squad_ids"),
+            ("trial_inbounds", "inbounds"),
+            ("trial_inbound_id", "inbound_id"),
+        ):
+            override = panel_opts.get(src)
+            if override not in (None, "", [], {}):
+                options[dst] = override
     elif params.get("custom"):
         custom = params["custom"]
         days, data_gb, ip_limit = int(custom.get("days") or 0), int(custom.get("gb") or 0), 0
@@ -278,14 +295,23 @@ async def _create_service(session: AsyncSession, order: Order) -> Service:
         days, data_gb, ip_limit = plan.days, plan.data_gb, plan.ip_limit
         on_hold = bool(plan.on_hold) and days > 0
         options = {k: v for k, v in (plan.panel_options or {}).items() if v not in (None, "", [], {})}
-    expire_at = (
-        datetime.now(UTC).replace(microsecond=0) + timedelta(days=days) if days > 0 and not on_hold else None
-    )
+    now = datetime.now(UTC).replace(microsecond=0)
+    if trial_hours > 0 and not on_hold:
+        expire_at: datetime | None = now + timedelta(hours=trial_hours)
+    elif days > 0 and not on_hold:
+        expire_at = now + timedelta(days=days)
+    else:
+        expire_at = None
+    data_limit = trial_mb * (1024**2) if trial_mb > 0 else (data_gb * GB if data_gb > 0 else 0)
     spec = UserSpec(
         username=username,
-        data_limit=data_gb * GB if data_gb > 0 else 0,
+        data_limit=data_limit,
         expire_at=expire_at,
-        note=f"tg:{customer.telegram_id}",
+        note=(
+            f"tg:{customer.telegram_id} (@{customer.username})"
+            if customer.username
+            else f"tg:{customer.telegram_id}"
+        ),
         ip_limit=ip_limit,
         on_hold_days=days if on_hold else None,
         options=options,
@@ -368,8 +394,13 @@ def _target_for(
 ) -> dict[str, object]:
     """Absolute end state of a modification, computed once so retries are idempotent."""
     try:
+        carry_queued = bool(queued and (order.params or {}).get("start_at"))
         policy = renewal_policy.policy_for(
-            order.kind, mode, queued=queued, lapsed=service.status in renewal_policy.LAPSED
+            order.kind,
+            mode,
+            queued=queued,
+            lapsed=service.status in renewal_policy.LAPSED,
+            carry_queued=carry_queued,
         )
     except renewal_policy.UnsupportedChange as exc:
         raise ProvisionError("unsupported_order") from exc
@@ -555,7 +586,12 @@ def _settle_service(
     if plan is not None and order.kind in {OrderKind.RENEW, OrderKind.UPGRADE}:
         service.plan_id = plan.id
         service.is_trial = False
-    service.status = ServiceStatus.ACTIVE
+    before_status = (target.get("before") or {}).get("status")
+    keep_on_hold = (
+        before_status == ServiceStatus.ON_HOLD.value
+        and not target.get("set_expire")
+    ) or (verified and service.status == ServiceStatus.ON_HOLD)
+    service.status = ServiceStatus.ON_HOLD if keep_on_hold else ServiceStatus.ACTIVE
     service.disabled_reason = None
     service.alerts_sent = {}
 
@@ -879,7 +915,11 @@ async def _move_service(session: AsyncSession, order: Order) -> Service:
         username=move["username"],
         data_limit=int(move["limit"]) if not move.get("unlimited") else 0,
         expire_at=datetime.fromisoformat(move["expire"]) if move.get("expire") else None,
-        note=f"tg:{customer.telegram_id}",
+        note=(
+            f"tg:{customer.telegram_id} (@{customer.username})"
+            if customer.username
+            else f"tg:{customer.telegram_id}"
+        ),
         ip_limit=int(move.get("ip_limit") or 0),
         on_hold_days=move.get("on_hold_days"),
         options=options,

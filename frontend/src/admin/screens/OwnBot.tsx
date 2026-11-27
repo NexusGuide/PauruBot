@@ -4,6 +4,8 @@ import { call } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { useSession } from "../session";
 import { Badge, Button, Field, NumberInput, Section, Toggle } from "../ui";
+import { BotLogsSheet } from "./BotLogsSheet";
+import { WebhookHealth } from "./MyBot";
 
 /** A purchased PasarGuard admin account the bot can sell from. */
 export interface OwnAccount {
@@ -56,6 +58,7 @@ export function OwnBotSection({ customerId }: { customerId: number | string }) {
   const [days, setDays] = useState<number | null>(30);
   const [adminId, setAdminId] = useState("");
   const [busy, run] = useAction();
+  const [logsOpen, setLogsOpen] = useState(false);
   if (!data) return null;
   const { bot, accounts } = data;
   const chosen = picked ?? bot?.account_id ?? accounts.find((a) => a.usable)?.id ?? null;
@@ -105,13 +108,30 @@ export function OwnBotSection({ customerId }: { customerId: number | string }) {
         <p className="text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("own_bot_intro")}</p>
 
         {bot?.connected && (
-          <div className="flex flex-wrap items-center gap-2 rounded-xl bg-[var(--bg)] px-3 py-2.5 text-[0.88rem]">
-            <span className="h-2.5 w-2.5 rounded-full bg-pista-500" aria-hidden="true" />
-            <span>{t("own_bot_connected")}</span>
-            <b dir="ltr">@{bot.bot_username}</b>
-            <span className="ms-auto text-[0.8rem] text-[var(--hint)]">
-              {t("own_bot_figures", { customers: digits(bot.customers, locale), services: digits(bot.active_services, locale) })}
-            </span>
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-[var(--bg)] px-3 py-2.5 text-[0.88rem]">
+              <span className="h-2.5 w-2.5 rounded-full bg-pista-500" aria-hidden="true" />
+              <span>{t("own_bot_connected")}</span>
+              <b dir="ltr">@{bot.bot_username}</b>
+              <span className="ms-auto text-[0.8rem] text-[var(--hint)]">
+                {t("own_bot_figures", { customers: digits(bot.customers, locale), services: digits(bot.active_services, locale) })}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex-1">
+                <WebhookHealth basePath={path} />
+              </div>
+              <Button small tone="quiet" onClick={() => setLogsOpen(true)}>
+                {t("bot_logs_open")}
+              </Button>
+            </div>
+            {logsOpen && (
+              <BotLogsSheet
+                basePath={`/api/admin/customer-bots/${bot.shop_id}/logs`}
+                title={bot.bot_username ? `@${bot.bot_username}` : bot.title}
+                onClose={() => setLogsOpen(false)}
+              />
+            )}
           </div>
         )}
 

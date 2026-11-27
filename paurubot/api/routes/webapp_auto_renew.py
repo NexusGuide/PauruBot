@@ -82,7 +82,7 @@ async def _view(ctx: WebApp, service: Service) -> dict[str, Any]:
     day_options: list[dict[str, int]] = []
     eligible = not service.is_trial and service.status in auto_renew.ELIGIBLE
     if eligible:
-        offered = await catalog.plans(ctx.session, ctx.shop.id, ctx.customer, panel_id=service.panel_id)
+        offered = await catalog.plans_for_service(ctx.session, ctx.shop.id, ctx.customer, service)
         for plan in offered:
             if not plan.renewable or plan.delivery == "stock":
                 continue

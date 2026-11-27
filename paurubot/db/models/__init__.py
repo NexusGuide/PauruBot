@@ -18,6 +18,7 @@ from paurubot.db.models.catalog import (
     VerifiedCard,
 )
 from paurubot.db.models.commerce import (
+    CancellationRequest,
     LedgerAccount,
     LedgerEntry,
     LedgerJournal,
@@ -79,6 +80,7 @@ from paurubot.db.models.tenancy import (
 from paurubot.db.models.usage import ServiceUsage
 
 __all__ = [
+    "CancellationRequest",
     "ServiceClaim",
     "GuestCheckoutIntent",
     "Announcement",

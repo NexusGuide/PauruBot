@@ -39,7 +39,7 @@ router = Router(name="start")
 
 
 def menu(
-    t: Texts, cfg: dict[str, Any], staff: StaffIdentity | None
+    t: Texts, cfg: dict[str, Any], staff: StaffIdentity | None, *, trial_used: bool = False
 ) -> ReplyKeyboardMarkup | InlineKeyboardMarkup:
     """One mode-aware menu for both entry and completion messages (BOT-12).
 
@@ -48,10 +48,10 @@ def menu(
     """
     mode = menu_mode(cfg)
     if mode == "inline":
-        return inline_menu(t, cfg, is_staff=staff is not None)
+        return inline_menu(t, cfg, is_staff=staff is not None, trial_used=trial_used)
     if mode == "miniapp":
         return miniapp_button(t, cfg, is_staff=staff is not None)
-    return main_menu(t, cfg, is_staff=staff is not None)
+    return main_menu(t, cfg, is_staff=staff is not None, trial_used=trial_used)
 
 
 def bot_off_notice_key(staff: StaffIdentity, cfg: dict[str, Any]) -> str:
@@ -70,6 +70,8 @@ async def home(
     cfg: dict[str, Any],
     staff: StaffIdentity | None,
     key: str = "welcome",
+    *,
+    trial_used: bool = False,
     **params: Any,
 ) -> None:
     if menu_mode(cfg) != "reply":
@@ -84,7 +86,13 @@ async def home(
         # Staff still use a switched-off bot (to work during maintenance); say so, or the switch
         # looks as if it did nothing while customers only get the maintenance message.
         await message.answer(t(bot_off_notice_key(staff, cfg)))
-    sent = await message.answer(t(key, **params), reply_markup=menu(t, cfg, staff))
+    from aiogram.exceptions import TelegramBadRequest
+
+    markup = menu(t, cfg, staff, trial_used=trial_used)
+    try:
+        sent = await message.answer(t(key, **params), reply_markup=markup)
+    except TelegramBadRequest:
+        sent = await message.answer(t(key, **params), reply_markup=markup, parse_mode=None)
     # Only the plain menu is replaced. One that carries an outcome ("payment received", "added to
     # your account") stays in the chat, or the next menu would take the customer's record (AUD-7).
     if cfg.get("menu_cleanup") and message.chat.type == "private" and key == "welcome":
@@ -236,34 +244,14 @@ async def start(
 ) -> None:
     await state.clear()
     arg = (command.args or "").strip()
+    from paurubot.core import referral
+
+    pending, saved_ref = await referral.take_pending_start(shop.id, customer.id)
     welcome_gift = 0
-    if is_new_customer:
-        if arg.startswith("ref_") and arg[4:].isdigit() and cfg["referral_enabled"]:
-            referrer = await customers.set_referrer(session, customer, int(arg[4:]))
-            if referrer is not None:
-                await queue.enqueue(
-                    session,
-                    "notify",
-                    "referral_joined",
-                    {"customer_id": referrer.id, "name": customer.display_name},
-                    shop_id=shop.id,
-                )
-                if cfg["referral_config_counts"] == "join":
-                    from paurubot.core import referral_rewards
-
-                    await referral_rewards.maybe_announce(session, referrer, cfg)
-        gift = int(cfg["start_gift_amount"] or 0)
-        if gift > 0 and (customer.referrer_id or not cfg["start_gift_referred_only"]):
-            from paurubot.ledger import wallet
-
-            # A welcome gift (GRW-09): once per customer, even if /start is pressed again.
-            posted = await wallet.reward(
-                session, shop.id, customer.id, gift, key=f"start_gift:{customer.id}", memo="welcome gift"
-            )
-            if posted.created:
-                welcome_gift = gift
-        await queue.enqueue(
-            session, "notify", "new_user_report", {"customer_id": customer.id}, shop_id=shop.id
+    if is_new_customer or pending:
+        ref_id = int(arg[4:]) if arg.startswith("ref_") and arg[4:].isdigit() else saved_ref
+        welcome_gift = await referral.complete_onboarding(
+            session, shop.id, customer, cfg, ref_telegram_id=ref_id
         )
     if arg.startswith("cust_") and arg[5:].isdigit():
         # «Manage user» under a report in the shop's group: the customer's card, for staff only.
@@ -298,7 +286,7 @@ async def start(
         await home(message, t, cfg, staff, "payment_return_failed")
         return
     await send_start_media(message, cfg)
-    await home(message, t, cfg, staff)
+    await home(message, t, cfg, staff, trial_used=bool(data.get("trial_used")))
     if welcome_gift:
         await message.answer(t("start_gift", amount=money(welcome_gift)))
     if arg.startswith("go_") and message.from_user is not None and menu_mode(cfg) != "miniapp":
@@ -351,19 +339,44 @@ async def joined(
         if isinstance(call.message, Message):
             await call.message.answer(t("join_required"), reply_markup=keyboards.join(t, missing))
         return
+    from paurubot.core import referral
+
+    pending, saved_ref = await referral.take_pending_start(customer.shop_id, customer.id)
+    welcome_gift = 0
+    if pending:
+        welcome_gift = await referral.complete_onboarding(
+            session, customer.shop_id, customer, cfg, ref_telegram_id=saved_ref
+        )
     await call.answer(t("join_thanks"))
     if isinstance(call.message, Message):
         await home(call.message, t, cfg, staff, "join_ok")
+        if welcome_gift:
+            await call.message.answer(t("start_gift", amount=money(welcome_gift)))
 
 
 @router.callback_query(Nav.filter(F.to == "terms"))
 async def accept_terms(
-    call: CallbackQuery, customer: Customer, t: Texts, cfg: dict[str, Any], staff: StaffIdentity | None
+    call: CallbackQuery,
+    customer: Customer,
+    t: Texts,
+    cfg: dict[str, Any],
+    staff: StaffIdentity | None,
+    session: AsyncSession,
 ) -> None:
+    from paurubot.core import referral
+
     customer.terms_accepted_version = int(cfg["terms_version"])
+    pending, saved_ref = await referral.take_pending_start(customer.shop_id, customer.id)
+    welcome_gift = 0
+    if pending:
+        welcome_gift = await referral.complete_onboarding(
+            session, customer.shop_id, customer, cfg, ref_telegram_id=saved_ref
+        )
     await call.answer(t("terms_accepted"))
     if isinstance(call.message, Message):
         await home(call.message, t, cfg, staff)
+        if welcome_gift:
+            await call.message.answer(t("start_gift", amount=money(welcome_gift)))
 
 
 @router.callback_query(Nav.filter(F.to == "rterms"))
@@ -424,7 +437,7 @@ async def miniapp(message: Message, t: Texts, cfg: dict[str, Any], staff: StaffI
     if "miniapp" not in available(cfg):
         await home(message, t, cfg, staff, "unknown_command")
         return
-    await message.answer(t("miniapp_open"), reply_markup=miniapp_button(t))
+    await message.answer(t("miniapp_open"), reply_markup=miniapp_button(t, cfg))
 
 
 @router.message(Btn("btn_guide"))
@@ -507,10 +520,17 @@ async def app_download(
     if app.get("store_url"):
         kb.row(InlineKeyboardButton(text=t("btn_open_store"), url=app["store_url"]))
     caption = t("app_caption", name=esc(app["name"]), version=esc((entry or {}).get("version") or "-"))
+    from aiogram.exceptions import TelegramBadRequest
+
     if entry and entry.get("file_id"):
-        await call.message.answer_document(entry["file_id"], caption=caption, reply_markup=kb.as_markup())
-    else:
-        await call.message.answer(caption, reply_markup=kb.as_markup(), disable_web_page_preview=True)
+        try:
+            await call.message.answer_document(
+                entry["file_id"], caption=caption, reply_markup=kb.as_markup()
+            )
+            return
+        except TelegramBadRequest:
+            pass
+    await call.message.answer(caption, reply_markup=kb.as_markup(), disable_web_page_preview=True)
 
 
 @router.message(Btn("btn_language"))

@@ -70,7 +70,9 @@ async def set_referrer(
     if customer.referrer_id is not None or referrer_telegram_id == customer.telegram_id:
         return None
     referrer = await by_telegram(session, customer.shop_id, referrer_telegram_id)
-    if referrer is None or referrer.id == customer.id:
+    if referrer is None or referrer.id == customer.id or referrer.is_banned:
+        return None
+    if referrer.referrer_id == customer.id:
         return None
     customer.referrer_id = referrer.id
     await session.flush()

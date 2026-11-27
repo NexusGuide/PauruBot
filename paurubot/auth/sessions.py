@@ -52,8 +52,67 @@ async def load(session_id: str | None) -> StaffSession | None:
 
 
 async def destroy(session_id: str | None) -> None:
-    if session_id:
-        await kv.get_redis().delete(_key(session_id))
+    if not session_id:
+        return
+    redis = kv.get_redis()
+    key = _key(session_id)
+    data = await load(session_id)
+    await redis.delete(key)
+    if data is not None:
+        await redis.srem(f"staff_sessions:{data.staff_id}", key)
+
+
+async def list_for_staff(staff_id: int, current_session_id: str | None = None) -> list[dict[str, object]]:
+    """Active browser sessions for one staff account, pruning expired keys from the index."""
+    redis = kv.get_redis()
+    set_key = f"staff_sessions:{staff_id}"
+    raw_keys = sorted(await redis.smembers(set_key))
+    if not raw_keys:
+        return []
+    keys = [k.decode() if isinstance(k, bytes) else str(k) for k in raw_keys]
+    values = await redis.mget(keys)
+    current_key = _key(current_session_id) if current_session_id else None
+    stale: list[str] = []
+    items: list[dict[str, object]] = []
+    for key, raw in zip(keys, values, strict=True):
+        if not raw:
+            stale.append(key)
+            continue
+        try:
+            data = StaffSession(**json.loads(raw))
+        except (TypeError, ValueError):
+            stale.append(key)
+            continue
+        items.append(
+            {
+                "id": key.removeprefix(PREFIX)[:12],
+                "ip": data.ip,
+                "created_at": data.created_at,
+                "current": key == current_key,
+            }
+        )
+    if stale:
+        await redis.srem(set_key, *stale)
+    items.sort(key=lambda row: (not bool(row["current"]), -float(row["created_at"])))
+    return items
+
+
+async def destroy_others(staff_id: int, keep_session_id: str) -> int:
+    """Sign out every other browser session of this staff account, keeping `keep_session_id`."""
+    redis = kv.get_redis()
+    set_key = f"staff_sessions:{staff_id}"
+    keep_key = _key(keep_session_id)
+    raw_keys = await redis.smembers(set_key)
+    others = [
+        (k.decode() if isinstance(k, bytes) else str(k))
+        for k in raw_keys
+        if (k.decode() if isinstance(k, bytes) else str(k)) != keep_key
+    ]
+    if not others:
+        return 0
+    removed = int(await redis.delete(*others) or 0)
+    await redis.srem(set_key, *others)
+    return removed
 
 
 async def destroy_all(staff_id: int) -> None:

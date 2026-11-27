@@ -11,7 +11,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from paurubot.db.models import AuditLog
 from paurubot.logs import correlation_id
 
-SECRET_FIELDS = {"password_hash", "password_enc", "bot_token_enc", "webhook_secret_enc", "tls_cert_pem"}
+SECRET_FIELDS = {
+    "password_hash",
+    "password_enc",
+    "bot_token_enc",
+    "webhook_secret_enc",
+    "tls_cert_pem",
+    "key_hash",
+    "payload_enc",
+    "guest_token",
+    "credentials_enc",
+    "token_enc",
+    "secret_enc",
+}
 
 
 @dataclass(slots=True, frozen=True)

@@ -58,3 +58,18 @@ rollback از **پنل مدیریت** (agent) فقط وقتی انجام می‌
 
 - migration را برگشت‌ناپذیر فرض کنید. rollback بدون restore فقط برای releaseهایی ممکن است که migration ندارند.
 - هر migration پیش از ادغام باید در CI روی دیتابیس واقعی اجرا شود (مجموعهٔ آزمون همین کار را می‌کند). `downgrade` برای توسعه است، نه برای بازگردانی production.
+
+## رفتن به کانال `dev` و بازگشت به `main` (`stable` / `beta`)
+
+- **رفتن به `dev`:**
+  - اگر روی نسخهٔ قدیمی‌تر `main` هستید (پیش از پشتیبانی از `dev` در `install.sh`):
+    ```bash
+    bash <(curl -fsSL https://raw.githubusercontent.com/NexusGuide/PauruBot/dev/install.sh) update --channel dev
+    ```
+  - اگر `pauru` به‌روز است: `pauru update --channel dev` یا انتخاب کانال «توسعه (Dev)» در صفحهٔ به‌روزرسانی پنل.
+  - هنگام ورود از `stable` یا `beta` به `dev`، اسکریپت یک پشتیبان ویژه در `PAURUBOT_PRE_DEV_BACKUP` (همراه با کانال و نسخهٔ قبلی) ذخیره می‌کند و این فایل در پاک‌سازی دوره‌ای حذف نمی‌شود؛ بنابراین حتی پس از چند به‌روزرسانی پیاپی روی `dev` هم مسیر بازگشت به `main` محفوظ می‌ماند.
+- **بازگشت از `dev` به `main` (`stable` یا `beta`):**
+  - با دستور `pauru update --channel stable` (یا `--channel beta`) یا با `pauru rollback` انجام می‌شود.
+  - پیش از هر تغییری، `schema-status` روی image مقصد بررسی می‌شود. اگر `dev` migration تازه‌ای اجرا کرده باشد که در `main` وجود ندارد، بازگشت از پنل متوقف می‌شود و باید روی سرور (`pauru update --channel stable` یا `pauru rollback`) تأیید کنید تا پشتیبان پیش از `dev` با image نسخهٔ `main` بازیابی شود.
+  - در صورت شکست بازیابی، فایل `.env`، کد git و سرویس‌های نسخهٔ فعلی دست‌نخورده به حالت قبل برمی‌گردند.
+  - پس از بازگشت موفق، کانال (`PAURUBOT_CHANNEL`)، کد منبع (`docker-compose.yml`) و دستور `/usr/local/bin/pauru` هم به `main` برمی‌گردند.

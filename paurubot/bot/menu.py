@@ -10,6 +10,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     KeyboardButton,
     ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
     WebAppInfo,
 )
 
@@ -99,13 +100,13 @@ def validate_styles(value: Any) -> dict[str, dict[str, str]]:
     return clean
 
 
-def button_style(style: dict[str, str] | None) -> dict[str, Any]:
+def button_style(style: dict[str, str] | None, *, allow_icon: bool = True) -> dict[str, Any]:
     """Telegram style fields shared by reply and inline buttons."""
     extra: dict[str, Any] = {}
     if style:
         if style.get("style") in STYLES:
             extra["style"] = style["style"]
-        if style.get("emoji_id"):
+        if allow_icon and style.get("emoji_id"):
             extra["icon_custom_emoji_id"] = style["emoji_id"]
     return extra
 
@@ -114,9 +115,9 @@ def styled(text: str, style: dict[str, str] | None, **kwargs: Any) -> KeyboardBu
     return KeyboardButton(text=text, **button_style(style), **kwargs)
 
 
-def available(cfg: dict[str, Any]) -> set[str]:
+def available(cfg: dict[str, Any], *, trial_used: bool = False) -> set[str]:
     hidden = set()
-    if not cfg.get("trial_enabled"):
+    if not cfg.get("trial_enabled") or (trial_used and cfg.get("trial_hide_after_use")):
         hidden.add("trial")
     if not cfg.get("referral_enabled"):
         hidden.add("referral")
@@ -147,12 +148,14 @@ def menu_mode(cfg: dict[str, Any]) -> str:
     return mode if mode in {"reply", "inline", "miniapp"} else "reply"
 
 
-def inline_menu(t: Texts, cfg: dict[str, Any], *, is_staff: bool = False) -> InlineKeyboardMarkup:
+def inline_menu(
+    t: Texts, cfg: dict[str, Any], *, is_staff: bool = False, trial_used: bool = False
+) -> InlineKeyboardMarkup:
     """The main menu as glass buttons under a message; each one acts like its reply-keyboard twin."""
     from paurubot.bot.callbacks import Admin, Menu
 
     layout = layout_of(cfg)
-    shown = available(cfg)
+    shown = available(cfg, trial_used=trial_used)
     styles = cfg.get("button_styles") or {}
     rows: list[list[InlineKeyboardButton]] = []
     for row in layout:
@@ -164,7 +167,9 @@ def inline_menu(t: Texts, cfg: dict[str, Any], *, is_staff: bool = False) -> Inl
                 url = f"{get_settings().public_url.rstrip('/')}/app/"
                 buttons.append(
                     InlineKeyboardButton(
-                        text=t(BUTTONS[item]), web_app=WebAppInfo(url=url), **button_style(styles.get(item))
+                        text=t(BUTTONS[item]),
+                        web_app=WebAppInfo(url=url),
+                        **button_style(styles.get(item), allow_icon=False),
                     )
                 )
             else:
@@ -200,7 +205,9 @@ def miniapp_button(
     rows = [
         [
             InlineKeyboardButton(
-                text=t("btn_miniapp_open"), web_app=WebAppInfo(url=url), **button_style(styles.get("miniapp"))
+                text=t("btn_miniapp_open"),
+                web_app=WebAppInfo(url=url),
+                **button_style(styles.get("miniapp"), allow_icon=False),
             )
         ]
     ]
@@ -227,24 +234,35 @@ def layout_of(cfg: dict[str, Any]) -> list[list[str]]:
     return layout
 
 
-def main_menu(t: Texts, cfg: dict[str, Any], *, is_staff: bool) -> ReplyKeyboardMarkup:
+def main_menu(
+    t: Texts, cfg: dict[str, Any], *, is_staff: bool, trial_used: bool = False
+) -> ReplyKeyboardMarkup | ReplyKeyboardRemove:
     layout = layout_of(cfg)
     styles: dict[str, dict[str, str]] = cfg.get("button_styles") or {}
-    shown = available(cfg)
-    rows: list[list[KeyboardButton]] = []
-    for row in layout:
-        buttons = []
-        for item in row:
-            if item not in shown:
-                continue
-            # The Mini App button is a plain one: its handler answers with an inline web-app button.
-            # Telegram signs the user into a Mini App opened from an inline or menu button, never
-            # into one opened from a reply-keyboard button, and the app can't work signed out.
-            buttons.append(styled(t(BUTTONS[item]), styles.get(item)))
-        if buttons:
-            rows.append(buttons)
+    shown = available(cfg, trial_used=trial_used)
+
+    def _build_rows(source: list[list[str]]) -> list[list[KeyboardButton]]:
+        built: list[list[KeyboardButton]] = []
+        for row in source:
+            buttons = []
+            for item in row:
+                if item not in shown:
+                    continue
+                # The Mini App button is a plain one: its handler answers with an inline web-app button.
+                # Telegram signs the user into a Mini App opened from an inline or menu button, never
+                # into one opened from a reply-keyboard button, and the app can't work signed out.
+                buttons.append(styled(t(BUTTONS[item]), styles.get(item)))
+            if buttons:
+                built.append(buttons)
+        return built
+
+    rows = _build_rows(layout)
+    if not rows:
+        rows = _build_rows(DEFAULT_LAYOUT)
     if is_staff:
         rows.append([styled(t("btn_admin"), styles.get("admin"))])
+    if not rows:
+        return ReplyKeyboardRemove()
     # Not persistent: the phone's back button and the keyboard icon must be able to fold it away,
     # or it covers half the chat on small screens and nothing can close it.
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)

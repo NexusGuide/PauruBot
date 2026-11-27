@@ -52,11 +52,21 @@ async def test_me_projects_each_context_policy_without_secrets_or_preference_wri
         )
         ctx = SimpleNamespace(customer=customer, shop=shop, cfg=cfg, session=object())
         result = await webapp.me(ctx)
-        assert result["alert_policy"] == {"warn_remaining_percent": percent, "warn_days": days}
+        assert result["alert_policy"] == {
+            "warn_remaining_percent": percent,
+            "warn_remaining_gb": 0,
+            "warn_days": days,
+            "warn_time_percent": 0,
+        }
         assert result["alerts_muted"] is True
         assert result["preferences"]["marketing_opt_out"] is True
         assert cfg["zarinpal_merchant"] == "SYNTHETIC-SECRET"
-        assert set(result["alert_policy"]) == {"warn_remaining_percent", "warn_days"}
+        assert set(result["alert_policy"]) == {
+            "warn_remaining_percent",
+            "warn_remaining_gb",
+            "warn_days",
+            "warn_time_percent",
+        }
         assert result["tonpay_custom_available"] is tonpay_available
         assert "SYNTHETIC-SECRET" not in str(result)
         custom_available.assert_awaited_with(ctx)

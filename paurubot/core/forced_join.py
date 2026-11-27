@@ -88,22 +88,22 @@ async def add(session: AsyncSession, shop_id: int, raw: str, *, title: str = "")
     channel, link = split_input(raw)
     if not channel:
         raise ForcedJoinError("channel_not_found")
-    await lock_shop(session, shop_id)  # two adds at once can't both take the last slot
-    count = await session.scalar(select(func.count(ForcedChannel.id)).where(ForcedChannel.shop_id == shop_id))
-    if (count or 0) >= MAX_CHANNELS:
-        raise ForcedJoinError("channel_limit")
     info = await resolve(shop_id, channel)
     if not info.bot_admin:
         raise ForcedJoinError("bot_not_admin")
+    url = link or info.url
+    if not url:
+        raise ForcedJoinError("link_required")  # a private channel needs its invite link
     chat_id = str(info.chat_id)
+    await lock_shop(session, shop_id)  # lock only after Telegram HTTP calls finish
+    count = await session.scalar(select(func.count(ForcedChannel.id)).where(ForcedChannel.shop_id == shop_id))
+    if (count or 0) >= MAX_CHANNELS:
+        raise ForcedJoinError("channel_limit")
     exists = await session.scalar(
         select(ForcedChannel.id).where(ForcedChannel.shop_id == shop_id, ForcedChannel.chat_id == chat_id)
     )
     if exists:
         raise ForcedJoinError("channel_exists")
-    url = link or info.url
-    if not url:
-        raise ForcedJoinError("link_required")  # a private channel needs its invite link
     row = ForcedChannel(
         shop_id=shop_id, chat_id=chat_id, title=(title.strip() or info.title or chat_id)[:96], url=url[:255]
     )

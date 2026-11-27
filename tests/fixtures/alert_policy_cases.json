@@ -74,7 +74,7 @@
     "remaining": 0,
     "seconds": 1,
     "status": "active",
-    "low_volume": true,
+    "low_volume": false,
     "expiring": false
   },
   {

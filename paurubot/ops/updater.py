@@ -1,8 +1,8 @@
-"""Updates and rollbacks requested from the admin panel (OPS-07).
+"""Panel-triggered updates and rollbacks (OPS-07).
 
-The app never runs Docker itself. It leaves one request in Redis and the host agent
-(`pauru enable-agent`, a systemd service) carries it out with the installer's own update
-and rollback actions, then reports progress back under the same `updater:` keys.
+The API container has no Docker socket and cannot touch the host. It reads the state the host
+agent publishes to Redis and leaves one validated JSON request there; the agent executes the
+normal `pauru update` / `pauru rollback` path and writes the outcome back.
 """
 
 from __future__ import annotations
@@ -18,9 +18,20 @@ from paurubot import __version__, kv
 REQUEST_KEY = "updater:request"
 REQUEST_TTL = 300
 AGENT_STALE_SECONDS = 60
-CHANNELS = ("stable", "beta")
+CHANNELS = ("stable", "beta", "dev")
 VERSION_RE = re.compile(r"^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$")
-STATE_KEYS = ("heartbeat", "version", "channel", "previous", "latest", "state", "last_action", "log")
+STATE_KEYS = (
+    "heartbeat",
+    "version",
+    "channel",
+    "previous",
+    "previous_channel",
+    "pre_dev_backup",
+    "latest",
+    "state",
+    "last_action",
+    "log",
+)
 
 
 class UpdateError(Exception):
@@ -40,19 +51,49 @@ class Status:
     log: str | None
     pending: dict[str, str] | None
     update_available: bool
+    previous_channel: str | None = None
+    has_pre_dev_backup: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
+def _prerelease_key(pre: str) -> tuple[tuple[int, int, str], ...]:
+    return tuple(
+        (0, int(part), "") if part.isascii() and part.isdigit() else (1, 0, part)
+        for part in pre.split(".")
+    )
+
+
 def _newer(latest: str | None, installed: str | None) -> bool:
-    def parts(tag: str) -> tuple[int, ...]:
-        core = tag.lstrip("v").split("-", 1)[0]
-        return tuple(int(p) for p in core.split(".") if p.isdigit())
+    def parse(tag: str) -> tuple[tuple[int, ...], str]:
+        core, _, pre = tag.lstrip("v").partition("-")
+        return tuple(int(p) for p in core.split(".")), pre
 
     if not latest or not installed or not VERSION_RE.match(latest) or not VERSION_RE.match(installed):
         return False
-    return parts(latest) > parts(installed)
+    latest_core, latest_pre = parse(latest)
+    installed_core, installed_pre = parse(installed)
+    if latest_core != installed_core:
+        return latest_core > installed_core
+    if not latest_pre:
+        return bool(installed_pre)
+    if not installed_pre:
+        return False
+    return _prerelease_key(latest_pre) > _prerelease_key(installed_pre)
+
+
+def _update_available(
+    latest: str | None,
+    installed: str | None,
+    channel: str | None,
+    app_version: str = __version__,
+) -> bool:
+    # Avoid false alerts on dev when a stale stable tag (e.g. v0.5.7) is cached.
+    if channel == "dev" and latest and "-" not in latest:
+        return False
+    effective = installed if (installed and VERSION_RE.match(installed)) else app_version
+    return _newer(latest, effective)
 
 
 def _text(value: Any) -> str | None:
@@ -77,18 +118,22 @@ async def status() -> Status:
     except ValueError:
         beat = 0
     state = data["state"]
+    installed = data["version"] or None
+    channel = data["channel"] or None
     return Status(
         agent_online=time.time() - beat < AGENT_STALE_SECONDS,
         app_version=__version__,
-        installed=data["version"] or None,
-        channel=data["channel"] or None,
+        installed=installed,
+        channel=channel,
         previous=data["previous"] or None,
+        previous_channel=data["previous_channel"] or None,
+        has_pre_dev_backup=bool(data["pre_dev_backup"]),
         latest=data["latest"] or None,
         state=state,
         last_action=data["last_action"],
         log=data["log"],
         pending=pending,
-        update_available=_newer(data["latest"], data["version"]),
+        update_available=_update_available(data["latest"], installed, channel),
     )
 
 
@@ -108,7 +153,11 @@ def build_request(action: str, channel: str | None, version: str | None) -> dict
     return request
 
 
-async def request(action: str, channel: str | None = None, version: str | None = None) -> dict[str, str]:
+async def request(
+    action: str,
+    channel: str | None = None,
+    version: str | None = None,
+) -> dict[str, str]:
     """Queue one action for the agent. Only one may wait or run at a time."""
     body = build_request(action, channel, version)
     current = await status()

@@ -16,11 +16,13 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/announcements/{row_id}/revoke` | `broadcast.send` | Staff revoke |
 | GET | `/api/admin/announcements` | `broadcast.send` | Staff inbox |
 | POST | `/api/admin/announcements` | `broadcast.send` | Staff publish |
+| GET | `/api/admin/audit.csv` | `audit.read` | Audit csv |
 | GET | `/api/admin/audit` | `audit.read` | Audit log |
 | PUT | `/api/admin/backups/schedule` | `backups.manage` | Save backup schedule |
 | GET | `/api/admin/backups/telegram` | `backups.manage` | Whether a separate backup bot is set (never its token) and its chats. |
 | PUT | `/api/admin/backups/telegram` | `backups.manage` | Send backups with a separate bot to chosen chats (ClockBot parity). |
 | POST | `/api/admin/backups/{name}/verify` | `backups.manage` | Check that an archive opens and its database dump is whole (ClockBot's «verify last»). |
+| DELETE | `/api/admin/backups/{name}` | `backups.manage` | Delete backup |
 | GET | `/api/admin/backups/{name}` | `backups.manage` | Download backup |
 | GET | `/api/admin/backups` | `backups.manage` | List backups |
 | POST | `/api/admin/backups` | `backups.manage` | Start backup |
@@ -38,6 +40,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/bundle` | `backups.manage` | The shop's setup (no secrets, no customers) as a JSON file. |
 | POST | `/api/admin/bundle` | `backups.manage` | Import bundle |
 | GET | `/api/admin/button-looks` | `settings.read` | Every button of the bot with its label (as the shop shows it) and its color / premium emoji |
+| POST | `/api/admin/cancellations/{request_id}` | `services.write` | Approve or reject a pending service cancellation request. |
+| GET | `/api/admin/cancellations` | `services.write` | List customers' service cancellation requests for the current shop. |
 | DELETE | `/api/admin/canned-replies/{reply_id}` | `settings.write` | Delete canned reply |
 | PUT | `/api/admin/canned-replies/{reply_id}` | `settings.write` | Update canned reply |
 | GET | `/api/admin/canned-replies` | `tickets.reply` | List canned replies |
@@ -55,11 +59,14 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | DELETE | `/api/admin/channels/trust/{row_id}` | `settings.write` | Remove trust |
 | PUT | `/api/admin/channels/trust/{row_id}` | `settings.write` | Set trust |
 | POST | `/api/admin/channels/trust` | `settings.write` | Add trust |
+| POST | `/api/admin/channels/verify` | `settings.write` | Re-check every active forced-join and trust channel with Telegram and refresh warnings. |
 | GET | `/api/admin/channels` | `settings.read` | List channels |
 | POST | `/api/admin/connection/check` | `panels.read` | Probe every active panel of the shop now, at most once per CHECK_ALL_EVERY seconds. |
 | GET | `/api/admin/connection` | `panels.read` | Connection |
 | DELETE | `/api/admin/contacts/{row_id}` | `settings.write` | Remove contact |
 | POST | `/api/admin/contacts` | `settings.write` | Add contact |
+| GET | `/api/admin/customer-bots/{shop_id}/logs.csv` | `resellers.manage` | Export the selected customer/reseller bot logs as CSV. |
+| GET | `/api/admin/customer-bots/{shop_id}/logs` | `resellers.manage` | Unified activity, order, payment, job and audit logs for a selected customer/reseller bot. |
 | GET | `/api/admin/customer-bots` | `resellers.manage` | Every bot the shop's customers run: resellers' bots selling the shop's plans (TEN-04) and |
 | POST | `/api/admin/customers/bulk` | `customers.ban` | Bulk customers |
 | POST | `/api/admin/customers/{customer_id}/adjust` | `wallet.adjust` | Adjust |
@@ -69,6 +76,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/customers/{customer_id}/own-bot/admins` | `resellers.manage` | Let one more Telegram account run the customer's bot, besides its owner. |
 | POST | `/api/admin/customers/{customer_id}/own-bot/expiry` | `resellers.manage` | How long the main shop lets this bot sell; at the end it stops selling, as on a pause. |
 | POST | `/api/admin/customers/{customer_id}/own-bot/hold` | `resellers.manage` | Hold own bot |
+| POST | `/api/admin/customers/{customer_id}/own-bot/webhook/repoint` | `resellers.manage` | Repoint own bot webhook |
+| GET | `/api/admin/customers/{customer_id}/own-bot/webhook` | `resellers.manage` | Own bot webhook |
 | DELETE | `/api/admin/customers/{customer_id}/own-bot` | `resellers.manage` | Disconnect own bot |
 | GET | `/api/admin/customers/{customer_id}/own-bot` | `resellers.manage` | Own bot |
 | POST | `/api/admin/customers/{customer_id}/own-bot` | `resellers.manage` | Connect own bot |
@@ -85,6 +94,9 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/desk/renew` | `services.create` | Renew |
 | POST | `/api/admin/desk/sell` | `services.create` | Sell |
 | GET | `/api/admin/desk` | `services.create` | Desk |
+| POST | `/api/admin/discounts/bulk` | `discounts.write` | Create codes bulk |
+| GET | `/api/admin/discounts/{code_id}/redemptions` | `discounts.write` | Discount redemptions |
+| DELETE | `/api/admin/discounts/{code_id}` | `discounts.write` | Delete code |
 | PUT | `/api/admin/discounts/{code_id}` | `discounts.write` | Update code |
 | GET | `/api/admin/discounts` | `discounts.write` | List codes |
 | POST | `/api/admin/discounts` | `discounts.write` | Create code |
@@ -95,14 +107,18 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/domains` | `settings.read` | List domains |
 | POST | `/api/admin/domains` | `panels.secrets` | Add domain |
 | GET | `/api/admin/export/{kind}.xlsx` | `dashboard.view` | Excel download of one table, for a date range (FIN-05). |
+| POST | `/api/admin/gift-codes/bulk` | `discounts.write` | Create gifts bulk |
 | GET | `/api/admin/gift-codes/{code_id}/redemptions` | `discounts.write` | Gift redemptions |
+| DELETE | `/api/admin/gift-codes/{code_id}` | `discounts.write` | Delete gift |
 | PUT | `/api/admin/gift-codes/{code_id}` | `discounts.write` | Update gift |
 | GET | `/api/admin/gift-codes` | `discounts.write` | List gifts |
 | POST | `/api/admin/gift-codes` | `discounts.write` | Create gift |
 | POST | `/api/admin/inbox/dismiss` | `dashboard.view` | Dismiss |
 | POST | `/api/admin/inbox/reset` | `dashboard.view` | Bring back every inbox item this staff member dismissed. |
 | GET | `/api/admin/inbox` | `dashboard.view` | Inbox |
+| POST | `/api/admin/jobs/clear-dead` | `settings.write` | Clear dead jobs |
 | POST | `/api/admin/jobs/retry-dead` | `settings.write` | Put every dead job of this shop (optionally one queue) back in line (JOB-05). |
+| POST | `/api/admin/jobs/{job_id}/cancel` | `settings.write` | Cancel job |
 | POST | `/api/admin/jobs/{job_id}/retry` | `settings.write` | Retry job |
 | GET | `/api/admin/jobs` | `settings.write` | List jobs |
 | DELETE | `/api/admin/locations/{row_id}` | `catalog.write` | Delete a location nothing is sold through any more. |
@@ -123,9 +139,15 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/admin/migration/last` | `backups.manage` | Migration last |
 | POST | `/api/admin/migration/run` | `backups.manage` | Migration run |
 | POST | `/api/admin/migration/upload` | `backups.manage` | Store a MySQL dump or SQLite file and describe what it holds. |
+| GET | `/api/admin/my-bot/logs.csv` | `resellers.bot` | Export the reseller's own bot logs as CSV. |
+| GET | `/api/admin/my-bot/logs` | `resellers.bot` | Activity, order, payment and queue logs for the reseller's own dedicated bot. |
+| POST | `/api/admin/my-bot/webhook/repoint` | `resellers.bot` | Repoint my bot webhook |
+| GET | `/api/admin/my-bot/webhook` | `resellers.bot` | My bot webhook |
 | DELETE | `/api/admin/my-bot` | `resellers.bot` | Stop my bot |
 | GET | `/api/admin/my-bot` | `resellers.bot` | My bot |
 | PUT | `/api/admin/my-bot` | `resellers.bot` | Save my bot |
+| GET | `/api/admin/my/billing.csv` | `dashboard.view` | My billing csv |
+| POST | `/api/admin/my/billing/settle` | `dashboard.view` | My settle debt |
 | GET | `/api/admin/my/billing` | `dashboard.view` | My billing |
 | GET | `/api/admin/my/hub` | `dashboard.view` | My hub |
 | POST | `/api/admin/orders/{order_id}/confirm-refund` | `payments.refund` | Step one of a large refund (F-22): type the amount to confirm. |
@@ -170,6 +192,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | PUT | `/api/admin/plans/{row_id}` | `catalog.write` | Update plan |
 | POST | `/api/admin/plans` | `catalog.write` | Create plan |
 | GET | `/api/admin/quick-links` | `settings.read` | `t.me/<bot>?start=go_<item>` for each section, and whether it opens right now. |
+| GET | `/api/admin/referrals/leaderboard` | `customers.read` | Top referrers by invited friends, qualified purchases, commission earned, and free configs. |
 | GET | `/api/admin/reports/funnel` | `reports.read` | Of the people who joined in the period, how many shared a phone, took a trial and bought (ADM-06). |
 | GET | `/api/admin/reports/sales.csv` | `reports.read` | Sales csv |
 | GET | `/api/admin/reports/sales` | `reports.read` | Sales report |
@@ -179,9 +202,14 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/reseller-groups` | `resellers.manage` | Create group |
 | GET | `/api/admin/reseller-prices` | `resellers.manage` | List reseller prices |
 | PUT | `/api/admin/reseller-prices` | `resellers.manage` | Set or remove the fixed price of one plan for a reseller group or one reseller. |
+| GET | `/api/admin/resellers/{profile_id}/billing.csv` | `resellers.manage` | Reseller billing csv |
+| POST | `/api/admin/resellers/{profile_id}/billing/bill-now` | `resellers.manage` | Reseller bill now |
+| POST | `/api/admin/resellers/{profile_id}/billing/settle` | `resellers.manage` | Reseller settle debt |
 | GET | `/api/admin/resellers/{profile_id}/billing` | `resellers.manage` | Reseller billing |
 | POST | `/api/admin/resellers/{profile_id}/bot/allow` | `resellers.manage` | Allow reseller bot |
 | POST | `/api/admin/resellers/{profile_id}/bot/stop` | `resellers.manage` | Stop reseller bot |
+| POST | `/api/admin/resellers/{profile_id}/bot/webhook/repoint` | `resellers.manage` | Repoint reseller bot webhook |
+| GET | `/api/admin/resellers/{profile_id}/bot/webhook` | `resellers.manage` | Reseller bot webhook |
 | GET | `/api/admin/resellers/{profile_id}/bot` | `resellers.manage` | Reseller bot |
 | GET | `/api/admin/resellers/{profile_id}/hub` | `resellers.manage` | Reseller hub |
 | POST | `/api/admin/resellers/{profile_id}/suspend` | `resellers.manage` | Suspend reseller |
@@ -214,7 +242,16 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | PUT | `/api/admin/sub-resellers/{profile_id}` | `resellers.sub` | Update sub reseller |
 | GET | `/api/admin/sub-resellers` | `resellers.sub` | Sub resellers |
 | POST | `/api/admin/sub-resellers` | `resellers.sub` | Add sub reseller |
+| POST | `/api/admin/system/maintenance/clear-cache` | `settings.write` | Clear safe in-memory and Redis UI/settings caches without touching sessions or leases. |
+| POST | `/api/admin/system/maintenance/resync` | `settings.write` | Run an immediate usage sync across all active panels of this shop. |
+| GET | `/api/admin/system/builds` | `settings.read` | Live GitHub Actions workflow runs for the configured repo and branch (default: `dev`). |
+| POST | `/api/admin/channels/logs/auto-setup` | `settings.write` | Create missing Telegram forum topics in a supergroup and bind every report topic. |
+| POST | `/api/admin/channels/logs/{row_id}/test` | `settings.write` | Send a test message to verify bot permissions for a configured report topic. |
+| GET | `/api/admin/system/crons` | `settings.read` | List all periodic worker crons with schedules, overrides, and last-run telemetry. |
+| PUT | `/api/admin/system/crons/{name}` | `settings.write` | Enable/disable or customize the run interval of a periodic worker cron. |
+| POST | `/api/admin/system/crons/{name}/run` | `settings.write` | Request immediate execution of a periodic worker cron on the next scheduler tick. |
 | POST | `/api/admin/texts/reset` | `texts.write` | Put many texts back to the shipped wording at once, in every language (a whole tab). |
+| POST | `/api/admin/texts/{locale}/{key}/preview` | `texts.write` | Send a rendered test preview of a bot text to the signed-in staff member's Telegram. |
 | DELETE | `/api/admin/texts/{locale}/{key}` | `texts.write` | Reset text |
 | PUT | `/api/admin/texts/{locale}/{key}` | `texts.write` | Set text |
 | GET | `/api/admin/texts` | `texts.write` | List texts |
@@ -222,9 +259,12 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | PUT | `/api/admin/ticket-departments/{department_id}` | `settings.write` | Update ticket department |
 | GET | `/api/admin/ticket-departments` | `tickets.read` | List ticket departments |
 | POST | `/api/admin/ticket-departments` | `settings.write` | Create ticket department |
+| GET | `/api/admin/tickets/stats` | `tickets.read` | Help-desk KPIs: counts by status, awaiting reply, average first response time, CSAT. |
+| POST | `/api/admin/tickets/{ticket_id}/attachments` | `tickets.reply` | Staff uploads an image or text file directly into a ticket thread and delivers it to the user. |
 | POST | `/api/admin/tickets/{ticket_id}/close` | `tickets.reply` | Close |
 | GET | `/api/admin/tickets/{ticket_id}/messages/{message_id}/attachment` | `tickets.read` | Ticket attachment |
 | POST | `/api/admin/tickets/{ticket_id}/note` | `tickets.reply` | Add ticket note |
+| POST | `/api/admin/tickets/{ticket_id}/reopen` | `tickets.reply` | Reopen ticket |
 | POST | `/api/admin/tickets/{ticket_id}/reply` | `tickets.reply` | Reply |
 | GET | `/api/admin/tickets/{ticket_id}` | `tickets.read` | Ticket detail |
 | PATCH | `/api/admin/tickets/{ticket_id}` | `tickets.reply` | Update ticket |
@@ -234,7 +274,10 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/tools/gift` | `wallet.adjust` | The same wallet gift for everyone in an audience; credited in the background, never twice. |
 | POST | `/api/admin/tools/plan-prices` | `catalog.write` | Every active plan's price up or down by a percentage, rounded like other prices. |
 | GET | `/api/admin/tools/reseller-ranking` | `resellers.manage` | Resellers by sales, revenue and confirmed complaints over the last `days` (0: all time). |
-| POST | `/api/admin/tools/trial-reset` | `settings.write` | Everyone may take a free trial again (a new trial round, CAT-11). |
+| GET | `/api/admin/tools/service-gift` | `services.manage` | How many active services a mass days/GB gift would update. |
+| POST | `/api/admin/tools/service-gift` | `services.manage` | Add days or GB to every active service (or one panel's services) in the background. |
+| GET | `/api/admin/tools/trial-reset/preview` | `settings.write` | Preview how many trial users would be reset under each scope. |
+| POST | `/api/admin/tools/trial-reset` | `settings.write` | Start a new trial round for everyone, or reset only eligible non-buyers. |
 | POST | `/api/admin/tools/unpin-all` | `broadcast.send` | Take down every broadcast still pinned in customers' chats (GRW-06). |
 | GET | `/api/admin/trial-users` | `customers.read` | Customers who took a free trial, and whether they went on to buy (a completed order). |
 | DELETE | `/api/admin/updates` | `backups.manage` | Cancel update |
@@ -256,6 +299,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/auth/password-reset/confirm` | public | Confirm password reset |
 | POST | `/api/auth/password-reset/request` | public | Request password reset |
 | POST | `/api/auth/password` | staff session | Change password |
+| DELETE | `/api/auth/sessions/others` | staff session | Revoke other sessions |
+| GET | `/api/auth/sessions` | staff session | List sessions |
 
 ## `/api/pay`
 
@@ -314,6 +359,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/help` | Mini App initData | Customer help view |
 | POST | `/api/webapp/join/check` | Mini App initData | Ask Telegram again after the customer joined; the answer is never cached. |
 | GET | `/api/webapp/join` | Mini App initData | Channels a customer must join before the rest of the Mini App answers (GRW-07). |
+| POST | `/api/webapp/lottery/join` | Customer (Telegram Mini App) | Lottery join |
+| GET | `/api/webapp/lottery` | Customer (Telegram Mini App) | Lottery info |
 | POST | `/api/webapp/me/alerts` | Mini App initData | Set alert preferences |
 | POST | `/api/webapp/me/locale` | Mini App initData | Set locale |
 | POST | `/api/webapp/me/marketing` | Mini App initData | Set marketing |
@@ -342,6 +389,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/webapp/payments/{payment_id}/receipt-upload` | Mini App initData | Upload |
 | POST | `/api/webapp/payments/{payment_id}/receipt` | Mini App initData | Upload receipt |
 | GET | `/api/webapp/payments/{payment_id}/resume` | Mini App initData | Resume payment |
+| POST | `/api/webapp/payments/{payment_id}/recheck` | Mini App initData | Let the customer trigger a rate-limited status check against a polling gateway. |
 | GET | `/api/webapp/payments/{payment_id}` | Mini App initData | Payment status |
 | GET | `/api/webapp/payments` | Mini App initData | Pending payments |
 | GET | `/api/webapp/receipts` | Mini App initData | Inbox |
@@ -392,6 +440,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/wallet/transfer-policy` | Mini App initData | Policy |
 | POST | `/api/webapp/wallet/transfers/confirm` | Mini App initData | Confirm |
 | POST | `/api/webapp/wallet/transfers/quote` | Mini App initData | Quote |
+| POST | `/api/webapp/wheel/spin` | Customer (Telegram Mini App) | Wheel spin |
+| GET | `/api/webapp/wheel` | Customer (Telegram Mini App) | Wheel info |
 
 ## `/api/webhooks`
 

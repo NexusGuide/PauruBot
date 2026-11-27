@@ -74,6 +74,11 @@ SAFE_OPTION_KEYS = {
     "group",
     "sync_concurrency",  # usage-sync reads in flight on this panel; never above the driver's (SEC-F27)
     "trial_daily_quota",  # trials this panel gives in any 24 hours; the next panel takes over (F-20)
+    "trial_group_ids",  # per-panel PasarGuard groups used exclusively for trial accounts
+    "trial_service_ids",  # per-panel Marzneshin/Rebecca/Guard services for trial accounts
+    "trial_squad_ids",  # per-panel Remnawave internal squads for trial accounts
+    "trial_inbounds",  # per-panel Marzban inbounds for trial accounts
+    "trial_inbound_id",  # per-panel X-UI inbound id for trial accounts
 }
 
 # Option values that end up in panel API paths or forms: short names only.
@@ -145,6 +150,25 @@ def _clean_options(options: dict[str, Any]) -> dict[str, Any]:
     quota = options.get("trial_daily_quota")
     if quota is not None and (type(quota) is not int or not 0 <= quota <= 1_000_000):
         raise HTTPException(status_code=422, detail="trial_daily_quota_invalid")
+    for int_list_key in ("trial_group_ids", "trial_service_ids"):
+        raw_ids = options.get(int_list_key)
+        if raw_ids is not None and (
+            not isinstance(raw_ids, list)
+            or len(raw_ids) > 100
+            or not all(type(v) is int and v > 0 for v in raw_ids)
+        ):
+            raise HTTPException(status_code=422, detail=f"{int_list_key}_invalid")
+    for str_list_key in ("trial_squad_ids", "trial_inbounds"):
+        raw_vals = options.get(str_list_key)
+        if raw_vals is not None and (
+            not isinstance(raw_vals, list)
+            or len(raw_vals) > 100
+            or not all(isinstance(v, str) and 0 < len(v.strip()) <= 128 for v in raw_vals)
+        ):
+            raise HTTPException(status_code=422, detail=f"{str_list_key}_invalid")
+    tinb = options.get("trial_inbound_id")
+    if tinb is not None and (type(tinb) is not int or not 1 <= tinb <= 1_000_000):
+        raise HTTPException(status_code=422, detail="trial_inbound_id_invalid")
     if options.get("guard_version") not in (None, "v1", "v2"):
         raise HTTPException(status_code=422, detail="guard_version_invalid")
     import re
@@ -346,7 +370,12 @@ async def rotate_webhook(
 ) -> dict[str, Any]:
     """Create a new webhook secret; it is shown once and stored encrypted."""
     panel = await owned(db, Panel, panel_id, ctx)
-    if panel.kind not in {PanelKind.MARZBAN, PanelKind.PASARGUARD}:
+    if panel.kind not in {
+        PanelKind.MARZBAN,
+        PanelKind.PASARGUARD,
+        PanelKind.REBECCA,
+        PanelKind.REMNAWAVE,
+    }:
         raise HTTPException(status_code=400, detail="webhooks_not_supported")
     secret = new_token(24)
     panel.webhook_secret_enc = secretbox.encrypt("webhook", secret)
@@ -378,10 +407,12 @@ async def pasarguard_view(
     if resource not in ADMIN_READ_PATHS:
         raise HTTPException(status_code=404, detail="not_found")
     panel = await owned(db, Panel, panel_id, ctx)
-    driver = await registry.driver_for(panel)
-    if not isinstance(driver, PasarGuardDriver):
+    if PanelKind(panel.kind) != PanelKind.PASARGUARD:
         raise HTTPException(status_code=400, detail="not_pasarguard")
     try:
+        driver = await registry.driver_for(panel)
+        if not isinstance(driver, PasarGuardDriver):
+            raise HTTPException(status_code=400, detail="not_pasarguard")
         data = await driver.admin_read(
             resource, {"offset": offset, "limit": min(limit, 200), "search": search}
         )
@@ -395,10 +426,12 @@ async def pasarguard_node(panel_id: int, node_id: int, action: str, ctx: Writer,
     if action not in {"reconnect", "sync"}:
         raise HTTPException(status_code=404, detail="not_found")
     panel = await owned(db, Panel, panel_id, ctx)
-    driver = await registry.driver_for(panel)
-    if not isinstance(driver, PasarGuardDriver):
+    if PanelKind(panel.kind) != PanelKind.PASARGUARD:
         raise HTTPException(status_code=400, detail="not_pasarguard")
     try:
+        driver = await registry.driver_for(panel)
+        if not isinstance(driver, PasarGuardDriver):
+            raise HTTPException(status_code=400, detail="not_pasarguard")
         if action == "reconnect":
             await driver.node_reconnect(node_id)
         else:
@@ -491,18 +524,19 @@ async def import_users(panel_id: int, body: ImportBody, ctx: Writer, db: DB) -> 
 RESTART_PATHS = {
     PanelKind.MARZBAN: ("POST", "/api/core/restart"),
     PanelKind.PASARGUARD: ("POST", "/api/nodes/reconnect"),
+    PanelKind.XUI: ("POST", "/panel/api/server/restartXrayService"),
 }
 
 
 @router.post("/panels/{panel_id}/restart")
 async def restart_core(panel_id: int, ctx: Writer, db: DB) -> dict[str, Any]:
-    """Restart the panel's Xray core (Marzban) or reconnect all nodes (PasarGuard) (ADM-07)."""
+    """Restart the panel's Xray core (Marzban, X-UI) or reconnect all nodes (PasarGuard) (ADM-07)."""
     panel = await owned(db, Panel, panel_id, ctx)
     target = RESTART_PATHS.get(PanelKind(panel.kind))
     if target is None:
         raise HTTPException(status_code=400, detail="restart_not_supported")
-    driver = await registry.driver_for(panel)
     try:
+        driver = await registry.driver_for(panel)
         await driver.call(*target)  # type: ignore[attr-defined]
     except PanelError as exc:
         raise HTTPException(status_code=502, detail="panel_unreachable") from exc

@@ -37,6 +37,7 @@ OPTIONAL_ROUTERS: list[str] = [
     "admin.bot_links",
     "admin.tools",
     "admin.service_claims",
+    "admin.cancellations",
     "admin.desk",
 ]
 

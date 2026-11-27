@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from paurubot.auth import rbac
 from paurubot.core import customers as customer_service
 from paurubot.core import phones
-from paurubot.db.models import Customer, Panel, ResellerProfile, Service, ServiceStatus
+from paurubot.db.models import Customer, LedgerJournal, Panel, ResellerProfile, Service, ServiceStatus
 from paurubot.ledger import wallet
 from paurubot.migration.sources import Extract
 from paurubot.panels import PanelError, PanelUser
@@ -82,8 +82,23 @@ async def apply(
         else:
             report.customers_new += 1
         if dry_run:
-            report.balance_credited += old.balance
-            report.resellers += int(old.reseller)
+            if old.balance > 0:
+                idem = f"migrate:{extract.source}:{shop_id}:{old.telegram_id}"
+                already = await session.scalar(
+                    select(LedgerJournal.id).where(LedgerJournal.idempotency_key == idem)
+                )
+                if already is None:
+                    report.balance_credited += old.balance
+            if old.reseller:
+                has_profile = (
+                    await session.scalar(
+                        select(ResellerProfile.id).where(ResellerProfile.customer_id == existing.id)
+                    )
+                    if existing is not None
+                    else None
+                )
+                if has_profile is None:
+                    report.resellers += 1
             continue
         customer, _ = await customer_service.upsert_from_telegram(
             session, shop_id, old.telegram_id, username=old.username, first_name=old.first_name

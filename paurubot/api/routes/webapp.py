@@ -157,10 +157,13 @@ def _service_base(service: Service, cfg: dict[str, Any] | None = None) -> dict[s
         "data_limit": service.data_limit,
         "used_bytes": service.used_bytes,
         "expire_at": _iso(service.expire_at),
+        "created_at": _iso(getattr(service, "created_at", None)),
+        "plan_days": int(service.plan.days) if getattr(service, "plan", None) and service.plan.days else None,
         # When the data ran out (SEC-F15); the Mini App keys its "data used up" alert by it.
         "limited_at": _iso(service.limited_at),
         "subscription_url": customer_link(service, cfg) if cfg is not None else service.subscription_url,
         "location": service.panel.location.title if service.panel and service.panel.location else None,
+        "location_id": service.panel.location_id if service.panel else None,
         "plan_id": service.plan_id,
         "panel_id": service.panel_id,
         "extras": _extras(service, cfg),
@@ -261,6 +264,7 @@ def order_view(order: Order) -> dict[str, Any]:
                 "custom",
                 "queued",
                 "queued_until",
+                "queued_start_at",
                 "national",
                 # admin account orders: what they add, the renewal they give, whether codes apply
                 "gb",
@@ -308,6 +312,11 @@ async def me(ctx: WebApp) -> dict[str, Any]:
     customer, cfg = ctx.customer, ctx.cfg
     balance = await wallet_balance(ctx.session, ctx.shop.id, customer.id)
     trial_reason = await trials.eligibility(ctx.session, customer)
+    _, trial_rules = await trials.effective_rules(ctx.session, ctx.shop.id)
+    trial_choose = bool(trial_rules.get("trial_choose_panel"))
+    trial_panels = (
+        await trials.options(ctx.session, customer) if trial_reason is None and trial_choose else []
+    )
     profile = customer.reseller_profile
     locale = allowed_locale(customer.locale, ctx.shop, cfg)
     return {
@@ -329,8 +338,20 @@ async def me(ctx: WebApp) -> dict[str, Any]:
         "trial": {
             "available": trial_reason is None,
             "reason": trial_reason,
-            "days": cfg["trial_days"],
-            "gb": cfg["trial_gb"],
+            "days": trial_rules["trial_days"],
+            "hours": int(trial_rules.get("trial_hours") or 0),
+            "gb": trial_rules["trial_gb"],
+            "mb": int(trial_rules.get("trial_mb") or 0),
+            "choose_panel": trial_choose,
+            "panels": [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "location": p.location.title if p.location else None,
+                    "flag": p.location.flag if p.location else None,
+                }
+                for p in trial_panels
+            ],
         },
         "referral": {
             "enabled": bool(cfg["referral_enabled"]),
@@ -348,6 +369,7 @@ async def me(ctx: WebApp) -> dict[str, Any]:
             "gb_price": cfg["extra_gb_price"],
             "day_price": cfg["extra_day_price"],
             "upgrade": bool(cfg["upgrade_enabled"]),
+            "renew_queue": bool(cfg["renew_queue_when_active"]),
         },
         "payment_methods": (methods := await payments.available(ctx.session, ctx.shop.id, customer)),
         # Gateway names the shop renamed in its bot texts, so the Mini App says what the bot says.
@@ -359,6 +381,9 @@ async def me(ctx: WebApp) -> dict[str, Any]:
         "profile": customer_preferences.profile_view(customer),
         "alerts_muted": customer.alerts_muted,
         "alert_policy": alert_policy.service_alert_policy(cfg),
+        "maintenance": not bool(cfg.get("bot_enabled", True)),
+        "discounts_enabled": bool(cfg.get("discounts_enabled", True)),
+        "gateway_vpn_off_reminder": bool(cfg.get("gateway_vpn_off_reminder", True)),
     }
 
 
@@ -642,6 +667,8 @@ class OrderBody(BaseModel):
     renew_package: int | None = Field(default=None, ge=0, le=50)
     # The location a "move" order takes the service to (F-03).
     location_id: int | None = None
+    # Optional custom UTC start date/time for a reserved renewal (SVC-02).
+    start_at: datetime | None = None
 
 
 async def _owned_service(ctx: WebApp, service_id: int | None) -> Service | None:
@@ -658,8 +685,19 @@ async def _owned_service(ctx: WebApp, service_id: int | None) -> Service | None:
     return service
 
 
+async def _require_shop_open(ctx: WebApp) -> None:
+    """Block customer purchases/topups while the shop is in maintenance mode; staff stay allowed."""
+    if bool(ctx.cfg.get("bot_enabled", True)):
+        return
+    from paurubot.bot.context import resolve_staff
+
+    if await resolve_staff(ctx.session, ctx.shop.id, ctx.customer.telegram_id) is None:
+        raise HTTPException(status_code=503, detail="shop_maintenance")
+
+
 @router.post("/orders")
 async def create_order(body: OrderBody, ctx: WebApp) -> dict[str, Any]:
+    await _require_shop_open(ctx)
     try:
         if body.intent_key is None:
             order = await _create_order(body, ctx)
@@ -668,7 +706,7 @@ async def create_order(body: OrderBody, ctx: WebApp) -> dict[str, Any]:
                 ctx.session,
                 ctx.customer,
                 body.intent_key,
-                body.model_dump(exclude={"intent_key"}),
+                body.model_dump(mode="json", exclude={"intent_key"}),
                 lambda: _create_order(body, ctx),
             )
     except orders.OrderError as exc:
@@ -689,15 +727,18 @@ async def _create_order(body: OrderBody, ctx: WebApp) -> Order:
         if plan is None:
             raise HTTPException(status_code=404, detail="plan_unavailable")
     service = await _owned_service(ctx, body.service_id)
+    discounts_on = bool(ctx.cfg.get("discounts_enabled", True))
     code: DiscountCode | None = None
     if body.code:
+        if not discounts_on:
+            raise HTTPException(status_code=400, detail="discounts_disabled")
         try:
             code = await pricing.lookup_code(ctx.session, ctx.customer, body.code)
         except pricing.DiscountError as exc:
             raise HTTPException(status_code=429, detail=exc.key) from exc
         if code is None:
             raise HTTPException(status_code=400, detail="discount_invalid")
-    else:
+    elif discounts_on:
         code = await pricing.sticky_code(ctx.session, ctx.customer)
     try:
         draft = await orders.draft(
@@ -712,6 +753,7 @@ async def _create_order(body: OrderBody, ctx: WebApp) -> Order:
             custom_gb=body.custom_gb if body.kind == "purchase" and not plan else 0,
             custom_days=body.custom_days if body.kind == "purchase" and not plan else 0,
             move_to=await _move_panel(ctx, service, body.location_id) if body.kind == "move" else None,
+            start_at=body.start_at if body.kind == "renew" else None,
         )
         try:
             order = await orders.create(ctx.session, ctx.customer, draft, code=code, source="webapp")
@@ -760,6 +802,8 @@ async def _account_order(body: OrderBody, ctx: WebApp, kind: OrderKind) -> Order
         )
         code: DiscountCode | None = None
         if body.code:
+            if not bool(ctx.cfg.get("discounts_enabled", True)):
+                raise HTTPException(status_code=400, detail="discounts_disabled")
             if not draft.params.get("discounts"):
                 raise HTTPException(status_code=400, detail="discount_not_for_this_plan")
             try:
@@ -843,6 +887,7 @@ async def _payment_view(ctx: WebApp, started: payments.Started) -> dict[str, Any
 
 @router.post("/orders/{order_id}/pay")
 async def pay_order(order_id: int, body: PayBody, ctx: WebApp) -> dict[str, Any]:
+    await _require_shop_open(ctx)
     order = await _own_order(ctx, order_id)
     if order.status != OrderStatus.PENDING:
         raise HTTPException(status_code=409, detail="order_expired")
@@ -879,6 +924,7 @@ class TopupBody(BaseModel):
 
 @router.post("/wallet/topup")
 async def topup(body: TopupBody, ctx: WebApp) -> dict[str, Any]:
+    await _require_shop_open(ctx)
     try:
         started = await payments.start(
             ctx.session, ctx.customer, body.method, body.amount, idempotency_key=body.intent_key
@@ -952,6 +998,43 @@ async def payment_status(payment_id: int, ctx: WebApp) -> dict[str, Any]:
         "fulfilled": payment.fulfilled_at is not None,
         "provider": payment.provider,
         "order_id": payment.order_id,
+    }
+
+
+@router.post("/payments/{payment_id}/recheck")
+async def recheck_payment(payment_id: int, ctx: WebApp) -> dict[str, Any]:
+    """Let the customer trigger a rate-limited status check against a polling gateway."""
+    from paurubot import kv
+
+    payment = await ctx.session.get(Payment, payment_id)
+    if payment is None or payment.customer_id != ctx.customer.id or payment.shop_id != ctx.shop.id:
+        raise HTTPException(status_code=404, detail="payment_not_found")
+    allowed, _ = await kv.hit(f"payrecheck:{ctx.customer.id}:{payment_id}", 6, 60)
+    if not allowed:
+        raise HTTPException(status_code=429, detail="rate_limited")
+    prov = payments.PROVIDERS.get(payment.provider)
+    recheckable = payment.status == PaymentStatus.PENDING or (
+        payment.status == PaymentStatus.EXPIRED
+        and payment.expires_at is not None
+        and payment.expires_at > utcnow() - payments.LATE_CREDIT
+    )
+    if recheckable and prov is not None and getattr(prov, "polls", False) and payment.provider_ref:
+        try:
+            ok = await payments.verify(ctx.session, payment.id, {"source": "customer_recheck"})
+        except PaymentError:
+            ok = False
+        await ctx.session.commit()
+        if ok:
+            await payments.fulfill_one(ctx.session, payment.id)
+        await ctx.session.refresh(payment)
+    return {
+        "id": payment.id,
+        "status": payment.status.value,
+        "amount": payment.amount,
+        "fulfilled": payment.fulfilled_at is not None,
+        "provider": payment.provider,
+        "order_id": payment.order_id,
+        "checked": True,
     }
 
 
@@ -1056,7 +1139,10 @@ async def service_devices(service_id: int, ctx: WebApp) -> dict[str, Any]:
     panel = await ctx.session.get(Panel, service.panel_id)
     if panel is None:
         raise HTTPException(status_code=404, detail="service_not_found")
-    driver = await driver_for(panel)
+    try:
+        driver = await driver_for(panel)
+    except PanelError as exc:
+        raise HTTPException(status_code=503, detail="panel_unavailable") from exc
     if not driver.supports_ips:
         raise HTTPException(status_code=409, detail="devices_unsupported")
     allowed, _ = await kv.hit(f"devices:{service.id}", DEVICES_RATE, 60)
@@ -1183,6 +1269,10 @@ async def move_options(service_id: int, ctx: WebApp) -> dict[str, Any]:
     }
 
 
+class CancelBody(BaseModel):
+    reason: str = Field(default="", max_length=500)
+
+
 @router.get("/services/{service_id}/cancel")
 async def cancel_quote(service_id: int, ctx: WebApp) -> dict[str, Any]:
     """What deleting the service gives back now; the final amount is read again from the panel."""
@@ -1192,28 +1282,50 @@ async def cancel_quote(service_id: int, ctx: WebApp) -> dict[str, Any]:
     assert service is not None
     if not ctx.cfg.get("self_delete_enabled"):
         raise HTTPException(status_code=409, detail="self_delete_off")
-    return {"refund": await cancellation.quote(ctx.session, ctx.customer, service)}
+    requires_approval = bool(ctx.cfg.get("self_delete_require_approval"))
+    pending = (
+        await cancellation.pending_for_service(ctx.session, service.id) is not None
+        if requires_approval
+        else False
+    )
+    return {
+        "refund": await cancellation.quote(ctx.session, ctx.customer, service),
+        "requires_approval": requires_approval,
+        "pending": pending,
+    }
 
 
 @router.post("/services/{service_id}/cancel")
-async def cancel_service(service_id: int, ctx: WebApp) -> dict[str, Any]:
+async def cancel_service(
+    service_id: int, ctx: WebApp, body: CancelBody | None = None
+) -> dict[str, Any]:
     from paurubot.core import cancellation
 
     service = await _owned_service(ctx, service_id)
     assert service is not None
     try:
+        if ctx.cfg.get("self_delete_require_approval"):
+            row = await cancellation.request_cancel(
+                ctx.session, ctx.customer, service, reason=body.reason if body is not None else ""
+            )
+            return {"refund": row.quoted_refund, "pending": True, "request_id": row.id}
         refund = await cancellation.cancel(ctx.session, ctx.customer, service)
     except cancellation.CancelError as exc:
         raise HTTPException(status_code=409, detail=exc.key) from exc
     except PanelError as exc:
         raise HTTPException(status_code=502, detail="panel_busy") from exc
-    return {"refund": refund}
+    return {"refund": refund, "pending": False}
+
+
+class TrialBody(BaseModel):
+    panel_id: int | None = Field(default=None, ge=1)
 
 
 @router.post("/trial")
-async def trial(ctx: WebApp) -> dict[str, Any]:
+async def trial(ctx: WebApp, body: TrialBody | None = None) -> dict[str, Any]:
+    await _require_shop_open(ctx)
     try:
-        order = await trials.request(ctx.session, ctx.customer)
+        order = await trials.request(ctx.session, ctx.customer, panel_id=body.panel_id if body else None)
     except trials.TrialError as exc:
         raise HTTPException(status_code=400, detail=exc.key) from exc
     return {"order": order_view(order)}
@@ -1474,6 +1586,165 @@ async def reseller_renew(body: RenewManyBody, ctx: WebApp) -> dict[str, Any]:
         "failed": [{"id": s.id, "error": key} for s, key in result.failed],
         "balance": await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id),
     }
+
+
+
+
+# --- lucky wheel & lotteries in the Mini App -------------------------------------------
+
+
+@router.get("/wheel")
+async def wheel_info(ctx: WebApp) -> dict[str, Any]:
+    from paurubot.core import growth
+
+    cfg = ctx.cfg
+    enabled = bool(cfg.get("wheel_enabled"))
+    style = str(cfg.get("wheel_style") or "wheel")
+    next_at = await growth.next_spin_at(ctx.session, ctx.customer, cfg) if enabled else None
+    last = await growth.last_spin(ctx.session, ctx.customer)
+    can_spin = False
+    reason: str | None = None
+    if enabled:
+        try:
+            await growth._check_spin(ctx.session, ctx.customer, cfg, lock=False)
+            can_spin = True
+        except growth.GrowthError as exc:
+            reason = exc.key
+    return {
+        "enabled": enabled,
+        "style": style,
+        "buyers_only": bool(cfg.get("wheel_buyers_only")),
+        "cooldown_hours": int(cfg.get("wheel_cooldown_hours") or 24),
+        "can_spin": can_spin,
+        "reason": reason,
+        "next_spin_at": next_at.isoformat() if next_at else None,
+        "prizes": list(cfg.get("wheel_prizes") or []) if style == "wheel" else [],
+        "dice_prize_amount": int(cfg.get("wheel_dice_prize") or 0) if style in ("dice", "slot") else 0,
+        "last_spin": (
+            {
+                "label": last.prize_label,
+                "kind": last.prize_kind,
+                "value": last.prize_value,
+                "at": last.created_at.isoformat(),
+            }
+            if last is not None
+            else None
+        ),
+    }
+
+
+@router.post("/wheel/spin")
+async def wheel_spin(ctx: WebApp) -> dict[str, Any]:
+    import secrets as _secrets
+
+    from paurubot.core import growth
+
+    cfg = ctx.cfg
+    style = str(cfg.get("wheel_style") or "wheel")
+    rolled: int | None = None
+    try:
+        if style in ("dice", "slot"):
+            hi = 6 if style == "dice" else 64
+
+            async def _web_roll() -> int:
+                nonlocal rolled
+                rolled = _secrets.SystemRandom().randint(1, hi)
+                return rolled
+
+            outcome = await growth.dice_spin(ctx.session, ctx.customer, cfg, roll=_web_roll)
+        else:
+            outcome = await growth.spin(ctx.session, ctx.customer, cfg)
+    except growth.GrowthError as exc:
+        raise HTTPException(status_code=409, detail=exc.key) from exc
+    await ctx.session.commit()
+    next_at = await growth.next_spin_at(ctx.session, ctx.customer, cfg)
+    return {
+        "index": outcome.index,
+        "prize": outcome.prize,
+        "code": outcome.code,
+        "rolled": rolled,
+        "won": outcome.prize.get("kind") != "none",
+        "balance": await wallet_balance(ctx.session, ctx.shop.id, ctx.customer.id),
+        "next_spin_at": next_at.isoformat() if next_at else None,
+    }
+
+
+@router.get("/lottery")
+async def lottery_info(ctx: WebApp) -> dict[str, Any]:
+    from paurubot.core import growth
+    from paurubot.db.models import LotteryEntry
+
+    lot = await growth.open_lottery(ctx.session, ctx.shop.id)
+    if lot is None:
+        return {"lottery": None}
+    joined = (
+        await ctx.session.scalar(
+            select(LotteryEntry.id).where(
+                LotteryEntry.lottery_id == lot.id, LotteryEntry.customer_id == ctx.customer.id
+            )
+        )
+        is not None
+    )
+    board = await growth.standings(ctx.session, lot)
+    my_rank: int | None = None
+    my_points = 0
+    for idx, entry in enumerate(board, start=1):
+        if entry.customer_id == ctx.customer.id:
+            my_rank = idx
+            my_points = entry.points
+            break
+    top_ids = [e.customer_id for e in board[:10]]
+    people = (
+        {
+            c.id: c
+            for c in await ctx.session.scalars(select(Customer).where(Customer.id.in_(top_ids)))
+        }
+        if top_ids
+        else {}
+    )
+    top = []
+    for idx, entry in enumerate(board[:10], start=1):
+        person = people.get(entry.customer_id)
+        top.append(
+            {
+                "rank": idx,
+                "name": growth.masked(person.display_name if person else None),
+                "points": entry.points,
+                "is_me": entry.customer_id == ctx.customer.id,
+            }
+        )
+    return {
+        "lottery": {
+            "id": lot.id,
+            "title": lot.title,
+            "mode": lot.mode,
+            "prize": lot.prize,
+            "prizes": growth.prize_list(lot),
+            "points_per": lot.points_per,
+            "ends_at": lot.ends_at.isoformat(),
+            "joined": joined,
+            "my_points": my_points,
+            "my_rank": my_rank,
+            "entrants": len(board),
+            "total_tickets": sum(e.points for e in board),
+            "board": top,
+        }
+    }
+
+
+@router.post("/lottery/join")
+async def lottery_join(ctx: WebApp) -> dict[str, Any]:
+    from paurubot.core import growth
+
+    lot = await growth.open_lottery(ctx.session, ctx.shop.id)
+    if lot is None:
+        raise HTTPException(status_code=404, detail="lottery_none")
+    try:
+        added = await growth.join(ctx.session, lot, ctx.customer)
+    except growth.GrowthError as exc:
+        raise HTTPException(status_code=409, detail=exc.key) from exc
+    await ctx.session.commit()
+    return {"ok": True, "joined": True, "already_joined": not added}
 
 
 router.include_router(webapp_auto_renew.router)

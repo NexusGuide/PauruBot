@@ -114,15 +114,18 @@ def hub_kb(t: Texts, staff: StaffIdentity, cfg: dict[str, Any]) -> InlineKeyboar
                 _btn(t("adm_gs_values"), Admin(section="settings", action="show").pack()),
             ],
         ]
+    from paurubot.bot.routers.admin_navigation import customer_bot
+
+    is_customer_bot = customer_bot(staff, cfg)
     ops = []
     if staff.can(PERMISSION):
         ops.append(_btn(t("adm_status"), Admin(section="status", action="").pack()))
-    if staff.can("backups.manage"):
+    if staff.can("backups.manage") and not is_customer_bot:
         ops.append(_btn(t("adm_backups"), Admin(section="backups", action="").pack()))
     if ops:
         rows.append(ops)
     url = get_settings().public_url.rstrip("/")
-    if url and staff.can(PERMISSION):
+    if url.startswith("https://") and staff.can(PERMISSION) and not is_customer_bot:
         rows.append([InlineKeyboardButton(text=t("adm_gs_web"), url=f"{url}/admin/settings")])
     rows.append(
         [

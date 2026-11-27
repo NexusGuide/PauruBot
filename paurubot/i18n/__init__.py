@@ -8,6 +8,7 @@ can use `{name}` style variables but can never reach object attributes or indexe
 
 from __future__ import annotations
 
+from html.parser import HTMLParser
 import json
 import string
 import time
@@ -77,9 +78,62 @@ def render(template: str, params: dict[str, Any]) -> str:
         return template
 
 
+TELEGRAM_HTML_TAGS = frozenset(
+    {
+        "b",
+        "strong",
+        "i",
+        "em",
+        "u",
+        "ins",
+        "s",
+        "strike",
+        "del",
+        "code",
+        "pre",
+        "a",
+        "tg-spoiler",
+        "blockquote",
+        "tg-emoji",
+    }
+)
+
+
+class _TelegramHtmlChecker(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.stack: list[str] = []
+        self.problems: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag not in TELEGRAM_HTML_TAGS:
+            self.problems.append(f"unsupported html tag <{tag}>")
+        else:
+            self.stack.append(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag not in TELEGRAM_HTML_TAGS:
+            self.problems.append(f"unsupported html tag </{tag}>")
+        elif not self.stack or self.stack[-1] != tag:
+            self.problems.append(f"mismatched closing tag </{tag}>")
+        else:
+            self.stack.pop()
+
+
+def _validate_telegram_html(value: str) -> list[str]:
+    parser = _TelegramHtmlChecker()
+    parser.feed(value)
+    parser.close()
+    for tag in reversed(parser.stack):
+        parser.problems.append(f"unclosed html tag <{tag}>")
+    return parser.problems
+
+
 def validate_override(key: str, value: str) -> list[str]:
-    """Problems with an admin-edited text: unknown variables or broken braces."""
+    """Problems with an admin-edited text: blank value, unknown variables, broken braces or HTML."""
     problems: list[str] = []
+    if not value or not value.strip():
+        return ["text cannot be empty"]
     allowed = fields(catalog(DEFAULT_LOCALE).get(key, "")) | GLOBAL_VARIABLES
     try:
         used = fields(value)
@@ -89,6 +143,12 @@ def validate_override(key: str, value: str) -> list[str]:
         problems.append(f"unknown variable {{{name}}}")
     if any(not name.isidentifier() for name in used):
         problems.append("variables must be plain names")
+    problems.extend(_validate_telegram_html(value))
+    if key.startswith("btn_") or "_btn_" in key:
+        if "\n" in value or "\r" in value:
+            problems.append("button label must be one line")
+        if len(value.strip()) > 64:
+            problems.append("button label is too long (max 64)")
     return problems
 
 
@@ -149,7 +209,13 @@ class Texts:
             return False
         if text == self(key) or text in FORMER_LABELS.get(key, ()):
             return True
-        return any(text == render(catalog(loc).get(key, key), self.context) for loc in LOCALES)
+        for loc in LOCALES:
+            override = self._overrides.get(loc, {}).get(key)
+            if override and text == render(override, self.context):
+                return True
+            if text == render(catalog(loc).get(key, key), self.context):
+                return True
+        return False
 
 
 # Labels a button had before it was renamed (fa, en), still matched on old keyboards.

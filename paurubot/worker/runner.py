@@ -226,14 +226,106 @@ async def drain(name: str, spec: QueueSpec) -> int:
     return len(jobs)
 
 
-async def run_periodic(task: Periodic) -> None:
+CRON_PROTECTED: frozenset[str] = frozenset({"worker.heartbeat"})
+CRON_MIN_INTERVAL = 30
+CRON_MAX_INTERVAL = 7 * 86400
+CRON_STATE_PREFIX = "cron:state:"
+CRON_RUN_NOW_PREFIX = "cron:run_now:"
+CRON_STATE_TTL = 14 * 86400
+
+
+async def _record_cron_state(
+    name: str, *, status: str, duration_ms: int, error: str | None = None
+) -> None:
+    import json
+    from datetime import UTC, datetime
+
     try:
-        async with kv.lease(f"periodic:{task.name}", ttl=max(30, int(task.every))):
+        redis = kv.get_redis()
+        key = f"{CRON_STATE_PREFIX}{name}"
+        prev_raw = await redis.get(key)
+        count = 0
+        if prev_raw:
+            try:
+                count = int(json.loads(prev_raw).get("run_count") or 0)
+            except Exception:
+                count = 0
+        payload = {
+            "last_run_at": datetime.now(UTC).isoformat(),
+            "last_duration_ms": duration_ms,
+            "last_status": status,
+            "last_error": redact(error)[:240] if error else None,
+            "run_count": count + 1,
+        }
+        await redis.set(key, json.dumps(payload), ex=CRON_STATE_TTL)
+    except Exception:
+        log.debug("cron state write failed for %s", name, exc_info=True)
+
+
+async def get_cron_states(names: list[str]) -> dict[str, dict[str, object]]:
+    import json
+
+    if not names:
+        return {}
+    try:
+        raw = await kv.get_redis().mget([f"{CRON_STATE_PREFIX}{n}" for n in names])
+    except Exception:
+        return {}
+    out: dict[str, dict[str, object]] = {}
+    for name, item in zip(names, raw, strict=True):
+        if item:
+            try:
+                parsed = json.loads(item)
+                if isinstance(parsed, dict):
+                    out[name] = parsed
+            except Exception:
+                pass
+    return out
+
+
+async def request_cron_run(name: str) -> None:
+    await kv.get_redis().set(f"{CRON_RUN_NOW_PREFIX}{name}", "1", ex=300)
+
+
+async def _notify_cron_failure(name: str, error: str) -> None:
+    mark_key = f"cron-fail-notified:{name}"
+    try:
+        if await kv.marked([mark_key]):
+            return
+        await kv.mark(mark_key, 3600)
+        from html import escape as esc
+
+        from paurubot.core.shops import root_shop
+        from paurubot.notifications import handlers as notify_handlers
+        from paurubot.notifications import log_reports
+
+        async with get_sessionmaker()() as session:
+            shop = await root_shop(session)
+            if shop is None:
+                return
+            t = await log_reports.shop_texts(session, shop.id)
+            text = t("report_cron_failed", name=esc(name), error=esc(redact(error)[:240]))
+            await notify_handlers.report(session, shop.id, "crons", text)
+    except Exception:
+        log.debug("cron failure notification skipped for %s", name, exc_info=True)
+
+
+async def run_periodic(task: Periodic, *, interval_seconds: float | None = None) -> None:
+    started = time.monotonic()
+    ttl = max(30, int(interval_seconds or task.every))
+    try:
+        async with kv.lease(f"periodic:{task.name}", ttl=min(ttl, 3600)):
             await task.func()
+        ms = int((time.monotonic() - started) * 1000)
+        await _record_cron_state(task.name, status="ok", duration_ms=ms)
     except kv.LockNotAcquired:
         return  # another worker is running it
-    except Exception:
+    except Exception as exc:
+        ms = int((time.monotonic() - started) * 1000)
+        err = f"{exc.__class__.__name__}: {exc}"
+        await _record_cron_state(task.name, status="error", duration_ms=ms, error=err)
         log.exception("periodic task %s failed", task.name)
+        await _notify_cron_failure(task.name, err)
 
 
 # Jobs running at once across every queue: the largest batch the single loop ever ran, so the
@@ -307,13 +399,60 @@ class Worker:
             if not ran:
                 await self._idle(self.idle_sleep)
 
+    async def _load_cron_overrides(self) -> dict[str, dict[str, object]]:
+        try:
+            from paurubot.core import settings as shop_settings
+            from paurubot.core.shops import root_shop
+
+            async with get_sessionmaker()() as session:
+                shop = await root_shop(session)
+                if shop is None:
+                    return {}
+                cfg = await shop_settings.load(session, shop.id)
+                raw = cfg.get("cron_overrides")
+                return raw if isinstance(raw, dict) else {}
+        except Exception:
+            return {}
+
     async def _scheduler(self) -> None:
+        overrides: dict[str, dict[str, object]] = {}
+        overrides_until = 0.0
         while not self._stop.is_set():
             now = time.monotonic()
+            if now >= overrides_until:
+                overrides = await self._load_cron_overrides()
+                overrides_until = now + 15.0
+            manual_hits: set[str] = set()
+            try:
+                redis = kv.get_redis()
+                keys = [f"{CRON_RUN_NOW_PREFIX}{t.name}" for t in PERIODIC]
+                if keys:
+                    vals = await redis.mget(keys)
+                    for t, v in zip(PERIODIC, vals, strict=True):
+                        if v:
+                            manual_hits.add(t.name)
+                            await redis.delete(f"{CRON_RUN_NOW_PREFIX}{t.name}")
+            except Exception:
+                pass
             for task in PERIODIC:
-                if now >= task.next_run:
-                    task.next_run = now + task.every
-                    running = asyncio.create_task(run_periodic(task), name=f"periodic:{task.name}")
+                ov = overrides.get(task.name) if isinstance(overrides.get(task.name), dict) else {}
+                enabled = True if task.name in CRON_PROTECTED else bool(ov.get("enabled", True))
+                raw_int = ov.get("interval_seconds")
+                eff_every = (
+                    float(raw_int)
+                    if isinstance(raw_int, int) and CRON_MIN_INTERVAL <= raw_int <= CRON_MAX_INTERVAL
+                    else task.every
+                )
+                manual = task.name in manual_hits
+                if not manual and not enabled:
+                    task.next_run = max(task.next_run, now + eff_every)
+                    continue
+                if manual or now >= task.next_run:
+                    task.next_run = now + eff_every
+                    running = asyncio.create_task(
+                        run_periodic(task, interval_seconds=eff_every),
+                        name=f"periodic:{task.name}",
+                    )
                     self._running.add(running)
                     running.add_done_callback(self._running.discard)
             await self._idle(min(self.idle_sleep, 1.0))

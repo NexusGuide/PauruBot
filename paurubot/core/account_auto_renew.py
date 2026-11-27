@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot.core import orders, panel_accounts
 from paurubot.db.base import utcnow
-from paurubot.db.models import Customer, Order, OrderKind, OrderStatus, PanelAccount
+from paurubot.db.models import Customer, Order, OrderKind, OrderStatus, Panel, PanelAccount
 from paurubot.worker import queue
 
 log = logging.getLogger(__name__)
@@ -126,6 +126,13 @@ async def run_account(session: AsyncSession, account_id: int, now: datetime | No
     customer = await session.get(Customer, account.customer_id)
     if customer is None:
         return "off"
+    if customer.is_banned:
+        return "banned"
+    panel = await session.get(Panel, account.panel_id)
+    if panel is None or not panel.is_active:
+        return "panel_inactive"
+    if panel.national_mode:
+        return "national_mode"
     try:
         async with session.begin_nested():
             draft = await panel_accounts.draft(

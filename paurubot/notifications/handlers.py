@@ -34,6 +34,7 @@ from paurubot.db.models import (
     Staff,
     StockItem,
     Ticket,
+    TicketMessage,
     TicketDepartment,
 )
 from paurubot.i18n import Texts, texts_for
@@ -124,7 +125,12 @@ async def _to_staff(
 
 
 # A newer topic goes where the broader one goes until the shop gives it a chat of its own.
-TOPIC_FALLBACK = {"trials": "orders", "referrals": "payments"}
+TOPIC_FALLBACK = {
+    "trials": "orders",
+    "referrals": "payments",
+    "crons": "services",
+    "other": "all",
+}
 
 
 async def report(
@@ -134,11 +140,15 @@ async def report(
     text: str,
     *,
     markup: InlineKeyboardMarkup | None = None,
+    strict: bool = False,
 ) -> None:
     """Copy an event to the shop's log channel for that topic (SUP-03), unless the shop muted it."""
     if await _muted(session, shop_id, f"group:{topic}"):
         return
-    order = [topic, *([TOPIC_FALLBACK[topic]] if topic in TOPIC_FALLBACK else []), "all"]
+    if strict:
+        order = [topic]
+    else:
+        order = [topic, *([TOPIC_FALLBACK[topic]] if topic in TOPIC_FALLBACK else []), "all"]
     rows = list(
         await session.scalars(
             select(LogChannel).where(LogChannel.shop_id == shop_id, LogChannel.topic.in_(order))
@@ -221,11 +231,11 @@ async def _send_wireguard(session: AsyncSession, t: Texts, customer: Customer, s
 async def _delivery_photo(
     t: Texts, service: Service, link: str, cfg: dict[str, Any]
 ) -> tuple[BufferedInputFile, str] | None:
-    """The info card when it carries the QR (BOT-06), otherwise the bare QR, if one fits."""
+    """The info card when it carries the QR (BOT-06), otherwise the QR (customizable), if one fits."""
     from paurubot.bot import infocard
-    from paurubot.bot.views import qr_png
+    from paurubot.bot.views import build_qr_photo
 
-    if cfg.get("qr_send_enabled") is False:
+    if cfg.get("qr_send_enabled") is False or (service.panel and service.panel.national_mode):
         return None
     tail = f"\n<code>{esc(link)}</code>" if cfg.get("qr_show_link") else ""
     if cfg["info_card_enabled"] and cfg["info_card_qr"]:
@@ -235,8 +245,8 @@ async def _delivery_photo(
             return BufferedInputFile(image, "card.png"), t("infocard_caption", name=name) + tail
         except (OSError, ValueError) as exc:
             log.warning("info card for service %s failed: %s", service.id, exc)
-    png = qr_png(link)
-    return (BufferedInputFile(png, "qr.png"), t("qr_caption") + tail) if png is not None else None
+    built = await build_qr_photo(t, service, link, cfg)
+    return (BufferedInputFile(built[0], "qr.png"), built[1]) if built is not None else None
 
 
 async def order_completed(session: AsyncSession, job: queue.Claimed) -> None:
@@ -625,6 +635,34 @@ async def receipt_review(session: AsyncSession, job: queue.Claimed) -> None:
     )
     for message in sent:
         await review_sync.remember(payment.id, message)
+    if not await _muted(session, shop.id, "group:receipts"):
+        ch = await session.scalar(
+            select(LogChannel).where(LogChannel.shop_id == shop.id, LogChannel.topic == "receipts")
+        )
+        if ch is not None:
+            kb = review_kb(t, payment.id, fixable=payment.provider == "card")
+            try:
+                if payment.receipt_file_id:
+                    tmsg = await telegram.send_photo(
+                        ch.chat_id,
+                        payment.receipt_file_id,
+                        caption=caption,
+                        message_thread_id=ch.thread_id,
+                        reply_markup=kb,
+                        shop_id=shop.id,
+                    )
+                else:
+                    tmsg = await telegram.send_text(
+                        ch.chat_id,
+                        caption,
+                        message_thread_id=ch.thread_id,
+                        reply_markup=kb,
+                        shop_id=shop.id,
+                    )
+                if tmsg is not None:
+                    await review_sync.remember(payment.id, tmsg)
+            except Exception:
+                log.warning("receipt copy to topic %s failed", ch.chat_id, exc_info=True)
 
 
 async def review_decided(session: AsyncSession, job: queue.Claimed) -> None:
@@ -804,10 +842,34 @@ async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
         async def deleted_report() -> None:
             text = await log_reports.service_deleted(session, service, customer)
             markup = await log_reports.manage_markup(session, service.shop_id, customer)
-            await report(session, service.shop_id, "services", text, markup=markup)
+            await report(session, service.shop_id, "crons", text, markup=markup)
 
         await _quietly(deleted_report())
-    if customer.alerts_muted and alert in {"low_volume", "expiring", "first_use"}:
+    elif alert in {"low_volume", "expiring", "expired", "limited", "delete_soon", "on_hold_remind"}:
+        from paurubot.notifications import log_reports
+
+        async def cron_alert_report() -> None:
+            st = await log_reports.shop_texts(session, service.shop_id)
+            kind_label = st(f"report_cron_kind_{alert}")
+            detail = (
+                size(int(job.payload.get("remaining") or 0))
+                if alert == "low_volume"
+                else str(job.payload.get("hours") or 0)
+                if alert == "on_hold_remind"
+                else str(job.payload.get("days") or 0)
+            )
+            rtext = st(
+                "report_cron_service_alert",
+                kind=kind_label,
+                username=esc(service.panel_username),
+                user=log_reports.user_block(st, customer),
+                detail=esc(detail),
+            )
+            markup = await log_reports.manage_markup(session, service.shop_id, customer)
+            await report(session, service.shop_id, "crons", rtext, markup=markup, strict=True)
+
+        await _quietly(cron_alert_report())
+    if customer.alerts_muted and alert in {"low_volume", "expiring", "first_use", "on_hold_remind"}:
         return  # the customer turned reminders off (SVC-15); endings are still told
     t = await _texts(session, customer)
     name = esc(service.label or service.panel_username)
@@ -815,15 +877,48 @@ async def service_alert(session: AsyncSession, job: queue.Claimed) -> None:
         "name": name,
         "remaining": size(int(job.payload.get("remaining") or 0)),
         "days": job.payload.get("days", 0),
+        "hours": job.payload.get("hours", 0),
     }
-    text = t(f"alert_{alert}", **params)
+    trial_ended = service.is_trial and alert in {"expired", "limited"}
+    text = t(f"alert_trial_{alert}" if trial_ended else f"alert_{alert}", **params)
     if alert in {"removed_by_staff", "disabled_by_staff"}:
         reason = str(job.payload.get("reason") or "").strip()
         if reason:
             text += "\n" + t("alert_reason", reason=esc(reason))
         await _to_customer(session, customer, text)
+
+        async def staff_svc_report() -> None:
+            from paurubot.notifications import log_reports
+
+            st = await log_reports.shop_texts(session, service.shop_id)
+            rtext = st(
+                f"report_service_{alert}",
+                username=esc(service.panel_username),
+                user=log_reports.user_block(st, customer),
+                reason=esc(reason or "-"),
+            )
+            markup = await log_reports.manage_markup(session, service.shop_id, customer)
+            await report(session, service.shop_id, "services", rtext, markup=markup)
+
+        await _quietly(staff_svc_report())
         return
-    markup = None if alert in {"deleted", "first_use"} or service.is_trial else _renew_markup(t, service.id)
+    if trial_ended:
+        from paurubot.bot.callbacks import Shop
+
+        markup: InlineKeyboardMarkup | None = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=t("btn_buy_after_trial"),
+                        callback_data=Shop(step="start").pack(),
+                    )
+                ]
+            ]
+        )
+    elif alert in {"deleted", "first_use"} or service.is_trial:
+        markup = None
+    else:
+        markup = _renew_markup(t, service.id)
     message = await _to_customer(session, customer, text, reply_markup=markup)
     if message is not None and alert in REPLACEABLE_ALERTS:
         await _replace_alert(customer, service.id, message)
@@ -876,6 +971,20 @@ async def auto_renew_notice(session: AsyncSession, job: queue.Claimed) -> None:
     )
     await _to_customer(session, customer, text, reply_markup=markup)
 
+    async def ar_report() -> None:
+        from paurubot.notifications import log_reports
+
+        st = await log_reports.shop_texts(session, service.shop_id)
+        rtext = st(
+            "report_cron_auto_renew",
+            username=esc(service.panel_username),
+            user=log_reports.user_block(st, customer),
+            outcome=esc(str(job.payload.get("outcome") or "stopped")),
+        )
+        await report(session, service.shop_id, "crons", rtext, strict=True)
+
+    await _quietly(ar_report())
+
 
 async def ip_replaced(session: AsyncSession, job: queue.Claimed) -> None:
     """A new device took a connection slot and an older one was cut off (JOB-03)."""
@@ -894,6 +1003,20 @@ async def ip_replaced(session: AsyncSession, job: queue.Claimed) -> None:
         limit=int(job.payload.get("limit") or 0),
     )
     await _to_customer(session, customer, text)
+
+    async def ip_report() -> None:
+        from paurubot.notifications import log_reports
+
+        st = await log_reports.shop_texts(session, service.shop_id)
+        rtext = st(
+            "report_other_ip_replaced",
+            username=esc(service.panel_username),
+            user=log_reports.user_block(st, customer),
+            limit=int(job.payload.get("limit") or 0),
+        )
+        await report(session, service.shop_id, "other", rtext, strict=True)
+
+    await _quietly(ip_report())
 
 
 async def _referral_report(session: AsyncSession, referrer: Customer, payload: dict[str, Any]) -> None:
@@ -964,6 +1087,12 @@ async def simple_customer(session: AsyncSession, job: queue.Claimed) -> None:
         )
     elif job.kind == "private_code":
         text = t("private_code", code=esc(str(job.payload["code"])))
+    elif job.kind == "ticket_closed":
+        text = t(
+            "ticket_closed_notify",
+            id=int(job.payload["ticket_id"]),
+            subject=esc(str(job.payload.get("subject", ""))),
+        )
     elif job.kind == "card_verify_result":
         text = t(
             "card_verify_approved" if job.payload.get("approved") else "card_verify_rejected",
@@ -1031,6 +1160,7 @@ async def service_claim(session: AsyncSession, job: queue.Claimed) -> None:
         username=esc(row.panel_username),
     )
     await _to_staff(session, shop.id, "services.write", text, event="service_claim")
+    await _quietly(report(session, shop.id, "other", text, strict=True))
 
 
 async def service_claim_decided(session: AsyncSession, job: queue.Claimed) -> None:
@@ -1046,6 +1176,59 @@ async def service_claim_decided(session: AsyncSession, job: queue.Claimed) -> No
     t = await texts_for(session, customer.shop_id, customer.locale)
     key = "import_approved_note" if row.status == "approved" else "import_rejected_note"
     await _to_customer(session, customer, t(key, name=esc(row.panel_username)))
+
+
+async def cancellation_requested(session: AsyncSession, job: queue.Claimed) -> None:
+    """A customer asked to cancel a service: tell the staff who can review it."""
+    from paurubot.db.models import CancellationRequest
+
+    row = await session.get(CancellationRequest, int(job.payload["request_id"]))
+    if row is None or row.status != "pending":
+        return
+    customer = await session.get(Customer, row.customer_id)
+    service = await session.get(Service, row.service_id)
+    shop = await session.get(Shop, row.shop_id)
+    if customer is None or service is None or shop is None:
+        return
+    t = await texts_for(session, shop.id, shop.default_locale)
+    text = t(
+        "adm_cancellation_request",
+        customer=esc(customer.display_name),
+        service=esc(service.label or service.panel_username),
+        amount=money(row.quoted_refund),
+        reason=esc(row.reason or "-"),
+    )
+    await _to_staff(session, shop.id, "services.write", text, event="cancellation_request")
+    await _quietly(report(session, shop.id, "other", text, strict=True))
+
+
+async def cancellation_decided(session: AsyncSession, job: queue.Claimed) -> None:
+    """Tell the customer whether their service cancellation request was approved or rejected."""
+    from paurubot.db.models import CancellationRequest
+
+    row = await session.get(CancellationRequest, int(job.payload["request_id"]))
+    if row is None or row.status not in {"approved", "rejected"}:
+        return
+    customer = await session.get(Customer, row.customer_id)
+    service = await session.get(Service, row.service_id)
+    if customer is None:
+        return
+    t = await texts_for(session, customer.shop_id, customer.locale)
+    name = esc((service.label or service.panel_username) if service is not None else f"#{row.service_id}")
+    if row.status == "approved":
+        refund = int(row.refund_amount or 0)
+        text = (
+            t("cancel_request_approved_refund", name=name, amount=money(refund))
+            if refund > 0
+            else t("cancel_request_approved", name=name)
+        )
+    else:
+        text = (
+            t("cancel_request_rejected_note", name=name, note=esc(row.staff_note))
+            if row.staff_note
+            else t("cancel_request_rejected", name=name)
+        )
+    await _to_customer(session, customer, text)
 
 
 async def reseller_application(session: AsyncSession, job: queue.Claimed) -> None:
@@ -1232,20 +1415,79 @@ async def ticket_new_message(session: AsyncSession, job: queue.Claimed) -> None:
             ]
         ]
     )
-    for chat_id in await _ticket_staff_chats(session, ticket):
+    from paurubot import kv
+
+    cfg = await shop_settings.load(session, shop_id)
+    single_alert = bool(cfg.get("ticket_single_alert"))
+    alert_key = f"ticket_alerted:{ticket.id}"
+    skip_dm = False
+    if single_alert:
         try:
-            await telegram.send_text(chat_id, text, reply_markup=markup, shop_id=shop_id)
-        except telegram.Undeliverable:
-            continue
+            skip_dm = alert_key in await kv.marked([alert_key])
+        except Exception:
+            skip_dm = False
+    if not skip_dm:
+        for chat_id in await _ticket_staff_chats(session, ticket):
+            try:
+                await telegram.send_text(chat_id, text, reply_markup=markup, shop_id=shop_id)
+            except telegram.Undeliverable:
+                continue
+        if single_alert:
+            try:
+                await kv.mark(alert_key, 7 * 86400, "1")
+            except Exception:
+                pass
     await _report_ticket(session, ticket, department, text)
 
 
+async def ticket_reminder(session: AsyncSession, job: queue.Claimed) -> None:
+    """Remind staff about an open ticket whose customer is still waiting for a reply."""
+    from paurubot.bot.callbacks import Admin
+    from paurubot.db.models import TicketStatus
+
+    ticket = await session.get(Ticket, int(job.payload["ticket_id"]))
+    if ticket is None or ticket.status != TicketStatus.OPEN:
+        return
+    shop = await session.get(Shop, ticket.shop_id)
+    customer = await session.get(Customer, ticket.customer_id)
+    if shop is None or customer is None:
+        return
+    t = await texts_for(session, shop.id, shop.default_locale)
+    minutes = int(job.payload.get("minutes") or 0)
+    text = t(
+        "adm_ticket_reminder",
+        id=ticket.id,
+        subject=esc(ticket.subject),
+        customer=esc(customer.display_name),
+        minutes=minutes,
+    )
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t("btn_open_ticket"), callback_data=Admin(section="ticket", id=ticket.id).pack()
+                )
+            ]
+        ]
+    )
+    for chat_id in await _ticket_staff_chats(session, ticket):
+        try:
+            await telegram.send_text(chat_id, text, reply_markup=markup, shop_id=shop.id)
+        except telegram.Undeliverable:
+            continue
+
+
 async def ticket_reply(session: AsyncSession, job: queue.Claimed) -> None:
+    from paurubot import kv
     from paurubot.bot.callbacks import Ticket as TicketCb
 
     ticket = await session.get(Ticket, int(job.payload["ticket_id"]))
     if ticket is None:
         return
+    try:
+        await kv.unmark(f"ticket_alerted:{ticket.id}")
+    except Exception:
+        pass
     customer = await session.get(Customer, ticket.customer_id)
     if customer is None:
         return
@@ -1259,12 +1501,42 @@ async def ticket_reply(session: AsyncSession, job: queue.Claimed) -> None:
             ]
         ]
     )
-    await _to_customer(
-        session,
-        customer,
-        t("ticket_answered", id=ticket.id, subject=esc(ticket.subject)),
-        reply_markup=markup,
+    caption = t("ticket_answered", id=ticket.id, subject=esc(ticket.subject))
+    message_id = job.payload.get("message_id")
+    msg = await session.get(TicketMessage, int(message_id)) if message_id else None
+    raw_data = (
+        await session.scalar(select(TicketMessage.attachment_data).where(TicketMessage.id == msg.id))
+        if msg is not None and not msg.attachment_expired
+        else None
     )
+    if msg is not None and raw_data:
+        mime = (msg.attachment_mime or "").lower()
+        filename = msg.attachment_name or ("attachment.jpg" if mime.startswith("image/") else "attachment")
+        blob = BufferedInputFile(raw_data, filename)
+        try:
+            if mime.startswith("image/"):
+                await telegram.send_photo(
+                    customer.telegram_id,
+                    blob,
+                    caption=caption,
+                    reply_markup=markup,
+                    shop_id=customer.shop_id,
+                )
+            else:
+                await telegram.send_document(
+                    customer.telegram_id,
+                    blob,
+                    caption=caption,
+                    reply_markup=markup,
+                    shop_id=customer.shop_id,
+                )
+            return
+        except telegram.Undeliverable:
+            customer.blocked_bot_at = utcnow()
+            return
+        except Exception:
+            log.warning("could not send ticket attachment for message %s", msg.id)
+    await _to_customer(session, customer, caption, reply_markup=markup)
 
 
 async def report_job(session: AsyncSession, job: queue.Claimed) -> None:
@@ -1327,6 +1599,27 @@ async def panel_alert(session: AsyncSession, job: queue.Claimed) -> None:
     await report(session, shop.id, "panels", text)
 
 
+async def domain_alert(session: AsyncSession, job: queue.Claimed) -> None:
+    """Custom link domain down, back up, or SSL certificate nearing expiry."""
+    if job.shop_id is None:
+        return
+    shop = await session.get(Shop, job.shop_id)
+    if shop is None:
+        return
+    event = str(job.payload.get("event") or "")
+    if event not in {"down", "up", "cert_expiring"}:
+        raise Permanent(f"unknown domain event {event}")
+    t = await texts_for(session, shop.id, shop.default_locale)
+    text = t(
+        f"domain_alert_{event}",
+        host=esc(str(job.payload.get("host") or "")),
+        error=esc(str(job.payload.get("error") or "-")),
+        days=int(job.payload.get("days") or 0),
+    )
+    await _to_staff(session, shop.id, "panels.read", text, event="panel")
+    await report(session, shop.id, "panels", text)
+
+
 async def reseller_notice(session: AsyncSession, job: queue.Claimed) -> None:
     """Suspension, resumption and low-balance notices to a reseller, copied to the owners (TEN-06)."""
     from paurubot.core.resellers import runway_line
@@ -1372,6 +1665,20 @@ async def tier_up(session: AsyncSession, job: queue.Claimed) -> None:
         return
     t = await _texts(session, customer)
     await _to_customer(session, customer, t("tier_up", title=esc(tier["title"]), percent=tier["percent"]))
+
+    async def tier_report() -> None:
+        from paurubot.notifications import log_reports
+
+        st = await log_reports.shop_texts(session, customer.shop_id)
+        rtext = st(
+            "report_other_tier_up",
+            user=log_reports.user_block(st, customer),
+            title=esc(str(tier["title"])),
+            percent=int(tier["percent"]),
+        )
+        await report(session, customer.shop_id, "other", rtext, strict=True)
+
+    await _quietly(tier_report())
 
 
 async def trust_post(session: AsyncSession, job: queue.Claimed) -> None:
@@ -1599,6 +1906,7 @@ register_queue(
             "lottery_result": lottery_result,
             "reseller_notice": reseller_notice,
             "panel_alert": panel_alert,
+            "domain_alert": domain_alert,
             "job_dead": job_dead,
             "error_report": error_reports.deliver,
             "order_completed": order_completed,
@@ -1632,8 +1940,12 @@ register_queue(
             "service_claim": service_claim,
             "staff_message": staff_message,
             "service_claim_decided": service_claim_decided,
+            "cancellation_requested": cancellation_requested,
+            "cancellation_decided": cancellation_decided,
             "ticket_new_message": ticket_new_message,
+            "ticket_reminder": ticket_reminder,
             "ticket_reply": ticket_reply,
+            "ticket_closed": simple_customer,
             "report": report_job,
             "new_user_report": new_user_report,
         },
@@ -1773,13 +2085,18 @@ async def run_broadcast(session: AsyncSession, job: queue.Claimed) -> None:
                 else:
                     row.deleted = (row.deleted or 0) + 1
             except Exception as exc:
-                if "retry after" in str(exc):
+                from aiogram.exceptions import TelegramRetryAfter
+
+                if isinstance(exc, TelegramRetryAfter) or "retry after" in str(exc).lower():
                     await session.commit()
                     raise
                 row.failed += 1
             row.cursor = customer.id
             await asyncio.sleep(1 / BROADCAST_RATE)
         await session.commit()
+    await session.refresh(row, ["status", "run"])
+    if broadcasts.should_stop(row, run):
+        return
     row.status = JobStatus.DONE
     row.finished_at = utcnow()
     await session.commit()
@@ -1809,7 +2126,7 @@ def audience_conditions(
 ) -> list[Any]:
     """Who a broadcast or a mass gift reaches (GRW-06, ADM-09). Foxima parity adds the buyers of
     one panel (`panel`) and those who have not used the bot for `idle_days` (`idle`)."""
-    from paurubot.db.models import ResellerProfile
+    from paurubot.db.models import PanelAccount, ResellerProfile, StockItem
 
     conditions: list[Any] = [
         Customer.shop_id == shop_id,
@@ -1817,17 +2134,41 @@ def audience_conditions(
         Customer.blocked_bot_at.is_(None),
         Customer.telegram_id > telegram.GUEST_CHAT_LIMIT,  # web guests have no chat
     ]
+    bought_service = select(Service.customer_id).where(
+        Service.shop_id == shop_id, Service.is_trial.is_(False)
+    )
+    bought_account = select(PanelAccount.customer_id).where(PanelAccount.shop_id == shop_id)
+    bought_stock = select(StockItem.customer_id).where(
+        StockItem.shop_id == shop_id,
+        StockItem.status == "sold",
+        StockItem.customer_id.is_not(None),
+    )
+    any_buyer = or_(
+        Customer.id.in_(bought_service),
+        Customer.id.in_(bought_account),
+        Customer.id.in_(bought_stock),
+    )
     if kind == "resellers":
         conditions.append(
-            Customer.id.in_(select(ResellerProfile.customer_id).where(ResellerProfile.is_active.is_(True)))
+            Customer.id.in_(
+                select(ResellerProfile.customer_id).where(
+                    ResellerProfile.shop_id == shop_id,
+                    ResellerProfile.is_active.is_(True),
+                    ResellerProfile.suspended_at.is_(None),
+                )
+            )
         )
     elif kind == "buyers":
-        conditions.append(Customer.id.in_(select(Service.customer_id).where(Service.is_trial.is_(False))))
+        conditions.append(any_buyer)
+    elif kind == "account_buyers":
+        conditions.append(Customer.id.in_(bought_account))
     elif kind == "active":
         conditions.append(
             Customer.id.in_(
                 select(Service.customer_id).where(
-                    Service.status == ServiceStatus.ACTIVE, Service.is_trial.is_(False)
+                    Service.shop_id == shop_id,
+                    Service.status == ServiceStatus.ACTIVE,
+                    Service.is_trial.is_(False),
                 )
             )
         )
@@ -1837,18 +2178,27 @@ def audience_conditions(
 
         week_ago = utcnow() - timedelta(days=7)
         conditions.append(
-            Customer.id.in_(select(Service.customer_id).where(Service.status != ServiceStatus.DELETED))
+            Customer.id.in_(
+                select(Service.customer_id).where(
+                    Service.shop_id == shop_id, Service.status != ServiceStatus.DELETED
+                )
+            )
         )
         conditions.append(
-            Customer.id.not_in(select(Service.customer_id).where(Service.online_at >= week_ago))
+            Customer.id.not_in(
+                select(Service.customer_id).where(
+                    Service.shop_id == shop_id, Service.online_at >= week_ago
+                )
+            )
         )
     elif kind == "never_bought":
-        conditions.append(Customer.id.not_in(select(Service.customer_id).where(Service.is_trial.is_(False))))
+        conditions.append(~any_buyer)
     elif kind == "panel":
         # Buyers with a (non-trial) service on that panel; no panel picked reaches nobody.
         conditions.append(
             Customer.id.in_(
                 select(Service.customer_id).where(
+                    Service.shop_id == shop_id,
                     Service.panel_id == int(panel_id or 0),
                     Service.is_trial.is_(False),
                     Service.status != ServiceStatus.DELETED,
@@ -1913,6 +2263,7 @@ async def run_mass_gift(session: AsyncSession, job: queue.Claimed) -> None:
         )
         if not rows:
             break
+        credited: list[Customer] = []
         for customer in rows:
             posted = await wallet.reward(
                 session,
@@ -1926,6 +2277,11 @@ async def run_mass_gift(session: AsyncSession, job: queue.Claimed) -> None:
             if not posted.created:
                 continue  # paid on an earlier attempt, and already told
             paid += 1
+            credited.append(customer)
+        await queue.update_payload(session, job, {**data, "cursor": cursor})
+        await session.commit()
+        blocked = False
+        for customer in credited:
             t = await _texts(session, customer)
             try:
                 await telegram.send_text(
@@ -1933,10 +2289,22 @@ async def run_mass_gift(session: AsyncSession, job: queue.Claimed) -> None:
                 )
             except telegram.Undeliverable:
                 customer.blocked_bot_at = utcnow()
+                blocked = True
+            except Exception:
+                log.warning("mass gift %s: notification failed for customer %s", batch, customer.id)
             await asyncio.sleep(1 / BROADCAST_RATE)
-        await queue.update_payload(session, job, {**data, "cursor": cursor})
-        await session.commit()
+        if blocked:
+            await session.commit()
     log.info("gift %s paid %s customers %s each", batch, paid, amount)
+    if paid > 0:
+        async def gift_report() -> None:
+            from paurubot.notifications import log_reports
+
+            st = await log_reports.shop_texts(session, shop_id)
+            rtext = st("report_other_mass_gift", count=paid, amount=money(amount))
+            await report(session, shop_id, "other", rtext, strict=True)
+
+        await _quietly(gift_report())
 
 
 register_queue(

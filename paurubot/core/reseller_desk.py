@@ -22,6 +22,7 @@ from paurubot.db.models import (
     Plan,
     Service,
     ServiceStatus,
+    Shop,
 )
 from paurubot.db.search import ESCAPE, contains
 from paurubot.panels import GB
@@ -39,16 +40,27 @@ class Figures:
     month_amount: int
 
 
+async def _bot_shop_id(session: AsyncSession, customer: Customer) -> int | None:
+    profile = customer.reseller_profile
+    if profile is None:
+        return None
+    return await session.scalar(select(Shop.id).where(Shop.reseller_profile_id == profile.id).limit(1))
+
+
 async def figures(session: AsyncSession, customer: Customer, days: int = 3) -> Figures:
     now = utcnow()
+    bot_shop = await _bot_shop_id(session, customer)
+    svc_owner = Service.customer_id == customer.id
+    ord_owner = Order.customer_id == customer.id
+    if bot_shop is not None:
+        svc_owner = or_(svc_owner, Service.shop_id == bot_shop)
+        ord_owner = or_(ord_owner, Order.shop_id == bot_shop)
     active = await session.scalar(
-        select(func.count(Service.id)).where(
-            Service.customer_id == customer.id, Service.status == ServiceStatus.ACTIVE
-        )
+        select(func.count(Service.id)).where(svc_owner, Service.status == ServiceStatus.ACTIVE)
     )
     month = await session.execute(
         select(func.count(Order.id), func.coalesce(func.sum(Order.amount), 0)).where(
-            Order.customer_id == customer.id,
+            ord_owner,
             Order.status == OrderStatus.COMPLETED,
             Order.completed_at >= now - timedelta(days=30),
         )
@@ -173,7 +185,11 @@ class Report:
 
 async def report(session: AsyncSession, customer: Customer) -> Report:
     now = utcnow()
-    done = (Order.customer_id == customer.id, Order.status == OrderStatus.COMPLETED)
+    bot_shop = await _bot_shop_id(session, customer)
+    ord_owner = Order.customer_id == customer.id
+    if bot_shop is not None:
+        ord_owner = or_(ord_owner, Order.shop_id == bot_shop)
+    done = (ord_owner, Order.status == OrderStatus.COMPLETED)
     periods = []
     for key, days in (("today", 1), ("week", 7), ("month", 30)):
         row = await session.execute(
@@ -192,12 +208,26 @@ async def report(session: AsyncSession, customer: Customer) -> Report:
         .order_by(func.count(Order.id).desc())
         .limit(5)
     )
-    gb = await session.scalar(
+    plan_gb = await session.scalar(
         select(func.coalesce(func.sum(Plan.data_gb), 0))
         .select_from(Order)
         .join(Plan, Plan.id == Order.plan_id)
-        .where(*done, month, Order.kind.in_([OrderKind.PURCHASE, OrderKind.RENEW]))
+        .where(*done, month, Order.kind.in_([OrderKind.PURCHASE, OrderKind.RENEW, OrderKind.UPGRADE]))
     )
+    extra_orders = list(
+        await session.scalars(
+            select(Order).where(
+                *done,
+                month,
+                or_(Order.kind == OrderKind.EXTRA_VOLUME, Order.plan_id.is_(None)),
+            )
+        )
+    )
+    extra_gb = sum(
+        int((o.params or {}).get("extra_gb") or (o.params or {}).get("custom_gb") or 0)
+        for o in extra_orders
+    )
+    gb = int(plan_gb or 0) + extra_gb
     commission = await session.scalar(
         select(func.coalesce(func.sum(LedgerEntry.amount), 0))
         .join(LedgerJournal, LedgerJournal.id == LedgerEntry.journal_id)

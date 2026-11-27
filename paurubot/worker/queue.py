@@ -187,3 +187,24 @@ async def retry_dead(session: AsyncSession, job_id: int) -> bool:
         .values(status=JobStatus.QUEUED, run_at=utcnow(), attempts=0, finished_at=None)
     )
     return bool(affected(result))
+
+
+async def cancel_queued(session: AsyncSession, job_id: int) -> bool:
+    result = await session.execute(
+        update(Job)
+        .where(Job.id == job_id, Job.status == JobStatus.QUEUED)
+        .values(status=JobStatus.CANCELED, finished_at=utcnow(), lease_until=None)
+    )
+    return bool(affected(result))
+
+
+async def clear_dead(session: AsyncSession, shop_id: int, *, queue_name: str | None = None) -> int:
+    stmt = (
+        update(Job)
+        .where(Job.shop_id == shop_id, Job.status.in_([JobStatus.DEAD, JobStatus.FAILED]))
+        .values(status=JobStatus.CANCELED, finished_at=utcnow(), lease_until=None)
+    )
+    if queue_name:
+        stmt = stmt.where(Job.queue == queue_name)
+    result = await session.execute(stmt)
+    return int(affected(result))

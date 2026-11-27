@@ -29,6 +29,7 @@ from paurubot.db.models import (
     Order,
     OrderKind,
     OrderStatus,
+    Panel,
     Plan,
     Service,
     ServiceStatus,
@@ -126,7 +127,7 @@ async def enable(
     if plan_id:
         from paurubot.core import catalog
 
-        offered = await catalog.plans(session, customer.shop_id, customer, panel_id=service.panel_id)
+        offered = await catalog.plans_for_service(session, customer.shop_id, customer, service)
         plan = next((p for p in offered if p.id == plan_id and p.renewable and p.delivery != "stock"), None)
         if plan is None:
             raise orders.OrderError("plan_unavailable")  # only plans this customer could renew with by hand
@@ -249,6 +250,10 @@ async def run_service(session: AsyncSession, service_id: int, now: datetime | No
         plan = await session.get(Plan, _int(found["plan_id"]))
         if plan is None or not plan.is_active:
             return await _stop(session, service, "plan_unavailable")
+    panel = await session.get(Panel, service.panel_id)
+    if panel is not None and panel.national_mode:
+        if found["mode"] != "renew" or plan is None or not plan.national_stock_plan_id:
+            return "national_mode"
     placed: list[int] = []
     for kind, extra in wants:
         try:
@@ -268,6 +273,8 @@ async def run_service(session: AsyncSession, service_id: int, now: datetime | No
             await session.refresh(service)
             if exc.key == SHORT:
                 return await _short(session, service, exc.params, placed)
+            if exc.key == "national_mode_unavailable":
+                return "national_mode"
             return await _stop(session, service, exc.key)
         placed.append(order.id)
         log.info("auto-renew: service %s got %s order %s", service.id, kind.value, order.id)

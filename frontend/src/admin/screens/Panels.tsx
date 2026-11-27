@@ -85,14 +85,18 @@ export function OptionPicker({
   options,
   value,
   onChange,
+  mode = "default",
 }: {
   kind: string;
   options: { id: string; title: string }[];
   value: Record<string, unknown>;
   onChange: (value: Record<string, unknown>) => void;
+  mode?: "default" | "trial";
 }) {
   const { t } = useSession();
+  const isTrial = mode === "trial";
   if (kind === "mikrotik") {
+    if (isTrial) return null;
     return (
       <Field label={t("panel_um_profile")} hint={t("panel_um_profile_hint")}>
         {(id) => (
@@ -109,6 +113,7 @@ export function OptionPicker({
     );
   }
   if (kind === "ibsng") {
+    if (isTrial) return null;
     return (
       <Field label={t("panel_ibsng_group")} hint={t("panel_ibsng_group_hint")}>
         {(id) => (
@@ -119,13 +124,17 @@ export function OptionPicker({
   }
   if (kind === "wgdashboard" || kind === "wgmate" || kind === "hiddify") return null;
   if (kind === "xui") {
+    const fieldKey = isTrial ? "trial_inbound_id" : "inbound_id";
     return (
-      <Field label={t("panel_inbound")} hint={t("panel_inbound_hint")}>
+      <Field
+        label={t(isTrial ? "panel_trial_inbound" : "panel_inbound")}
+        hint={t(isTrial ? "panel_trial_inbound_hint" : "panel_inbound_hint")}
+      >
         {(id) => (
           <Select
             id={id}
-            value={String(value.inbound_id ?? "")}
-            onChange={(e) => onChange({ ...value, inbound_id: e.target.value ? Number(e.target.value) : undefined })}
+            value={String(value[fieldKey] ?? "")}
+            onChange={(e) => onChange({ ...value, [fieldKey]: e.target.value ? Number(e.target.value) : undefined })}
           >
             <option value="">—</option>
             {options.map((option) => (
@@ -140,44 +149,63 @@ export function OptionPicker({
   }
   const services = kind === "marzneshin" || kind === "rebecca" || kind === "guard";
   const numeric = kind === "pasarguard" || services;
-  const key = kind === "pasarguard" ? "group_ids" : services ? "service_ids" : kind === "remnawave" ? "squad_ids" : "inbounds";
+  const baseKey = kind === "pasarguard" ? "group_ids" : services ? "service_ids" : kind === "remnawave" ? "squad_ids" : "inbounds";
+  const key = isTrial ? `trial_${baseKey}` : baseKey;
   const selected = new Set((value[key] as (string | number)[] | undefined)?.map(String) ?? []);
   const toggle = (id: string, on: boolean) => {
     const next = new Set(selected);
     if (on) next.add(id);
     else next.delete(id);
     const list = [...next];
-    onChange({ ...value, [key]: numeric ? list.map(Number) : list });
+    const updated = { ...value };
+    if (isTrial && list.length === 0) {
+      delete updated[key];
+    } else {
+      updated[key] = numeric ? list.map(Number) : list;
+    }
+    onChange(updated);
   };
+  const legendKey =
+    kind === "pasarguard"
+      ? isTrial ? "panel_trial_groups" : "panel_groups"
+      : services
+        ? isTrial ? "panel_trial_services" : "panel_services"
+        : kind === "remnawave"
+          ? isTrial ? "panel_trial_squads" : "panel_squads"
+          : isTrial ? "panel_trial_inbounds" : "panel_inbounds";
   return (
-    <fieldset className="flex flex-col gap-2">
-      <legend className="mb-1 text-[0.82rem] font-semibold">
-        {kind === "pasarguard"
-          ? t("panel_groups")
-          : services
-            ? t("panel_services")
-            : kind === "remnawave"
-              ? t("panel_squads")
-              : t("panel_inbounds")}
-      </legend>
+    <fieldset className={`flex flex-col gap-2 ${isTrial ? "rounded-2xl bg-[var(--bg)] p-3.5 ring-1 ring-[var(--line)]" : ""}`}>
+      <legend className="mb-1 text-[0.82rem] font-semibold">{t(legendKey)}</legend>
       {options.map((option) => (
         <label key={option.id} className="flex items-center gap-2 text-[0.88rem]">
           <Checkbox label={option.title} checked={selected.has(option.id)} onChange={(on) => toggle(option.id, on)} />
           <span dir="ltr">{option.title}</span>
         </label>
       ))}
-      <p className="text-[0.78rem] text-[var(--hint)]">{t("panel_options_hint")}</p>
+      <p className="text-[0.78rem] text-[var(--hint)]">{t(isTrial ? "panel_trial_options_hint" : "panel_options_hint")}</p>
     </fieldset>
   );
 }
 
 // PasarGuard group IDs typed by hand, for an admin that may not list groups (groups.read).
-function GroupIds({ value, onChange }: { value: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void }) {
+function GroupIds({
+  value,
+  onChange,
+  fieldKey = "group_ids",
+}: {
+  value: Record<string, unknown>;
+  onChange: (value: Record<string, unknown>) => void;
+  fieldKey?: "group_ids" | "trial_group_ids";
+}) {
   const { t } = useSession();
-  const current = ((value.group_ids as (string | number)[] | undefined) ?? []).join(", ");
+  const isTrial = fieldKey === "trial_group_ids";
+  const current = ((value[fieldKey] as (string | number)[] | undefined) ?? []).join(", ");
   const [text, setText] = useState(current);
   return (
-    <Field label={t("panel_group_ids")} hint={t("panel_group_ids_hint")}>
+    <Field
+      label={t(isTrial ? "panel_trial_group_ids" : "panel_group_ids")}
+      hint={t(isTrial ? "panel_trial_group_ids_hint" : "panel_group_ids_hint")}
+    >
       {(id) => (
         <Input
           id={id}
@@ -189,8 +217,8 @@ function GroupIds({ value, onChange }: { value: Record<string, unknown>; onChang
             setText(e.target.value);
             const ids = [...new Set(e.target.value.split(/[\s,،]+/).filter((part) => /^\d+$/.test(part)).map(Number))];
             const next = { ...value };
-            if (ids.length) next.group_ids = ids;
-            else delete next.group_ids;
+            if (ids.length) next[fieldKey] = ids;
+            else delete next[fieldKey];
             onChange(next);
           }}
         />
@@ -535,7 +563,10 @@ function PanelSheet({
           </div>
         )}
         {test?.ok && test.options && test.options.length > 0 && (
-          <OptionPicker kind={form.kind} options={test.options} value={form.options} onChange={(options) => set("options", options)} />
+          <>
+            <OptionPicker kind={form.kind} options={test.options} value={form.options} onChange={(options) => set("options", options)} />
+            <OptionPicker mode="trial" kind={form.kind} options={test.options} value={form.options} onChange={(options) => set("options", options)} />
+          </>
         )}
         {test?.ok && test.options_error && (
           <p className="rounded-2xl bg-saffron-100 p-4 text-[0.85rem] text-saffron-700" dir="auto">
@@ -545,7 +576,10 @@ function PanelSheet({
 
         <MoreSettings>
           {form.kind === "pasarguard" && (form.id || test) && (!test?.ok || !test.options?.length) && (
-            <GroupIds value={form.options} onChange={(options) => set("options", options)} />
+            <>
+              <GroupIds value={form.options} onChange={(options) => set("options", options)} />
+              <GroupIds fieldKey="trial_group_ids" value={form.options} onChange={(options) => set("options", options)} />
+            </>
           )}
           {["marzban", "marzneshin", "xui", "rebecca"].includes(form.kind) && (
             <Field label={t("panel_flow")}>
@@ -657,7 +691,7 @@ function PanelSheet({
               )}
             </section>
           )}
-          {form.id && owner && ["pasarguard", "marzban"].includes(form.kind) && (
+          {form.id && owner && ["pasarguard", "marzban", "rebecca", "remnawave"].includes(form.kind) && (
             <section className="flex flex-col gap-3">
               <h4 className="text-[0.95rem] font-bold">{t("webhook_title")}</h4>
               <p className="text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("webhook_hint")}</p>
@@ -1215,7 +1249,7 @@ export function Panels() {
                 {t("cap_open")}
               </Button>
             )}
-            {writable && (actions.kind === "marzban" || actions.kind === "pasarguard") && (
+            {writable && ["marzban", "pasarguard", "xui"].includes(actions.kind) && (
               <Button icon="refresh" busy={checking === -actions.id} onClick={() => void restart(actions)}>
                 {actions.kind === "pasarguard" ? t("reconnect_nodes") : t("restart_core")}
               </Button>

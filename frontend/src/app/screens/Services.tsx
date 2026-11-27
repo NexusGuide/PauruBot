@@ -224,7 +224,8 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
   const [label, setLabel] = useState("");
   const [renameError, setRenameError] = useState<unknown>(null);
   const [moving, setMoving] = useState<{ price: number; targets: { location_id: number; title: string; flag: string | null }[] } | null>(null);
-  const [cancelling, setCancelling] = useState<number | null>(null);
+  const [cancelling, setCancelling] = useState<{ refund: number; requires_approval?: boolean } | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
   const gate = useRef(createActionGate());
   useEffect(() => {
     const current = createActionGate();
@@ -303,13 +304,24 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
   const openCancel = () => runServiceAction(gate.current, () => {
     setBusy("cancel");
     return api.cancelQuote(service.id);
-  }, result => setCancelling(result.refund), err => toast(errorText(t, err), "error"), () => setBusy(null));
+  }, result => {
+    if (result.pending) {
+      toast(t("err_cancel_request_pending"), "error");
+      return;
+    }
+    setCancelReason("");
+    setCancelling({ refund: result.refund, requires_approval: result.requires_approval });
+  }, err => toast(errorText(t, err), "error"), () => setBusy(null));
 
   const confirmCancel = () => runServiceAction(gate.current, () => {
     setBusy("cancel_go");
-    return api.cancelService(service.id);
+    return api.cancelService(service.id, cancelling?.requires_approval ? cancelReason.trim() || undefined : undefined);
   }, result => {
     haptic("success");
+    if (result.pending) {
+      toast(t("cancel_request_sent"));
+      return;
+    }
     toast(result.refund ? t("cancel_done_refund", { amount: money(result.refund, locale) }) : t("cancel_done"));
     navigate(backTo, { replace: true });
   }, err => toast(errorText(t, err), "error"), () => { setBusy(null); setCancelling(null); });
@@ -317,6 +329,7 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
   const go = (kind: string) =>
     navigate(
       `/buy?kind=${kind}&service=${service.id}&panel=${service.panel_id}` +
+        (service.location_id ? `&location=${service.location_id}` : "") +
         (kind === "upgrade" && service.plan_id ? `&current=${service.plan_id}` : ""),
     );
 
@@ -524,10 +537,24 @@ function ServiceDetailBody({ serviceId, backTo }: { serviceId: number; backTo: s
             <div role="alertdialog" aria-labelledby="cancel-title">
               <p id="cancel-title" className="mb-1 text-sm font-bold">{t("cancel_title")}</p>
               <p className="mb-3 text-sm">
-                {cancelling ? t("cancel_refund_note", { amount: money(cancelling, locale) }) : t("cancel_no_refund_note")}
+                {cancelling.refund ? t("cancel_refund_note", { amount: money(cancelling.refund, locale) }) : t("cancel_no_refund_note")}
               </p>
+              {cancelling.requires_approval && (
+                <>
+                  <p className="app-hint mb-2 text-xs">{t("cancel_approval_note")}</p>
+                  <input
+                    value={cancelReason}
+                    maxLength={500}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder={t("cancel_reason_placeholder")}
+                    className="mb-3 w-full"
+                  />
+                </>
+              )}
               <div className="grid grid-cols-2 gap-3">
-                <Button tone="danger" busy={busy === "cancel_go"} disabled={busy !== null} onClick={confirmCancel}>{t("cancel_confirm")}</Button>
+                <Button tone="danger" busy={busy === "cancel_go"} disabled={busy !== null} onClick={confirmCancel}>
+                  {t(cancelling.requires_approval ? "cancel_request_submit" : "cancel_confirm")}
+                </Button>
                 <Button tone="quiet" disabled={busy !== null} onClick={() => setCancelling(null)}>{t("cancel")}</Button>
               </div>
             </div>

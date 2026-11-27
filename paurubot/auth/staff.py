@@ -181,9 +181,18 @@ async def request_code(session: AsyncSession, username: str, ip: str) -> Staff |
     await redis.delete(f"otp:tries:{staff.id}")
     t = await texts_for(session, staff.shop_id, None)
     try:
-        await telegram.send_text(staff.telegram_id, t("staff_login_code", code=code, ip=ip))
+        delivered = await telegram.send_text(
+            staff.telegram_id, t("staff_login_code", code=code, ip=ip), shop_id=staff.shop_id
+        )
+        if delivered is None:
+            await redis.delete(f"otp:code:{staff.id}")
+            return None
     except telegram.Undeliverable:
+        await redis.delete(f"otp:code:{staff.id}")
         return None
+    except Exception:
+        await redis.delete(f"otp:code:{staff.id}")
+        raise
     await record(
         session,
         shop_id=staff.shop_id,

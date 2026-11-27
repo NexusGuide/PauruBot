@@ -65,11 +65,27 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
-        fields = [".".join(str(p) for p in err.get("loc", [])[1:]) for err in exc.errors()]
-        return JSONResponse(
-            {"error": "validation_error", "fields": fields, "correlation_id": correlation_id.get()},
-            status_code=422,
-        )
+        errors = exc.errors()
+        fields = [
+            ".".join(str(p) for p in err.get("loc", [])[1:])
+            for err in errors
+            if len(err.get("loc", [])) > 1
+        ]
+        reason: str | None = None
+        for err in errors:
+            if err.get("type") == "value_error":
+                msg = str(err.get("msg", "")).removeprefix("Value error, ").strip()
+                if msg and msg.replace("_", "").isalnum():
+                    reason = msg
+                    break
+        payload: dict[str, object] = {
+            "error": "validation_error",
+            "fields": fields,
+            "correlation_id": correlation_id.get(),
+        }
+        if reason:
+            payload["reason"] = reason
+        return JSONResponse(payload, status_code=422)
 
     @app.get("/metrics", include_in_schema=False)
     async def metrics_endpoint(request: Request) -> Response:

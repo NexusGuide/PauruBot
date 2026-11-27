@@ -535,7 +535,7 @@ async def checkout(
         order_id=order.id,
         can_wallet=balance >= order.amount,
         methods=methods if balance < order.amount else [],
-        discount=code is None,
+        discount=code is None and bool(cfg.get("discounts_enabled", True)),
         bulk_plan=plan.id if kind == OrderKind.PURCHASE and plan and bulk.allowed(cfg, customer) >= 2 else 0,
     )
     await session.commit()
@@ -543,7 +543,12 @@ async def checkout(
 
 
 @router.callback_query(Shop.filter(F.step == "discount"))
-async def ask_discount(call: CallbackQuery, t: Texts, state: FSMContext) -> None:
+async def ask_discount(
+    call: CallbackQuery, t: Texts, cfg: dict[str, Any], state: FSMContext
+) -> None:
+    if not bool(cfg.get("discounts_enabled", True)):
+        await call.answer(t("discounts_disabled"), show_alert=True)
+        return
     await call.answer()
     await state.set_state(ShopStates.discount)
     if isinstance(call.message, Message):
@@ -560,6 +565,10 @@ async def got_discount(
     staff: Any,
     state: FSMContext,
 ) -> None:
+    if not bool(cfg.get("discounts_enabled", True)):
+        await state.clear()
+        await message.answer(t("discounts_disabled"), reply_markup=menu(t, cfg, staff))
+        return
     try:
         code = await pricing.lookup_code(session, customer, message.text or "")
     except pricing.DiscountError as exc:
@@ -628,7 +637,7 @@ async def renew_or_upgrade(
     if service is None or service.customer_id != customer.id:
         await call.answer(t("service_not_found"), show_alert=True)
         return
-    plans = await catalog.plans(session, customer.shop_id, customer, panel_id=service.panel_id)
+    plans = await catalog.plans_for_service(session, customer.shop_id, customer, service)
     plans = [p for p in plans if p.delivery != "stock"]
     if callback_data.action == "renew":
         plans = [p for p in plans if p.renewable]

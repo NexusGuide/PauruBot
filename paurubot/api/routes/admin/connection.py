@@ -98,6 +98,7 @@ async def _rows(db: DB, shop_id: int) -> list[dict[str, Any]]:
                 "kind": panel.kind.value,
                 "location": panel.location.title if panel.location is not None else None,
                 "active": panel.is_active,
+                "national_mode": bool(panel.national_mode),
                 "healthy": panel.is_healthy,
                 "error": panel.health_error,
                 "checked_at": panel.health_checked_at.isoformat() if panel.health_checked_at else None,
@@ -126,7 +127,13 @@ async def check_all(ctx: Reader, db: DB) -> dict[str, Any]:
         raise HTTPException(status_code=429, detail="connection_check_too_soon")
     panels = list(
         await db.scalars(
-            select(Panel).where(Panel.shop_id == ctx.shop_id, Panel.is_active.is_(True)).order_by(Panel.id)
+            select(Panel)
+            .where(
+                Panel.shop_id == ctx.shop_id,
+                Panel.is_active.is_(True),
+                Panel.national_mode.is_(False),
+            )
+            .order_by(Panel.id)
         )
     )
     for panel in panels:

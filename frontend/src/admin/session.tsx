@@ -118,9 +118,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const errorText = useCallback(
     (err: unknown) => {
       if (err instanceof ApiError) {
+        if (err.reason) {
+          const reasonKey = `err_${err.reason}`;
+          const reasonText = t(reasonKey);
+          if (reasonText !== reasonKey) return reasonText;
+        }
         const key = `err_${err.code}`;
         const text = t(key);
-        return text === key ? t("err_generic", { code: err.code }) : text;
+        const base = text === key ? t("err_generic", { code: err.code }) : text;
+        if (err.code === "validation_error" && err.fields && err.fields.length > 0) {
+          return `${base} (${err.fields.join(", ")})`;
+        }
+        return base;
       }
       return t("err_network");
     },

@@ -26,6 +26,8 @@ from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record, snapshot
 from paurubot.core import confirm, customers, sub_links
 from paurubot.core import orders as orders_core
+from paurubot.api.routes.admin.accounts import ACCOUNT_FIELDS
+from paurubot.api.routes.admin.commerce import ACCOUNT_ORDER_KINDS, enrich_orders
 from paurubot.db.models import (
     Customer,
     LedgerAccount,
@@ -34,16 +36,20 @@ from paurubot.db.models import (
     OrderKind,
     OrderStatus,
     Panel,
+    PanelAccount,
     Payment,
     Plan,
     Service,
     ServiceStatus,
+    Ticket,
+    TrialGrant,
 )
 from paurubot.db.search import ESCAPE, contains
 from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.panels import PanelError
 from paurubot.provisioning import lifecycle
+from paurubot.core import settings as shop_settings
 from paurubot.provisioning.subscription import branded_url
 from paurubot.worker import queue
 
@@ -110,11 +116,11 @@ SERVICE_SORT = {
 BULK_LIMIT = 5000
 
 
-def service_out(service: Service) -> dict[str, Any]:
+def service_out(service: Service, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     data = plain(service, SERVICE_FIELDS)
     data["panel"] = service.panel.name if service.panel else None
     data["customer"] = service.customer.staff_label if service.customer else None
-    data["branded_url"] = branded_url(service)
+    data["branded_url"] = branded_url(service, cfg)
     return data
 
 
@@ -164,15 +170,23 @@ ENDING_DAYS = 3
 
 
 def _segment(shop_id: int, segment: str) -> ColumnElement[bool]:
-    """Quick picks on the customer list: by active services, services about to end, or purchases."""
+    """Quick picks on the customer list: active services/accounts, ending soon, or purchases."""
     active = select(Service.id).where(
         Service.shop_id == shop_id, Service.customer_id == Customer.id, Service.status == ServiceStatus.ACTIVE
     )
+    active_acc = select(PanelAccount.id).where(
+        PanelAccount.shop_id == shop_id,
+        PanelAccount.customer_id == Customer.id,
+        PanelAccount.status == "active",
+    )
     if segment == "active":
-        return active.exists()
+        return or_(active.exists(), active_acc.exists())
     if segment == "ending":
         soon = datetime.now(UTC) + timedelta(days=ENDING_DAYS)
-        return active.where(Service.expire_at.is_not(None), Service.expire_at <= soon).exists()
+        return or_(
+            active.where(Service.expire_at.is_not(None), Service.expire_at <= soon).exists(),
+            active_acc.where(PanelAccount.expire_at.is_not(None), PanelAccount.expire_at <= soon).exists(),
+        )
     bought = (
         select(Order.id)
         .where(
@@ -184,12 +198,13 @@ def _segment(shop_id: int, segment: str) -> ColumnElement[bool]:
 
 
 async def _summaries(db: Any, shop_id: int, ids: list[int]) -> dict[int, dict[str, Any]]:
-    """Per row of the list: active services, the nearest end among them, and the wallet balance."""
+    """Per row of the list: active services/panel accounts, nearest end, and wallet balance."""
     out: dict[int, dict[str, Any]] = {
-        i: {"active_services": 0, "next_expiry": None, "balance": 0} for i in ids
+        i: {"active_services": 0, "active_accounts": 0, "next_expiry": None, "balance": 0} for i in ids
     }
     if not ids:
         return out
+    nearest_map: dict[int, datetime] = {}
     services = await db.execute(
         select(Service.customer_id, func.count(Service.id), func.min(Service.expire_at))
         .where(
@@ -199,7 +214,25 @@ async def _summaries(db: Any, shop_id: int, ids: list[int]) -> dict[int, dict[st
     )
     for customer_id, count, nearest in services:
         out[customer_id]["active_services"] = int(count)
-        out[customer_id]["next_expiry"] = nearest.isoformat() if nearest else None
+        if nearest is not None:
+            nearest_map[customer_id] = nearest
+            out[customer_id]["next_expiry"] = nearest.isoformat()
+    accounts = await db.execute(
+        select(PanelAccount.customer_id, func.count(PanelAccount.id), func.min(PanelAccount.expire_at))
+        .where(
+            PanelAccount.shop_id == shop_id,
+            PanelAccount.customer_id.in_(ids),
+            PanelAccount.status == "active",
+        )
+        .group_by(PanelAccount.customer_id)
+    )
+    for customer_id, count, nearest in accounts:
+        out[customer_id]["active_accounts"] = int(count)
+        if nearest is not None:
+            prev = nearest_map.get(customer_id)
+            if prev is None or nearest < prev:
+                nearest_map[customer_id] = nearest
+                out[customer_id]["next_expiry"] = nearest.isoformat()
     balances = await db.execute(
         select(LedgerAccount.customer_id, LedgerAccount.balance).where(
             LedgerAccount.shop_id == shop_id,
@@ -212,6 +245,24 @@ async def _summaries(db: Any, shop_id: int, ids: list[int]) -> dict[int, dict[st
     return out
 
 
+def _panel_account_out(account: PanelAccount, customer: Customer) -> dict[str, Any]:
+    out = plain(account, ACCOUNT_FIELDS)
+    out["customer"] = customer.staff_label
+    out["telegram_id"] = customer.telegram_id
+    out["plan"] = account.plan.title if account.plan else None
+    out["panel"] = account.panel.name if account.panel else None
+    out["auto_renew"] = bool(account.auto_renew)
+    return out
+
+
+def _customer_order_out(order: Order, meta: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    out = plain(
+        order, ["id", "kind", "status", "service_id", "amount", "created_at", "completed_at", "error"]
+    )
+    out.update(meta.get(order.id, {}))
+    return out
+
+
 @router.get("/customers/{customer_id}")
 async def customer_detail(
     customer_id: int, ctx: Annotated[StaffContext, Depends(require("customers.read"))], db: DB
@@ -219,31 +270,128 @@ async def customer_detail(
     if ctx.scoped:
         raise HTTPException(status_code=404, detail="not_found")
     customer = await owned(db, Customer, customer_id, ctx)
-    services = await db.scalars(
-        select(Service).where(Service.customer_id == customer.id).order_by(Service.id.desc())
+    services = list(
+        await db.scalars(
+            select(Service).where(Service.customer_id == customer.id).order_by(Service.id.desc())
+        )
     )
-    orders = await db.scalars(
-        select(Order).where(Order.customer_id == customer.id).order_by(Order.id.desc()).limit(30)
+    panel_accounts_rows = list(
+        await db.scalars(
+            select(PanelAccount)
+            .where(PanelAccount.customer_id == customer.id)
+            .order_by(PanelAccount.id.desc())
+        )
     )
-    payments = await db.scalars(
-        select(Payment).where(Payment.customer_id == customer.id).order_by(Payment.id.desc()).limit(30)
+    orders = list(
+        await db.scalars(
+            select(Order).where(Order.customer_id == customer.id).order_by(Order.id.desc()).limit(50)
+        )
     )
+    account_orders = list(
+        await db.scalars(
+            select(Order)
+            .where(Order.customer_id == customer.id, Order.kind.in_(ACCOUNT_ORDER_KINDS))
+            .order_by(Order.id.desc())
+            .limit(50)
+        )
+    )
+    orders_total = int(
+        await db.scalar(select(func.count(Order.id)).where(Order.customer_id == customer.id)) or 0
+    )
+    account_orders_total = int(
+        await db.scalar(
+            select(func.count(Order.id)).where(
+                Order.customer_id == customer.id, Order.kind.in_(ACCOUNT_ORDER_KINDS)
+            )
+        )
+        or 0
+    )
+    total_spent = int(
+        await db.scalar(
+            select(func.coalesce(func.sum(Order.amount), 0)).where(
+                Order.customer_id == customer.id,
+                Order.status == OrderStatus.COMPLETED,
+                Order.amount > 0,
+            )
+        )
+        or 0
+    )
+    unique_orders = list({o.id: o for o in [*orders, *account_orders]}.values())
+    order_meta = await enrich_orders(db, unique_orders)
+    payments_rows = list(
+        await db.scalars(
+            select(Payment).where(Payment.customer_id == customer.id).order_by(Payment.id.desc()).limit(30)
+        )
+    )
+    payments_total = int(
+        await db.scalar(select(func.count(Payment.id)).where(Payment.customer_id == customer.id)) or 0
+    )
+    tickets = list(
+        await db.scalars(
+            select(Ticket).where(Ticket.customer_id == customer.id).order_by(Ticket.id.desc()).limit(20)
+        )
+    )
+    trial_grant = await db.scalar(
+        select(TrialGrant)
+        .where(TrialGrant.shop_id == ctx.shop_id, TrialGrant.customer_id == customer.id)
+        .order_by(TrialGrant.id.desc())
+        .limit(1)
+    )
+    trial_panel_name = None
+    if trial_grant and trial_grant.panel_id:
+        trial_panel_name = await db.scalar(select(Panel.name).where(Panel.id == trial_grant.panel_id))
     history = await wallet.history(db, ctx.shop_id, customer.id, limit=30)
     profile = customer.reseller_profile
+    group = profile.group if profile else None
+    reseller_info = None
+    if profile is not None:
+        discount = (
+            profile.discount_override
+            if profile.discount_override is not None
+            else (group.discount_percent if group else 0)
+        )
+        reseller_info = {
+            "id": profile.id,
+            "group_id": profile.group_id,
+            "group_title": group.title if group else None,
+            "active": profile.is_active,
+            "discount_percent": int(discount or 0),
+            "billing_mode": profile.billing_mode,
+            "credit_limit": int(profile.credit_limit or 0),
+            "billing_debt": int(profile.billing_debt or 0),
+            "max_active_services": profile.max_active_services,
+            "suspended_at": profile.suspended_at.isoformat() if profile.suspended_at else None,
+            "suspend_reason": profile.suspend_reason,
+        }
+    cfg = await shop_settings.load(db, ctx.shop_id)
     return {
         "customer": plain(customer, CUSTOMER_FIELDS),
         "balance": await wallet_balance(db, ctx.shop_id, customer.id),
+        "total_spent": total_spent,
         "referrals": await customers.referral_count(db, customer.id),
-        "reseller": None
-        if profile is None
-        else {"id": profile.id, "group_id": profile.group_id, "active": profile.is_active},
-        "services": [service_out(s) for s in services],
-        "orders": [
-            plain(o, ["id", "kind", "status", "amount", "created_at", "completed_at", "error"])
-            for o in orders
-        ],
+        "reseller": reseller_info,
+        "trial": None
+        if trial_grant is None
+        else {
+            "status": trial_grant.status,
+            "generation": trial_grant.generation,
+            "panel_id": trial_grant.panel_id,
+            "panel": trial_panel_name,
+            "created_at": trial_grant.created_at.isoformat(),
+        },
+        "services": [service_out(s, cfg) for s in services],
+        "panel_accounts": [_panel_account_out(a, customer) for a in panel_accounts_rows],
+        "orders": [_customer_order_out(o, order_meta) for o in orders],
+        "orders_total": orders_total,
+        "account_orders": [_customer_order_out(o, order_meta) for o in account_orders],
+        "account_orders_total": account_orders_total,
         "payments": [
-            plain(p, ["id", "provider", "status", "amount", "created_at", "paid_at"]) for p in payments
+            plain(p, ["id", "provider", "status", "amount", "purpose", "order_id", "created_at", "paid_at"])
+            for p in payments_rows
+        ],
+        "payments_total": payments_total,
+        "tickets": [
+            plain(tk, ["id", "subject", "status", "source", "created_at", "updated_at"]) for tk in tickets
         ],
         "ledger": [
             {
@@ -451,7 +599,8 @@ async def list_services(
     stmt = await _filtered_services(db, ctx, filters)
     stmt = apply_sort(stmt, sort, SERVICE_SORT, Service.id)
     rows, total = await paginate(db, stmt, page)
-    return {"items": [service_out(s) for s in rows], "total": total}
+    cfg = await shop_settings.load(db, ctx.shop_id)
+    return {"items": [service_out(s, cfg) for s in rows], "total": total}
 
 
 class ServiceFilter(BaseModel):
@@ -513,7 +662,7 @@ async def service_detail(
             await lifecycle.refresh(db, service)
         except PanelError as exc:
             raise HTTPException(status_code=502, detail="panel_error") from exc
-    return {"service": service_out(service)}
+    return {"service": service_out(service, await shop_settings.load(db, ctx.shop_id))}
 
 
 class ServiceAction(ConfirmFields):
@@ -595,7 +744,7 @@ async def service_action(
     )
     if body.notify:
         await notify_staff_change(db, service, body.action, body.reason)
-    return {"service": service_out(service)}
+    return {"service": service_out(service, await shop_settings.load(db, ctx.shop_id))}
 
 
 @router.post("/services/{service_id}/confirm-delete")
@@ -636,7 +785,7 @@ async def service_note(
         before={"staff_note": before},
         after={"staff_note": service.staff_note},
     )
-    return {"service": service_out(service)}
+    return {"service": service_out(service, await shop_settings.load(db, ctx.shop_id))}
 
 
 class KeepBody(BaseModel):
@@ -676,7 +825,7 @@ async def service_keep(
         before=before,
         after=snapshot(service, fields),
     )
-    return {"service": service_out(service)}
+    return {"service": service_out(service, await shop_settings.load(db, ctx.shop_id))}
 
 
 class MoveBody(BaseModel):
@@ -1061,7 +1210,15 @@ async def trial_users(
         .where(
             Order.shop_id == ctx.shop_id,
             Order.status == OrderStatus.COMPLETED,
-            Order.kind.in_([OrderKind.PURCHASE, OrderKind.RENEW]),
+            Order.kind.in_(
+                [
+                    OrderKind.PURCHASE,
+                    OrderKind.RENEW,
+                    OrderKind.UPGRADE,
+                    OrderKind.ACCOUNT_PURCHASE,
+                    OrderKind.ACCOUNT_RENEW,
+                ]
+            ),
             Order.amount > 0,
         )
         .distinct()

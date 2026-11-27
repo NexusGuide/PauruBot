@@ -167,11 +167,28 @@ def resolve(name: str) -> Path:
     return path
 
 
+def _protected_backup_names() -> set[str]:
+    settings = get_settings()
+    return {
+        Path(raw).name
+        for raw in (settings.paurubot_previous_backup, settings.paurubot_pre_dev_backup)
+        if raw
+    }
+
+
+def delete_archive(name: str) -> None:
+    """Remove one backup archive unless it is reserved for rollback or dev return."""
+    path = resolve(name)
+    if path.name in _protected_backup_names():
+        raise BackupError("backup_protected")
+    path.unlink(missing_ok=True)
+
+
 def prune(keep: int) -> list[str]:
-    """Delete all but the newest `keep`; the pre-update backup a rollback restores always stays."""
-    protected = Path(get_settings().paurubot_previous_backup).name
+    """Delete all but the newest `keep`; protected rollback and pre-dev backups stay."""
+    protected = _protected_backup_names()
     removed: list[str] = []
-    for info in [b for b in listing() if b.name != protected][max(1, keep) :]:
+    for info in [b for b in listing() if b.name not in protected][max(1, keep) :]:
         info.path.unlink(missing_ok=True)
         removed.append(info.name)
     return removed

@@ -188,8 +188,8 @@ MAX_PACKAGES = 12
 
 
 def clean_packages(raw: Any) -> list[dict[str, int]]:
-    """Validate renewal packages: at most 12, each whole days (1..3650), GB (0: no quota) and a
-    price. Raises ValueError on anything else."""
+    """Validate renewal packages: at most 12, each whole days (0: no end date, 1..3650), GB
+    (0: no quota) and a price. Raises ValueError on anything else."""
     if not isinstance(raw, list) or len(raw) > MAX_PACKAGES:
         raise ValueError("renew_packages_invalid")
     out: list[dict[str, int]] = []
@@ -197,7 +197,7 @@ def clean_packages(raw: Any) -> list[dict[str, int]]:
         if not isinstance(item, dict):
             raise ValueError("renew_packages_invalid")
         values: dict[str, int] = {}
-        for key, low, high in (("days", 1, MAX_DAYS), ("gb", 0, MAX_GB), ("price", 0, 10**12)):
+        for key, low, high in (("days", 0, MAX_DAYS), ("gb", 0, MAX_GB), ("price", 0, 10**12)):
             value = item.get(key)
             if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
                 raise ValueError("renew_packages_invalid")
@@ -669,10 +669,14 @@ async def set_paused(session: AsyncSession, account: PanelAccount, paused: bool)
 
 async def remove(session: AsyncSession, account: PanelAccount) -> None:
     """Staff only: delete the admin from the panel. Its users stay in the panel, ownerless."""
+    from paurubot.core import own_panel
+
     driver = await _driver(session, account.panel_id)
     await driver.delete_admin(account.username)
     account.status = "deleted"
+    account.auto_renew = None
     await session.flush()
+    await own_panel.announce(session, await own_panel.recheck_account(session, account))
 
 
 async def refresh(session: AsyncSession, account: PanelAccount) -> None:
@@ -763,7 +767,12 @@ async def run(session: AsyncSession) -> int:
             "account_alert",
             {"account_id": account.id, "alert": key},
             shop_id=account.shop_id,
-            dedupe_key=f"account:{account.id}:{key}:{(account.expire_at or utcnow()).date()}",
+            dedupe_key=(
+                f"account:{account.id}:{key}:{int(account.data_limit or 0)}:"
+                f"{(account.expire_at or utcnow()).date()}"
+                if key == "account_alert_quota"
+                else f"account:{account.id}:{key}:{(account.expire_at or utcnow()).date()}"
+            ),
         )
     await session.commit()
     return synced

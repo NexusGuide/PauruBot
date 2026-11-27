@@ -4,7 +4,6 @@ reseller hub's timeline and wallet runway (F-21)."""
 from __future__ import annotations
 
 import logging
-import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -29,6 +28,7 @@ from paurubot.db.models import (
     ResellerProfile,
     Service,
     ServiceStatus,
+    Shop,
     Staff,
 )
 from paurubot.ledger import wallet
@@ -115,31 +115,48 @@ def check_child_discount(parent: ResellerProfile, discount: int) -> None:
 
 
 async def pay_commission(session: AsyncSession, order: Order) -> int:
-    """Give a level-1 reseller the margin on its level-2 reseller's sale."""
-    if order.amount <= 0:
-        return 0
-    profile = await session.scalar(
-        select(ResellerProfile).where(ResellerProfile.customer_id == order.customer_id)
-    )
+    """Give a level-1 reseller the margin on its level-2 reseller's sale (direct or via sub-bot)."""
+    params = order.params or {}
+    resale_profile_id = params.get("resale_profile")
+    via_resale_bot = bool(resale_profile_id)
+    if via_resale_bot:
+        profile = await session.get(ResellerProfile, int(resale_profile_id))
+        child_price = int(params.get("wholesale") or 0)
+        if child_price <= 0:
+            return 0
+    else:
+        if order.amount <= 0:
+            return 0
+        profile = await session.scalar(
+            select(ResellerProfile).where(ResellerProfile.customer_id == order.customer_id)
+        )
+        child_price = order.base_price - order.reseller_discount
     if profile is None or profile.parent_id is None:
         return 0
     parent = await session.get(ResellerProfile, profile.parent_id)
     if parent is None or not parent.is_current:
         return 0
-    child_price = order.base_price - order.reseller_discount
+    base = order.base_price
     if order.plan_id is not None and order.kind in {OrderKind.PURCHASE, OrderKind.RENEW}:
         # What the level-1 reseller itself would pay for this plan, fixed prices included (TEN-12).
+        if via_resale_bot:
+            from paurubot.db.models import Plan
+
+            plan = await session.get(Plan, order.plan_id)
+            if plan is not None:
+                base = int(plan.price)
         parent_customer = await session.get(Customer, parent.customer_id)
-        quoted = await pricing.plan_quote(session, parent_customer, order.plan_id, order.base_price)
+        quoted = await pricing.plan_quote(session, parent_customer, order.plan_id, base)
         parent_price = quoted.amount
     else:
-        parent_price = pricing.round_price(order.base_price * (100 - parent.discount_percent) / 100)
-    commission = max(0, min(child_price - parent_price, order.amount))
+        parent_price = pricing.round_price(base * (100 - parent.discount_percent) / 100)
+    cap = child_price if via_resale_bot else order.amount
+    commission = max(0, min(child_price - parent_price, cap))
     if commission <= 0:
         return 0
     await wallet.commission(
         session,
-        order.shop_id,
+        parent.shop_id,
         parent.customer_id,
         commission,
         key=f"order:{order.id}:commission",
@@ -151,21 +168,33 @@ async def pay_commission(session: AsyncSession, order: Order) -> int:
 # --- limits ------------------------------------------------------------------------
 
 
+async def _bot_shop_id(session: AsyncSession, profile_id: int) -> int | None:
+    return await session.scalar(select(Shop.id).where(Shop.reseller_profile_id == profile_id).limit(1))
+
+
 async def check_purchase(
-    session: AsyncSession, customer: Customer, *, kind: OrderKind, add_gb: int, bot_shop_id: int | None = None
+    session: AsyncSession,
+    customer: Customer,
+    *,
+    kind: OrderKind,
+    add_gb: int,
+    bot_shop_id: int | None = None,
+    replace_bytes: int = 0,
 ) -> None:
-    """Reseller limits that apply before an order is created (TEN-07, TEN-08). With `bot_shop_id`,
-    what the reseller's own bot sold counts against the same limits (TEN-04)."""
+    """Reseller limits that apply before an order is created (TEN-07, TEN-08). Always counts
+    what the reseller's own bot sold against the same limits (TEN-04)."""
     profile = customer.reseller_profile
+    if profile is None or not profile.is_current:
+        return
+    if profile.suspended_at is not None:
+        raise ResellerError("reseller_suspended_error")
+    if bot_shop_id is None:
+        bot_shop_id = await _bot_shop_id(session, profile.id)
     own_orders = Order.customer_id == customer.id
     own_services = Service.customer_id == customer.id
     if bot_shop_id is not None:
         own_orders = or_(own_orders, Order.shop_id == bot_shop_id)
         own_services = or_(own_services, Service.shop_id == bot_shop_id)
-    if profile is None or not profile.is_current:
-        return
-    if profile.suspended_at is not None:
-        raise ResellerError("reseller_suspended_error")
     if kind == OrderKind.PURCHASE:
         if profile.max_purchases_per_day:
             day_start = local(utcnow()).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -186,7 +215,7 @@ async def check_purchase(
             )
             if int(live or 0) >= cap:
                 raise ResellerError("reseller_service_limit", limit=cap)
-    if profile.max_total_gb and kind in {OrderKind.PURCHASE, OrderKind.EXTRA_VOLUME}:
+    if profile.max_total_gb and kind in {OrderKind.PURCHASE, OrderKind.EXTRA_VOLUME, OrderKind.UPGRADE}:
         if add_gb <= 0:
             raise ResellerError("reseller_volume_limit", limit=profile.max_total_gb)
         allotted = await session.scalar(
@@ -194,7 +223,8 @@ async def check_purchase(
                 own_services, Service.status.in_(LIVE)
             )
         )
-        if int(allotted or 0) + add_gb * GB > profile.max_total_gb * GB:
+        net_bytes = max(0, int(allotted or 0) - max(0, int(replace_bytes or 0))) + add_gb * GB
+        if net_bytes > profile.max_total_gb * GB:
             raise ResellerError("reseller_volume_limit", limit=profile.max_total_gb)
 
 
@@ -233,14 +263,120 @@ async def _collect(session: AsyncSession, profile: ResellerProfile, amount: int,
     return take
 
 
+async def _debt_collect(
+    session: AsyncSession, profile: ResellerProfile, now: datetime, start: datetime
+) -> tuple[int, ResellerBillingSnapshot | None]:
+    """Deterministic, idempotent mid-period debt collection with a visible billing snapshot."""
+    debt_before = int(profile.billing_debt or 0)
+    if debt_before <= 0:
+        return 0, None
+    key = f"reseller:{profile.id}:debt:{int(start.timestamp())}:{debt_before}"
+    charged = await _collect(session, profile, 0, key)
+    if charged <= 0:
+        return 0, None
+    snapshot = ResellerBillingSnapshot(
+        shop_id=profile.shop_id,
+        profile_id=profile.id,
+        period_start=start,
+        period_end=now,
+        used_bytes=0,
+        service_hours=0,
+        active_services=0,
+        amount=0,
+        charged=charged,
+        debt_after=profile.billing_debt,
+    )
+    session.add(snapshot)
+    await session.flush()
+    return charged, snapshot
+
+
+@dataclass(slots=True)
+class SettleResult:
+    charged: int
+    debt_after: int
+    resumed: bool
+    snapshot: ResellerBillingSnapshot | None = None
+
+
+async def settle_debt(
+    session: AsyncSession, profile: ResellerProfile, now: datetime | None = None
+) -> SettleResult:
+    """Immediately pay down a reseller's PAYG debt from wallet and lift debt suspension if cleared."""
+    now = now or utcnow()
+    locked = await session.scalar(
+        select(ResellerProfile).where(ResellerProfile.id == profile.id).with_for_update()
+    )
+    target = locked or profile
+    start = target.last_billed_at or target.created_at
+    charged, snapshot = await _debt_collect(session, target, now, start)
+    _suspended, resumed = await _apply_suspension(session, target)
+    return SettleResult(charged, int(target.billing_debt or 0), resumed, snapshot)
+
+
+async def bill_now(
+    session: AsyncSession, profile: ResellerProfile, now: datetime | None = None
+) -> BillResult:
+    """Staff-triggered manual billing run: bills accumulated usage/hours immediately."""
+    now = now or utcnow()
+    locked = await session.scalar(
+        select(ResellerProfile).where(ResellerProfile.id == profile.id).with_for_update()
+    )
+    target = locked or profile
+    start = target.last_billed_at or target.created_at
+    if now - start >= BILL_EVERY:
+        return await bill(session, target, now=now)
+    services = list(
+        await session.scalars(
+            select(Service).where(
+                Service.customer_id == target.customer_id, Service.status != ServiceStatus.DELETED
+            )
+        )
+    )
+    used = 0
+    for service in services:
+        current = int(service.used_bytes or 0)
+        billed = int(service.billed_bytes or 0)
+        used += current - billed if current >= billed else current
+        service.billed_bytes = current
+    active = sum(1 for s in services if s.status == ServiceStatus.ACTIVE)
+    elapsed_hours = max(0, int((now - start).total_seconds() // 3600))
+    service_hours = active * elapsed_hours
+    if target.billing_mode == "usage":
+        amount = usage_amount(used, target.gb_price)
+    elif target.billing_mode == "hourly":
+        amount = service_hours * target.hourly_price
+    else:
+        amount = 0
+    if amount <= 0 and target.billing_debt <= 0:
+        return BillResult(None, *await _apply_suspension(session, target))
+    key = f"reseller:{target.id}:manual:{int(now.timestamp())}:{amount}:{target.billing_debt}"
+    charged = await _collect(session, target, amount, key)
+    target.last_billed_at = now
+    snapshot = ResellerBillingSnapshot(
+        shop_id=target.shop_id,
+        profile_id=target.id,
+        period_start=start,
+        period_end=now,
+        used_bytes=used,
+        service_hours=service_hours,
+        active_services=active,
+        amount=amount,
+        charged=charged,
+        debt_after=target.billing_debt,
+    )
+    session.add(snapshot)
+    await session.flush()
+    return BillResult(snapshot, *await _apply_suspension(session, target))
+
+
 async def bill(session: AsyncSession, profile: ResellerProfile, now: datetime | None = None) -> BillResult:
     """One billing step for a metered reseller. Idempotent per period; the caller commits."""
     now = now or utcnow()
     start = profile.last_billed_at or profile.created_at
     if now - start < BILL_EVERY:
-        if profile.billing_debt > 0:
-            await _collect(session, profile, 0, f"reseller:{profile.id}:debt:{secrets.token_hex(8)}")
-        return BillResult(None, *await _apply_suspension(session, profile))
+        _charged, snap = await _debt_collect(session, profile, now, start)
+        return BillResult(snap, *await _apply_suspension(session, profile))
     hours = int((now - start) // BILL_EVERY)
     end = start + hours * BILL_EVERY
     services = list(
@@ -634,6 +770,8 @@ async def buy_membership(session: AsyncSession, customer: Customer, *, key: str)
     profile = await session.scalar(select(ResellerProfile).where(ResellerProfile.customer_id == customer.id))
     if profile is not None and (not profile.is_active or profile.parent_id is not None):
         raise ResellerError("membership_off")
+    if profile is not None and profile.suspended_at is not None:
+        raise ResellerError("reseller_suspended_error")
     if profile is not None and profile.expires_at is None:
         raise ResellerError("already_reseller")
     source = await wallet_account(session, customer.shop_id, customer.id)
@@ -673,3 +811,72 @@ async def buy_membership(session: AsyncSession, customer: Customer, *, key: str)
     await web_login(session, profile)
     await session.flush()
     return profile
+
+
+@dataclass(slots=True)
+class SubResellerStats:
+    orders_month: int = 0
+    sales_month: int = 0
+    commission_month: int = 0
+
+
+async def sub_reseller_stats(
+    session: AsyncSession, parent: ResellerProfile, rows: list[ResellerProfile], days: int = 30
+) -> dict[int, SubResellerStats]:
+    """30-day order count, sales volume, and parent commission earned per sub-reseller."""
+    out = {row.id: SubResellerStats() for row in rows}
+    if not rows:
+        return out
+    since = utcnow() - timedelta(days=days)
+    child_ids = [row.id for row in rows]
+    customer_to_profile = {row.customer_id: row.id for row in rows}
+    bot_shops = {
+        int(shop_id): int(profile_id)
+        for shop_id, profile_id in (
+            await session.execute(
+                select(Shop.id, Shop.reseller_profile_id).where(Shop.reseller_profile_id.in_(child_ids))
+            )
+        ).all()
+        if profile_id is not None
+    }
+    conditions = [Order.customer_id.in_(list(customer_to_profile))]
+    if bot_shops:
+        conditions.append(Order.shop_id.in_(list(bot_shops)))
+    orders_rows = list(
+        await session.scalars(
+            select(Order).where(
+                or_(*conditions),
+                Order.status == OrderStatus.COMPLETED,
+                Order.completed_at >= since,
+            )
+        )
+    )
+    order_to_profile: dict[int, int] = {}
+    for order in orders_rows:
+        pid = bot_shops.get(order.shop_id) or customer_to_profile.get(order.customer_id)
+        if pid is None:
+            continue
+        order_to_profile[order.id] = pid
+        stat = out[pid]
+        stat.orders_month += 1
+        stat.sales_month += int(order.amount or 0)
+    if order_to_profile:
+        comm_rows = (
+            await session.execute(
+                select(LedgerJournal.reference_id, func.coalesce(func.sum(LedgerEntry.amount), 0))
+                .join(LedgerEntry, LedgerEntry.journal_id == LedgerJournal.id)
+                .join(LedgerAccount, LedgerAccount.id == LedgerEntry.account_id)
+                .where(
+                    LedgerAccount.customer_id == parent.customer_id,
+                    LedgerJournal.kind == "commission",
+                    LedgerJournal.reference_type == "order",
+                    LedgerJournal.reference_id.in_(list(order_to_profile)),
+                )
+                .group_by(LedgerJournal.reference_id)
+            )
+        ).all()
+        for ref_id, total in comm_rows:
+            pid = order_to_profile.get(int(ref_id or 0))
+            if pid is not None:
+                out[pid].commission_month += int(total or 0)
+    return out

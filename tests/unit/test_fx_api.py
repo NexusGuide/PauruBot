@@ -14,6 +14,8 @@ def test_the_number_is_found_by_its_path() -> None:
     assert fx.pick(data, "data.prices.0.usdt") == 62400.5
     assert fx.pick(data, "data.missing") is None
     assert fx.pick({"x": True}, "x") is None
+    assert fx.pick({"x": "NaN"}, "x") is None
+    assert fx.pick({"x": "Infinity"}, "x") is None
 
 
 async def test_rates_from_the_shops_api(monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -36,6 +38,28 @@ async def test_rates_from_the_shops_api(monkeypatch) -> None:  # type: ignore[no
     rates = await fx.fetch_api(cfg, transport=httpx.MockTransport(handler))
     assert rates == {"usdt": 62400, "trx": 1500}  # a zero price is no price
     assert seen[0] == "https://rates.example.com/v1?s=usdt"
+
+
+async def test_shared_fx_api_url_fetches_once_and_ignores_invalid_url() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        body = {"rates": {"usdt": 700000, "trx": "Infinity", "ton": 3500000}}
+        return httpx.Response(200, json=body)
+
+    cfg = {
+        "fx_source": "api",
+        "fx_api_url": "https://rates.example.com/all",
+        "fx_api_path": "rates.{symbol}",
+        "fx_api_divisor": 10,
+    }
+    rates = await fx.fetch_api(cfg, transport=httpx.MockTransport(handler))
+    assert calls == 1
+    assert rates == {"usdt": 70000, "ton": 350000}
+    bad = {**cfg, "fx_api_url": "https://bad host/rates"}
+    assert await fx.fetch_api(bad) == {}
 
 
 async def test_the_api_source_reads_the_shops_cached_rates(monkeypatch) -> None:  # type: ignore[no-untyped-def]

@@ -35,6 +35,8 @@ from paurubot.db.models import (
     Service,
     Shop,
     ShopStatus,
+    StockItem,
+    Ticket,
 )
 from paurubot.ledger.accounts import wallet_account, wallet_balance
 from paurubot.ledger.posting import transfer
@@ -105,7 +107,9 @@ async def account_plans(session: AsyncSession, shop_id: int) -> list[AccountPlan
     return [
         plan
         for plan in await panel_accounts.plans(session, shop_id)
-        if plan.audience != PlanAudience.RESELLERS and plan.price > 0
+        if plan.audience != PlanAudience.RESELLERS
+        and plan.price > 0
+        and (plan.panel is None or not plan.panel.national_mode)
     ]
 
 
@@ -175,7 +179,14 @@ async def claim(session: AsyncSession, token: str, customer: Customer) -> int:
     """Move a guest's services, orders, payments and any wallet change to a Telegram customer.
     Returns how many services moved; raises GuestError when the token is unknown or used."""
     guest = await by_token(session, token)
-    if guest is None or guest.shop_id != customer.shop_id or guest.id == customer.id or customer.is_guest:
+    if (
+        guest is None
+        or guest.shop_id != customer.shop_id
+        or guest.id == customer.id
+        or customer.is_guest
+        or customer.is_banned
+        or guest.is_banned
+    ):
         raise GuestError("guest_claim_invalid")
     claimed = await session.execute(
         update(Customer)
@@ -189,6 +200,9 @@ async def claim(session: AsyncSession, token: str, customer: Customer) -> int:
     )
     accounts = await session.execute(
         update(PanelAccount).where(PanelAccount.customer_id == guest.id).values(customer_id=customer.id)
+    )
+    stock_moved = await session.execute(
+        update(StockItem).where(StockItem.customer_id == guest.id).values(customer_id=customer.id)
     )
     await session.execute(update(Order).where(Order.customer_id == guest.id).values(customer_id=customer.id))
     await session.execute(
@@ -209,9 +223,12 @@ async def claim(session: AsyncSession, token: str, customer: Customer) -> int:
             memo="guest purchase claimed",
             actor=f"customer:{customer.id}",
         )
+    from paurubot.core import growth
+
     customer.total_spent = int(customer.total_spent or 0) + int(guest.total_spent or 0)
     guest.total_spent = 0  # counted once, on the real customer (loyalty tiers, reports)
-    return int(moved.rowcount or 0) + int(accounts.rowcount or 0)  # type: ignore[attr-defined]
+    await growth.refresh_tier(session, customer)
+    return int(moved.rowcount or 0) + int(accounts.rowcount or 0) + int(stock_moved.rowcount or 0)
 
 
 def visitor_key(address: str) -> str:
@@ -239,6 +256,8 @@ async def drop_unpaid(session: AsyncSession) -> int:
             ~exists().where(LedgerAccount.customer_id == Customer.id),
             ~exists().where(Service.customer_id == Customer.id),
             ~exists().where(PanelAccount.customer_id == Customer.id),
+            ~exists().where(StockItem.customer_id == Customer.id),
+            ~exists().where(Ticket.customer_id == Customer.id),
             unpaid_only,
         )
         .execution_options(synchronize_session=False)

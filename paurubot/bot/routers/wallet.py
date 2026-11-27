@@ -441,8 +441,14 @@ async def pay(
             ),
         )
     elif checkout.redirect_url:
+        cfg = await shop_settings.load(session, payment.shop_id)
+        gw_text = t(
+            "gateway_instructions", amount=money(payments.amount_to_pay(payment)), payment_id=payment.id
+        )
+        if bool(cfg.get("gateway_vpn_off_reminder", True)):
+            gw_text += "\n\n" + t("gateway_vpn_off_note")
         await message.answer(
-            t("gateway_instructions", amount=money(payments.amount_to_pay(payment)), payment_id=payment.id),
+            gw_text,
             reply_markup=keyboards.url_button(t("btn_open_gateway"), checkout.redirect_url),
         )
 
