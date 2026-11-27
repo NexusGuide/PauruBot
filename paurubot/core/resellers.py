@@ -150,7 +150,11 @@ async def pay_commission(session: AsyncSession, order: Order) -> int:
         quoted = await pricing.plan_quote(session, parent_customer, order.plan_id, base)
         parent_price = quoted.amount
     else:
-        parent_price = pricing.round_price(base * (100 - parent.discount_percent) / 100)
+        if via_resale_bot and order.kind == OrderKind.TRIAL:
+            # The root's trial fee is the same cost at every reseller level: no margin to pay.
+            parent_price = child_price
+        else:
+            parent_price = pricing.round_price(base * (100 - parent.discount_percent) / 100)
     cap = child_price if via_resale_bot else order.amount
     commission = max(0, min(child_price - parent_price, cap))
     if commission <= 0:

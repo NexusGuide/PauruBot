@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -154,6 +155,15 @@ def number(data: dict[str, Any], *keys: str) -> float | None:
 
 def as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+_NOTE_TG = re.compile(r"^tg:(\d+)(?:\s|$)")
+
+
+def telegram_id_from_note(note: str | None) -> int | None:
+    """The Telegram id a `tg:<id>` panel note carries (username or shop suffixes allowed)."""
+    match = _NOTE_TG.match(note or "")
+    return int(match.group(1)) if match else None
 
 
 def whole(value: float | None) -> int | None:

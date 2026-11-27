@@ -363,7 +363,7 @@ async def _notify_changes(
                 shop_id=row.shop_id,
             )
     elif previous_status in _FAILED_STATUSES and result.status == OK:
-        await kv.unmark(f"domain:{row.id}:down")
+        await kv.forget_once(f"domain:{row.id}:down")
         await queue.enqueue(
             session,
             "notify",
@@ -388,7 +388,7 @@ async def _notify_changes(
                     shop_id=row.shop_id,
                 )
         else:
-            await kv.unmark(f"domain:{row.id}:cert_expiring")
+            await kv.forget_once(f"domain:{row.id}:cert_expiring")
 
 
 async def run_checks(session: AsyncSession, *, probe: Probe | None = None) -> int:

@@ -586,6 +586,10 @@ def _check(key: str, value: Any) -> None:
         isinstance(item, int) and not isinstance(item, bool) and item > 0 for item in value
     ):
         raise SettingError("trial_panel_ids_invalid")
+    if key == "service_import_panel_ids" and not all(
+        isinstance(item, int) and not isinstance(item, bool) and item > 0 for item in value
+    ):
+        raise SettingError("service_import_panel_ids_invalid")
     if key == "warn_remaining_gb" and not 0 <= value <= 10_000:
         raise SettingError("warn_remaining_gb must be between 0 and 10000")
     if key == "ticket_reminder_minutes" and not 0 <= value <= 10_080:
@@ -602,6 +606,20 @@ def _check(key: str, value: Any) -> None:
             raise SettingError("support_faq_invalid")
         for item in value:
             if not isinstance(item, dict):
+                raise SettingError("support_faq_invalid")
+            q, a = item.get("q"), item.get("a")
+            btn_text = str(item.get("btn_text") or "").strip()
+            btn_url = str(item.get("btn_url") or "").strip()
+            if (
+                not isinstance(q, str)
+                or not 0 < len(q.strip()) <= 60
+                or not isinstance(a, str)
+                or not 0 < len(a.strip()) <= 2000
+                or len(btn_text) > 40
+                or len(btn_url) > 300
+                or bool(btn_text) != bool(btn_url)
+                or (btn_url and not btn_url.startswith("https://"))
+            ):
                 raise SettingError("support_faq_invalid")
     if key == "on_hold_remind_hours" and not 0 <= value <= 720:
         raise SettingError("on_hold_remind_hours must be between 0 and 720")
@@ -628,20 +646,6 @@ def _check(key: str, value: Any) -> None:
                 isinstance(interval, bool) or not isinstance(interval, int) or not 30 <= interval <= 7 * 86400
             ):
                 raise SettingError("cron_interval_invalid")
-            q, a = item.get("q"), item.get("a")
-            btn_text = str(item.get("btn_text") or "").strip()
-            btn_url = str(item.get("btn_url") or "").strip()
-            if (
-                not isinstance(q, str)
-                or not 0 < len(q.strip()) <= 60
-                or not isinstance(a, str)
-                or not 0 < len(a.strip()) <= 2000
-                or len(btn_text) > 40
-                or len(btn_url) > 300
-                or bool(btn_text) != bool(btn_url)
-                or (btn_url and not btn_url.startswith("https://"))
-            ):
-                raise SettingError("support_faq_invalid")
 
 
 def defaults() -> dict[str, Any]:

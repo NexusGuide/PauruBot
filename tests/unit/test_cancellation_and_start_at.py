@@ -111,3 +111,15 @@ def test_settings_validation_for_new_section2_specs() -> None:
         settings._check("qr_background_url", "http://cdn.example.com/qr.png")
     with pytest.raises(settings.SettingError):
         settings._check("qr_caption", "x" * 801)
+
+
+@pytest.mark.asyncio
+async def test_cancellation_refund_override_needs_wallet_adjust() -> None:
+    from fastapi import HTTPException
+
+    from paurubot.api.routes.admin.cancellations import Decision, decide_cancellation
+
+    ctx = SimpleNamespace(scoped=False, can=lambda permission: False)
+    with pytest.raises(HTTPException) as exc:
+        await decide_cancellation(1, Decision(approve=True, refund_amount=5_000), ctx, AsyncMock())
+    assert exc.value.status_code == 403

@@ -26,6 +26,7 @@ from paurubot.panels.base import (
     as_dict,
     number,
     parse_expire,
+    telegram_id_from_note,
 )
 
 UNLIMITED_GB = 100_000
@@ -154,8 +155,10 @@ class HiddifyDriver(PanelDriver):
             payload.update(package_days=self._days_until(spec.expire_at), start_date=today_utc)
         else:
             payload.update(package_days=UNLIMITED_DAYS, start_date=datetime.now(UTC).date().isoformat())
-        if spec.note.startswith("tg:") and spec.note[3:].isdigit():
-            payload["telegram_id"] = int(spec.note[3:])
+        if spec.note.startswith("tg:"):
+            telegram_id = telegram_id_from_note(spec.note)
+            if telegram_id is not None:
+                payload["telegram_id"] = telegram_id
         return self.parse_user(as_dict(await self.call("POST", USERS, json=payload)))
 
     async def get_user(self, ref: PanelRef) -> PanelUser | None:

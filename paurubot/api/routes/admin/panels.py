@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -364,6 +365,11 @@ async def pin_certificate(
     return panel_out(panel)
 
 
+def _webhook_secret(kind: PanelKind) -> str:
+    """Remnawave requires exactly 64 alphanumeric characters; the others take a URL-safe token."""
+    return secrets.token_hex(32) if kind == PanelKind.REMNAWAVE else new_token(24)
+
+
 @router.post("/panels/{panel_id}/webhook")
 async def rotate_webhook(
     panel_id: int, ctx: Annotated[StaffContext, Depends(require("panels.secrets"))], db: DB
@@ -377,7 +383,7 @@ async def rotate_webhook(
         PanelKind.REMNAWAVE,
     }:
         raise HTTPException(status_code=400, detail="webhooks_not_supported")
-    secret = new_token(24)
+    secret = _webhook_secret(panel.kind)
     panel.webhook_secret_enc = secretbox.encrypt("webhook", secret)
     await record(
         db,

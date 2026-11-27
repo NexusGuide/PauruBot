@@ -348,14 +348,20 @@ async def apply(session: AsyncSession, shop_id: int, raw: Any, *, dry_run: bool 
 
     for item in bundle.get("discount_codes", []):
         code = str(item["code"])[:32]
+        wanted_plans = [str(name) for name in (item.get("plans") or [])]
+        wanted_accounts = [str(name) for name in (item.get("account_plans") or [])]
+        missing = [name for name in wanted_plans if name not in plan_ids]
+        missing += [name for name in wanted_accounts if name not in account_plan_ids]
+        if missing:
+            # Creating the code with an empty target list would make it store-wide.
+            report.warnings.append(f"discount {code}: target(s) {', '.join(missing)} are not here; skipped")
+            continue
         values = {k: item.get(k) for k in CODE_KEYS if k in item}
         values.update(
             code=code,
             kind=DiscountKind(item.get("kind") or "percent"),
-            plan_ids=[plan_ids[name] for name in item.get("plans", []) if name in plan_ids],
-            account_plan_ids=[
-                account_plan_ids[name] for name in item.get("account_plans", []) if name in account_plan_ids
-            ],
+            plan_ids=[plan_ids[name] for name in wanted_plans],
+            account_plan_ids=[account_plan_ids[name] for name in wanted_accounts],
             starts_at=_when(item.get("starts_at")),
             expires_at=_when(item.get("expires_at")),
         )

@@ -196,6 +196,7 @@ async def test_reseller_only_sees_its_own_services(http, env) -> None:  # type: 
     assert (await staff.call("GET", f"/api/admin/services/{env.other_service_id}")).status_code == 404
     assert (await staff.call("GET", f"/api/admin/services/{env.reseller_service_id}")).status_code == 200
     assert (await staff.call("GET", "/api/admin/customers")).json()["items"] == []
+    assert (await staff.call("GET", "/api/admin/referrals/leaderboard")).status_code == 403
 
 
 async def test_reseller_allow_list_narrows_the_role(session, http, env) -> None:  # type: ignore[no-untyped-def]

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from paurubot.core import auto_renew, catalog, orders, resale, trials
 from paurubot.core import settings as shop_settings
@@ -42,6 +42,53 @@ def test_renewal_policy_carry_queued_preserves_extend_carry() -> None:
         rp.policy_for(OrderKind.RENEW, "extend_carry", queued=True, carry_queued=False)
         == rp.MODE_POLICIES["extend_reset"]
     )
+
+
+def test_target_for_reads_queued_start_at_and_carries_only_before_expiry() -> None:
+    now = datetime.now(UTC)
+    service = Service(
+        status=ServiceStatus.ACTIVE,
+        expire_at=now + timedelta(days=10),
+        data_limit=20 * GB,
+        used_bytes=8 * GB,
+    )
+    plan = Plan(days=30, data_gb=50)
+    order = Order(kind=OrderKind.RENEW, params={"queued_start_at": (now + timedelta(days=2)).isoformat()})
+    early = lifecycle._target_for(service, order, plan, "extend_carry", queued=True)
+    assert early["policy"]["volume"] == "append" and early["reset"] is False
+
+    order.params = {"queued_start_at": (now + timedelta(days=20)).isoformat()}
+    late = lifecycle._target_for(service, order, plan, "extend_carry", queued=True)
+    assert late["policy"]["volume"] == "reset" and late["reset"] is True
+
+
+async def test_reset_non_buyers_covers_reseller_bot_trial_grants(session) -> None:  # type: ignore[no-untyped-def]
+    from paurubot.core.shops import create_shop
+    from paurubot.db.models import ResellerProfile, TrialGrant
+
+    owner = await factories.shop(session, "Owner")
+    reseller = await factories.customer(session, owner)
+    profile = ResellerProfile(shop_id=owner.id, customer_id=reseller.id)
+    session.add(profile)
+    await session.flush()
+    child = await create_shop(session, "Child", parent_id=owner.id)
+    child.reseller_profile_id = profile.id
+    buyer = await factories.customer(session, owner)
+    trial_customer = await factories.customer(session, child)
+    session.add_all(
+        [
+            TrialGrant(shop_id=owner.id, customer_id=buyer.id, generation=1, status="issued"),
+            TrialGrant(shop_id=child.id, customer_id=trial_customer.id, generation=1, status="issued"),
+        ]
+    )
+    await session.flush()
+
+    preview = await trials.reset_preview(session, owner.id)
+    assert preview["all"] == 2 and preview["non_buyers"] == 2
+    reset, generation = await trials.reset_non_buyers(session, owner.id)
+    assert (reset, generation) == (2, 1)
+    grants = list(await session.scalars(select(TrialGrant).order_by(TrialGrant.id)))
+    assert all(grant.generation < 0 for grant in grants)
 
 
 def test_settle_service_preserves_on_hold_when_expire_unchanged() -> None:

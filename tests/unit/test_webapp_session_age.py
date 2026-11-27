@@ -38,5 +38,7 @@ async def test_old_sign_in_data_is_refused(app_env) -> None:  # type: ignore[no-
 
 def test_an_expired_session_says_how_to_get_a_new_one() -> None:
     for locale in ("fa", "en"):
-        copy = json.loads((ROOT / "frontend" / "src" / "app" / "locales" / f"{locale}.json").read_text())
+        copy = json.loads(
+            (ROOT / "frontend" / "src" / "app" / "locales" / f"{locale}.json").read_text(encoding="utf-8")
+        )
         assert copy.get("err_invalid_init_data"), locale

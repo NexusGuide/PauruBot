@@ -147,3 +147,13 @@ async def test_subcategories_travel_with_the_bundle(session) -> None:  # type: i
     await session.commit()
     rows = {c.title: c for c in await session.scalars(select(Category).where(Category.shop_id == target.id))}
     assert rows["PER-USER"].parent_id == rows["VOLUME"].id and rows["VOLUME"].parent_id is None
+
+
+async def test_a_restricted_code_is_not_broadened_when_its_plan_is_missing(session) -> None:  # type: ignore[no-untyped-def]
+    source = await _source(session)
+    data = json.loads(json.dumps(await bundle.export(session, source.id)))
+    data["plans"] = []  # the target has none of the code's target plans
+    target = await factories.shop(session, "No plans")
+    report = await bundle.apply(session, target.id, data)
+    assert any("discount SPRING" in warning and "skipped" in warning for warning in report.warnings)
+    assert await session.scalar(select(DiscountCode).where(DiscountCode.shop_id == target.id)) is None

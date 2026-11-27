@@ -20,7 +20,7 @@ from sqlalchemy.orm import selectinload
 
 from paurubot.core import settings as shop_settings
 from paurubot.db.base import utcnow
-from paurubot.db.models import Customer, Order, OrderKind, OrderStatus, Panel, TrialGrant
+from paurubot.db.models import Customer, Order, OrderKind, OrderStatus, Panel, Shop, TrialGrant
 from paurubot.worker import queue
 
 # Stable namespaced key; hashing to bigint also supports the full bigint Shop.id range.
@@ -363,14 +363,32 @@ async def has_used_current(session: AsyncSession, customer: Customer) -> bool:
     return grant is not None
 
 
-async def _non_buyer_grant_ids(session: AsyncSession, shop_id: int, generation: int) -> list[int]:
+async def _reset_scope(session: AsyncSession, shop_id: int) -> tuple[list[int], int]:
+    """Shops and generation covered by a trial reset (reseller bots share the owner's round)."""
+    from paurubot.core import resale
+
+    sale = await resale.for_shop(session, shop_id)
+    owner = sale.parent_id if sale is not None else shop_id
+    cfg = await shop_settings.load(session, owner, fresh=True)
+    generation = int(cfg["trial_generation"] or 1)
+    if sale is not None:
+        return [shop_id], generation
+    child_ids = list(
+        await session.scalars(
+            select(Shop.id).where(Shop.parent_id == owner, Shop.reseller_profile_id.is_not(None))
+        )
+    )
+    return [owner, *child_ids], generation
+
+
+async def _non_buyer_grant_ids(session: AsyncSession, shop_ids: list[int], generation: int) -> list[int]:
     """Current-round trial grants whose owners are not banned, never paid, and have no active trial."""
     from paurubot.db.models import Service, ServiceStatus
 
     has_paid_order = (
         select(Order.id)
         .where(
-            Order.shop_id == shop_id,
+            Order.shop_id == TrialGrant.shop_id,
             Order.customer_id == TrialGrant.customer_id,
             Order.kind != OrderKind.TRIAL,
             Order.status == OrderStatus.COMPLETED,
@@ -380,7 +398,7 @@ async def _non_buyer_grant_ids(session: AsyncSession, shop_id: int, generation: 
     has_active_trial = (
         select(Service.id)
         .where(
-            Service.shop_id == shop_id,
+            Service.shop_id == TrialGrant.shop_id,
             Service.customer_id == TrialGrant.customer_id,
             Service.plan_id.is_(None),
             Service.status == ServiceStatus.ACTIVE,
@@ -391,7 +409,7 @@ async def _non_buyer_grant_ids(session: AsyncSession, shop_id: int, generation: 
         select(TrialGrant.id)
         .join(Customer, Customer.id == TrialGrant.customer_id)
         .where(
-            TrialGrant.shop_id == shop_id,
+            TrialGrant.shop_id.in_(shop_ids),
             TrialGrant.generation == generation,
             Customer.is_banned.is_(False),
             ~has_paid_order,
@@ -403,25 +421,23 @@ async def _non_buyer_grant_ids(session: AsyncSession, shop_id: int, generation: 
 
 async def reset_preview(session: AsyncSession, shop_id: int) -> dict[str, int]:
     """Count grants affected by a full vs. non-buyer trial reset in the current generation."""
-    cfg = await shop_settings.load(session, shop_id, fresh=True)
-    generation = int(cfg["trial_generation"] or 1)
+    shops, generation = await _reset_scope(session, shop_id)
     total = int(
         await session.scalar(
             select(func.count(TrialGrant.id)).where(
-                TrialGrant.shop_id == shop_id, TrialGrant.generation == generation
+                TrialGrant.shop_id.in_(shops), TrialGrant.generation == generation
             )
         )
         or 0
     )
-    non_buyers = len(await _non_buyer_grant_ids(session, shop_id, generation))
+    non_buyers = len(await _non_buyer_grant_ids(session, shops, generation))
     return {"generation": generation, "all": total, "non_buyers": non_buyers}
 
 
 async def reset_non_buyers(session: AsyncSession, shop_id: int) -> tuple[int, int]:
     """Allow non-buying past trial users to claim a trial again without opening a full round."""
-    cfg = await shop_settings.load(session, shop_id, fresh=True)
-    generation = int(cfg["trial_generation"] or 1)
-    ids = await _non_buyer_grant_ids(session, shop_id, generation)
+    shops, generation = await _reset_scope(session, shop_id)
+    ids = await _non_buyer_grant_ids(session, shops, generation)
     if not ids:
         return 0, generation
     result = await session.execute(

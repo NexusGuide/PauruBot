@@ -1774,9 +1774,10 @@ async def migration_upload(ctx: Owner, db: DB, file: UploadFile = File(...)) -> 
     await _require_root_shop(db, ctx)
     token = _secrets.token_hex(12)
     path = runner.upload_path(token)
-    await asyncio.to_thread(path.parent.mkdir, parents=True, exist_ok=True)
+    await asyncio.to_thread(path.parent.mkdir, parents=True, exist_ok=True, mode=0o700)
     size = 0
-    with path.open("wb") as handle:  # noqa: ASYNC230  chunks are small and the disk is local
+    fd = await asyncio.to_thread(os.open, path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as handle:  # noqa: ASYNC230  chunks are small and the disk is local
         while chunk := await file.read(1024 * 1024):
             size += len(chunk)
             if size > MAX_IMPORT_BYTES:

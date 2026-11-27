@@ -1088,6 +1088,8 @@ async def referral_leaderboard(
     limit: int = Query(default=50, ge=1, le=200),
 ) -> dict[str, Any]:
     """Top referrers by invited friends, qualified purchases, commission earned, and free configs."""
+    if ctx.scoped:
+        raise HTTPException(status_code=403, detail="forbidden")
     from paurubot.db.base import utcnow
     from paurubot.db.models import (
         LedgerAccount,

@@ -635,7 +635,8 @@ LOG_CATEGORIES = ("all", "errors", "orders", "payments", "jobs", "audit")
 
 def _csv_safe(value: object) -> str:
     text = "" if value is None else str(value)
-    if text[:1] in ("=", "+", "-", "@", "\t", "\r"):
+    lead = text.lstrip()
+    if text[:1] in ("=", "+", "-", "@", "\t", "\r") or lead[:1] in ("=", "+", "-", "@"):
         return "'" + text
     return text
 

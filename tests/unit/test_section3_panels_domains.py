@@ -310,3 +310,39 @@ async def test_domain_run_checks_alerts_on_degradation_recovery_and_cert_expiry(
     assert [j.payload["event"] for j in jobs] == ["down", "up", "cert_expiring"]
     assert jobs[-1].payload["days"] <= 5
     await asyncio.sleep(0)
+
+    # 3. The certificate is renewed: the expiry warning cooldown is cleared.
+    await domains.run_checks(
+        session, probe=FixedProbe(domains.CheckResult(domains.OK, None, utcnow() + timedelta(days=60), "LE"))
+    )
+    # 4. It comes close to expiry again: a fresh warning is sent.
+    await domains.run_checks(
+        session, probe=FixedProbe(domains.CheckResult(domains.OK, None, utcnow() + timedelta(days=4), "LE"))
+    )
+    # 5. The domain breaks again after its recovery: a fresh down alert is sent.
+    await domains.run_checks(session, probe=FixedProbe(domains.CheckResult(domains.TLS, "expired")))
+    jobs = list(
+        await session.scalars(
+            select(Job).where(Job.kind == "domain_alert", Job.status == JobStatus.QUEUED).order_by(Job.id)
+        )
+    )
+    assert [j.payload["event"] for j in jobs] == ["down", "up", "cert_expiring", "cert_expiring", "down"]
+
+
+def test_panel_note_telegram_id_survives_the_username_suffix() -> None:
+    from paurubot.panels.base import telegram_id_from_note
+
+    assert telegram_id_from_note("tg:12345") == 12345
+    assert telegram_id_from_note("tg:12345 (@alice)") == 12345
+    assert telegram_id_from_note("tg:12345 shop:7") == 12345
+    assert telegram_id_from_note("tg:12345abc") is None
+    assert telegram_id_from_note("") is None
+
+
+def test_remnawave_webhook_secret_is_64_alphanumeric() -> None:
+    from paurubot.api.routes.admin.panels import _webhook_secret
+    from paurubot.db.models import PanelKind
+
+    secret = _webhook_secret(PanelKind.REMNAWAVE)
+    assert len(secret) == 64 and secret.isalnum() and secret == secret.lower()
+    assert len(_webhook_secret(PanelKind.MARZBAN)) == 32

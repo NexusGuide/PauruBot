@@ -16,6 +16,7 @@ from paurubot.bot.callbacks import Acc
 from paurubot.bot.states import AccountStates
 from paurubot.bot.utils import Btn, error_text, show
 from paurubot.core import account_auto_renew, category_tree, orders, panel_accounts, pricing
+from paurubot.core import settings as shop_settings
 from paurubot.core.formatting import esc, jdate, money, parse_int
 from paurubot.db.models import AccountPlan, Category, Customer, DiscountCode, OrderKind, PanelAccount
 from paurubot.i18n import Texts
@@ -273,9 +274,12 @@ async def _checkout(
     data = await state.get_data()
     if data.get("order_id"):
         await orders.cancel(session, int(data["order_id"]), customer.id)
+    cfg = await shop_settings.load(session, customer.shop_id)
     priced_by = panel_accounts.plan_of(kind, plan, account)
-    if code is not None and not panel_accounts.discounts_allowed(priced_by):
-        code = None  # the plan takes no discount codes
+    if code is not None and (
+        not panel_accounts.discounts_allowed(priced_by) or not bool(cfg.get("discounts_enabled", True))
+    ):
+        code = None  # the plan takes no codes, or the shop turned discounts off
     try:
         draft = await panel_accounts.draft(
             session,
@@ -335,7 +339,11 @@ async def _checkout(
         methods=methods if balance < order.amount else [],
         discount=False,
     )
-    if code is None and panel_accounts.discounts_allowed(priced_by):
+    if (
+        code is None
+        and panel_accounts.discounts_allowed(priced_by)
+        and bool(cfg.get("discounts_enabled", True))
+    ):
         markup.inline_keyboard.append(
             [InlineKeyboardButton(text=t("btn_discount"), callback_data=Acc(action="discount").pack())]
         )
@@ -344,7 +352,10 @@ async def _checkout(
 
 
 @router.callback_query(Acc.filter(F.action == "discount"))
-async def ask_discount(call: CallbackQuery, t: Texts, state: FSMContext) -> None:
+async def ask_discount(call: CallbackQuery, t: Texts, cfg: dict[str, Any], state: FSMContext) -> None:
+    if not bool(cfg.get("discounts_enabled", True)):
+        await call.answer(t("discounts_disabled"), show_alert=True)
+        return
     if not (await state.get_data()).get("acc_order"):
         await call.answer(t("order_expired"), show_alert=True)
         return
@@ -367,6 +378,10 @@ async def got_discount(
     """A discount code on an admin account order: the same order, priced again with it."""
     from paurubot.bot.routers.start import menu
 
+    if not bool(cfg.get("discounts_enabled", True)):
+        await state.set_state(None)
+        await message.answer(t("discounts_disabled"), reply_markup=menu(t, cfg, staff))
+        return
     asked = dict((await state.get_data()).get("acc_order") or {})
     if asked.get("kind") not in {kind.value for kind in panel_accounts.KINDS}:
         await state.set_state(None)

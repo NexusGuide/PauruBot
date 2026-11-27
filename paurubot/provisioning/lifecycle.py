@@ -394,7 +394,18 @@ def _target_for(
 ) -> dict[str, object]:
     """Absolute end state of a modification, computed once so retries are idempotent."""
     try:
-        carry_queued = bool(queued and (order.params or {}).get("start_at"))
+        raw_start = (order.params or {}).get("queued_start_at")
+        try:
+            queued_start = datetime.fromisoformat(raw_start) if isinstance(raw_start, str) else None
+        except ValueError:
+            queued_start = None
+        if queued_start is not None and queued_start.tzinfo is None:
+            queued_start = None
+        carry_queued = bool(
+            queued
+            and queued_start is not None
+            and (service.expire_at is None or queued_start < service.expire_at)
+        )
         policy = renewal_policy.policy_for(
             order.kind,
             mode,

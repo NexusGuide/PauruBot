@@ -24,6 +24,7 @@ from paurubot.panels.base import (
     number,
     parse_expire,
     seg,
+    telegram_id_from_note,
     whole,
 )
 
@@ -165,7 +166,9 @@ class GuardDriver(PanelDriver):
             "note": spec.note,
         }
         if spec.note.startswith("tg:"):
-            entry["telegram_id"] = spec.note[3:]
+            telegram_id = telegram_id_from_note(spec.note)
+            if telegram_id is not None:
+                entry["telegram_id"] = str(telegram_id)
         data = await self.call("POST", "/api/subscriptions", json=[entry])
         return self.parse_user(self._unwrap(data))
 

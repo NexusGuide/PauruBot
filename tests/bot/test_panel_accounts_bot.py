@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.methods import EditMessageText, SendMessage
+from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
 from sqlalchemy import update
 
 import paurubot.notifications.handlers  # noqa: F401  (registers the notify queue)
@@ -260,6 +260,14 @@ async def test_a_discount_code_on_an_admin_account_purchase(session, env) -> Non
     rows = (await session.execute(Order.__table__.select().where(Order.customer_id == owner.id))).all()
     live = [r for r in rows if r.status == "pending"]
     assert len(live) == 1 and live[0].amount == 600_000 and live[0].code_discount == 200_000
+
+    # The shop-wide switch hides and refuses codes on admin-account orders too.
+    await shop_settings.set_many(session, shop.id, {"discounts_enabled": False})
+    await session.commit()
+    await send(callback_update(UID + 6, Acc(action="buy", id=plan.id).pack()))
+    assert FA("btn_discount") not in [text for text, _ in fake.buttons(fake.last(EditMessageText))]
+    await send(callback_update(UID + 6, Acc(action="discount").pack()))
+    assert fake.last(AnswerCallbackQuery).text == FA("discounts_disabled")
 
 
 async def test_categories_come_first_when_the_shop_sorts_its_admin_plans(session, env) -> None:  # type: ignore[no-untyped-def]

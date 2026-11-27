@@ -24,6 +24,7 @@ from paurubot.panels.base import (
     number,
     parse_expire,
     seg,
+    telegram_id_from_note,
     whole,
 )
 
@@ -33,9 +34,7 @@ NEVER = datetime(2099, 12, 31, tzinfo=UTC)
 
 
 def _tg(note: str) -> int | None:
-    if note.startswith("tg:") and note[3:].isdigit():
-        return int(note[3:])
-    return None
+    return telegram_id_from_note(note)
 
 
 class RemnawaveDriver(PanelDriver):

@@ -157,6 +157,37 @@ async def test_pay_commission_counts_subreseller_dedicated_bot_sale() -> None:
 
 
 @pytest.mark.asyncio
+async def test_pay_commission_gives_no_margin_on_a_subreseller_trial_fee() -> None:
+    parent = SimpleNamespace(id=1, shop_id=1, customer_id=10, is_current=True, discount_percent=30)
+    child = SimpleNamespace(
+        id=2, shop_id=1, customer_id=20, parent_id=1, is_current=True, discount_percent=10
+    )
+    order = SimpleNamespace(
+        id=100,
+        shop_id=42,
+        customer_id=500,
+        plan_id=None,
+        kind=OrderKind.TRIAL,
+        base_price=0,
+        reseller_discount=0,
+        amount=0,
+        params={"resale_profile": 2, "wholesale": 20_000},
+    )
+    session = AsyncMock()
+
+    async def fake_get(model, obj_id):
+        if model.__name__ == "ResellerProfile":
+            return child if obj_id == 2 else parent
+        return None
+
+    session.get = AsyncMock(side_effect=fake_get)
+    with patch.object(resellers.wallet, "commission", AsyncMock()) as comm:
+        paid = await resellers.pay_commission(session, order)
+    assert paid == 0
+    comm.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_check_purchase_blocks_upgrade_over_max_total_gb() -> None:
     profile = SimpleNamespace(
         id=8,
@@ -345,6 +376,23 @@ async def test_bot_logs_merges_filters_and_redacts_for_reseller() -> None:
     csv_bytes = resale.bot_logs_csv(res)
     assert b"502 Bad Gateway" in csv_bytes
     assert b"panel_timeout" in csv_bytes
+    assert b"' =HYPERLINK" in resale.bot_logs_csv(
+        {
+            "items": [
+                {
+                    "at": "2026-11-26T10:00:00+00:00",
+                    "category": "orders",
+                    "level": "info",
+                    "title": ' =HYPERLINK("https://evil","x")',
+                    "status": "completed",
+                    "actor": "customer",
+                    "detail": "",
+                    "amount": 0,
+                    "error": None,
+                }
+            ]
+        }
+    )
 
     session.scalars = AsyncMock(side_effect=[[order], [payment], [job], [audit]])
     res_self = await resale.bot_logs(session, shop, category="audit", staff=False)

@@ -50,6 +50,8 @@ async def decide_cancellation(request_id: int, body: Decision, ctx: Reviewer, db
     """Approve or reject a pending service cancellation request."""
     if ctx.scoped:
         raise HTTPException(status_code=403, detail="forbidden")
+    if body.refund_amount is not None and not ctx.can("wallet.adjust"):
+        raise HTTPException(status_code=403, detail="forbidden")
     row = await db.scalar(
         select(CancellationRequest)
         .where(CancellationRequest.id == request_id, CancellationRequest.shop_id == ctx.shop_id)

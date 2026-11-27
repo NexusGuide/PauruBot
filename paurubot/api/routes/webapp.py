@@ -1612,7 +1612,7 @@ async def wheel_info(ctx: WebApp) -> dict[str, Any]:
         "enabled": enabled,
         "style": style,
         "buyers_only": bool(cfg.get("wheel_buyers_only")),
-        "cooldown_hours": int(cfg.get("wheel_cooldown_hours") or 24),
+        "cooldown_hours": int(cfg.get("wheel_every_hours") or 24),
         "can_spin": can_spin,
         "reason": reason,
         "next_spin_at": next_at.isoformat() if next_at else None,
