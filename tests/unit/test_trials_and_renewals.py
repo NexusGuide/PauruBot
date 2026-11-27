@@ -87,8 +87,12 @@ async def test_reset_non_buyers_covers_reseller_bot_trial_grants(session) -> Non
     assert preview["all"] == 2 and preview["non_buyers"] == 2
     reset, generation = await trials.reset_non_buyers(session, owner.id)
     assert (reset, generation) == (2, 1)
-    grants = list(await session.scalars(select(TrialGrant).order_by(TrialGrant.id)))
-    assert all(grant.generation < 0 for grant in grants)
+    grants = list(
+        await session.scalars(
+            select(TrialGrant).where(TrialGrant.customer_id.in_([buyer.id, trial_customer.id]))
+        )
+    )
+    assert len(grants) == 2 and all(grant.generation < 0 for grant in grants)
 
 
 def test_settle_service_preserves_on_hold_when_expire_unchanged() -> None:
