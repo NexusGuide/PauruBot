@@ -221,7 +221,7 @@ async def _check_panel_filter(db: DB, shop_id: int, panel_id: int | None) -> int
 
 @router.get("/service-gift")
 async def service_gift_preview(
-    ctx: Annotated[StaffContext, Depends(require("services.manage"))],
+    ctx: Annotated[StaffContext, Depends(require("services.write"))],
     db: DB,
     mode: ServiceGiftMode = "days",
     value: int = 1,
@@ -248,7 +248,7 @@ class ServiceGiftBody(BaseModel):
 
 @router.post("/service-gift")
 async def service_gift(
-    body: ServiceGiftBody, ctx: Annotated[StaffContext, Depends(require("services.manage"))], db: DB
+    body: ServiceGiftBody, ctx: Annotated[StaffContext, Depends(require("services.write"))], db: DB
 ) -> dict[str, Any]:
     """Add days or GB to every active service (or one panel's services) in the background."""
     from paurubot.core import service_gifts

@@ -274,8 +274,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/tools/gift` | `wallet.adjust` | The same wallet gift for everyone in an audience; credited in the background, never twice. |
 | POST | `/api/admin/tools/plan-prices` | `catalog.write` | Every active plan's price up or down by a percentage, rounded like other prices. |
 | GET | `/api/admin/tools/reseller-ranking` | `resellers.manage` | Resellers by sales, revenue and confirmed complaints over the last `days` (0: all time). |
-| GET | `/api/admin/tools/service-gift` | `services.manage` | How many active services a mass days/GB gift would update. |
-| POST | `/api/admin/tools/service-gift` | `services.manage` | Add days or GB to every active service (or one panel's services) in the background. |
+| GET | `/api/admin/tools/service-gift` | `services.write` | How many active services a mass days/GB gift would update. |
+| POST | `/api/admin/tools/service-gift` | `services.write` | Add days or GB to every active service (or one panel's services) in the background. |
 | GET | `/api/admin/tools/trial-reset/preview` | `settings.write` | Preview how many trial users would be reset under each scope. |
 | POST | `/api/admin/tools/trial-reset` | `settings.write` | Start a new trial round for everyone, or reset only eligible non-buyers. |
 | POST | `/api/admin/tools/unpin-all` | `broadcast.send` | Take down every broadcast still pinned in customers' chats (GRW-06). |

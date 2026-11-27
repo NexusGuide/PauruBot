@@ -419,7 +419,7 @@ export function ServiceGiftButton() {
   const size = useLoad<{ count: number; limit: number }>(previewUrl);
   const [busy, run] = useAction();
   const confirm = useConfirm();
-  if (!can("services.manage")) return null;
+  if (!can("services.write")) return null;
   const send = async () => {
     if (!ok) return;
     const sure = await confirm({
