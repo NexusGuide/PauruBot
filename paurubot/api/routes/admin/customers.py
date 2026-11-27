@@ -23,11 +23,12 @@ from paurubot.api.admin_common import (
 )
 from paurubot.api.confirmations import ConfirmFields, challenge, guard
 from paurubot.api.deps import DB, StaffContext, require
+from paurubot.api.routes.admin.accounts import ACCOUNT_FIELDS
+from paurubot.api.routes.admin.commerce import ACCOUNT_ORDER_KINDS, enrich_orders
 from paurubot.audit.log import record, snapshot
 from paurubot.core import confirm, customers, sub_links
 from paurubot.core import orders as orders_core
-from paurubot.api.routes.admin.accounts import ACCOUNT_FIELDS
-from paurubot.api.routes.admin.commerce import ACCOUNT_ORDER_KINDS, enrich_orders
+from paurubot.core import settings as shop_settings
 from paurubot.db.models import (
     Customer,
     LedgerAccount,
@@ -49,7 +50,6 @@ from paurubot.ledger import wallet
 from paurubot.ledger.accounts import wallet_balance
 from paurubot.panels import PanelError
 from paurubot.provisioning import lifecycle
-from paurubot.core import settings as shop_settings
 from paurubot.provisioning.subscription import branded_url
 from paurubot.worker import queue
 

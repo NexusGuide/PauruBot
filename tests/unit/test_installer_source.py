@@ -86,9 +86,9 @@ def test_dev_channel_is_wired_across_workflows_and_installer() -> None:
     assert match
     script = (
         "set -Eeuo pipefail\nIMAGE_REPO=ghcr.io/nexusguide/paurubot\n"
-        "die() { echo \"$*\" >&2; exit 19; }\n"
+        'die() { echo "$*" >&2; exit 19; }\n'
         + match.group(0)
-        + "\nresolve_target dev \"\"\nprintf \"%s %s\\n\" \"$TARGET_REF\" \"$TARGET_IMAGE\"\n"
+        + '\nresolve_target dev ""\nprintf "%s %s\\n" "$TARGET_REF" "$TARGET_IMAGE"\n'
     )
     res = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=5)
     assert res.returncode == 0, res.stderr

@@ -330,7 +330,7 @@ class GateMiddleware(BaseMiddleware):
                     session, customer.shop_id, customer, cfg, ref_telegram_id=saved_ref
                 )
                 if welcome_gift and isinstance(event, Message):
-                    from paurubot.i18n import money
+                    from paurubot.core.formatting import money
 
                     await event.answer(texts("start_gift", amount=money(welcome_gift)))
         return await handler(event, data)

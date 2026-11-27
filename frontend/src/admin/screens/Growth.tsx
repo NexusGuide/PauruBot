@@ -1298,7 +1298,7 @@ function ReferralLeaderboard() {
     can("customers.read") ? `/api/admin/referrals/leaderboard?days=${days}&limit=50` : null,
   );
   if (!can("customers.read")) return null;
-  const cols: Column<ReferrerRow>[] = [
+  const cols: Column<ReferrerRow & { id: number }>[] = [
     { key: "rank", label: "#", mobile: "meta", render: (r) => <span className="num font-bold">#{r.rank}</span> },
     {
       key: "name",
@@ -1350,7 +1350,7 @@ function ReferralLeaderboard() {
                 <p className="num text-[1.05rem] font-extrabold">{money(res.summary.total_config_claims, locale)}</p>
               </div>
             </div>
-            <Table columns={cols} rows={res.items} />
+            <Table columns={cols} rows={res.items.map((item) => ({ ...item, id: item.customer_id }))} />
           </>
         )}
       </Async>

@@ -44,7 +44,9 @@ async def test_custom_qr_caption_substitutes_safely_and_supports_link() -> None:
 
 async def test_custom_qr_background_composites_png(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     import io
+
     from PIL import Image
+
     from paurubot.bot import views
 
     buf = io.BytesIO()

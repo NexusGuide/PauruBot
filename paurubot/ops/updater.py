@@ -60,8 +60,7 @@ class Status:
 
 def _prerelease_key(pre: str) -> tuple[tuple[int, int, str], ...]:
     return tuple(
-        (0, int(part), "") if part.isascii() and part.isdigit() else (1, 0, part)
-        for part in pre.split(".")
+        (0, int(part), "") if part.isascii() and part.isdigit() else (1, 0, part) for part in pre.split(".")
     )
 
 

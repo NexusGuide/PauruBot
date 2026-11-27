@@ -450,9 +450,7 @@ async def billing(call: CallbackQuery, session: AsyncSession, customer: Customer
     kb = InlineKeyboardBuilder()
     if profile.billing_debt > 0:
         kb.row(
-            InlineKeyboardButton(
-                text=t("rs_btn_settle_debt"), callback_data=Rs(action="settle_debt").pack()
-            )
+            InlineKeyboardButton(text=t("rs_btn_settle_debt"), callback_data=Rs(action="settle_debt").pack())
         )
     kb.row(InlineKeyboardButton(text=t("rs_btn_wallet"), callback_data=Wallet(action="home").pack()))
     kb.row(InlineKeyboardButton(text=t("btn_back"), callback_data=Rs(action="home").pack()))
@@ -509,8 +507,7 @@ async def subs(call: CallbackQuery, session: AsyncSession, customer: Customer, t
         kb.row(
             InlineKeyboardButton(
                 text=(
-                    f"{state} {who.display_name if who else row.customer_id}"
-                    f" · {row.discount_percent}%{extra}"
+                    f"{state} {who.display_name if who else row.customer_id} · {row.discount_percent}%{extra}"
                 )[:64],
                 callback_data=Rs(action="sub", id=row.id).pack(),
             )

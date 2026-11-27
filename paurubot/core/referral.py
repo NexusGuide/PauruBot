@@ -68,9 +68,7 @@ def _pending_key(shop_id: int, customer_id: int) -> str:
     return f"pending-start:{shop_id}:{customer_id}"
 
 
-async def remember_pending_start(
-    shop_id: int, customer_id: int, ref_telegram_id: int | None = None
-) -> None:
+async def remember_pending_start(shop_id: int, customer_id: int, ref_telegram_id: int | None = None) -> None:
     """Remember a newcomer's /start referral and welcome gift while a gate holds them."""
     import json
 

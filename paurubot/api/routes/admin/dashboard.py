@@ -69,6 +69,8 @@ def _host_metrics() -> dict[str, Any]:
         "ram_percent": ram_percent,
         "disk_percent": disk_percent,
     }
+
+
 Viewer = Annotated[StaffContext, Depends(require("dashboard.view"))]
 
 

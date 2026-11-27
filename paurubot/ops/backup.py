@@ -170,9 +170,7 @@ def resolve(name: str) -> Path:
 def _protected_backup_names() -> set[str]:
     settings = get_settings()
     return {
-        Path(raw).name
-        for raw in (settings.paurubot_previous_backup, settings.paurubot_pre_dev_backup)
-        if raw
+        Path(raw).name for raw in (settings.paurubot_previous_backup, settings.paurubot_pre_dev_backup) if raw
     }
 
 

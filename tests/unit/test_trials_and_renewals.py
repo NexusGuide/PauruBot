@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import update
@@ -16,14 +15,13 @@ from paurubot.db.models import (
     Location,
     Order,
     OrderKind,
-    OrderStatus,
-    Panel,
     Plan,
     Service,
     ServiceStatus,
 )
 from paurubot.panels import GB
-from paurubot.provisioning import lifecycle, renewal_policy as rp
+from paurubot.provisioning import lifecycle
+from paurubot.provisioning import renewal_policy as rp
 from tests import factories
 from tests.unit.test_reseller_bot import TOKEN
 from tests.unit.test_reseller_bot import env as env  # noqa: F401  (fixture)

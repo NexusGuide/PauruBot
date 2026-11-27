@@ -17,7 +17,8 @@ from qrcode.exceptions import DataOverflowError
 
 from paurubot.core.formatting import days_left, esc, jdate, money, size
 from paurubot.db.models import Order, Plan, Service
-from paurubot.i18n import Texts, render as render_template
+from paurubot.i18n import Texts
+from paurubot.i18n import render as render_template
 
 log = logging.getLogger(__name__)
 MAX_QR_BG_BYTES = 2 * 1024 * 1024
@@ -191,9 +192,7 @@ async def fetch_qr_background(url: str) -> bytes | None:
 
     try:
         transport = ValidatedTransport(clean, context=ssl.create_default_context(), allow_private=False)
-        async with httpx.AsyncClient(
-            transport=transport, follow_redirects=False, timeout=10.0
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, follow_redirects=False, timeout=10.0) as client:
             async with client.stream("GET", clean) as response:
                 if response.status_code != 200:
                     return None

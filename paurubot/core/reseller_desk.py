@@ -224,8 +224,7 @@ async def report(session: AsyncSession, customer: Customer) -> Report:
         )
     )
     extra_gb = sum(
-        int((o.params or {}).get("extra_gb") or (o.params or {}).get("custom_gb") or 0)
-        for o in extra_orders
+        int((o.params or {}).get("extra_gb") or (o.params or {}).get("custom_gb") or 0) for o in extra_orders
     )
     gb = int(plan_gb or 0) + extra_gb
     commission = await session.scalar(

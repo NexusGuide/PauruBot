@@ -759,6 +759,7 @@ export interface PanelAccountRow {
   users_count: number;
   panel_status: string | null;
   synced_at: string | null;
+  auto_renew?: boolean;
   note: string | null;
   created_at: string;
 }

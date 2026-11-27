@@ -928,9 +928,7 @@ async def release_holds(session: AsyncSession, order: Order) -> None:
         .where(StockItem.order_id == order.id, StockItem.status == stock.RESERVED)
         .values(status=stock.AVAILABLE, order_id=None, customer_id=None, sold_at=None)
     )
-    deleted = await session.execute(
-        delete(DiscountRedemption).where(DiscountRedemption.order_id == order.id)
-    )
+    deleted = await session.execute(delete(DiscountRedemption).where(DiscountRedemption.order_id == order.id))
     if order.discount_code_id and affected(deleted) > 0:
         await session.execute(
             update(DiscountCode)

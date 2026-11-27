@@ -40,9 +40,7 @@ class TopicSetupError(Exception):
         self.code = code
 
 
-async def auto_setup_forum_topics(
-    session: AsyncSession, shop_id: int, chat_id: int
-) -> dict[str, list[str]]:
+async def auto_setup_forum_topics(session: AsyncSession, shop_id: int, chat_id: int) -> dict[str, list[str]]:
     """Create missing Telegram forum topics in `chat_id` and bind each to LogChannel."""
     bot = await telegram.bot_for(shop_id)
     if bot is None:
@@ -77,9 +75,7 @@ async def auto_setup_forum_topics(
             failed.append(topic)
             continue
         if cur is None:
-            session.add(
-                LogChannel(shop_id=shop_id, topic=topic, chat_id=chat_id, thread_id=thread_id)
-            )
+            session.add(LogChannel(shop_id=shop_id, topic=topic, chat_id=chat_id, thread_id=thread_id))
         else:
             cur.chat_id = chat_id
             cur.thread_id = thread_id

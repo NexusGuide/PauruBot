@@ -167,9 +167,7 @@ async def export(session: AsyncSession, shop_id: int) -> dict[str, Any]:
                 **{k: getattr(c, k) for k in CODE_KEYS},
                 "plans": [plan_names[i] for i in (c.plan_ids or []) if i in plan_names],
                 "account_plans": [
-                    account_plan_names[i]
-                    for i in (c.account_plan_ids or [])
-                    if i in account_plan_names
+                    account_plan_names[i] for i in (c.account_plan_ids or []) if i in account_plan_names
                 ],
                 "starts_at": _iso(c.starts_at),
                 "expires_at": _iso(c.expires_at),
@@ -356,9 +354,7 @@ async def apply(session: AsyncSession, shop_id: int, raw: Any, *, dry_run: bool 
             kind=DiscountKind(item.get("kind") or "percent"),
             plan_ids=[plan_ids[name] for name in item.get("plans", []) if name in plan_ids],
             account_plan_ids=[
-                account_plan_ids[name]
-                for name in item.get("account_plans", [])
-                if name in account_plan_ids
+                account_plan_ids[name] for name in item.get("account_plans", []) if name in account_plan_ids
             ],
             starts_at=_when(item.get("starts_at")),
             expires_at=_when(item.get("expires_at")),

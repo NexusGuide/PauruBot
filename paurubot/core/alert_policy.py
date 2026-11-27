@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta, tzinfo
 from typing import Any
 
-
 _GB = 1024**3
 
 
@@ -26,9 +25,7 @@ def warn_time_percent(cfg: Mapping[str, Any]) -> int:
     return int(cfg.get("warn_time_percent") or 0)
 
 
-def is_low_volume(
-    data_limit: int, used_bytes: int, warn_percent: int, *, warn_gb: int = 0
-) -> bool:
+def is_low_volume(data_limit: int, used_bytes: int, warn_percent: int, *, warn_gb: int = 0) -> bool:
     """True when remaining data crosses either the percentage or fixed-GB threshold."""
     if data_limit <= 0:
         return False

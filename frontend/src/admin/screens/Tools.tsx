@@ -159,7 +159,7 @@ export function TrialResetCard() {
       );
       toast(
         scope === "non_buyers"
-          ? t("tools_trial_non_buyers_done", { count: digits(res.reset_count ?? 0, locale) })
+          ? t("tools_trial_non_buyers_done", { count: digits(res?.reset_count ?? 0, locale) })
           : t("tools_trial_done"),
       );
       void reload();
@@ -480,26 +480,29 @@ export function ServiceGiftButton() {
               {(id) => <NumberInput id={id} value={value} onChange={setValue} />}
             </Field>
           </div>
-          {panels.data && panels.data.items.length > 0 && (
-            <Field label={t("tools_service_gift_panel")}>
-              {(id) => (
-                <Select id={id} value={panelId} onChange={(e) => setPanelId(e.target.value)}>
-                  <option value="">{t("tools_service_gift_all_panels")}</option>
-                  {panels.data.items.map((pl) => (
-                    <option key={pl.id} value={String(pl.id)}>
-                      {pl.name}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-          )}
+          {panels.data && panels.data.items.length > 0 && (() => {
+            const panelItems = panels.data.items;
+            return (
+              <Field label={t("tools_service_gift_panel")}>
+                {(id) => (
+                  <Select id={id} value={panelId} onChange={(e) => setPanelId(e.target.value)}>
+                    <option value="">{t("tools_service_gift_all_panels")}</option>
+                    {panelItems.map((pl) => (
+                      <option key={pl.id} value={String(pl.id)}>
+                        {pl.name}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            );
+          })()}
           {size.data && (
             <p className="text-[0.88rem] font-semibold">
               {t("tools_service_gift_reach", { count: size.data.count })}
             </p>
           )}
-          {size.error && <p className="text-[0.84rem] text-anar-600">{errorText(size.error)}</p>}
+          {size.error ? <p className="text-[0.84rem] text-anar-600">{errorText(size.error)}</p> : null}
         </div>
       </Sheet>
     </>

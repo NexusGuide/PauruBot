@@ -625,9 +625,7 @@ def _check(key: str, value: Any) -> None:
                 raise SettingError("cron_protected")
             interval = cfg.get("interval_seconds")
             if interval is not None and (
-                isinstance(interval, bool)
-                or not isinstance(interval, int)
-                or not 30 <= interval <= 7 * 86400
+                isinstance(interval, bool) or not isinstance(interval, int) or not 30 <= interval <= 7 * 86400
             ):
                 raise SettingError("cron_interval_invalid")
             q, a = item.get("q"), item.get("a")

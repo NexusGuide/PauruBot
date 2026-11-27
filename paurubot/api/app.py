@@ -67,9 +67,7 @@ def create_app() -> FastAPI:
     async def validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
         errors = exc.errors()
         fields = [
-            ".".join(str(p) for p in err.get("loc", [])[1:])
-            for err in errors
-            if len(err.get("loc", [])) > 1
+            ".".join(str(p) for p in err.get("loc", [])[1:]) for err in errors if len(err.get("loc", [])) > 1
         ]
         reason: str | None = None
         for err in errors:

@@ -35,12 +35,32 @@ def test_projection_is_only_two_non_secret_thresholds_without_mutating_cfg():
 @pytest.mark.parametrize(
     "percent,days,expected",
     [
-        (10, 2, {"warn_remaining_percent": 10, "warn_remaining_gb": 0, "warn_days": 2, "warn_time_percent": 0}),
-        (None, None, {"warn_remaining_percent": 0, "warn_remaining_gb": 0, "warn_days": 0, "warn_time_percent": 0}),
+        (
+            10,
+            2,
+            {"warn_remaining_percent": 10, "warn_remaining_gb": 0, "warn_days": 2, "warn_time_percent": 0},
+        ),
+        (
+            None,
+            None,
+            {"warn_remaining_percent": 0, "warn_remaining_gb": 0, "warn_days": 0, "warn_time_percent": 0},
+        ),
         (0, 0, {"warn_remaining_percent": 0, "warn_remaining_gb": 0, "warn_days": 0, "warn_time_percent": 0}),
-        (-1, -2, {"warn_remaining_percent": -1, "warn_remaining_gb": 0, "warn_days": -2, "warn_time_percent": 0}),
-        (120, 40, {"warn_remaining_percent": 120, "warn_remaining_gb": 0, "warn_days": 40, "warn_time_percent": 0}),
-        ("10", "2", {"warn_remaining_percent": 10, "warn_remaining_gb": 0, "warn_days": 2, "warn_time_percent": 0}),
+        (
+            -1,
+            -2,
+            {"warn_remaining_percent": -1, "warn_remaining_gb": 0, "warn_days": -2, "warn_time_percent": 0},
+        ),
+        (
+            120,
+            40,
+            {"warn_remaining_percent": 120, "warn_remaining_gb": 0, "warn_days": 40, "warn_time_percent": 0},
+        ),
+        (
+            "10",
+            "2",
+            {"warn_remaining_percent": 10, "warn_remaining_gb": 0, "warn_days": 2, "warn_time_percent": 0},
+        ),
     ],
 )
 def test_projection_preserves_existing_integer_semantics(percent, days, expected):
@@ -229,6 +249,7 @@ async def test_a_service_never_used_gets_one_first_use_nudge(monkeypatch, age_ho
     assert ("first_use" in result) == expected
     if expected:  # once only
         assert "first_use" not in await sync.evaluate_alerts(object(), service, ServiceStatus.ACTIVE)
+
 
 @pytest.mark.asyncio
 async def test_low_volume_and_limited_dedupe_keys_include_period(monkeypatch):

@@ -262,9 +262,7 @@ async def test_domain_netprobe_reads_split_and_chunked_responses() -> None:
     assert await probe.fetch_mark("sub.example.com") == mark
 
 
-async def test_domain_run_checks_alerts_on_degradation_recovery_and_cert_expiry(
-    session, monkeypatch
-) -> None:  # type: ignore[no-untyped-def]
+async def test_domain_run_checks_alerts_on_degradation_recovery_and_cert_expiry(session, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     shop = await factories.shop(session)
     row = ShopDomain(
         shop_id=shop.id,

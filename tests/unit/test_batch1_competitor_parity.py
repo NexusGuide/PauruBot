@@ -72,7 +72,7 @@ def test_lifecycle_note_includes_username_and_context_injects_balance_ref_and_sl
 
 def test_trial_hide_after_use_and_targeted_reset():
     menu_src = (ROOT / "paurubot/bot/menu.py").read_text(encoding="utf-8")
-    assert "trial_used and cfg.get(\"trial_hide_after_use\")" in menu_src
+    assert 'trial_used and cfg.get("trial_hide_after_use")' in menu_src
 
     trials_src = (ROOT / "paurubot/core/trials.py").read_text(encoding="utf-8")
     assert "async def has_used_current(" in trials_src
@@ -155,7 +155,13 @@ def test_ticket_miniapp_only_faq_buttons_and_editors():
 
 def test_per_panel_trial_groups_and_builds_status_widget():
     panels_api = (ROOT / "paurubot/api/routes/admin/panels.py").read_text(encoding="utf-8")
-    for key in ("trial_group_ids", "trial_service_ids", "trial_squad_ids", "trial_inbounds", "trial_inbound_id"):
+    for key in (
+        "trial_group_ids",
+        "trial_service_ids",
+        "trial_squad_ids",
+        "trial_inbounds",
+        "trial_inbound_id",
+    ):
         assert f'"{key}"' in panels_api, f"missing {key} in panels.py"
 
     lifecycle_src = (ROOT / "paurubot/provisioning/lifecycle.py").read_text(encoding="utf-8")

@@ -501,9 +501,7 @@ async def webhook_status(shop_id: int) -> dict[str, Any]:
 
     settings = get_settings()
     expected = (
-        f"{settings.public_url}/api/telegram/webhook/{shop_id}"
-        if settings.bot_mode == "webhook"
-        else None
+        f"{settings.public_url}/api/telegram/webhook/{shop_id}" if settings.bot_mode == "webhook" else None
     )
     bot = await bot_for(shop_id)
     if bot is None:
@@ -852,10 +850,10 @@ async def bot_logs(
     items.sort(key=lambda r: str(r["at"]), reverse=True)
 
     if needle:
+
         def _matches(entry: dict[str, Any]) -> bool:
             hay = " ".join(
-                str(entry.get(k) or "")
-                for k in ("title", "status", "actor", "detail", "error", "category")
+                str(entry.get(k) or "") for k in ("title", "status", "actor", "detail", "error", "category")
             ).lower()
             return needle in hay
 

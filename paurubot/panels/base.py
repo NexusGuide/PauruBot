@@ -307,9 +307,7 @@ class PanelDriver(ABC):
             client, req_path = self.http, path[len(base_path) :] or "/"
         else:
             pinned = self.http.pinned_pem if same_origin else None
-            client = SafeHttpClient(
-                origin, pinned_pem=pinned, allow_private=self.http.allow_private
-            )
+            client = SafeHttpClient(origin, pinned_pem=pinned, allow_private=self.http.allow_private)
             req_path = path
         try:
             resp = await client.request("GET", req_path, headers={"User-Agent": user_agent[:200]})

@@ -14,7 +14,7 @@ export interface Feature {
 }
 
 export const FEATURES: Feature[] = [
-  { key: "general", keys: ["bot_enabled", "discounts_enabled", "languages", "support_username", "typed_confirm_enabled", "typed_confirm_refund_min", "audit_retention_days", "light_mode"] },
+  { key: "general", keys: ["bot_enabled", "discounts_enabled", "languages", "support_username", "typed_confirm_enabled", "typed_confirm_refund_min", "audit_retention_days", "light_mode", "cron_overrides"] },
   { key: "signup", keys: ["require_phone", "phone_country_codes", "phone_when", "terms_required", "terms_version", "terms_when"] },
   {
     key: "buy",
@@ -40,7 +40,7 @@ export const FEATURES: Feature[] = [
   },
   {
     key: "notify",
-    keys: ["warn_days", "warn_time_percent", "warn_remaining_percent", "warn_remaining_gb", "first_use_nudge_hours", "alerts_quiet_start", "alerts_quiet_end", "ip_notice_enabled"],
+    keys: ["warn_days", "warn_time_percent", "warn_remaining_percent", "warn_remaining_gb", "first_use_nudge_hours", "on_hold_remind_hours", "alerts_quiet_start", "alerts_quiet_end", "ip_notice_enabled"],
   },
   { key: "cleanup", keys: ["delete_expired_after_days", "delete_warn_days", "self_delete_enabled", "self_delete_refund_percent", "self_delete_require_approval", "ban_disables_services"] },
   {

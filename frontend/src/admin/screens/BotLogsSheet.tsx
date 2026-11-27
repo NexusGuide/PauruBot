@@ -48,7 +48,7 @@ export function BotLogsSheet({
   const [category, setCategory] = useState<BotLogCategory>("all");
   const [query, setQuery] = useState("");
   const queryStr = qs({ category, q: query.trim() || undefined, limit: 120 });
-  const state = useLoad<BotLogsResponse>(`${basePath}${queryStr}`, [basePath, queryStr]);
+  const state = useLoad<BotLogsResponse>(`${basePath}${queryStr}`);
   const csvHref = `${basePath}.csv${qs({ category, q: query.trim() || undefined, limit: 300 })}`;
 
   return (

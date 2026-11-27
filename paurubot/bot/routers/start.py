@@ -33,7 +33,6 @@ from paurubot.core import customers
 from paurubot.core.formatting import esc, money
 from paurubot.db.models import Customer, Shop
 from paurubot.i18n import Texts
-from paurubot.worker import queue
 
 router = Router(name="start")
 
@@ -524,9 +523,7 @@ async def app_download(
 
     if entry and entry.get("file_id"):
         try:
-            await call.message.answer_document(
-                entry["file_id"], caption=caption, reply_markup=kb.as_markup()
-            )
+            await call.message.answer_document(entry["file_id"], caption=caption, reply_markup=kb.as_markup())
             return
         except TelegramBadRequest:
             pass

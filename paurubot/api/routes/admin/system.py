@@ -670,9 +670,7 @@ async def verify_channels(ctx: Settings, db: DB) -> dict[str, Any]:
     failed_count = 0
     targets = [
         ("forced", row.id, str(row.chat_id), row.title, f"join:{shop}:{row.chat_id}") for row in forced
-    ] + [
-        ("trust", row.id, str(row.chat_id), row.title, f"trust:{shop}:{row.chat_id}") for row in trust
-    ]
+    ] + [("trust", row.id, str(row.chat_id), row.title, f"trust:{shop}:{row.chat_id}") for row in trust]
     for kind, row_id, chat_id, title, mark_key in targets:
         try:
             info = await forced_join.resolve(shop, chat_id)
@@ -909,9 +907,7 @@ class AutoSetupLogsBody(BaseModel):
 
 
 @router.post("/channels/logs/auto-setup")
-async def auto_setup_log_channels(
-    body: AutoSetupLogsBody, ctx: Settings, db: DB
-) -> dict[str, list[str]]:
+async def auto_setup_log_channels(body: AutoSetupLogsBody, ctx: Settings, db: DB) -> dict[str, list[str]]:
     """Create missing Telegram forum topics in a supergroup and bind every report topic."""
     from paurubot.core import log_topics
 
@@ -2017,9 +2013,7 @@ async def maintenance_resync(
     from paurubot.provisioning import sync
 
     panel_ids = list(
-        await db.scalars(
-            select(Panel.id).where(Panel.shop_id == ctx.shop_id, Panel.is_active.is_(True))
-        )
+        await db.scalars(select(Panel.id).where(Panel.shop_id == ctx.shop_id, Panel.is_active.is_(True)))
     )
     synced = 0
     failed = 0
@@ -2075,6 +2069,7 @@ async def github_builds(
     if token:
         headers["Authorization"] = f"Bearer {token}"
     url = f"https://api.github.com/repos/{repo}/actions/runs"
+    payload: dict[str, Any]
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
             resp = await client.get(url, params={"branch": branch, "per_page": 6}, headers=headers)
@@ -2112,7 +2107,6 @@ async def github_builds(
     return payload
 
 
-
 class CronUpdateBody(BaseModel):
     enabled: bool | None = None
     interval_seconds: int | None = None
@@ -2136,7 +2130,8 @@ async def list_crons(
     states = await runner.get_cron_states(names)
     items = []
     for task in runner.PERIODIC:
-        ov = overrides.get(task.name) if isinstance(overrides.get(task.name), dict) else {}
+        raw_ov = overrides.get(task.name)
+        ov: dict[str, Any] = raw_ov if isinstance(raw_ov, dict) else {}
         protected = task.name in runner.CRON_PROTECTED
         enabled = True if protected else bool(ov.get("enabled", True))
         custom_int = ov.get("interval_seconds")
@@ -2167,9 +2162,7 @@ async def list_crons(
 
 
 @router.put("/system/crons/{name}")
-async def update_cron(
-    name: str, body: CronUpdateBody, ctx: Settings, db: DB
-) -> dict[str, Any]:
+async def update_cron(name: str, body: CronUpdateBody, ctx: Settings, db: DB) -> dict[str, Any]:
     """Enable/disable or customize the run interval of a periodic worker cron."""
     if ctx.scoped:
         raise HTTPException(status_code=403, detail="forbidden")
@@ -2188,9 +2181,11 @@ async def update_cron(
 
     cfg = await shop_settings.load(db, ctx.shop_id, fresh=True)
     raw = cfg.get("cron_overrides")
-    overrides: dict[str, dict[str, Any]] = {
-        k: dict(v) for k, v in raw.items() if isinstance(k, str) and isinstance(v, dict)
-    } if isinstance(raw, dict) else {}
+    overrides: dict[str, dict[str, Any]] = (
+        {k: dict(v) for k, v in raw.items() if isinstance(k, str) and isinstance(v, dict)}
+        if isinstance(raw, dict)
+        else {}
+    )
     entry = dict(overrides.get(name) or {})
     if body.enabled is not None:
         entry["enabled"] = body.enabled
@@ -2203,7 +2198,7 @@ async def update_cron(
     else:
         overrides[name] = entry
 
-    await shop_settings.save(db, ctx.shop_id, {"cron_overrides": overrides})
+    await shop_settings.set_many(db, ctx.shop_id, {"cron_overrides": overrides})
     await record(
         db,
         shop_id=ctx.shop_id,

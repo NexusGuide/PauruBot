@@ -34,8 +34,8 @@ from paurubot.db.models import (
     Staff,
     StockItem,
     Ticket,
-    TicketMessage,
     TicketDepartment,
+    TicketMessage,
 )
 from paurubot.i18n import Texts, texts_for
 from paurubot.logs import error_shop_id
@@ -1636,14 +1636,14 @@ async def reseller_notice(session: AsyncSession, job: queue.Claimed) -> None:
     notice = str(job.payload["notice"])
     balance = await wallet_balance(session, profile.shop_id, profile.customer_id)
     values = {"balance": money(balance), "debt": money(profile.billing_debt)}
-    if notice not in {"suspended", "resumed", "low_balance"}:
+    if notice not in {"suspended", "resumed", "low_balance", "expired"}:
         raise Permanent(f"unknown reseller notice {notice}")
-    text = t(f"reseller_{notice}", **values)
+    text = t("reseller_expired_notice") if notice == "expired" else t(f"reseller_{notice}", **values)
     days = job.payload.get("days") if notice == "low_balance" else None
     if days is not None:  # F-21: how long the wallet lasts at the current pace
         text += "\n" + runway_line(t, float(days))
     await _to_customer(session, customer, text)
-    if notice != "low_balance":
+    if notice not in {"low_balance", "expired"}:
         await report(
             session,
             profile.shop_id,
@@ -2186,9 +2186,7 @@ def audience_conditions(
         )
         conditions.append(
             Customer.id.not_in(
-                select(Service.customer_id).where(
-                    Service.shop_id == shop_id, Service.online_at >= week_ago
-                )
+                select(Service.customer_id).where(Service.shop_id == shop_id, Service.online_at >= week_ago)
             )
         )
     elif kind == "never_bought":
@@ -2297,6 +2295,7 @@ async def run_mass_gift(session: AsyncSession, job: queue.Claimed) -> None:
             await session.commit()
     log.info("gift %s paid %s customers %s each", batch, paid, amount)
     if paid > 0:
+
         async def gift_report() -> None:
             from paurubot.notifications import log_reports
 

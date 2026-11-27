@@ -20,7 +20,7 @@ from paurubot.bot.states import ResellerStates, TicketStates
 from paurubot.bot.utils import Btn, show
 from paurubot.core import customers, marketing, tickets, trials
 from paurubot.core.formatting import esc, jdate
-from paurubot.db.models import ApplicationStatus, Customer, ResellerApplication, Ticket
+from paurubot.db.models import ApplicationStatus, Customer, ResellerApplication, Ticket, TicketStatus
 from paurubot.db.models import Shop as ShopRow
 from paurubot.i18n import Texts
 from paurubot.worker import queue
@@ -86,9 +86,7 @@ async def trial(message: Message, session: AsyncSession, customer: Customer, t: 
     if rules.get("trial_choose_panel"):
         panels = await trials.options(session, customer)
         if len(panels) > 1:
-            await message.answer(
-                t("trial_choose_panel"), reply_markup=keyboards.trial_panels_kb(t, panels)
-            )
+            await message.answer(t("trial_choose_panel"), reply_markup=keyboards.trial_panels_kb(t, panels))
             return
     try:
         await trials.request(session, customer)

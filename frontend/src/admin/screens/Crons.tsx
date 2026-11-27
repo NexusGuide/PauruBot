@@ -23,7 +23,7 @@ interface CronRow {
 const CATEGORIES = ["all", "services", "payments", "panels", "reports", "growth", "cleanup", "system"] as const;
 type Unit = "s" | "m" | "h" | "d";
 
-function formatInterval(seconds: number, t: (k: string, p?: Record<string, unknown>) => string, locale: string): string {
+function formatInterval(seconds: number, t: (k: string, p?: Record<string, string | number>) => string, locale: string): string {
   if (seconds % 86400 === 0) return t("cron_every_days", { n: digits(seconds / 86400, locale) });
   if (seconds % 3600 === 0) return t("cron_every_hours", { n: digits(seconds / 3600, locale) });
   if (seconds % 60 === 0) return t("cron_every_minutes", { n: digits(seconds / 60, locale) });
@@ -46,8 +46,8 @@ function toSeconds(value: number, unit: Unit): number {
 
 export function CronsSection() {
   const { t, can, me, locale, toast, errorText } = useSession();
-  const allowed = !me?.scoped && can("settings.read");
-  const writable = !me?.scoped && can("settings.write");
+  const allowed = me?.role !== "reseller" && can("settings.read");
+  const writable = me?.role !== "reseller" && can("settings.write");
   const { data, error, reload } = useLoad<{ items: CronRow[] }>(allowed ? "/api/admin/system/crons" : null);
   const [busy, run] = useAction();
   const [cat, setCat] = useState<(typeof CATEGORIES)[number]>("all");

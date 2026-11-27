@@ -54,6 +54,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | DELETE | `/api/admin/channels/forced/{row_id}` | `settings.write` | Remove forced |
 | PUT | `/api/admin/channels/forced/{row_id}` | `settings.write` | Set forced |
 | POST | `/api/admin/channels/forced` | `settings.write` | Add forced |
+| POST | `/api/admin/channels/logs/auto-setup` | `settings.write` | Create missing Telegram forum topics in a supergroup and bind every report topic. |
+| POST | `/api/admin/channels/logs/{row_id}/test` | `settings.write` | Send a test message to verify bot permissions for a configured report topic. |
 | DELETE | `/api/admin/channels/logs/{row_id}` | `settings.write` | Remove log channel |
 | PUT | `/api/admin/channels/logs` | `settings.write` | Set log channel |
 | DELETE | `/api/admin/channels/trust/{row_id}` | `settings.write` | Remove trust |
@@ -170,7 +172,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/panels/{panel_id}/pasarguard/nodes/{node_id}/{action}` | `panels.write` | Pasarguard node |
 | GET | `/api/admin/panels/{panel_id}/pasarguard/{resource}` | `panels.read` | Read-only window into PasarGuard admin data (PNL-01). |
 | POST | `/api/admin/panels/{panel_id}/pin` | `panels.secrets` | Pin certificate |
-| POST | `/api/admin/panels/{panel_id}/restart` | `panels.write` | Restart the panel's Xray core (Marzban) or reconnect all nodes (PasarGuard) (ADM-07). |
+| POST | `/api/admin/panels/{panel_id}/restart` | `panels.write` | Restart the panel's Xray core (Marzban, X-UI) or reconnect all nodes (PasarGuard) (ADM-07). |
 | POST | `/api/admin/panels/{panel_id}/test` | `panels.write` | Test panel |
 | POST | `/api/admin/panels/{panel_id}/transfer` | `panels.write` | Give every user of one panel admin to another; one retrying job per user. |
 | POST | `/api/admin/panels/{panel_id}/webhook` | `panels.secrets` | Create a new webhook secret; it is shown once and stored encrypted. |
@@ -242,14 +244,12 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | PUT | `/api/admin/sub-resellers/{profile_id}` | `resellers.sub` | Update sub reseller |
 | GET | `/api/admin/sub-resellers` | `resellers.sub` | Sub resellers |
 | POST | `/api/admin/sub-resellers` | `resellers.sub` | Add sub reseller |
+| GET | `/api/admin/system/builds` | `settings.read` | Live GitHub Actions workflow runs for the configured repo and branch (default: dev). |
+| POST | `/api/admin/system/crons/{name}/run` | `settings.write` | Request immediate execution of a periodic worker cron on the next scheduler tick. |
+| PUT | `/api/admin/system/crons/{name}` | `settings.write` | Enable/disable or customize the run interval of a periodic worker cron. |
+| GET | `/api/admin/system/crons` | `settings.read` | List all periodic worker crons with schedules, overrides, and last-run telemetry. |
 | POST | `/api/admin/system/maintenance/clear-cache` | `settings.write` | Clear safe in-memory and Redis UI/settings caches without touching sessions or leases. |
 | POST | `/api/admin/system/maintenance/resync` | `settings.write` | Run an immediate usage sync across all active panels of this shop. |
-| GET | `/api/admin/system/builds` | `settings.read` | Live GitHub Actions workflow runs for the configured repo and branch (default: `dev`). |
-| POST | `/api/admin/channels/logs/auto-setup` | `settings.write` | Create missing Telegram forum topics in a supergroup and bind every report topic. |
-| POST | `/api/admin/channels/logs/{row_id}/test` | `settings.write` | Send a test message to verify bot permissions for a configured report topic. |
-| GET | `/api/admin/system/crons` | `settings.read` | List all periodic worker crons with schedules, overrides, and last-run telemetry. |
-| PUT | `/api/admin/system/crons/{name}` | `settings.write` | Enable/disable or customize the run interval of a periodic worker cron. |
-| POST | `/api/admin/system/crons/{name}/run` | `settings.write` | Request immediate execution of a periodic worker cron on the next scheduler tick. |
 | POST | `/api/admin/texts/reset` | `texts.write` | Put many texts back to the shipped wording at once, in every language (a whole tab). |
 | POST | `/api/admin/texts/{locale}/{key}/preview` | `texts.write` | Send a rendered test preview of a bot text to the signed-in staff member's Telegram. |
 | DELETE | `/api/admin/texts/{locale}/{key}` | `texts.write` | Reset text |
@@ -359,8 +359,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/help` | Mini App initData | Customer help view |
 | POST | `/api/webapp/join/check` | Mini App initData | Ask Telegram again after the customer joined; the answer is never cached. |
 | GET | `/api/webapp/join` | Mini App initData | Channels a customer must join before the rest of the Mini App answers (GRW-07). |
-| POST | `/api/webapp/lottery/join` | Customer (Telegram Mini App) | Lottery join |
-| GET | `/api/webapp/lottery` | Customer (Telegram Mini App) | Lottery info |
+| POST | `/api/webapp/lottery/join` | Mini App initData | Lottery join |
+| GET | `/api/webapp/lottery` | Mini App initData | Lottery info |
 | POST | `/api/webapp/me/alerts` | Mini App initData | Set alert preferences |
 | POST | `/api/webapp/me/locale` | Mini App initData | Set locale |
 | POST | `/api/webapp/me/marketing` | Mini App initData | Set marketing |
@@ -388,8 +388,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/payments/{payment_id}/receipt-state` | Mini App initData | State |
 | POST | `/api/webapp/payments/{payment_id}/receipt-upload` | Mini App initData | Upload |
 | POST | `/api/webapp/payments/{payment_id}/receipt` | Mini App initData | Upload receipt |
-| GET | `/api/webapp/payments/{payment_id}/resume` | Mini App initData | Resume payment |
 | POST | `/api/webapp/payments/{payment_id}/recheck` | Mini App initData | Let the customer trigger a rate-limited status check against a polling gateway. |
+| GET | `/api/webapp/payments/{payment_id}/resume` | Mini App initData | Resume payment |
 | GET | `/api/webapp/payments/{payment_id}` | Mini App initData | Payment status |
 | GET | `/api/webapp/payments` | Mini App initData | Pending payments |
 | GET | `/api/webapp/receipts` | Mini App initData | Inbox |
@@ -440,8 +440,8 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | GET | `/api/webapp/wallet/transfer-policy` | Mini App initData | Policy |
 | POST | `/api/webapp/wallet/transfers/confirm` | Mini App initData | Confirm |
 | POST | `/api/webapp/wallet/transfers/quote` | Mini App initData | Quote |
-| POST | `/api/webapp/wheel/spin` | Customer (Telegram Mini App) | Wheel spin |
-| GET | `/api/webapp/wheel` | Customer (Telegram Mini App) | Wheel info |
+| POST | `/api/webapp/wheel/spin` | Mini App initData | Wheel spin |
+| GET | `/api/webapp/wheel` | Mini App initData | Wheel info |
 
 ## `/api/webhooks`
 

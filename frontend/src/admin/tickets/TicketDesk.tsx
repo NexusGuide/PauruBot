@@ -85,17 +85,16 @@ function DeskList({ t, locale }: { t: T; locale: string }) {
   const list = useRead(path, parseList);
   const departments = useRead("/api/admin/ticket-departments", parseDepartments);
   const stats = useRead("/api/admin/tickets/stats", (raw) => {
-    const r = record(raw);
-    if (!r) return null;
+    if (!record(raw)) return null;
     return {
-      open: Number(r.open ?? 0),
-      answered: Number(r.answered ?? 0),
-      closed: Number(r.closed ?? 0),
-      awaiting: Number(r.awaiting ?? 0),
-      avg: typeof r.avg_first_reply_minutes === "number" ? r.avg_first_reply_minutes : null,
-      up: Number(r.reactions_up ?? 0),
-      down: Number(r.reactions_down ?? 0),
-      csat: typeof r.satisfaction_percent === "number" ? r.satisfaction_percent : null,
+      open: Number(raw.open ?? 0),
+      answered: Number(raw.answered ?? 0),
+      closed: Number(raw.closed ?? 0),
+      awaiting: Number(raw.awaiting ?? 0),
+      avg: typeof raw.avg_first_reply_minutes === "number" ? raw.avg_first_reply_minutes : null,
+      up: Number(raw.reactions_up ?? 0),
+      down: Number(raw.reactions_down ?? 0),
+      csat: typeof raw.satisfaction_percent === "number" ? raw.satisfaction_percent : null,
     };
   });
   const filter = (key: string, value: string) =>

@@ -190,7 +190,7 @@ test("the Mini App look page edits real appearance settings, each with a label",
 
 test("customer bots: filters and search", () => {
   const screen = h.compile(src("screens/CustomerBots.tsx"), {
-    "react-router-dom": {}, "@shared/format": {}, "../api": {}, "../hooks": {}, "../session": {}, "../ui": {},
+    "react-router-dom": {}, "@shared/format": {}, "../api": {}, "../hooks": {}, "../session": {}, "../ui": {}, "./BotLogsSheet": {}, "./MyBot": {},
   });
   const bot = (shop_id, kind, state, title, owner) => ({ shop_id, kind, state, title, bot_username: `${title}_bot`, owner });
   const items = [

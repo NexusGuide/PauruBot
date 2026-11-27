@@ -8,7 +8,6 @@ import subprocess
 import tomllib
 from pathlib import Path
 
-
 from paurubot import __version__
 from paurubot.ops import updater
 
@@ -75,7 +74,16 @@ def _run_bash(tmp_path: Path, body: str, env_vars: str = "") -> subprocess.Compl
     log_file = tmp_path / "ops.log"
     (tmp_path / "install.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
     fns = "\n".join(
-        _fn(name) for name in ("env_get", "env_set", "resolve_target", "swap_release", "cmd_update", "cmd_rollback", "rcli")
+        _fn(name)
+        for name in (
+            "env_get",
+            "env_set",
+            "resolve_target",
+            "swap_release",
+            "cmd_update",
+            "cmd_rollback",
+            "rcli",
+        )
     )
     script = (
         BASE_STUB

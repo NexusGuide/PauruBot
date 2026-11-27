@@ -59,9 +59,7 @@ def test_announcements_mark_uses_share_lock() -> None:
 
 def test_reports_sold_gb_covers_account_orders() -> None:
     ap = SimpleNamespace(data_gb=500)
-    p_order = SimpleNamespace(
-        kind=OrderKind.ACCOUNT_PURCHASE, params={"account_plan_id": 7}, plan=None
-    )
+    p_order = SimpleNamespace(kind=OrderKind.ACCOUNT_PURCHASE, params={"account_plan_id": 7}, plan=None)
     assert reports._sold_gb(p_order, {7: ap}) == 500
     gb_order = SimpleNamespace(kind=OrderKind.ACCOUNT_GB, params={"gb": 120}, plan=None)
     assert reports._sold_gb(gb_order, {7: ap}) == 120
@@ -71,9 +69,7 @@ def test_reports_sold_gb_covers_account_orders() -> None:
         plan=None,
     )
     assert reports._sold_gb(renew_pkg, {7: ap}) == 250
-    renew_plain = SimpleNamespace(
-        kind=OrderKind.ACCOUNT_RENEW, params={"account_plan_id": 7}, plan=None
-    )
+    renew_plain = SimpleNamespace(kind=OrderKind.ACCOUNT_RENEW, params={"account_plan_id": 7}, plan=None)
     assert reports._sold_gb(renew_plain, {7: ap}) == 500
 
 

@@ -651,7 +651,7 @@ function MaintenanceCard() {
       const res = await runCache(() =>
         call<{ redis_keys: number }>("/api/admin/system/maintenance/clear-cache", { method: "POST" }),
       );
-      toast(t("maint_cache_done", { count: digits(res.redis_keys, locale) }));
+      if (res) toast(t("maint_cache_done", { count: digits(res.redis_keys, locale) }));
     } catch (err) {
       toast(errorText(err), "error");
     }
@@ -663,12 +663,14 @@ function MaintenanceCard() {
           method: "POST",
         }),
       );
-      toast(
-        t("maint_resync_done", {
-          synced: digits(res.synced, locale),
-          panels: digits(res.panels, locale),
-        }),
-      );
+      if (res) {
+        toast(
+          t("maint_resync_done", {
+            synced: digits(res.synced, locale),
+            panels: digits(res.panels, locale),
+          }),
+        );
+      }
     } catch (err) {
       toast(errorText(err), "error");
     }

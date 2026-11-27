@@ -587,10 +587,9 @@ def _settle_service(
         service.plan_id = plan.id
         service.is_trial = False
     before_status = (target.get("before") or {}).get("status")
-    keep_on_hold = (
-        before_status == ServiceStatus.ON_HOLD.value
-        and not target.get("set_expire")
-    ) or (verified and service.status == ServiceStatus.ON_HOLD)
+    keep_on_hold = (before_status == ServiceStatus.ON_HOLD.value and not target.get("set_expire")) or (
+        verified and service.status == ServiceStatus.ON_HOLD
+    )
     service.status = ServiceStatus.ON_HOLD if keep_on_hold else ServiceStatus.ACTIVE
     service.disabled_reason = None
     service.alerts_sent = {}

@@ -7,8 +7,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from paurubot import kv
-from paurubot.db.base import utcnow
 from paurubot.core import pricing
+from paurubot.db.base import utcnow
 from paurubot.db.models import Customer, GiftCode, GiftRedemption
 from paurubot.ledger import wallet
 

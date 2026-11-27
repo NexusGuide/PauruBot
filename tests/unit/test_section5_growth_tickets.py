@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -63,22 +63,32 @@ def test_discount_account_plan_targeting():
     asyncio.run(pricing.validate_code(session, code, cust, plan_id=None, account_plan_id=7, amount=100_000))
 
     with pytest.raises(pricing.DiscountError) as exc:
-        asyncio.run(pricing.validate_code(session, code, cust, plan_id=None, account_plan_id=8, amount=100_000))
+        asyncio.run(
+            pricing.validate_code(session, code, cust, plan_id=None, account_plan_id=8, amount=100_000)
+        )
     assert exc.value.key == "discount_wrong_plan"
 
     with pytest.raises(pricing.DiscountError) as exc2:
-        asyncio.run(pricing.validate_code(session, code, cust, plan_id=3, account_plan_id=None, amount=100_000))
+        asyncio.run(
+            pricing.validate_code(session, code, cust, plan_id=3, account_plan_id=None, amount=100_000)
+        )
     assert exc2.value.key == "discount_wrong_plan"
 
     # Unrestricted code (both lists empty) applies to both VPN plans and panel admin account plans
     open_code = _code(plan_ids=[], account_plan_ids=[])
-    asyncio.run(pricing.validate_code(session, open_code, cust, plan_id=None, account_plan_id=7, amount=50_000))
-    asyncio.run(pricing.validate_code(session, open_code, cust, plan_id=3, account_plan_id=None, amount=50_000))
+    asyncio.run(
+        pricing.validate_code(session, open_code, cust, plan_id=None, account_plan_id=7, amount=50_000)
+    )
+    asyncio.run(
+        pricing.validate_code(session, open_code, cust, plan_id=3, account_plan_id=None, amount=50_000)
+    )
 
     # Code restricted to VPN plan #3 only must reject panel admin account orders
     vpn_code = _code(plan_ids=[3], account_plan_ids=[])
     with pytest.raises(pricing.DiscountError) as exc3:
-        asyncio.run(pricing.validate_code(session, vpn_code, cust, plan_id=None, account_plan_id=7, amount=50_000))
+        asyncio.run(
+            pricing.validate_code(session, vpn_code, cust, plan_id=None, account_plan_id=7, amount=50_000)
+        )
     assert exc3.value.key == "discount_wrong_plan"
 
 

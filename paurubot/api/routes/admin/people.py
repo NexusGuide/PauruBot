@@ -6,11 +6,12 @@ import csv
 import io
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
+from urllib.parse import unquote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from paurubot.api.admin_common import (
     Page,
@@ -45,6 +46,7 @@ from paurubot.db.models import (
     StaffRole,
     Ticket,
     TicketDepartment,
+    TicketMessage,
     TicketStatus,
 )
 from paurubot.worker import queue

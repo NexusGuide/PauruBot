@@ -22,7 +22,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `discounts_enabled` | bool | true | Enable discount codes. Turn off to temporarily hide and block discount codes in both bot and Mini App |
 | `audit_retention_days` | int | 180 | Audit log retention (days). Delete audit log entries older than this many days (0 keeps forever; 7–3650) |
 | `light_mode` | bool | false | Light mode (low-resource VPS). Skip alternate ticks of heavy background sync loops to reduce CPU and panel load |
-| `cron_overrides` | dict | {} | Cron schedule overrides. Per-task enabled flag and custom interval_seconds managed from the Crons screen |
+| `cron_overrides` | dict | {} | Cron schedule overrides |
 | `auto_replies` | list | [] | Auto replies. When a free message contains one of these words, the bot answers with this instead of the menu |
 
 ## Free trial
@@ -139,7 +139,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `ticket_reminder_minutes` | int | 0 | Unanswered ticket reminder (minutes). Remind staff about open customer tickets waiting longer than this many minutes (0 disables) |
 | `ticket_single_alert` | bool | false | One alert per open ticket. Avoid repeated staff DMs on consecutive customer messages until staff replies |
 | `ticket_miniapp_only` | bool | false | Tickets in Mini App only. Send customers to the Mini App tickets screen instead of creating tickets inside Telegram chat (requires an HTTPS public URL) |
-| `support_faq` | list | [] | Support FAQ items. Common Q&A buttons shown before opening a new support ticket: [{"q": "...", "a": "...", "btn_text": "...", "btn_url": "https://..."}] |
+| `support_faq` | list | [] | Support FAQ items. Common Q&A buttons shown before opening a new support ticket: [{"q": "...", "a": "..."}] |
 
 ## Resale
 
@@ -168,7 +168,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `miniapp_accent` | str | "" | Mini App accent colour. Presets only, so text stays readable in light and dark. Each reseller bot has its own |
 | `miniapp_logo` | bool | false | Mini App logo from the bot's profile photo. The bot's Telegram profile photo shows beside the shop name on the Mini App home screen (cached for a few hours) |
 | `miniapp_notice` | str | "" | Mini App home notice. One short paragraph (300 characters at most) above the wallet. Empty means none |
-| `miniapp_notice_expires_at` | str |  | Mini App notice expiry (UTC ISO). Automatically clear the Mini App notice banner after this timestamp |
+| `miniapp_notice_expires_at` | str | "" | Mini App notice expiry (UTC ISO). Optional ISO timestamp (e.g. 2026-12-01T20:00:00Z) to automatically clear the Mini App notice banner |
 | `menu_layout` | list | [] | — |
 | `button_styles` | dict | {} | — |
 | `button_looks` | dict | {} | — |
@@ -256,7 +256,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `renew_mode` | str | "" | When renewing. extend_reset, extend_carry, restart_reset or restart_carry; empty follows "Renewal resets usage". A plan can choose its own |
 | `warn_remaining_percent` | int | 10 | Low data warning (% left) |
 | `warn_remaining_gb` | int | 0 | Low volume alert (fixed GB). Warn when remaining traffic drops to or below this many GB (0 disables) |
-| `on_hold_remind_hours` | int | 24 | On-hold reminder after (hours). Remind customers whose ON_HOLD service has not connected yet (0 disables) |
+| `on_hold_remind_hours` | int | 24 | On-hold reminder after (hours). Remind customers whose ON_HOLD service has not connected yet after this many hours (0 disables) |
 | `capacity_warn_percent` | int | 0 | Panel capacity warning (%). Staff hear once when a panel's services reach this share of its capacity. 0 is off |
 | `alerts_quiet_start` | int | — | Reminders quiet from. Hour 0–23, server time. Data and expiry alerts due in this window go out in the morning. Empty is off |
 | `first_use_nudge_hours` | int | 0 | First-connection reminder (hours after purchase). If the service has no use at all by then, the customer is reminded of the connection guide once. 0 is off |

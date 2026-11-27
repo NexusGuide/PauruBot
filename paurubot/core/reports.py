@@ -237,18 +237,14 @@ async def daily_details(session: AsyncSession, shop_id: int, start: datetime, en
     service_panels = (
         dict(
             (
-                await session.execute(
-                    select(Service.id, Service.panel_id).where(Service.id.in_(service_ids))
-                )
+                await session.execute(select(Service.id, Service.panel_id).where(Service.id.in_(service_ids)))
             ).all()
         )
         if service_ids
         else {}
     )
     acct_ids = {
-        int(o.params["account_id"])
-        for o in rows
-        if isinstance(o.params, dict) and o.params.get("account_id")
+        int(o.params["account_id"]) for o in rows if isinstance(o.params, dict) and o.params.get("account_id")
     }
     account_panels = (
         dict(
@@ -267,12 +263,7 @@ async def daily_details(session: AsyncSession, shop_id: int, start: datetime, en
         if isinstance(o.params, dict) and o.params.get("account_plan_id")
     }
     account_plans = (
-        {
-            p.id: p
-            for p in await session.scalars(
-                select(AccountPlan).where(AccountPlan.id.in_(acct_plan_ids))
-            )
-        }
+        {p.id: p for p in await session.scalars(select(AccountPlan).where(AccountPlan.id.in_(acct_plan_ids)))}
         if acct_plan_ids
         else {}
     )

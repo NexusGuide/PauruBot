@@ -1321,7 +1321,7 @@ async def expire_resellers() -> None:
                 session,
                 "notify",
                 "reseller_notice",
-                {"customer_id": profile.customer_id, "key": "reseller_expired_notice"},
+                {"profile_id": profile.id, "notice": "expired"},
                 shop_id=profile.shop_id,
                 dedupe_key=f"reseller-expired:{profile.id}:{now.strftime('%Y%m%d')}",
             )
@@ -1360,7 +1360,7 @@ async def expire_miniapp_notices() -> None:
             except ValueError:
                 continue
             if exp <= now:
-                await shop_settings.save(
+                await shop_settings.set_many(
                     session,
                     shop_id,
                     {"miniapp_notice": "", "miniapp_notice_expires_at": ""},

@@ -65,18 +65,18 @@ export function BuildStatus() {
   );
 
   useEffect(() => {
-    if (me?.scoped || !can("settings.read")) return;
+    if (me?.role === "reseller" || !can("settings.read")) return;
     setLoading(true);
     void load(false);
-  }, [load, me?.scoped, can]);
+  }, [load, me?.role, can]);
 
   useEffect(() => {
-    if (!live || me?.scoped || !can("settings.read")) return;
+    if (!live || me?.role === "reseller" || !can("settings.read")) return;
     const timer = window.setInterval(() => void load(true), 30_000);
     return () => window.clearInterval(timer);
-  }, [live, load, me?.scoped, can]);
+  }, [live, load, me?.role, can]);
 
-  if (me?.scoped || !can("settings.read")) return null;
+  if (me?.role === "reseller" || !can("settings.read")) return null;
 
   const runs = data?.runs ?? [];
   const latest = runs[0];

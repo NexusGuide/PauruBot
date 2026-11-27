@@ -14,9 +14,9 @@ from paurubot.api.admin_common import Page, owned, page_params, paginate, plain
 from paurubot.api.deps import DB, StaffContext, require
 from paurubot.audit.log import record, snapshot
 from paurubot.db.models import (
+    AccountPlan,
     Broadcast,
     Customer,
-    AccountPlan,
     DiscountCode,
     DiscountKind,
     DiscountRedemption,
@@ -105,9 +105,7 @@ async def _check_plan_targets(
     if clean_acc:
         found_acc = set(
             await db.scalars(
-                select(AccountPlan.id).where(
-                    AccountPlan.shop_id == shop_id, AccountPlan.id.in_(clean_acc)
-                )
+                select(AccountPlan.id).where(AccountPlan.shop_id == shop_id, AccountPlan.id.in_(clean_acc))
             )
         )
         if len(found_acc) != len(clean_acc):
@@ -310,14 +308,10 @@ async def create_codes_bulk(
 ) -> dict[str, Any]:
     if body.kind == DiscountKind.PERCENT and body.value > 100:
         raise HTTPException(status_code=422, detail="percent_over_100")
-    clean_plans, clean_acc = await _check_plan_targets(
-        db, ctx.shop_id, body.plan_ids, body.account_plan_ids
-    )
+    clean_plans, clean_acc = await _check_plan_targets(db, ctx.shop_id, body.plan_ids, body.account_plan_ids)
     existing = {
         c.lower()
-        for c in await db.scalars(
-            select(DiscountCode.code).where(DiscountCode.shop_id == ctx.shop_id)
-        )
+        for c in await db.scalars(select(DiscountCode.code).where(DiscountCode.shop_id == ctx.shop_id))
     }
     prefix = body.prefix.upper()
     codes: list[str] = []
@@ -793,8 +787,7 @@ async def create_gifts_bulk(
     if not ctx.can("wallet.adjust"):
         raise HTTPException(status_code=403, detail="forbidden")
     existing = {
-        c.lower()
-        for c in await db.scalars(select(GiftCode.code).where(GiftCode.shop_id == ctx.shop_id))
+        c.lower() for c in await db.scalars(select(GiftCode.code).where(GiftCode.shop_id == ctx.shop_id))
     }
     prefix = body.prefix.upper()
     codes: list[str] = []
@@ -1051,9 +1044,7 @@ async def lottery_action(lottery_id: int, action: str, ctx: Sender, db: DB) -> d
     from paurubot.db.models import Lottery
 
     row = await db.scalar(
-        select(Lottery)
-        .where(Lottery.id == lottery_id, Lottery.shop_id == ctx.shop_id)
-        .with_for_update()
+        select(Lottery).where(Lottery.id == lottery_id, Lottery.shop_id == ctx.shop_id).with_for_update()
     )
     if row is None:
         raise HTTPException(status_code=404, detail="not_found")

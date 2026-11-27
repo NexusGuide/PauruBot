@@ -8,11 +8,11 @@ can use `{name}` style variables but can never reach object attributes or indexe
 
 from __future__ import annotations
 
-from html.parser import HTMLParser
 import json
 import string
 import time
 from functools import lru_cache
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 

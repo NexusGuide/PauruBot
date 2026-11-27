@@ -42,6 +42,7 @@ from paurubot.core import (
     tickets,
     trials,
 )
+from paurubot.db.base import utcnow
 from paurubot.db.models import (
     AccountPlan,
     Category,
@@ -55,6 +56,7 @@ from paurubot.db.models import (
     Panel,
     PanelAccount,
     Payment,
+    PaymentStatus,
     Plan,
     Service,
     ServiceStatus,
@@ -1296,9 +1298,7 @@ async def cancel_quote(service_id: int, ctx: WebApp) -> dict[str, Any]:
 
 
 @router.post("/services/{service_id}/cancel")
-async def cancel_service(
-    service_id: int, ctx: WebApp, body: CancelBody | None = None
-) -> dict[str, Any]:
+async def cancel_service(service_id: int, ctx: WebApp, body: CancelBody | None = None) -> dict[str, Any]:
     from paurubot.core import cancellation
 
     service = await _owned_service(ctx, service_id)
@@ -1588,8 +1588,6 @@ async def reseller_renew(body: RenewManyBody, ctx: WebApp) -> dict[str, Any]:
     }
 
 
-
-
 # --- lucky wheel & lotteries in the Mini App -------------------------------------------
 
 
@@ -1695,10 +1693,7 @@ async def lottery_info(ctx: WebApp) -> dict[str, Any]:
             break
     top_ids = [e.customer_id for e in board[:10]]
     people = (
-        {
-            c.id: c
-            for c in await ctx.session.scalars(select(Customer).where(Customer.id.in_(top_ids)))
-        }
+        {c.id: c for c in await ctx.session.scalars(select(Customer).where(Customer.id.in_(top_ids)))}
         if top_ids
         else {}
     )

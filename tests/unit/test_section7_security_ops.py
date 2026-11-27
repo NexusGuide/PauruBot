@@ -105,9 +105,7 @@ def test_backup_delete_protection_and_root_shop_enforcement() -> None:
         "migration_run",
         "migration_last",
     ):
-        fn = next(
-            n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == fn_name
-        )
+        fn = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == fn_name)
         seg = ast.get_source_segment(sys_src, fn) or ""
         assert "_require_root_shop" in seg, f"{fn_name} must enforce root shop"
 

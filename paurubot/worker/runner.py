@@ -8,6 +8,7 @@ import signal
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -234,9 +235,7 @@ CRON_RUN_NOW_PREFIX = "cron:run_now:"
 CRON_STATE_TTL = 14 * 86400
 
 
-async def _record_cron_state(
-    name: str, *, status: str, duration_ms: int, error: str | None = None
-) -> None:
+async def _record_cron_state(name: str, *, status: str, duration_ms: int, error: str | None = None) -> None:
     import json
     from datetime import UTC, datetime
 
@@ -262,7 +261,7 @@ async def _record_cron_state(
         log.debug("cron state write failed for %s", name, exc_info=True)
 
 
-async def get_cron_states(names: list[str]) -> dict[str, dict[str, object]]:
+async def get_cron_states(names: list[str]) -> dict[str, dict[str, Any]]:
     import json
 
     if not names:
@@ -271,7 +270,7 @@ async def get_cron_states(names: list[str]) -> dict[str, dict[str, object]]:
         raw = await kv.get_redis().mget([f"{CRON_STATE_PREFIX}{n}" for n in names])
     except Exception:
         return {}
-    out: dict[str, dict[str, object]] = {}
+    out: dict[str, dict[str, Any]] = {}
     for name, item in zip(names, raw, strict=True):
         if item:
             try:
@@ -399,7 +398,7 @@ class Worker:
             if not ran:
                 await self._idle(self.idle_sleep)
 
-    async def _load_cron_overrides(self) -> dict[str, dict[str, object]]:
+    async def _load_cron_overrides(self) -> dict[str, dict[str, Any]]:
         try:
             from paurubot.core import settings as shop_settings
             from paurubot.core.shops import root_shop
@@ -415,7 +414,7 @@ class Worker:
             return {}
 
     async def _scheduler(self) -> None:
-        overrides: dict[str, dict[str, object]] = {}
+        overrides: dict[str, dict[str, Any]] = {}
         overrides_until = 0.0
         while not self._stop.is_set():
             now = time.monotonic()
@@ -435,7 +434,8 @@ class Worker:
             except Exception:
                 pass
             for task in PERIODIC:
-                ov = overrides.get(task.name) if isinstance(overrides.get(task.name), dict) else {}
+                raw_ov = overrides.get(task.name)
+                ov: dict[str, Any] = raw_ov if isinstance(raw_ov, dict) else {}
                 enabled = True if task.name in CRON_PROTECTED else bool(ov.get("enabled", True))
                 raw_int = ov.get("interval_seconds")
                 eff_every = (

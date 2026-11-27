@@ -543,9 +543,7 @@ async def checkout(
 
 
 @router.callback_query(Shop.filter(F.step == "discount"))
-async def ask_discount(
-    call: CallbackQuery, t: Texts, cfg: dict[str, Any], state: FSMContext
-) -> None:
+async def ask_discount(call: CallbackQuery, t: Texts, cfg: dict[str, Any], state: FSMContext) -> None:
     if not bool(cfg.get("discounts_enabled", True)):
         await call.answer(t("discounts_disabled"), show_alert=True)
         return
