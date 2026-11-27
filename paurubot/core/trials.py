@@ -11,6 +11,7 @@ to the first panel that allows them and still has room, so a busy panel hands ov
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Any
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -194,7 +195,7 @@ async def _eligible_panels(
 
 async def effective_rules(
     session: AsyncSession, shop_id: int, *, fresh: bool = False
-) -> tuple[int, dict[str, object]]:
+) -> tuple[int, dict[str, Any]]:
     """Return (panel_owner_shop_id, effective_trial_rules) accounting for reseller bots."""
     from paurubot.core import resale
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import asdict, dataclass
+from typing import Any
 
 from paurubot import kv
 from paurubot.config import get_settings
@@ -62,7 +63,7 @@ async def destroy(session_id: str | None) -> None:
         await redis.srem(f"staff_sessions:{data.staff_id}", key)
 
 
-async def list_for_staff(staff_id: int, current_session_id: str | None = None) -> list[dict[str, object]]:
+async def list_for_staff(staff_id: int, current_session_id: str | None = None) -> list[dict[str, Any]]:
     """Active browser sessions for one staff account, pruning expired keys from the index."""
     redis = kv.get_redis()
     set_key = f"staff_sessions:{staff_id}"
@@ -73,7 +74,7 @@ async def list_for_staff(staff_id: int, current_session_id: str | None = None) -
     values = await redis.mget(keys)
     current_key = _key(current_session_id) if current_session_id else None
     stale: list[str] = []
-    items: list[dict[str, object]] = []
+    items: list[dict[str, Any]] = []
     for key, raw in zip(keys, values, strict=True):
         if not raw:
             stale.append(key)

@@ -535,7 +535,7 @@ async def remind_unanswered_tickets() -> None:
                     .order_by(TicketMessage.id.desc())
                     .limit(1)
                 )
-                if last_msg is None or last_msg.sender_type != "customer":
+                if last_msg is None or last_msg.author_type != "customer":
                     continue
                 if last_msg.created_at is None:
                     continue

@@ -224,11 +224,17 @@ async def claim(session: AsyncSession, token: str, customer: Customer) -> int:
             actor=f"customer:{customer.id}",
         )
     from paurubot.core import growth
+    from paurubot.core import settings as shop_settings
 
     customer.total_spent = int(customer.total_spent or 0) + int(guest.total_spent or 0)
     guest.total_spent = 0  # counted once, on the real customer (loyalty tiers, reports)
-    await growth.refresh_tier(session, customer)
-    return int(moved.rowcount or 0) + int(accounts.rowcount or 0) + int(stock_moved.rowcount or 0)
+    cfg = await shop_settings.load(session, customer.shop_id)
+    await growth.refresh_tier(session, customer, cfg)
+    return (
+        int(getattr(moved, "rowcount", 0) or 0)
+        + int(getattr(accounts, "rowcount", 0) or 0)
+        + int(getattr(stock_moved, "rowcount", 0) or 0)
+    )
 
 
 def visitor_key(address: str) -> str:

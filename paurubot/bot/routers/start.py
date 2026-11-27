@@ -39,7 +39,7 @@ router = Router(name="start")
 
 def menu(
     t: Texts, cfg: dict[str, Any], staff: StaffIdentity | None, *, trial_used: bool = False
-) -> ReplyKeyboardMarkup | InlineKeyboardMarkup:
+) -> ReplyKeyboardMarkup | InlineKeyboardMarkup | ReplyKeyboardRemove:
     """One mode-aware menu for both entry and completion messages (BOT-12).
 
     Staff use the selected customer mode too; an inline admin shortcut keeps

@@ -120,7 +120,7 @@ async def pay_commission(session: AsyncSession, order: Order) -> int:
     params = order.params or {}
     resale_profile_id = params.get("resale_profile")
     via_resale_bot = bool(resale_profile_id)
-    if via_resale_bot:
+    if resale_profile_id:
         profile = await session.get(ResellerProfile, int(resale_profile_id))
         child_price = int(params.get("wholesale") or 0)
         if child_price <= 0:

@@ -69,7 +69,7 @@ async def backups(
     from paurubot.config import get_settings
     from paurubot.ops import backup, delivery
 
-    if shop.parent_shop_id is not None:
+    if shop.parent_id is not None:
         await call.answer(t("adm_forbidden"), show_alert=True)
         return
     items = backup.listing()[:SHOWN_BACKUPS]

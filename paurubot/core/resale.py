@@ -533,10 +533,11 @@ async def webhook_status(shop_id: int) -> dict[str, Any]:
     url = str(info.url or "")
     matches = (url == expected) if expected else (url == "")
     last_date = None
-    if info.last_error_date:
-        from datetime import UTC, datetime
+    if info.last_error_date is not None:
+        from datetime import UTC
 
-        last_date = datetime.fromtimestamp(int(info.last_error_date), UTC).isoformat()
+        dt = info.last_error_date
+        last_date = (dt.astimezone(UTC) if dt.tzinfo else dt.replace(tzinfo=UTC)).isoformat()
     return {
         "ok": matches and not info.last_error_message,
         "bot_mode": settings.bot_mode,
@@ -717,36 +718,39 @@ async def bot_logs(
             select(Payment).where(Payment.shop_id == shop.id).order_by(Payment.id.desc()).limit(per_source)
         )
     )
-    for row in pay_rows:
-        st = row.status
-        if st in {PaymentStatus.FAILED, PaymentStatus.VOIDED, PaymentStatus.DISPUTED} or row.failure_reason:
+    for pay in pay_rows:
+        pay_st = pay.status
+        if (
+            pay_st in {PaymentStatus.FAILED, PaymentStatus.VOIDED, PaymentStatus.DISPUTED}
+            or pay.failure_reason
+        ):
             level = "error"
-        elif st in {PaymentStatus.PENDING, PaymentStatus.VERIFYING, PaymentStatus.EXPIRED}:
+        elif pay_st in {PaymentStatus.PENDING, PaymentStatus.VERIFYING, PaymentStatus.EXPIRED}:
             level = "warn"
         else:
             level = "info"
-        who = row.customer.staff_label if row.customer is not None else f"#{row.customer_id}"
-        detail_parts = [row.provider, row.purpose.value, f"#{row.id}"]
-        if row.review_note:
-            detail_parts.append(row.review_note)
+        who = pay.customer.staff_label if pay.customer is not None else f"#{pay.customer_id}"
+        detail_parts = [pay.provider, pay.purpose.value, f"#{pay.id}"]
+        if pay.review_note:
+            detail_parts.append(pay.review_note)
         items.append(
             {
-                "id": f"payment:{row.id}",
-                "at": (row.updated_at or row.created_at).isoformat(),
+                "id": f"payment:{pay.id}",
+                "at": (pay.updated_at or pay.created_at).isoformat(),
                 "category": "payments",
                 "level": level,
-                "title": f"payment.{row.provider}",
-                "status": st.value,
+                "title": f"payment.{pay.provider}",
+                "status": pay_st.value,
                 "actor": who,
                 "detail": " · ".join(detail_parts),
-                "error": row.failure_reason or None,
-                "amount": int(row.amount or 0),
+                "error": pay.failure_reason or None,
+                "amount": int(pay.amount or 0),
                 "meta": {
-                    "payment_id": row.id,
-                    "order_id": row.order_id,
-                    "provider": row.provider,
-                    "purpose": row.purpose.value,
-                    "review_note": row.review_note,
+                    "payment_id": pay.id,
+                    "order_id": pay.order_id,
+                    "provider": pay.provider,
+                    "purpose": pay.purpose.value,
+                    "review_note": pay.review_note,
                 },
             }
         )
@@ -757,30 +761,30 @@ async def bot_logs(
             select(Job).where(Job.shop_id == shop.id).order_by(Job.id.desc()).limit(per_source)
         )
     )
-    for row in job_rows:
-        st = row.status
-        if st in {JobStatus.FAILED, JobStatus.DEAD} or row.last_error:
+    for job in job_rows:
+        job_st = job.status
+        if job_st in {JobStatus.FAILED, JobStatus.DEAD} or job.last_error:
             level = "error"
-        elif st in {JobStatus.PAUSED, JobStatus.CANCELED}:
+        elif job_st in {JobStatus.PAUSED, JobStatus.CANCELED}:
             level = "warn"
         else:
             level = "info"
         items.append(
             {
-                "id": f"job:{row.id}",
-                "at": (row.updated_at or row.created_at).isoformat(),
+                "id": f"job:{job.id}",
+                "at": (job.updated_at or job.created_at).isoformat(),
                 "category": "jobs",
                 "level": level,
-                "title": f"{row.queue}.{row.kind}",
-                "status": st.value,
-                "actor": f"worker ({row.attempts}/{row.max_attempts})",
-                "detail": f"job #{row.id}",
-                "error": row.last_error or None,
+                "title": f"{job.queue}.{job.kind}",
+                "status": job_st.value,
+                "actor": f"worker ({job.attempts}/{job.max_attempts})",
+                "detail": f"job #{job.id}",
+                "error": job.last_error or None,
                 "amount": None,
                 "meta": (
-                    {"job_id": row.id, "queue": row.queue, "attempts": row.attempts, "payload": row.payload}
+                    {"job_id": job.id, "queue": job.queue, "attempts": job.attempts, "payload": job.payload}
                     if staff
-                    else {"job_id": row.id, "queue": row.queue, "attempts": row.attempts}
+                    else {"job_id": job.id, "queue": job.queue, "attempts": job.attempts}
                 ),
             }
         )
@@ -813,37 +817,37 @@ async def bot_logs(
             select(AuditLog).where(or_(*audit_conds)).order_by(AuditLog.id.desc()).limit(per_source)
         )
     )
-    for row in audit_rows:
-        act = str(row.action or "")
+    for audit in audit_rows:
+        act = str(audit.action or "")
         if any(tok in act for tok in ("stop", "disconnect", "hold", "block", "delete", "reject")):
             level = "warn"
         else:
             level = "info"
-        actor = f"{row.actor_type}#{row.actor_id}" if row.actor_id is not None else row.actor_type
+        actor = f"{audit.actor_type}#{audit.actor_id}" if audit.actor_id is not None else audit.actor_type
         entity_label = (
-            f"{row.entity} #{row.entity_id}" if row.entity and row.entity_id else (row.entity or "")
+            f"{audit.entity} #{audit.entity_id}" if audit.entity and audit.entity_id else (audit.entity or "")
         )
-        meta = {}
+        audit_meta: dict[str, Any] = {}
         if staff:
-            if row.before:
-                meta["before"] = row.before
-            if row.after:
-                meta["after"] = row.after
-            if row.ip:
-                meta["ip"] = row.ip
+            if audit.before:
+                audit_meta["before"] = audit.before
+            if audit.after:
+                audit_meta["after"] = audit.after
+            if audit.ip:
+                audit_meta["ip"] = audit.ip
         items.append(
             {
-                "id": f"audit:{row.id}",
-                "at": row.created_at.isoformat(),
+                "id": f"audit:{audit.id}",
+                "at": audit.created_at.isoformat(),
                 "category": "audit",
                 "level": level,
                 "title": act,
                 "status": None,
-                "actor": actor if staff else row.actor_type,
+                "actor": actor if staff else audit.actor_type,
                 "detail": entity_label,
                 "error": None,
                 "amount": None,
-                "meta": meta or None,
+                "meta": audit_meta or None,
             }
         )
 

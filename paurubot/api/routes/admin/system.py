@@ -676,7 +676,7 @@ async def verify_channels(ctx: Settings, db: DB) -> dict[str, Any]:
             info = await forced_join.resolve(shop, chat_id)
         except forced_join.ForcedJoinError as exc:
             failed_count += 1
-            await kv.mark(mark_key, 900, exc.key)
+            await kv.mark(mark_key, 900, exc.code)
             results.append(
                 {
                     "kind": kind,
@@ -684,7 +684,7 @@ async def verify_channels(ctx: Settings, db: DB) -> dict[str, Any]:
                     "chat_id": chat_id,
                     "title": title,
                     "ok": False,
-                    "detail": exc.key,
+                    "detail": exc.code,
                 }
             )
             continue
@@ -2053,9 +2053,7 @@ async def github_builds(
 
     import httpx
 
-    from paurubot.config import get_settings
-
-    repo = get_settings().update_repo
+    repo = (os.environ.get("PAURUBOT_GITHUB_REPO") or "NexusGuide/PauruBot").strip() or "NexusGuide/PauruBot"
     cache_key = (repo, branch)
     cached = _builds_cache.get(cache_key)
     now_mono = _time.monotonic()
@@ -2125,7 +2123,8 @@ async def list_crons(
     from paurubot.worker import runner
 
     cfg = await shop_settings.load(db, ctx.shop_id)
-    overrides = cfg.get("cron_overrides") if isinstance(cfg.get("cron_overrides"), dict) else {}
+    raw_overrides = cfg.get("cron_overrides")
+    overrides: dict[str, Any] = raw_overrides if isinstance(raw_overrides, dict) else {}
     names = [task.name for task in runner.PERIODIC]
     states = await runner.get_cron_states(names)
     items = []

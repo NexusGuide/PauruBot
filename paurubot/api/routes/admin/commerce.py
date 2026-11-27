@@ -110,7 +110,8 @@ def _order_details(order: Order) -> dict[str, int]:
     params = order.params if isinstance(order.params, dict) else {}
     out: dict[str, int] = {}
     if order.kind == OrderKind.ACCOUNT_RENEW:
-        renew = params.get("renew") if isinstance(params.get("renew"), dict) else {}
+        raw_renew = params.get("renew")
+        renew: dict[str, Any] = raw_renew if isinstance(raw_renew, dict) else {}
         days = _positive_int(renew.get("days"))
         gb = _positive_int(renew.get("gb"))
         if days:

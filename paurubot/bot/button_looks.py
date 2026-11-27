@@ -90,7 +90,7 @@ async def looks_for(shop_id: int | None) -> dict[str, dict[str, str]]:
                 if looks:
                     overrides = await load_overrides(session, target)
                     context = {
-                        "shop": str(cfg.get("shop_name") or (shop.name if shop else "") or ""),
+                        "shop": str(cfg.get("shop_name") or (shop.title if shop else "") or ""),
                         "support": str(cfg.get("support_username") or ""),
                     }
                     for locale in LOCALES:

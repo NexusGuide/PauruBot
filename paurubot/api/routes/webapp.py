@@ -160,7 +160,7 @@ def _service_base(service: Service, cfg: dict[str, Any] | None = None) -> dict[s
         "used_bytes": service.used_bytes,
         "expire_at": _iso(service.expire_at),
         "created_at": _iso(getattr(service, "created_at", None)),
-        "plan_days": int(service.plan.days) if getattr(service, "plan", None) and service.plan.days else None,
+        "plan_days": int(service.plan.days) if service.plan is not None and service.plan.days else None,
         # When the data ran out (SEC-F15); the Mini App keys its "data used up" alert by it.
         "limited_at": _iso(service.limited_at),
         "subscription_url": customer_link(service, cfg) if cfg is not None else service.subscription_url,
@@ -1620,9 +1620,9 @@ async def wheel_info(ctx: WebApp) -> dict[str, Any]:
         "dice_prize_amount": int(cfg.get("wheel_dice_prize") or 0) if style in ("dice", "slot") else 0,
         "last_spin": (
             {
-                "label": last.prize_label,
-                "kind": last.prize_kind,
-                "value": last.prize_value,
+                "label": last.label,
+                "kind": last.kind,
+                "value": last.value,
                 "at": last.created_at.isoformat(),
             }
             if last is not None
