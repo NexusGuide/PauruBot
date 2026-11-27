@@ -375,37 +375,41 @@ cmd_install() {
   say "${BOLD}PauruBot setup${RESET}"
   say "${DIM}Point the domain's DNS A record at this server before continuing.${RESET}"
   if [[ $channel_given -eq 0 && -z $version && -t 0 ]]; then
+    local pick stable_latest beta_ver dev_ver tags choose_ver
+    stable_latest=$(latest_release 2>/dev/null || true)
+    beta_ver=$(branch_version main 2>/dev/null || true)
+    dev_ver=$(branch_version dev 2>/dev/null || true)
     say ""
-    say "Choose a release channel:"
-    say "  1) stable   published release (recommended)"
-    say "  2) beta     main / edge (newest CI-tested code)"
-    say "  3) dev      dev branch (newest changes, may be unstable)"
-    local pick
-    read -r -p "Channel [1]: " pick </dev/tty || pick=1
+    say "Choose a release:"
+    say "  1) stable  ${stable_latest:-latest}  (recommended)"
+    say "  2) beta    ${beta_ver:-main/edge}  (newest CI-tested code)"
+    say "  3) dev     ${dev_ver:-dev branch}  (newest changes, may be unstable)"
+    say "  4) a specific stable version"
+    read -r -p "Choice [1]: " pick </dev/tty || pick=1
     case ${pick:-1} in
       1) channel=stable ;;
       2) channel=beta ;;
       3) channel=dev ;;
-      *) die "pick 1-3" ;;
+      4)
+        tags=$(release_tags || true)
+        say ""
+        say "Published stable versions:"
+        if [[ -n $tags ]]; then
+          printf '%s\n' "$tags" | sed 's/^/  /'
+        else
+          say "  (could not list versions; type vX.Y.Z)"
+        fi
+        read -r -p "Version (vX.Y.Z): " choose_ver </dev/tty || choose_ver=""
+        choose_ver=$(clean_input "$choose_ver")
+        [[ -n $choose_ver && $choose_ver =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] ||
+          die "invalid version: $choose_ver (expected vX.Y.Z)"
+        channel=stable
+        version=$choose_ver
+        ;;
+      *) die "pick 1-4" ;;
     esac
   fi
-  if [[ $channel == stable && -z $version && -t 0 ]]; then
-    local choose_ver tags
-    tags=$(release_tags || true)
-    say ""
-    say "Published stable versions (leave empty for the latest):"
-    if [[ -n $tags ]]; then
-      printf '%s\n' "$tags" | sed 's/^/  /'
-    else
-      say "  (could not list versions; type vX.Y.Z or leave empty)"
-    fi
-    read -r -p "Version [latest]: " choose_ver </dev/tty || choose_ver=""
-    choose_ver=$(clean_input "$choose_ver")
-    [[ -z $choose_ver || $choose_ver =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] ||
-      die "invalid version: $choose_ver (expected vX.Y.Z)"
-    version=$choose_ver
-  fi
-  say "Release: ${BOLD}$channel${RESET}${version:+ version ${version#v}}"
+  say "Selected: ${BOLD}$channel${RESET}${version:+ version ${version#v}}"
   [[ -n $domain ]] || domain=$(ask "Domain for the panel (e.g. bot.example.com)")
   [[ -n $token ]] || token=$(ask "Telegram bot token from @BotFather")
   [[ -n $owner ]] || owner=$(ask "Your numeric Telegram user ID")

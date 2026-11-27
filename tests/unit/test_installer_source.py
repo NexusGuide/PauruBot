@@ -102,7 +102,8 @@ def test_the_cli_exposes_channel_and_version_management() -> None:
     assert "channels | releases) cmd_channels" in installer
     assert "versions) cmd_versions" in installer
     assert "channel | switch) cmd_switch" in installer
-    assert "Choose a release channel:" in installer
+    assert "Choose a release:" in installer
+    assert "a specific stable version" in installer
     assert "pauru switch stable|beta|dev" in installer
     assert "pauru switch --version vX.Y.Z" in installer
     assert "PAURUBOT_PRE_DEV_BACKUP" in installer  # beta and dev share the pre-release snapshot

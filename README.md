@@ -59,7 +59,7 @@ install.sh install --domain bot.example.com --token 123:ABC --owner 123456789 --
 
 ### انتخاب کانال و نسخه
 
-نصب تعاملی (بدون `--channel`) کانال را می‌پرسد: `stable`، `beta` یا `dev`. برای نصب مستقیم روی کد `main` از کانال beta استفاده کنید:
+نصب تعاملی (بدون `--channel`) یک منوی انتخاب نسخه/کانال نشان می‌دهد: `stable`، `beta`، `dev` یا یک نسخهٔ مشخص. برای نصب مستقیم روی کد `main` از کانال beta استفاده کنید:
 
 ```bash
 install.sh install --domain bot.example.com --token 123:ABC --owner 123456789 --channel beta
