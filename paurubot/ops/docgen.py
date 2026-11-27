@@ -190,7 +190,12 @@ def cli_doc() -> str:
     build_parser()  # registers the commands
     installer = (ROOT / "install.sh").read_text(encoding="utf-8")
     block = installer[installer.find("\nmain() {") :]
-    actions = re.findall(r"^\s{4}([a-z][a-z-]*)\)", block, re.M)
+    actions = [
+        name.strip()
+        for line in block.splitlines()
+        if (match := re.match(r"^\s{4}([a-z][a-z-]*(?: \| [a-z][a-z-]*)*)\)", line))
+        for name in match.group(1).split("|")
+    ]
     usage = [line[2:] for line in installer.splitlines()[1:14] if line.startswith("#   ")]
     out = [
         "# Command line\n\n",

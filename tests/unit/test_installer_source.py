@@ -93,3 +93,16 @@ def test_dev_channel_is_wired_across_workflows_and_installer() -> None:
     res = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=5)
     assert res.returncode == 0, res.stderr
     assert res.stdout.strip() == "dev ghcr.io/nexusguide/paurubot:dev"
+
+
+def test_the_cli_exposes_channel_and_version_management() -> None:
+    installer = (ROOT / "install.sh").read_text()
+    # The menu and the non-interactive CLI both expose the switch clearly.
+    assert "14) Channels / versions" in installer
+    assert "channels | releases) cmd_channels" in installer
+    assert "versions) cmd_versions" in installer
+    assert "channel | switch) cmd_switch" in installer
+    assert "Choose a release channel:" in installer
+    assert "pauru switch stable|beta|dev" in installer
+    assert "pauru switch --version vX.Y.Z" in installer
+    assert "PAURUBOT_PRE_DEV_BACKUP" in installer  # beta and dev share the pre-release snapshot

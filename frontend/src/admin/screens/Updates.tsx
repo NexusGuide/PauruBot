@@ -111,6 +111,8 @@ export function Updates() {
       <Async data={data} error={error} reload={reload}>
         {(value) => {
           const switchingDevToMain = value.channel === "dev" && (channel === "stable" || channel === "beta");
+          const switchingBetaToStable = value.channel === "beta" && channel === "stable";
+          const switchingAwayFromNewer = switchingDevToMain || switchingBetaToStable;
           const switchingMainToDev = value.channel !== "dev" && channel === "dev";
           const previousText = value.previous
             ? value.previous_channel
@@ -143,7 +145,7 @@ export function Updates() {
                     {t("updates_available", { version: value.latest ?? "" })}
                   </p>
                 )}
-                {value.channel === "dev" && value.has_pre_dev_backup && (
+                {(value.channel === "dev" || value.channel === "beta") && value.has_pre_dev_backup && (
                   <p className="mt-3 text-[0.82rem] leading-relaxed text-[var(--hint)]">
                     {t("updates_pre_dev_backup_ready")}
                   </p>
@@ -200,7 +202,7 @@ export function Updates() {
                     {t("updates_main_to_dev_info")}
                   </p>
                 )}
-                {switchingDevToMain && (
+                {switchingAwayFromNewer && (
                   <div className="mt-3 rounded-xl bg-amber-500/10 ring-1 ring-amber-500/30 px-3 py-2.5 text-[0.82rem] leading-relaxed">
                     <p>{t("updates_dev_to_main_warn", { target: t(`updates_channel_${channel}`) })}</p>
                     <code className="mt-2 block rounded-lg bg-[var(--bg)] ring-1 ring-[var(--line)] px-2.5 py-1.5 text-[0.8rem]" dir="ltr">

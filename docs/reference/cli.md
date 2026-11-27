@@ -12,9 +12,11 @@ install.sh install --domain bot.example.com --token 123:ABC --owner 123456 [--ch
 install.sh update [--channel stable|beta|dev] [--version v1.2.3] [--restore-backup FILE]
 install.sh rollback | repair | status | logs [service] | restart | backup | restore FILE | setup-link | uninstall
 install.sh enable-agent | disable-agent   (let the admin panel request updates and rollbacks)
+install.sh channels | versions            show release channels and published versions
+install.sh switch [stable|beta|dev] [--version vX.Y.Z]   change channel/version (backup first)
 ```
 
-Actions: `install`, `update`, `rollback`, `repair`, `status`, `logs`, `restart`, `backup`, `restore`, `setup-link`, `edit`, `uninstall`, `agent`, `enable-agent`, `disable-agent`.
+Actions: `install`, `update`, `channels`, `releases`, `versions`, `channel`, `switch`, `rollback`, `repair`, `status`, `logs`, `restart`, `backup`, `restore`, `setup-link`, `edit`, `uninstall`, `agent`, `enable-agent`, `disable-agent`.
 
 ## Application (`paurubot`)
 

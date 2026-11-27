@@ -27,6 +27,7 @@ def _fn(name: str) -> str:
 BASE_STUB = r"""
 set -Eeuo pipefail
 BOLD=""
+DIM=""
 RESET=""
 IMAGE_REPO="ghcr.io/nexusguide/paurubot"
 need_root() { :; }
@@ -38,9 +39,17 @@ wait_healthy() { return 0; }
 confirm() { [[ ${CONFIRM:-yes} == yes ]]; }
 random_secret() { echo "secret1234567890"; }
 latest_release() { echo "v0.5.7"; }
+branch_version() {
+  case $1 in
+    main) echo "0.1.1-dev" ;;
+    dev) echo "0.1.2-dev" ;;
+    *) echo "" ;;
+  esac
+}
+release_tags() { printf 'v0.5.7\nv0.5.6\n'; }
 fetch_source() {
   echo "FETCH_SOURCE $1" >>"$LOG"
-  if [[ $1 == dev ]]; then
+  if [[ $1 == dev || $1 == main ]]; then
     printf 'version = "0.1.1-dev"\n' >"$DIR/pyproject.toml"
   else
     printf 'version = "0.5.7"\n' >"$DIR/pyproject.toml"
@@ -82,6 +91,9 @@ def _run_bash(tmp_path: Path, body: str, env_vars: str = "") -> subprocess.Compl
             "swap_release",
             "cmd_update",
             "cmd_rollback",
+            "cmd_channels",
+            "cmd_versions",
+            "cmd_switch",
             "rcli",
         )
     )
@@ -260,3 +272,80 @@ def test_release_workflow_tags_dev_version_and_marks_prereleases() -> None:
     assert "IS_PRERELEASE" in rel
     assert "--prerelease" in rel
     assert re.search(r"type=raw,value=dev,enable=\$\{\{ github\.ref == 'refs/heads/dev'", rel)
+
+
+def test_channels_lists_current_and_available_versions(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "PAURUBOT_CHANNEL=beta\nPAURUBOT_VERSION=0.1.1-dev\nPAURUBOT_REF=main\n",
+        encoding="utf-8",
+    )
+    res = _run_bash(tmp_path, "cmd_channels")
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "current : beta" in res.stdout
+    assert "stable  : v0.5.7" in res.stdout
+    assert "beta    : 0.1.1-dev" in res.stdout
+    assert "dev     : 0.1.2-dev" in res.stdout
+    assert "pauru switch stable|beta|dev" in res.stdout
+
+    res_versions = _run_bash(tmp_path, "cmd_versions")
+    assert res_versions.returncode == 0, res_versions.stdout + res_versions.stderr
+    assert "v0.5.7" in res_versions.stdout and "v0.5.6" in res_versions.stdout
+    assert "beta : 0.1.1-dev" in res_versions.stdout
+
+
+def test_switch_stable_to_beta_and_back_uses_the_pre_release_backup(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "PAURUBOT_IMAGE=ghcr.io/nexusguide/paurubot:0.5.7@sha256:main\n"
+        "PAURUBOT_VERSION=v0.5.7\n"
+        "PAURUBOT_CHANNEL=stable\n"
+        "PAURUBOT_REF=v0.5.7\n"
+        "POSTGRES_APP_PASSWORD=p\n"
+        "REDIS_PASSWORD=r\n",
+        encoding="utf-8",
+    )
+
+    # Stable -> beta records the last stable-compatible backup.
+    res = _run_bash(tmp_path, "cmd_switch beta", f'NEXT_BACKUP="{BACKUP_1}"\nSCHEMA=0\nCONFIRM=yes\n')
+    assert res.returncode == 0, res.stdout + res.stderr
+    env = _read_env(env_file)
+    assert env["PAURUBOT_CHANNEL"] == "beta"
+    assert env["PAURUBOT_REF"] == "main"
+    assert env["PAURUBOT_VERSION"] == "0.1.1-dev"
+    assert env["PAURUBOT_PRE_DEV_BACKUP"] == BACKUP_1
+
+    # Beta -> stable uses it when the (older) stable schema cannot run on beta's schema.
+    log_file = tmp_path / "ops.log"
+    log_file.write_text("", encoding="utf-8")
+    res_back = _run_bash(
+        tmp_path,
+        "cmd_switch stable",
+        f'NEXT_BACKUP="{BACKUP_2}"\nSCHEMA=4\nCONFIRM=yes\nRESTORE=0\n',
+    )
+    assert res_back.returncode == 0, res_back.stdout + res_back.stderr
+    env_back = _read_env(env_file)
+    assert env_back["PAURUBOT_CHANNEL"] == "stable"
+    assert env_back["PAURUBOT_VERSION"] == "v0.5.7"
+    assert env_back["PAURUBOT_REF"] == "v0.5.7"
+    assert env_back["PAURUBOT_PRE_DEV_BACKUP"] == ""
+    assert f"migrate restore {BACKUP_1} --yes" in log_file.read_text(encoding="utf-8")
+
+
+def test_switch_to_a_specific_published_version(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "PAURUBOT_IMAGE=ghcr.io/nexusguide/paurubot:0.5.7@sha256:main\n"
+        "PAURUBOT_VERSION=v0.5.7\n"
+        "PAURUBOT_CHANNEL=stable\n"
+        "PAURUBOT_REF=v0.5.7\n",
+        encoding="utf-8",
+    )
+    res = _run_bash(
+        tmp_path, "cmd_switch --version v0.5.6", f'NEXT_BACKUP="{BACKUP_1}"\nSCHEMA=0\nCONFIRM=yes\n'
+    )
+    assert res.returncode == 0, res.stdout + res.stderr
+    env = _read_env(env_file)
+    assert env["PAURUBOT_CHANNEL"] == "stable"
+    assert env["PAURUBOT_REF"] == "v0.5.6"
+    assert "Target : stable version 0.5.6" in res.stdout

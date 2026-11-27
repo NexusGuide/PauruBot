@@ -8,6 +8,8 @@
 #   install.sh update [--channel stable|beta|dev] [--version v1.2.3] [--restore-backup FILE]
 #   install.sh rollback | repair | status | logs [service] | restart | backup | restore FILE | setup-link | uninstall
 #   install.sh enable-agent | disable-agent   (let the admin panel request updates and rollbacks)
+#   install.sh channels | versions            show release channels and published versions
+#   install.sh switch [stable|beta|dev] [--version vX.Y.Z]   change channel/version (backup first)
 #
 # --https-port publishes the web panel on another HTTPS port (e.g. 8443) when a
 # VPN panel already owns 443. Port 80 stays in use: Caddy solves the TLS challenge there.
@@ -86,6 +88,7 @@ clean_input() {
 }
 
 confirm() {
+  [[ ${CONFIRM:-} == yes ]] && return 0
   local reply default=${2:-n}
   if [[ $default == y ]]; then
     read -r -p "$1 [Y/n]: " reply </dev/tty || true
@@ -190,6 +193,14 @@ latest_for_channel() {
     beta) branch_version main ;;
     *) latest_release ;;
   esac
+}
+
+release_tags() {
+  local token auth=()
+  token=$(github_token)
+  [[ -n $token ]] && auth=(-H "Authorization: Bearer $token")
+  curl -fsSL "${auth[@]}" "https://api.github.com/repos/$REPO/releases?per_page=30" 2>/dev/null |
+    sed -n 's/.*"tag_name": *"\(v[0-9][^"]*\)".*/\1/p' | head -n 20
 }
 
 repo_url() {
@@ -334,13 +345,13 @@ wait_healthy() {
 
 cmd_install() {
   need_root
-  local domain="" token="" owner="" channel=stable version="" https_port=""
+  local domain="" token="" owner="" channel=stable version="" https_port="" channel_given=0
   while (($#)); do
     case $1 in
       --domain) domain=$2; shift 2 ;;
       --token) token=$2; shift 2 ;;
       --owner) owner=$2; shift 2 ;;
-      --channel) channel=$2; shift 2 ;;
+      --channel) channel=$2; channel_given=1; shift 2 ;;
       --version) version=$2; shift 2 ;;
       --https-port) https_port=$2; shift 2 ;;
       *) die "unknown option $1" ;;
@@ -363,6 +374,38 @@ cmd_install() {
   say ""
   say "${BOLD}PauruBot setup${RESET}"
   say "${DIM}Point the domain's DNS A record at this server before continuing.${RESET}"
+  if [[ $channel_given -eq 0 && -z $version && -t 0 ]]; then
+    say ""
+    say "Choose a release channel:"
+    say "  1) stable   published release (recommended)"
+    say "  2) beta     main / edge (newest CI-tested code)"
+    say "  3) dev      dev branch (newest changes, may be unstable)"
+    local pick
+    read -r -p "Channel [1]: " pick </dev/tty || pick=1
+    case ${pick:-1} in
+      1) channel=stable ;;
+      2) channel=beta ;;
+      3) channel=dev ;;
+      *) die "pick 1-3" ;;
+    esac
+  fi
+  if [[ $channel == stable && -z $version && -t 0 ]]; then
+    local choose_ver tags
+    tags=$(release_tags || true)
+    say ""
+    say "Published stable versions (leave empty for the latest):"
+    if [[ -n $tags ]]; then
+      printf '%s\n' "$tags" | sed 's/^/  /'
+    else
+      say "  (could not list versions; type vX.Y.Z or leave empty)"
+    fi
+    read -r -p "Version [latest]: " choose_ver </dev/tty || choose_ver=""
+    choose_ver=$(clean_input "$choose_ver")
+    [[ -z $choose_ver || $choose_ver =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] ||
+      die "invalid version: $choose_ver (expected vX.Y.Z)"
+    version=$choose_ver
+  fi
+  say "Release: ${BOLD}$channel${RESET}${version:+ version ${version#v}}"
   [[ -n $domain ]] || domain=$(ask "Domain for the panel (e.g. bot.example.com)")
   [[ -n $token ]] || token=$(ask "Telegram bot token from @BotFather")
   [[ -n $owner ]] || owner=$(ask "Your numeric Telegram user ID")
@@ -476,8 +519,8 @@ cmd_update() {
   fetch_image "$TARGET_IMAGE"
 
   # SEC-F22: verify the target release can run on the current schema before switching.
-  # Switching from dev back to main (stable/beta) after dev migrations requires restoring a
-  # pre-migration backup with the target release, or aborting cleanly without changing anything.
+  # Switching back to stable after beta/dev migrations requires restoring the backup taken
+  # before entering beta/dev, or aborting cleanly without changing anything.
   local state=0 restore=0 restore_backup=""
   PAURUBOT_IMAGE=$PINNED_IMAGE compose run --rm --no-deps -T migrate schema-status || state=$?
   case $state in
@@ -485,13 +528,14 @@ cmd_update() {
     4)
       restore=1
       restore_backup=$explicit_backup
-      if [[ -z $restore_backup && $old_channel == dev && $channel != dev ]]; then
+      if [[ -z $restore_backup ]] &&
+        [[ ( $old_channel == dev && $channel != dev ) || ( $old_channel == beta && $channel == stable ) ]]; then
         restore_backup=$(env_get PAURUBOT_PRE_DEV_BACKUP)
       fi
       if [[ -z $restore_backup && $PINNED_IMAGE == "$(env_get PAURUBOT_PREVIOUS_IMAGE)" ]]; then
         restore_backup=$(env_get PAURUBOT_PREVIOUS_BACKUP)
       fi
-      [[ -n $restore_backup ]] || die "the database was migrated past $TARGET_REF; switching to $channel requires restoring a pre-migration backup (pass --restore-backup FILE or run 'pauru rollback'; see docs/ops/rollback.md)"
+      [[ -n $restore_backup ]] || die "the database was migrated past $TARGET_REF; switching to $channel requires restoring a pre-migration backup (pass --restore-backup FILE or run 'pauru rollback'; see docs/ops/rollback.md). If this install started on beta/dev there may be no pre-stable backup: stay on beta/dev until a stable release catches up, or restore an older backup."
       [[ -z ${PAURUBOT_AGENT:-} ]] || die "switching to $TARGET_REF ($channel) requires restoring the pre-migration backup ($restore_backup); run 'pauru update --channel $channel' (or 'pauru rollback') on the server"
       warn "the database was migrated past $TARGET_REF ($channel): switching restores the backup taken before migrating"
       warn "  $restore_backup — everything written since that backup is lost"
@@ -516,9 +560,9 @@ cmd_update() {
     new_ver=${new_ver:-$TARGET_REF}
   fi
 
-  # Preserve a dedicated snapshot when entering dev from main so repeated dev updates still allow
-  # returning cleanly to main (stable/beta).
-  if [[ $old_channel != dev && $channel == dev ]]; then
+  # Preserve a dedicated snapshot when entering beta/dev from stable so switching back later
+  # (including repeated updates on the newer channel) can restore a stable-compatible database.
+  if [[ $old_channel == stable && ( $channel == beta || $channel == dev ) ]]; then
     env_set PAURUBOT_PRE_DEV_BACKUP "$backup_file"
     env_set PAURUBOT_PRE_DEV_IMAGE "$old_image"
     env_set PAURUBOT_PRE_DEV_VERSION "$old_version"
@@ -561,7 +605,7 @@ cmd_update() {
       env_set PAURUBOT_PRE_DEV_CHANNEL ""
       env_set PAURUBOT_PRE_DEV_REF ""
     fi
-  elif [[ $old_channel == dev && $channel != dev ]]; then
+  elif [[ ( $old_channel == dev && $channel != dev ) || ( $old_channel == beta && $channel == stable ) ]]; then
     env_set PAURUBOT_PRE_DEV_BACKUP ""
     env_set PAURUBOT_PRE_DEV_IMAGE ""
     env_set PAURUBOT_PRE_DEV_VERSION ""
@@ -582,6 +626,97 @@ cmd_update() {
     ok "updated to $new_ver ($channel)"
   else
     warn "the new version is not healthy; run: pauru rollback"
+  fi
+}
+
+cmd_channels() {
+  local current stable beta dev
+  current=$(env_get PAURUBOT_CHANNEL)
+  current=${current:-stable}
+  stable=$(latest_release 2>/dev/null || true)
+  beta=$(branch_version main 2>/dev/null || true)
+  dev=$(branch_version dev 2>/dev/null || true)
+  say ""
+  say "${BOLD}PauruBot release channels${RESET}"
+  say "  current : ${BOLD}$current${RESET}   version $(env_get PAURUBOT_VERSION)   ref $(env_get PAURUBOT_REF)"
+  say "  stable  : ${stable:-unknown}   published release (recommended)"
+  say "  beta    : ${beta:-unknown}   main / edge (newest CI-tested code)"
+  say "  dev     : ${dev:-unknown}   dev branch (newest changes, may be unstable)"
+  say ""
+  say "  pauru switch stable|beta|dev      change channel (a backup is written first)"
+  say "  pauru switch --version vX.Y.Z     pin a published stable release"
+  say "  pauru versions                    list published versions"
+  say "  pauru update                      update within the current channel"
+}
+
+cmd_versions() {
+  local channel=${1:-} tags
+  case $channel in
+    "")
+      say "${BOLD}Stable releases${RESET} (newest first):"
+      tags=$(release_tags || true)
+      if [[ -n $tags ]]; then printf '%s\n' "$tags" | sed 's/^/  /'; else say "  (none published yet)"; fi
+      say ""
+      say "  beta : $(branch_version main 2>/dev/null || echo unknown)  (main / edge)"
+      say "  dev  : $(branch_version dev 2>/dev/null || echo unknown)  (dev branch)"
+      ;;
+    stable)
+      tags=$(release_tags || true)
+      if [[ -n $tags ]]; then printf '%s\n' "$tags"; else say "  (none published yet)"; fi
+      ;;
+    beta) say "beta tracks main/edge; current version: $(branch_version main 2>/dev/null || echo unknown)" ;;
+    dev) say "dev tracks the dev branch; current version: $(branch_version dev 2>/dev/null || echo unknown)" ;;
+    *) die "unknown channel: $channel (expected stable, beta or dev)" ;;
+  esac
+}
+
+cmd_switch() {
+  need_root
+  [[ -f $ENV_FILE ]] || die "not installed; run install first"
+  local channel="" version="" choice
+  while (($#)); do
+    case $1 in
+      --channel) channel=$2; shift 2 ;;
+      --version) version=$2; shift 2 ;;
+      --yes | -y) CONFIRM=yes; shift ;;
+      stable | beta | dev) channel=$1; shift ;;
+      *) die "usage: pauru switch [stable|beta|dev] [--version vX.Y.Z] [--yes]" ;;
+    esac
+  done
+  if [[ -z $channel && -z $version ]]; then
+    cmd_channels
+    say ""
+    say "  1) stable   2) beta   3) dev   4) specific stable version   0) cancel"
+    read -r -p "Switch to [1]: " choice </dev/tty || choice=0
+    case ${choice:-1} in
+      1) channel=stable ;;
+      2) channel=beta ;;
+      3) channel=dev ;;
+      4)
+        cmd_versions stable
+        read -r -p "Version tag (vX.Y.Z): " version </dev/tty || version=""
+        [[ -n $version ]] || { say "canceled"; return 0; }
+        ;;
+      0 | q) say "canceled"; return 0 ;;
+      *) die "pick 1-4 or 0" ;;
+    esac
+  fi
+  if [[ -n $version ]]; then
+    [[ $version =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] ||
+      die "invalid version: $version (expected vX.Y.Z)"
+    channel=stable
+  fi
+  local target
+  if [[ -n $version ]]; then target="stable version ${version#v}"; else target=$channel; fi
+  say ""
+  say "Current: ${BOLD}$(env_get PAURUBOT_CHANNEL)${RESET} / $(env_get PAURUBOT_VERSION)"
+  say "Target : ${BOLD}$target${RESET}"
+  [[ $channel == stable ]] && say "${DIM}Stable is older than beta/dev schemas; switching back may restore the backup from before beta/dev.${RESET}"
+  confirm "Switch now? A database backup is written first." || { say "canceled"; return 0; }
+  if [[ -n $version ]]; then
+    cmd_update --channel stable --version "$version"
+  else
+    cmd_update --channel "$channel"
   fi
 }
 
@@ -623,7 +758,16 @@ cmd_rollback() {
     *) die "could not compare the database with $previous (schema-status exit $state); nothing was changed" ;;
   esac
   if ((restore)); then
-    backup=$(env_get PAURUBOT_PREVIOUS_BACKUP)
+    local current_channel previous_channel
+    current_channel=$(env_get PAURUBOT_CHANNEL)
+    previous_channel=$(env_get PAURUBOT_PREVIOUS_CHANNEL)
+    if [[ $previous_channel == stable && ( $current_channel == beta || $current_channel == dev ) ]]; then
+      # The backup taken before entering beta/dev is the last stable-compatible one.
+      backup=$(env_get PAURUBOT_PRE_DEV_BACKUP)
+      [[ -n $backup ]] || backup=$(env_get PAURUBOT_PREVIOUS_BACKUP)
+    else
+      backup=$(env_get PAURUBOT_PREVIOUS_BACKUP)
+    fi
     [[ -n $backup ]] || die "the database was migrated past $previous and no pre-update backup is recorded; nothing was changed (see docs/ops/rollback.md)"
     [[ -z ${PAURUBOT_AGENT:-} ]] || die "rolling back to $previous means restoring the pre-update backup; run 'pauru rollback' on the server"
     warn "the database was migrated past $previous: rolling back restores the backup taken before the update"
@@ -903,12 +1047,12 @@ cmd_disable_agent() {
 menu() {
   while true; do
     say ""
-    say "${BOLD}PauruBot${RESET} ${DIM}$(env_get PAURUBOT_VERSION)${RESET}"
+    say "${BOLD}PauruBot${RESET} ${DIM}$(env_get PAURUBOT_VERSION) ($(env_get PAURUBOT_CHANNEL)/$(env_get PAURUBOT_REF))${RESET}"
     say "  1) Install        2) Update         3) Rollback"
     say "  4) Status         5) Logs           6) Restart"
     say "  7) Backup now     8) Restore        9) Edit settings"
     say " 10) Setup link    11) Uninstall     12) Panel updates on"
-    say " 13) Repair"
+    say " 13) Repair        14) Channels / versions"
     say "  0) Exit"
     local choice
     read -r -p "> " choice </dev/tty || exit 0
@@ -926,6 +1070,7 @@ menu() {
       11) cmd_uninstall ;;
       12) cmd_enable_agent ;;
       13) cmd_repair ;;
+      14) cmd_switch ;;
       0 | q) exit 0 ;;
       *) warn "pick a number from the menu" ;;
     esac
@@ -939,6 +1084,9 @@ main() {
     menu) menu ;;
     install) cmd_install "$@" ;;
     update) cmd_update "$@" ;;
+    channels | releases) cmd_channels ;;
+    versions) cmd_versions "$@" ;;
+    channel | switch) cmd_switch "$@" ;;
     rollback) cmd_rollback ;;
     repair) cmd_repair ;;
     status) cmd_status ;;
@@ -952,7 +1100,7 @@ main() {
     agent) cmd_agent ;;
     enable-agent) cmd_enable_agent ;;
     disable-agent) cmd_disable_agent ;;
-    -h | --help | help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ;;
+    -h | --help | help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' ;;
     *) die "unknown action $action (try --help)" ;;
   esac
 }
