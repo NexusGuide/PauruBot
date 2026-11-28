@@ -39,19 +39,27 @@ def steps_within(steps: list[int], low: int, high: int) -> list[int]:
     return inside or sorted({low, high})
 
 
-def renewal_line(t: Texts, days: int, gb: int) -> str:
+def renewal_line(t: Texts, days: int, gb: int, users: int = 0) -> str:
     gb_val = gb or t("unlimited")
     if days <= 0:
-        return t("acc_renew_line_unlimited_days", gb=gb_val)
-    return t("acc_renew_line", days=days, gb=gb_val)
+        line = t("acc_renew_line_unlimited_days", gb=gb_val)
+    else:
+        line = t("acc_renew_line", days=days, gb=gb_val)
+    if users:
+        line += " · " + t("acc_renew_package_users", users=users)
+    return line
 
 
 def package_label(t: Texts, item: dict[str, int]) -> str:
     gb_val = item["gb"] or t("unlimited")
     price_val = money(item["price"])
     if item["days"] <= 0:
-        return t("acc_renew_package_unlimited_days", gb=gb_val, price=price_val)
-    return t("acc_renew_package", days=item["days"], gb=gb_val, price=price_val)
+        label = t("acc_renew_package_unlimited_days", gb=gb_val, price=price_val)
+    else:
+        label = t("acc_renew_package", days=item["days"], gb=gb_val, price=price_val)
+    if item.get("users"):
+        label += " · " + t("acc_renew_package_users", users=item["users"])
+    return label
 
 
 def _gb(value: int) -> str:
@@ -327,7 +335,12 @@ async def _checkout(
     }[kind]()
     renew = (order.params or {}).get("renew")
     if renew:
-        what += "\n" + renewal_line(t, int(renew["days"]), int(renew["gb"]))
+        what += "\n" + renewal_line(
+            t,
+            int(renew["days"]),
+            int(renew["gb"]),
+            int(renew.get("users") or 0),
+        )
     saving = int(order.code_discount or 0) + int(order.reseller_discount or 0)
     if saving:
         what += "\n" + t("acc_checkout_saving", amount=money(saving))

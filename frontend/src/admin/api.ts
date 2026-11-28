@@ -739,6 +739,8 @@ export interface RenewPackage {
   days: number;
   gb: number;
   price: number;
+  /** Raise the account's user cap to this; 0/absent keeps the plan's cap. */
+  users?: number;
 }
 
 export interface PanelAccountRow {

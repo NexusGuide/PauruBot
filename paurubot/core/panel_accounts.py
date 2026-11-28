@@ -189,7 +189,8 @@ MAX_PACKAGES = 12
 
 def clean_packages(raw: Any) -> list[dict[str, int]]:
     """Validate renewal packages: at most 12, each whole days (0: no end date, 1..3650), GB
-    (0: no quota) and a price. Raises ValueError on anything else."""
+    (0: no quota), an optional user cap (0: keep the plan's) and a price. Raises ValueError on
+    anything else."""
     if not isinstance(raw, list) or len(raw) > MAX_PACKAGES:
         raise ValueError("renew_packages_invalid")
     out: list[dict[str, int]] = []
@@ -202,6 +203,12 @@ def clean_packages(raw: Any) -> list[dict[str, int]]:
             if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
                 raise ValueError("renew_packages_invalid")
             values[key] = value
+        users = item.get("users")
+        if users is not None:
+            if isinstance(users, bool) or not isinstance(users, int) or not 0 <= users <= MAX_USERS:
+                raise ValueError("renew_packages_invalid")
+            if users:
+                values["users"] = users
         out.append(values)
     return out
 
@@ -339,6 +346,8 @@ async def _renewal(
             raise OrderError("renew_option_unavailable")
         chosen = packages[package]
         renew = {"days": chosen["days"], "gb": chosen["gb"], "package": package}
+        if chosen.get("users"):
+            renew["users"] = chosen["users"]
         return Draft(kind, None, None, {**params, "renew": renew}, chosen["price"])
     if days:
         if not custom_renewal(plan):
@@ -531,6 +540,10 @@ async def renewal_targets(
     renew = params.get("renew") or {}
     days = int(renew.get("days", plan.days))
     gb = int(renew.get("gb", plan.data_gb))
+    # A package may define a user cap. Like its traffic, it is fixed in the order; it raises the
+    # cap but never lowers one the account already has (e.g. bought user slots).
+    package_users = int(renew.get("users") or 0)
+    target_users = max(int(account.max_users or 0), package_users or int(plan.max_users or 0)) or None
     rule = renew_rule(plan, account)
     now = utcnow()
     if days <= 0:
@@ -553,6 +566,7 @@ async def renewal_targets(
     return {
         "target_expire": expire,
         "target_limit": limit,
+        "target_users": target_users,
         "reset_usage": rule.reset_usage,
         "rule": rule.as_dict(),
     }
@@ -566,7 +580,10 @@ async def _renew(driver: Any, account: PanelAccount, plan: AccountPlan, params: 
     else:  # an order paid before renewal rules: a fresh quota of the plan or package
         gb = int((params.get("renew") or {}).get("gb", plan.data_gb))
         account.data_limit = gb * GB if gb > 0 else 0
-    account.max_users = max(int(account.max_users or 0), int(plan.max_users or 0)) or None
+    if "target_users" in params:
+        account.max_users = int(params["target_users"]) if params["target_users"] else None
+    else:  # an order paid before packages could set a user cap
+        account.max_users = max(int(account.max_users or 0), int(plan.max_users or 0)) or None
     if params.get("reset_usage", True):
         await driver.reset_admin_usage(account.username)
         account.used_bytes = 0

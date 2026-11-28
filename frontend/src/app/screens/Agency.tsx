@@ -341,6 +341,11 @@ export function AgencyAccount() {
                         <p className="num text-xs text-[var(--hint)]">
                           {item.gb ? `${money(item.gb, locale)} ${t("gb")}` : t("unlimited_data")}
                         </p>
+                        {item.users ? (
+                          <p className="num text-xs text-[var(--hint)]">
+                            {t("agency_users_n", { count: money(item.users, locale) })}
+                          </p>
+                        ) : null}
                         <p className="num mt-2 text-sm font-semibold">{money(item.price, locale)} {t("currency")}</p>
                       </button>
                     </li>
@@ -486,7 +491,7 @@ export function AgencyAccount() {
                   return (
                     <option key={choice.package ?? -1} value={choice.package ?? -1}>
                       {item
-                        ? `${item.days ? t("n_days", { days: money(item.days, locale) }) : t("unlimited_time")} · ${item.gb ? `${money(item.gb, locale)} ${t("gb")}` : t("unlimited_data")} · ${money(item.price, locale)} ${t("currency")}`
+                        ? `${item.days ? t("n_days", { days: money(item.days, locale) }) : t("unlimited_time")} · ${item.gb ? `${money(item.gb, locale)} ${t("gb")}` : t("unlimited_data")}${item.users ? ` · ${t("agency_users_n", { count: money(item.users, locale) })}` : ""} · ${money(item.price, locale)} ${t("currency")}`
                         : `${t("agency_auto_renew_plain")} · ${money(account.price, locale)} ${t("currency")}`}
                     </option>
                   );

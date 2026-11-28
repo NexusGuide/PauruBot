@@ -62,9 +62,17 @@ async def test_an_account_plan_saves_its_renewal_options_and_ranges(session, htt
     )
     assert ok_unlimited.status_code == 200, ok_unlimited.text
     assert ok_unlimited.json()["renew_packages"] == [{"days": 0, "gb": 1000, "price": 600_000}]
+    with_users = await owner.call(
+        "PUT",
+        f"/api/admin/account-plans/{saved['id']}",
+        {**body, "renew_packages": [{"days": 30, "gb": 500, "price": 850_000, "users": 80}]},
+    )
+    assert with_users.status_code == 200, with_users.text
+    assert with_users.json()["renew_packages"] == [{"days": 30, "gb": 500, "price": 850_000, "users": 80}]
     for bad in (
         {"renew_packages": [{"days": -1, "gb": 1, "price": 1}]},
         {"renew_packages": [{"days": 30, "gb": 1}]},
+        {"renew_packages": [{"days": 30, "gb": 1, "price": 1, "users": -1}]},
         {"days_min": 61, "days_max": 60},
         {"gb_min": 0},
     ):

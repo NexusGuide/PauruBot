@@ -387,16 +387,51 @@ async def test_renewal_packages_and_a_custom_renewal_per_plan(session, env) -> N
 def test_renewal_packages_are_validated() -> None:
     good = [{"days": 30, "gb": 0, "price": 0}, {"days": 0, "gb": 0, "price": 0}]
     assert panel_accounts.clean_packages(good) == good
+    with_users = [{"days": 30, "gb": 100, "price": 500, "users": 25}]
+    assert panel_accounts.clean_packages(with_users) == with_users
+    # Zero means "keep the plan's cap", so it is left out like an absent key.
+    assert panel_accounts.clean_packages([{"days": 30, "gb": 1, "price": 1, "users": 0}]) == [
+        {"days": 30, "gb": 1, "price": 1}
+    ]
     for bad in (
         "x",
         [{"days": -1, "gb": 1, "price": 1}],
         [{"days": 30, "gb": -1, "price": 1}],
         [{"days": 30, "gb": 1, "price": True}],
         [{"days": 30, "gb": 1}],
+        [{"days": 30, "gb": 1, "price": 1, "users": -1}],
+        [{"days": 30, "gb": 1, "price": 1, "users": panel_accounts.MAX_USERS + 1}],
+        [{"days": 30, "gb": 1, "price": 1, "users": "10"}],
         [{"days": 30, "gb": 1, "price": 1}] * 13,
     ):
         with pytest.raises(ValueError):
             panel_accounts.clean_packages(bad)
+
+
+async def test_a_renewal_package_can_raise_the_user_cap(session, env) -> None:  # type: ignore[no-untyped-def]
+    fake = env["fake"]
+    plan = env["plan"]
+    cust = await _buyer(session, env["shop"])
+    _order, account = await _bought(session, env, cust)
+    assert account.max_users == 50
+    plan.renew_packages_enabled = True
+    plan.renew_packages = [
+        {"days": 30, "gb": 200, "price": 500_000, "users": 120},
+        {"days": 30, "gb": 200, "price": 400_000, "users": 20},
+    ]
+    await session.commit()
+
+    order = await _pay(session, cust, OrderKind.ACCOUNT_RENEW, account=account, package=0)
+    assert order.params["renew"] == {"days": 30, "gb": 200, "package": 0, "users": 120}
+    await session.refresh(account)
+    assert account.max_users == 120
+    assert fake.sold_admins[account.username]["permission_overrides"]["max_users"] == 120
+
+    # A smaller user package raises nothing and never takes slots away.
+    await _pay(session, cust, OrderKind.ACCOUNT_RENEW, account=account, package=1)
+    await session.refresh(account)
+    assert account.max_users == 120
+    assert fake.sold_admins[account.username]["permission_overrides"]["max_users"] == 120
 
 
 @pytest.mark.parametrize(

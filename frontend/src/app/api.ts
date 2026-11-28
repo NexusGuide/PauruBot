@@ -319,7 +319,7 @@ export interface AccountRenewal {
   /** False when the plan is not renewable (or no longer sold). */
   allowed: boolean;
   plain: boolean;
-  packages: { days: number; gb: number; price: number }[];
+  packages: { days: number; gb: number; price: number; users?: number }[];
   custom: boolean;
   /** Whether the plan has a traffic quota, so a custom renewal also asks for GB. */
   quota: boolean;
@@ -444,7 +444,7 @@ export interface Order {
     gb?: number;
     users?: number;
     days?: number;
-    renew?: { days: number; gb: number; package?: number };
+    renew?: { days: number; gb: number; package?: number; users?: number };
     /** An admin account order whose plan takes discount codes. */
     discounts?: boolean;
   };

@@ -230,14 +230,14 @@ async def test_renewal_options_in_the_mini_app(session, acc_env) -> None:  # typ
     await _buyer(session, acc_env, uid)
     account = await _bought(session, acc_env, uid)
     plan.renew_packages_enabled = True
-    plan.renew_packages = [{"days": 30, "gb": 100, "price": 90_000}]
+    plan.renew_packages = [{"days": 30, "gb": 100, "price": 90_000, "users": 40}]
     plan.renew_custom_enabled = True
     plan.day_price = 1_500
     await session.commit()
     detail = (await client.get(f"/api/webapp/accounts/{account['id']}", headers=h(uid))).json()
     renew = detail["account"]["renew"]
     assert renew["plain"] is False and renew["custom"] is True
-    assert renew["packages"] == [{"days": 30, "gb": 100, "price": 90_000}]
+    assert renew["packages"] == [{"days": 30, "gb": 100, "price": 90_000, "users": 40}]
     plain = await client.post(
         "/api/webapp/orders", headers=h(uid), json={"kind": "account_renew", "account_id": account["id"]}
     )

@@ -283,7 +283,7 @@ export function Checkout() {
             label={t("agency_renew_size")}
             value={`${order.params.renew.days ? t("n_days", { days: money(order.params.renew.days, locale) }) : t("unlimited_time")} · ${
               order.params.renew.gb ? `${money(order.params.renew.gb, locale)} ${t("gb")}` : t("unlimited_data")
-            }`}
+            }${order.params.renew.users ? ` · ${t("agency_users_n", { count: money(order.params.renew.users, locale) })}` : ""}`}
           />
         )}
         {order.kind === "account_gb" && (

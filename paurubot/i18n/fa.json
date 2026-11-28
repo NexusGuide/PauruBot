@@ -699,6 +699,7 @@
   "acc_amount_noted": "✅ ثبت شد.",
   "acc_choose_renew": "♻️ تمدید رو چطور می‌خوای؟",
   "acc_renew_package": "⏳ {days} روز + 📦 {gb} گیگ — {price} تومان",
+  "acc_renew_package_users": "👥 کاربران: {users}",
   "acc_btn_renew_custom": "✏️ تمدید دلخواه (روز و حجم رو خودت انتخاب کن)",
   "acc_ask_renew_days": "⏳ چند روز تمدید می‌خوای؟ یک عدد بین {min_value} تا {max_value} بفرست.\nهر روز: {price} تومان",
   "acc_ask_renew_gb": "📦 چند گیگ حجم برای این دوره می‌خوای؟ یک عدد بین {min_value} تا {max_value} بفرست.\nهر گیگ: {price} تومان",

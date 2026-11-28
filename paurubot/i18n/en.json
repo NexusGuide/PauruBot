@@ -699,6 +699,7 @@
   "acc_amount_noted": "✅ Got it.",
   "acc_choose_renew": "♻️ How would you like to renew?",
   "acc_renew_package": "⏳ {days} days + 📦 {gb} GB — {price} Toman",
+  "acc_renew_package_users": "👥 Users: {users}",
   "acc_btn_renew_custom": "✏️ Custom renewal (choose the days and traffic)",
   "acc_ask_renew_days": "⏳ How many days? Send a number from {min_value} to {max_value}.\nPer day: {price} Toman",
   "acc_ask_renew_gb": "📦 How many GB for this period? Send a number from {min_value} to {max_value}.\nPer GB: {price} Toman",

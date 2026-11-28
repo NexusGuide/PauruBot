@@ -110,19 +110,27 @@ function RenewPackages({ value, onChange }: { value: RenewPackage[]; onChange: (
   return (
     <div className="flex flex-col gap-2">
       {value.length > 0 && (
-        <div aria-hidden="true" className="grid grid-cols-[1fr_1fr_1.4fr_auto] gap-2 text-[0.78rem] font-semibold text-[var(--hint)]">
+        <div aria-hidden="true" className="hidden grid-cols-[1fr_1fr_1fr_1.4fr_auto] gap-2 text-[0.78rem] font-semibold text-[var(--hint)] sm:grid">
           <span>{t("account_package_days")}</span>
           <span>{t("account_package_gb")}</span>
+          <span>{t("account_package_users")}</span>
           <span>{t("price_toman")}</span>
           <span className="w-8" />
         </div>
       )}
       {value.map((item, index) => (
-        <div key={index} className="grid grid-cols-[1fr_1fr_1.4fr_auto] items-center gap-2">
+        <div key={index} className="grid grid-cols-2 gap-2 sm:grid-cols-[1fr_1fr_1fr_1.4fr_auto] sm:items-center">
           <NumberInput aria-label={t("account_package_days")} placeholder={t("account_package_days")} value={item.days} onChange={(v) => update(index, { days: v ?? 0 })} />
           <NumberInput aria-label={t("account_package_gb")} placeholder={t("account_package_gb")} value={item.gb} onChange={(v) => update(index, { gb: v ?? 0 })} />
+          <NumberInput
+            aria-label={t("account_package_users")}
+            placeholder={t("account_package_users")}
+            value={item.users ?? null}
+            onChange={(v) => update(index, { users: v && v > 0 ? v : undefined })}
+            allowEmpty
+          />
           <NumberInput aria-label={t("price_toman")} placeholder={t("price_toman")} value={item.price} onChange={(v) => update(index, { price: v ?? 0 })} />
-          <Button small tone="ghost" icon="close" aria-label={t("remove")} onClick={() => onChange(value.filter((_, i) => i !== index))} />
+          <Button small tone="ghost" icon="close" aria-label={t("remove")} className="justify-self-end" onClick={() => onChange(value.filter((_, i) => i !== index))} />
         </div>
       ))}
       {value.length > 0 && <p className="text-[0.78rem] text-[var(--hint)]">{t("account_package_columns")}</p>}

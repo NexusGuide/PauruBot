@@ -165,7 +165,7 @@ async def test_buy_extra_days_with_a_tap_or_a_typed_amount(session, env) -> None
 async def test_renew_offers_the_plans_packages_and_a_custom_renewal(session, env) -> None:  # type: ignore[no-untyped-def]
     send, fake, shop, plan = env["send"], env["fake"], env["shop"], env["plan"]
     plan.renew_packages_enabled = True
-    plan.renew_packages = [{"days": 30, "gb": 300, "price": 700_000}]
+    plan.renew_packages = [{"days": 30, "gb": 300, "price": 700_000, "users": 25}]
     plan.renew_custom_enabled = True
     plan.day_price, plan.gb_price = 10_000, 1_000
     plan.days_min, plan.days_max, plan.gb_min, plan.gb_max = 10, 60, 50, 500
@@ -193,7 +193,11 @@ async def test_renew_offers_the_plans_packages_and_a_custom_renewal(session, env
     menu = fake.last(EditMessageText)
     assert menu.text == FA("acc_choose_renew")
     labels = [text for text, _ in fake.buttons(menu)]
-    assert FA("acc_renew_package", days=30, gb=300, price="700,000") in labels
+    assert (
+        FA("acc_renew_package", days=30, gb=300, price="700,000")
+        + " · "
+        + FA("acc_renew_package_users", users=25)
+    ) in labels
     custom = next(data for text, data in fake.buttons(menu) if text == FA("acc_btn_renew_custom"))
     await send(callback_update(UID + 4, custom))
     assert fake.last(SendMessage).text == FA("acc_ask_renew_days", min_value=10, max_value=60, price="10,000")
