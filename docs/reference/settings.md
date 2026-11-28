@@ -33,6 +33,7 @@ Each shop's settings, changed in the admin panel under Settings (appearance ones
 | `trial_panel_id` | int | — | Trial panel. Legacy single-panel pin; leave empty to use Trial panels list or all allowed panels |
 | `trial_panel_ids` | list | [] | Trial panels. Choose any number of panels that offer trials. Empty allows every active panel with trials enabled |
 | `trial_choose_panel` | bool | true | Let customers choose trial server. When 2 or more panels allow trials, ask the customer which server to test before creating the trial |
+| `trial_once_per_panel` | bool | true | One trial per panel. Each customer can try every allowed panel once in the current round. Turn off to allow only one trial in the whole shop |
 | `trial_days` | int | 1 | Trial days |
 | `trial_hours` | int | 0 | Trial hours. Optional hour-based duration (e.g. 2 or 6). When > 0, overrides Trial days |
 | `trial_gb` | int | 1 | Trial data (GB) |

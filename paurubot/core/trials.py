@@ -1,8 +1,9 @@
 """Trial policy with generations, daily quota and race-free reservations (CAT-04).
 
-A reservation is the unique (shop, customer, generation) row in `trial_grants`. A transaction
-advisory lock also serializes the shared shop quota across different customers. Raising
-`trial_generation` lets every customer try again without resetting the rolling 24-hour quota.
+A reservation is the unique (shop, customer, generation, panel) row in `trial_grants`, so a
+customer may try every allowed panel once per round. A transaction advisory lock also serializes
+the shared shop quota across different customers. Raising `trial_generation` lets every customer
+try again without resetting the rolling 24-hour quota.
 
 A panel can also carry its own rolling 24-hour cap (`options.trial_daily_quota`, F-20): trials go
 to the first panel that allows them and still has room, so a busy panel hands over to the next.
@@ -57,15 +58,29 @@ async def eligibility(session: AsyncSession, customer: Customer) -> str | None:
     if (policy["trial_requires_phone"] or policy["require_phone"]) and not customer.phone:
         return "trial_needs_phone"
     generation = int(policy["trial_generation"] or 1)
-    taken = await session.scalar(
-        select(TrialGrant.id).where(
-            TrialGrant.shop_id == customer.shop_id,
-            TrialGrant.customer_id == customer.id,
-            TrialGrant.generation == generation,
+    if bool(policy.get("trial_once_per_panel", True)):
+        used, legacy_grant = await _used_trial_panels(session, customer, generation)
+        if legacy_grant:
+            # An older grant without a panel is treated as a shop-wide trial.
+            return "trial_already_used"
+        owner = sale.parent_id if sale is not None else customer.shop_id
+        candidates, available = await _eligible_panels(session, owner, policy, customer, exclude_used=False)
+        if not candidates:
+            return "trial_disabled"
+        unused_available = [panel for panel in available if panel.id not in used]
+        if not unused_available:
+            unused_candidates = [panel for panel in candidates if panel.id not in used]
+            return "trial_quota_reached" if unused_candidates else "trial_already_used"
+    else:
+        taken = await session.scalar(
+            select(TrialGrant.id).where(
+                TrialGrant.shop_id == customer.shop_id,
+                TrialGrant.customer_id == customer.id,
+                TrialGrant.generation == generation,
+            )
         )
-    )
-    if taken:
-        return "trial_already_used"
+        if taken:
+            return "trial_already_used"
     if customer.phone:
         # One number, one trial: a second account with the same phone gets none (REF-04).
         same_phone = await session.scalar(
@@ -102,6 +117,31 @@ async def eligibility(session: AsyncSession, customer: Customer) -> str | None:
 
 
 PANEL_QUOTA = "trial_daily_quota"
+
+
+def _positive_int(value: object) -> int:
+    return value if type(value) is int and value > 0 else 0
+
+
+def panel_trial_limits(rules: dict[str, Any], panel: Panel) -> dict[str, int]:
+    """Trial days/GB/hours/MB for one panel, with per-panel overrides winning as a set.
+
+    Setting either duration key on the panel (`trial_days`/`trial_hours`) replaces both shop
+    defaults, and likewise either volume key (`trial_gb`/`trial_mb`). Empty panel values inherit
+    the shop trial.
+    """
+    options = panel.options or {}
+    days = _positive_int(options.get("trial_days"))
+    hours = _positive_int(options.get("trial_hours"))
+    if not days and not hours:
+        days = max(1, int(rules.get("trial_days") or 1))
+        hours = max(0, int(rules.get("trial_hours") or 0))
+    gb = _positive_int(options.get("trial_gb"))
+    mb = _positive_int(options.get("trial_mb"))
+    if not gb and not mb:
+        gb = max(1, int(rules.get("trial_gb") or 1))
+        mb = max(0, int(rules.get("trial_mb") or 0))
+    return {"days": days, "hours": hours, "gb": gb, "mb": mb}
 
 
 def panel_quota(panel: Panel) -> int:
@@ -148,11 +188,29 @@ async def _hidden_panels(session: AsyncSession, customer: Customer | None) -> se
     return hidden
 
 
+async def _used_trial_panels(
+    session: AsyncSession, customer: Customer, generation: int
+) -> tuple[set[int], bool]:
+    """Panels this customer already tried in the round; True when an old grant has no panel."""
+    rows = list(
+        await session.scalars(
+            select(TrialGrant.panel_id).where(
+                TrialGrant.shop_id == customer.shop_id,
+                TrialGrant.customer_id == customer.id,
+                TrialGrant.generation == generation,
+            )
+        )
+    )
+    return {int(panel) for panel in rows if panel is not None}, any(panel is None for panel in rows)
+
+
 async def _eligible_panels(
     session: AsyncSession,
     shop_id: int,
-    rules: dict[str, object],
+    rules: dict[str, Any],
     customer: Customer | None = None,
+    *,
+    exclude_used: bool = True,
 ) -> tuple[list[Panel], list[Panel]]:
     """Return (candidates, with_quota_room) respecting health, national mode, capacity and quotas."""
     from paurubot.core import catalog
@@ -177,6 +235,23 @@ async def _eligible_panels(
     if allowed_ids:
         order_map = {pid: idx for idx, pid in enumerate(allowed_ids)}
         rows.sort(key=lambda p: order_map.get(p.id, len(order_map)))
+    if customer is not None and exclude_used:
+        generation = int(rules.get("trial_generation") or 1)
+        if bool(rules.get("trial_once_per_panel", True)):
+            used, legacy_grant = await _used_trial_panels(session, customer, generation)
+            if legacy_grant:
+                return [], []
+            rows = [panel for panel in rows if panel.id not in used]
+        elif await session.scalar(
+            select(TrialGrant.id)
+            .where(
+                TrialGrant.shop_id == customer.shop_id,
+                TrialGrant.customer_id == customer.id,
+                TrialGrant.generation == generation,
+            )
+            .limit(1)
+        ):
+            return [], []
     hidden = await _hidden_panels(session, customer)
     candidates: list[Panel] = []
     for panel in rows:
@@ -216,7 +291,7 @@ async def options(session: AsyncSession, customer: Customer) -> list[Panel]:
 async def _trial_panel(
     session: AsyncSession,
     shop_id: int,
-    rules: dict[str, object],
+    rules: dict[str, Any],
     customer: Customer | None = None,
     chosen_panel_id: int | None = None,
 ) -> Panel:
@@ -225,6 +300,13 @@ async def _trial_panel(
     if chosen_panel_id is not None:
         chosen_id = int(chosen_panel_id)
         if not any(p.id == chosen_id for p in candidates):
+            used: set[int] = set()
+            if customer is not None:
+                used, _legacy = await _used_trial_panels(
+                    session, customer, int(rules.get("trial_generation") or 1)
+                )
+            if chosen_id in used:
+                raise TrialError("trial_already_used")
             raise TrialError("trial_panel_unavailable")
         for panel in available:
             if panel.id == chosen_id:
@@ -282,25 +364,24 @@ async def request(session: AsyncSession, customer: Customer, *, panel_id: int | 
             status="reserved",
             created_at=utcnow(),
         )
-        .on_conflict_do_nothing(index_elements=["shop_id", "customer_id", "generation"])
+        .on_conflict_do_nothing(index_elements=["shop_id", "customer_id", "generation", "panel_id"])
         .returning(TrialGrant.id)
     )
     if grant_id is None:
         raise TrialError("trial_already_used")
-    trial_hours = max(0, int(rules.get("trial_hours") or 0))
-    trial_mb = max(0, int(rules.get("trial_mb") or 0))
+    limits = panel_trial_limits(rules, panel)
     trial_params: dict[str, object] = {
         "panel_id": panel.id,
-        "days": int(rules["trial_days"] or 1),
-        "gb": int(rules["trial_gb"] or 1),
+        "days": limits["days"],
+        "gb": limits["gb"],
         "grant_id": grant_id,
         "label": "trial",
         **extra,
     }
-    if trial_hours > 0:
-        trial_params["hours"] = trial_hours
-    if trial_mb > 0:
-        trial_params["mb"] = trial_mb
+    if limits["hours"] > 0:
+        trial_params["hours"] = limits["hours"]
+    if limits["mb"] > 0:
+        trial_params["mb"] = limits["mb"]
     order = Order(
         shop_id=customer.shop_id,
         customer_id=customer.id,
@@ -348,19 +429,22 @@ async def allow_again(session: AsyncSession, customer: Customer) -> bool:
 
 
 async def has_used_current(session: AsyncSession, customer: Customer) -> bool:
-    """True when the customer already claimed a trial in the active generation."""
+    """True when the current round has no trial panel left for this customer."""
     _, rules = await effective_rules(session, customer.shop_id)
     generation = int(rules["trial_generation"] or 1)
-    grant = await session.scalar(
-        select(TrialGrant.id)
-        .where(
-            TrialGrant.shop_id == customer.shop_id,
-            TrialGrant.customer_id == customer.id,
-            TrialGrant.generation == generation,
+    if not bool(rules.get("trial_once_per_panel", True)):
+        grant = await session.scalar(
+            select(TrialGrant.id)
+            .where(
+                TrialGrant.shop_id == customer.shop_id,
+                TrialGrant.customer_id == customer.id,
+                TrialGrant.generation == generation,
+            )
+            .limit(1)
         )
-        .limit(1)
-    )
-    return grant is not None
+        return grant is not None
+    reason = await eligibility(session, customer)
+    return reason in {"trial_already_used", "trial_quota_reached"}
 
 
 async def _reset_scope(session: AsyncSession, shop_id: int) -> tuple[list[int], int]:

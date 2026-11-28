@@ -677,8 +677,8 @@ function MaintenanceCard() {
   };
   return (
     <Section title={t("maint_title")}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="min-w-0 flex-1 text-[0.86rem] text-[var(--hint)]">{t("maint_hint")}</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-[0.86rem] leading-relaxed text-[var(--hint)]">{t("maint_hint")}</p>
         <div className="flex flex-wrap gap-2">
           <Button tone="quiet" busy={busyCache} onClick={() => void clearCache()}>
             {t("maint_clear_cache")}

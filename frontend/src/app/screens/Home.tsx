@@ -75,19 +75,19 @@ function HomeBody() {
 
   const trialPanels = me.trial.panels ?? [];
   const hasTrialChoice = Boolean(me.trial.choose_panel && trialPanels.length > 1);
-  const trialTitle =
-    (me.trial.hours ?? 0) > 0 || (me.trial.mb ?? 0) > 0
-      ? t("take_trial_custom", {
-          duration:
-            (me.trial.hours ?? 0) > 0
-              ? t("trial_hours_label", { hours: money(me.trial.hours ?? 0, locale) })
-              : t("trial_days_label", { days: money(me.trial.days, locale) }),
-          volume:
-            (me.trial.mb ?? 0) > 0
-              ? t("trial_mb_label", { mb: money(me.trial.mb ?? 0, locale) })
-              : t("trial_gb_label", { gb: money(me.trial.gb, locale) }),
-        })
-      : t("take_trial", { days: me.trial.days, gb: me.trial.gb });
+  const durationLabel = (days: number, hours: number) =>
+    hours > 0
+      ? t("trial_hours_label", { hours: money(hours, locale) })
+      : t("trial_days_label", { days: money(days, locale) });
+  const volumeLabel = (gb: number, mb: number) =>
+    mb > 0
+      ? t("trial_mb_label", { mb: money(mb, locale) })
+      : t("trial_gb_label", { gb: money(gb, locale) });
+  const trialText = (days: number, hours: number, gb: number, mb: number) =>
+    hours > 0 || mb > 0
+      ? t("take_trial_custom", { duration: durationLabel(days, hours), volume: volumeLabel(gb, mb) })
+      : t("take_trial", { days, gb });
+  const trialTitle = trialText(me.trial.days, me.trial.hours ?? 0, me.trial.gb, me.trial.mb ?? 0);
 
   const takeTrial = async (panelId?: number) => {
     if (panelId === undefined && hasTrialChoice) {
@@ -230,6 +230,7 @@ function HomeBody() {
                   {trialPanels.map((panel) => {
                     const loc = panel.location ? `${panel.flag ? `${panel.flag} ` : ""}${panel.location}` : null;
                     const label = loc && panel.name !== panel.location ? `${loc} · ${panel.name}` : loc || panel.name;
+                    const limits = `${durationLabel(panel.days ?? me.trial.days, panel.hours ?? 0)} · ${volumeLabel(panel.gb ?? me.trial.gb, panel.mb ?? 0)}`;
                     return (
                       <button
                         key={panel.id}
@@ -238,7 +239,7 @@ function HomeBody() {
                         onClick={() => void takeTrial(panel.id)}
                         className="app-chip app-rip-host text-xs font-semibold"
                       >
-                        {label}
+                        {label} · {limits}
                       </button>
                     );
                   })}

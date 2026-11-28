@@ -40,7 +40,16 @@ export interface Me {
     gb: number;
     mb?: number;
     choose_panel?: boolean;
-    panels?: { id: number; name: string; location: string | null; flag: string | null }[];
+    panels?: {
+      id: number;
+      name: string;
+      location: string | null;
+      flag: string | null;
+      days?: number;
+      hours?: number;
+      gb?: number;
+      mb?: number;
+    }[];
   };
   referral: {
     enabled: boolean;

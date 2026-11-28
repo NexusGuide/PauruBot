@@ -52,6 +52,8 @@ SPECS: dict[str, Spec] = {
     "trial_panel_ids": Spec(list, [], "trial"),
     # Let the customer choose which allowed panel to take a trial on when 2+ panels qualify.
     "trial_choose_panel": Spec(bool, True, "trial"),
+    # One trial per panel per customer (Foxima-style); false keeps one trial per shop.
+    "trial_once_per_panel": Spec(bool, True, "trial"),
     "trial_days": Spec(int, 1, "trial"),
     # Optional hour-based trial duration; > 0 overrides trial_days (0 uses trial_days).
     "trial_hours": Spec(int, 0, "trial"),

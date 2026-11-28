@@ -169,6 +169,7 @@ Every route the server answers, with who may call it. Staff routes accept the ad
 | POST | `/api/admin/panels/{panel_id}/check` | `panels.read` | Run one monitoring probe right away and return the fresh figures (PNL-12, PNL-13). |
 | GET | `/api/admin/panels/{panel_id}/import` | `panels.write` | Import preview |
 | POST | `/api/admin/panels/{panel_id}/import` | `panels.write` | Import users |
+| GET | `/api/admin/panels/{panel_id}/options` | `panels.write` | Live groups, inbounds or services of one panel, without running a full health check. |
 | POST | `/api/admin/panels/{panel_id}/pasarguard/nodes/{node_id}/{action}` | `panels.write` | Pasarguard node |
 | GET | `/api/admin/panels/{panel_id}/pasarguard/{resource}` | `panels.read` | Read-only window into PasarGuard admin data (PNL-01). |
 | POST | `/api/admin/panels/{panel_id}/pin` | `panels.secrets` | Pin certificate |

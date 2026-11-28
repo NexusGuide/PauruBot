@@ -1229,6 +1229,7 @@
   "adm_set_trial_hours": "مدت تست (ساعت؛ ۰ = استفاده از روز)",
   "adm_set_trial_mb": "حجم تست (مگابایت؛ ۰ = استفاده از گیگ)",
   "adm_set_trial_choose_panel": "انتخاب سرور تست توسط کاربر",
+  "adm_set_trial_once_per_panel": "یک تست از هر پنل",
   "acc_renew_line_unlimited_days": "⏳ بدون محدودیت زمانی — 📦 {gb} گیگ",
   "acc_renew_package_unlimited_days": "⏳ بدون محدودیت زمانی + 📦 {gb} گیگ — {price} تومان",
   "rs_btn_billing": "📊 صورتحساب و بدهی",

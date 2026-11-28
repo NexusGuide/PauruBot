@@ -161,8 +161,13 @@ def test_per_panel_trial_groups_and_builds_status_widget():
         "trial_squad_ids",
         "trial_inbounds",
         "trial_inbound_id",
+        "trial_days",
+        "trial_hours",
+        "trial_gb",
+        "trial_mb",
     ):
         assert f'"{key}"' in panels_api, f"missing {key} in panels.py"
+    assert '@router.get("/panels/{panel_id}/options")' in panels_api
 
     lifecycle_src = (ROOT / "paurubot/provisioning/lifecycle.py").read_text(encoding="utf-8")
     assert "OrderKind.TRIAL" in lifecycle_src

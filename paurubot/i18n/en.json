@@ -1229,6 +1229,7 @@
   "adm_set_trial_hours": "Trial hours (0 = use days)",
   "adm_set_trial_mb": "Trial data in MB (0 = use GB)",
   "adm_set_trial_choose_panel": "Let users pick trial server",
+  "adm_set_trial_once_per_panel": "One trial per panel",
   "acc_renew_line_unlimited_days": "⏳ Unlimited time — 📦 {gb} GB",
   "acc_renew_package_unlimited_days": "⏳ Unlimited time + 📦 {gb} GB — {price} Toman",
   "rs_btn_billing": "📊 PAYG & Debt",

@@ -127,3 +127,22 @@ def test_the_admin_api_takes_only_a_whole_number_quota() -> None:
     for bad in (-1, 1_000_001, "5", 2.5, True):
         with pytest.raises(HTTPException, match="trial_daily_quota_invalid"):
             _clean_options({trials.PANEL_QUOTA: bad})
+
+
+def test_the_admin_api_accepts_per_panel_trial_limits() -> None:
+    from fastapi import HTTPException
+
+    from paurubot.api.routes.admin.panels import _clean_options
+
+    limits = {"trial_days": 4, "trial_hours": 12, "trial_gb": 3, "trial_mb": 700}
+    assert _clean_options(limits) == limits
+    assert _clean_options({"trial_days": 0, "trial_mb": 0}) == {"trial_days": 0, "trial_mb": 0}
+    for key, bad in (
+        ("trial_days", 3_651),
+        ("trial_hours", 721),
+        ("trial_gb", 102_401),
+        ("trial_mb", -1),
+        ("trial_mb", "500"),
+    ):
+        with pytest.raises(HTTPException, match=f"{key}_invalid"):
+            _clean_options({key: bad})

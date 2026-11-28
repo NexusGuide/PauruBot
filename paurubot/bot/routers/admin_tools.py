@@ -87,6 +87,7 @@ SETTINGS: dict[str, list[str]] = {
     "growth": [
         "trial_enabled",
         "trial_choose_panel",
+        "trial_once_per_panel",
         "trial_days",
         "trial_hours",
         "trial_gb",

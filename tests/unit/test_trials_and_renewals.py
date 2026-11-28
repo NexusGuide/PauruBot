@@ -15,6 +15,7 @@ from paurubot.db.models import (
     Location,
     Order,
     OrderKind,
+    Panel,
     Plan,
     Service,
     ServiceStatus,
@@ -280,3 +281,100 @@ async def test_auto_renew_defers_instead_of_stopping_during_national_mode(sessio
     outcome = await auto_renew.run_service(session, service.id)
     assert outcome == "national_mode"
     assert not (service.auto_renew or {}).get("stopped")
+
+
+async def test_one_trial_per_panel_until_every_panel_is_used(session) -> None:  # type: ignore[no-untyped-def]
+    shop = await factories.shop(session, "Panel trials")
+    first = await factories.panel(session, shop)
+    second = await factories.panel(session, shop)
+    await shop_settings.set_many(
+        session,
+        shop.id,
+        {
+            "trial_panel_ids": [first.id, second.id],
+            "trial_choose_panel": True,
+            "trial_once_per_panel": True,
+        },
+    )
+    customer = await factories.customer(session, shop)
+    await session.commit()
+
+    assert [panel.id for panel in await trials.options(session, customer)] == [first.id, second.id]
+    order = await trials.request(session, customer, panel_id=first.id)
+    assert order.params["panel_id"] == first.id
+    assert await trials.eligibility(session, customer) is None
+    assert [panel.id for panel in await trials.options(session, customer)] == [second.id]
+
+    with pytest.raises(trials.TrialError, match="trial_already_used"):
+        await trials.request(session, customer, panel_id=first.id)
+    second_order = await trials.request(session, customer, panel_id=second.id)
+    assert second_order.params["panel_id"] == second.id
+    assert await trials.eligibility(session, customer) == "trial_already_used"
+    assert await trials.options(session, customer) == []
+
+
+async def test_a_shop_can_still_allow_only_one_trial_in_total(session) -> None:  # type: ignore[no-untyped-def]
+    shop = await factories.shop(session, "One trial shop")
+    first = await factories.panel(session, shop)
+    second = await factories.panel(session, shop)
+    await shop_settings.set_many(
+        session,
+        shop.id,
+        {
+            "trial_panel_ids": [first.id, second.id],
+            "trial_once_per_panel": False,
+        },
+    )
+    customer = await factories.customer(session, shop)
+    await session.commit()
+
+    await trials.request(session, customer, panel_id=first.id)
+    assert await trials.eligibility(session, customer) == "trial_already_used"
+    assert await trials.options(session, customer) == []
+
+
+def test_panel_trial_limits_override_the_shop_as_a_set() -> None:
+    rules = {"trial_days": 3, "trial_hours": 0, "trial_gb": 2, "trial_mb": 0}
+    assert trials.panel_trial_limits(rules, Panel(options={})) == {
+        "days": 3,
+        "hours": 0,
+        "gb": 2,
+        "mb": 0,
+    }
+    assert trials.panel_trial_limits(rules, Panel(options={"trial_hours": 24, "trial_mb": 500})) == {
+        "days": 0,
+        "hours": 24,
+        "gb": 0,
+        "mb": 500,
+    }
+    assert trials.panel_trial_limits(rules, Panel(options={"trial_days": 7, "trial_gb": 5})) == {
+        "days": 7,
+        "hours": 0,
+        "gb": 5,
+        "mb": 0,
+    }
+    assert trials.panel_trial_limits(rules, Panel(options={"trial_hours": 12, "trial_gb": 3})) == {
+        "days": 0,
+        "hours": 12,
+        "gb": 3,
+        "mb": 0,
+    }
+
+
+async def test_a_trial_order_uses_the_panel_trial_limits(session) -> None:  # type: ignore[no-untyped-def]
+    shop = await factories.shop(session, "Panel trial limits")
+    panel = await factories.panel(session, shop)
+    panel.options = {**(panel.options or {}), "trial_days": 4, "trial_mb": 700}
+    await shop_settings.set_many(
+        session,
+        shop.id,
+        {"trial_panel_ids": [panel.id], "trial_days": 1, "trial_gb": 1},
+    )
+    customer = await factories.customer(session, shop)
+    await session.commit()
+
+    order = await trials.request(session, customer)
+    assert order.params["panel_id"] == panel.id
+    assert order.params["days"] == 4
+    assert order.params["mb"] == 700
+    assert "hours" not in order.params

@@ -279,7 +279,15 @@ class TrialGrant(Base, TimestampMixin):
     """One row per trial issued; the unique key doubles as the reservation (CAT-04)."""
 
     __tablename__ = "trial_grants"
-    __table_args__ = (UniqueConstraint("shop_id", "customer_id", "generation"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "shop_id",
+            "customer_id",
+            "generation",
+            "panel_id",
+            name="uq_trial_grants_shop_customer_generation_panel",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id", ondelete="CASCADE"))

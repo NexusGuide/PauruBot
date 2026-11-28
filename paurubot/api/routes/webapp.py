@@ -316,8 +316,16 @@ async def me(ctx: WebApp) -> dict[str, Any]:
     trial_reason = await trials.eligibility(ctx.session, customer)
     _, trial_rules = await trials.effective_rules(ctx.session, ctx.shop.id)
     trial_choose = bool(trial_rules.get("trial_choose_panel"))
-    trial_panels = (
-        await trials.options(ctx.session, customer) if trial_reason is None and trial_choose else []
+    trial_panels = await trials.options(ctx.session, customer) if trial_reason is None else []
+    trial_limits = (
+        trials.panel_trial_limits(trial_rules, trial_panels[0])
+        if trial_panels
+        else {
+            "days": int(trial_rules["trial_days"] or 1),
+            "hours": int(trial_rules.get("trial_hours") or 0),
+            "gb": int(trial_rules["trial_gb"] or 1),
+            "mb": int(trial_rules.get("trial_mb") or 0),
+        }
     )
     profile = customer.reseller_profile
     locale = allowed_locale(customer.locale, ctx.shop, cfg)
@@ -340,10 +348,10 @@ async def me(ctx: WebApp) -> dict[str, Any]:
         "trial": {
             "available": trial_reason is None,
             "reason": trial_reason,
-            "days": trial_rules["trial_days"],
-            "hours": int(trial_rules.get("trial_hours") or 0),
-            "gb": trial_rules["trial_gb"],
-            "mb": int(trial_rules.get("trial_mb") or 0),
+            "days": trial_limits["days"],
+            "hours": trial_limits["hours"],
+            "gb": trial_limits["gb"],
+            "mb": trial_limits["mb"],
             "choose_panel": trial_choose,
             "panels": [
                 {
@@ -351,6 +359,7 @@ async def me(ctx: WebApp) -> dict[str, Any]:
                     "name": p.name,
                     "location": p.location.title if p.location else None,
                     "flag": p.location.flag if p.location else None,
+                    **trials.panel_trial_limits(trial_rules, p),
                 }
                 for p in trial_panels
             ],

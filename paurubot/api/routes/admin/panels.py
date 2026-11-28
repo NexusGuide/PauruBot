@@ -75,6 +75,10 @@ SAFE_OPTION_KEYS = {
     "group",
     "sync_concurrency",  # usage-sync reads in flight on this panel; never above the driver's (SEC-F27)
     "trial_daily_quota",  # trials this panel gives in any 24 hours; the next panel takes over (F-20)
+    "trial_days",  # per-panel trial duration, overriding the shop trial
+    "trial_hours",  # hour-based per-panel trial duration; > 0 overrides trial_days
+    "trial_gb",  # per-panel trial volume, overriding the shop trial
+    "trial_mb",  # sub-GB per-panel trial volume; > 0 overrides trial_gb
     "trial_group_ids",  # per-panel PasarGuard groups used exclusively for trial accounts
     "trial_service_ids",  # per-panel Marzneshin/Rebecca/Guard services for trial accounts
     "trial_squad_ids",  # per-panel Remnawave internal squads for trial accounts
@@ -151,6 +155,15 @@ def _clean_options(options: dict[str, Any]) -> dict[str, Any]:
     quota = options.get("trial_daily_quota")
     if quota is not None and (type(quota) is not int or not 0 <= quota <= 1_000_000):
         raise HTTPException(status_code=422, detail="trial_daily_quota_invalid")
+    for numeric_key, maximum in (
+        ("trial_days", 3_650),
+        ("trial_hours", 720),
+        ("trial_gb", 102_400),
+        ("trial_mb", 102_400),
+    ):
+        number = options.get(numeric_key)
+        if number is not None and (type(number) is not int or not 0 <= number <= maximum):
+            raise HTTPException(status_code=422, detail=f"{numeric_key}_invalid")
     for int_list_key in ("trial_group_ids", "trial_service_ids"):
         raw_ids = options.get(int_list_key)
         if raw_ids is not None and (
@@ -294,6 +307,18 @@ async def update_panel(panel_id: int, body: PanelBody, ctx: Writer, db: DB) -> d
         after=snapshot(panel),
     )
     return panel_out(panel)
+
+
+@router.get("/panels/{panel_id}/options")
+async def panel_options(panel_id: int, ctx: Writer, db: DB) -> dict[str, Any]:
+    """Live groups, inbounds or services of one panel, without running a full health check."""
+    panel = await owned(db, Panel, panel_id, ctx)
+    try:
+        driver = await registry.driver_for(panel)
+        options = [{"id": option.id, "title": option.title} for option in await driver.list_options()]
+    except PanelError as exc:
+        return {"ok": False, "error": str(exc)[:255], "options": []}
+    return {"ok": True, "options": options}
 
 
 @router.post("/panels/{panel_id}/test")

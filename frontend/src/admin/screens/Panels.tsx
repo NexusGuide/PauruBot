@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CapabilitySheet } from "../capabilities/CapabilitySheet";
 import { money, size } from "@shared/format";
 import { call, type CatalogData, type PanelRow } from "../api";
@@ -258,6 +258,9 @@ function PanelSheet({
   const [test, setTest] = useState<TestResult | null>(null);
   const [cert, setCert] = useState<{ pem: string; fingerprint: string } | null>(null);
   const [webhook, setWebhook] = useState<{ secret: string; url: string } | null>(null);
+  const [liveOptions, setLiveOptions] = useState<{ id: string; title: string }[]>([]);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [loadingOptions, runOptions] = useAction();
   const [busy, run] = useAction();
   const owner = can("panels.secrets");
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setForm((prev) => ({ ...prev, [key]: value }));
@@ -268,6 +271,28 @@ function PanelSheet({
       else options[key] = value;
       return { ...prev, options };
     });
+
+  const loadOptions = async () => {
+    if (!form.id) return;
+    try {
+      const result = await runOptions(() =>
+        call<{ ok: boolean; options?: { id: string; title: string }[]; error?: string }>(
+          `/api/admin/panels/${form.id}/options`,
+        ),
+      );
+      setLiveOptions(result?.options ?? []);
+      setOptionsError(result && !result.ok ? (result.error ?? t("panel_options_load_failed")) : null);
+    } catch (err) {
+      setLiveOptions([]);
+      setOptionsError(errorText(err));
+    }
+  };
+
+  useEffect(() => {
+    if (panel?.id) void loadOptions();
+    // Load the live groups/inbounds once so the trial picker shows saved values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panel?.id]);
 
   const save = async (): Promise<PanelRow | undefined> => {
     const { id, password, api_token, ...rest } = form;
@@ -341,6 +366,8 @@ function PanelSheet({
   const tokenOnly = TOKEN_KINDS.includes(form.kind) && (form.api_token.trim() || panel?.has_api_token);
   const canSave =
     form.name.trim() && form.base_url.startsWith("http") && (tokenOnly || (form.username.trim() && (form.id || form.password)));
+  const panelOptions = test?.options?.length ? test.options : liveOptions;
+  const supportsTrialOptions = !["mikrotik", "ibsng", "wgdashboard", "wgmate", "hiddify"].includes(form.kind);
 
   return (
     <Sheet
@@ -563,10 +590,7 @@ function PanelSheet({
           </div>
         )}
         {test?.ok && test.options && test.options.length > 0 && (
-          <>
-            <OptionPicker kind={form.kind} options={test.options} value={form.options} onChange={(options) => set("options", options)} />
-            <OptionPicker mode="trial" kind={form.kind} options={test.options} value={form.options} onChange={(options) => set("options", options)} />
-          </>
+          <OptionPicker kind={form.kind} options={test.options} value={form.options} onChange={(options) => set("options", options)} />
         )}
         {test?.ok && test.options_error && (
           <p className="rounded-2xl bg-saffron-100 p-4 text-[0.85rem] text-saffron-700" dir="auto">
@@ -574,12 +598,122 @@ function PanelSheet({
           </p>
         )}
 
+        <section className="flex flex-col gap-3 rounded-2xl bg-[var(--bg)] p-4 ring-1 ring-[var(--line)]">
+          <div>
+            <h4 className="text-[0.95rem] font-bold">{t("panel_trial_title")}</h4>
+            <p className="mt-1 text-[0.82rem] leading-relaxed text-[var(--hint)]">{t("panel_trial_hint")}</p>
+          </div>
+          <Toggle
+            checked={form.options.allow_trials !== false}
+            onChange={(v) => setOption("allow_trials", v ? undefined : false)}
+            label={t("panel_allow_trials")}
+            hint={t("panel_allow_trials_hint")}
+          />
+          {supportsTrialOptions && panelOptions.length > 0 && (
+            <OptionPicker
+              mode="trial"
+              kind={form.kind}
+              options={panelOptions}
+              value={form.options}
+              onChange={(options) => set("options", options)}
+            />
+          )}
+          {supportsTrialOptions && panelOptions.length === 0 && form.kind === "pasarguard" && (
+            <GroupIds fieldKey="trial_group_ids" value={form.options} onChange={(options) => set("options", options)} />
+          )}
+          {supportsTrialOptions && panelOptions.length === 0 && form.kind === "xui" && (
+            <Field label={t("panel_trial_inbound")} hint={t("panel_trial_inbound_hint")}>
+              {(id) => (
+                <NumberInput
+                  id={id}
+                  value={typeof form.options.trial_inbound_id === "number" ? form.options.trial_inbound_id : null}
+                  placeholder={t("panel_trial_inherit")}
+                  onChange={(v) => setOption("trial_inbound_id", v && v > 0 ? v : null)}
+                  allowEmpty
+                />
+              )}
+            </Field>
+          )}
+          {supportsTrialOptions && panelOptions.length === 0 && form.kind !== "pasarguard" && form.kind !== "xui" && (
+            <p className="text-[0.8rem] leading-relaxed text-[var(--hint)]" dir="auto">
+              {optionsError ?? t("panel_trial_options_missing")}
+            </p>
+          )}
+          {supportsTrialOptions && form.id && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button small busy={loadingOptions} onClick={() => void loadOptions()}>
+                {t("panel_trial_load_options")}
+              </Button>
+              {panelOptions.length > 0 && optionsError && (
+                <span className="text-[0.78rem] text-[var(--hint)]" dir="auto">
+                  {optionsError}
+                </span>
+              )}
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Field label={t("panel_trial_days")}>
+              {(id) => (
+                <NumberInput
+                  id={id}
+                  value={typeof form.options.trial_days === "number" ? form.options.trial_days : null}
+                  placeholder={t("panel_trial_inherit")}
+                  onChange={(v) => setOption("trial_days", v && v > 0 ? Math.min(v, 3_650) : null)}
+                  allowEmpty
+                />
+              )}
+            </Field>
+            <Field label={t("panel_trial_hours")}>
+              {(id) => (
+                <NumberInput
+                  id={id}
+                  value={typeof form.options.trial_hours === "number" ? form.options.trial_hours : null}
+                  placeholder={t("panel_trial_inherit")}
+                  onChange={(v) => setOption("trial_hours", v && v > 0 ? Math.min(v, 720) : null)}
+                  allowEmpty
+                />
+              )}
+            </Field>
+            <Field label={t("panel_trial_gb")}>
+              {(id) => (
+                <NumberInput
+                  id={id}
+                  value={typeof form.options.trial_gb === "number" ? form.options.trial_gb : null}
+                  placeholder={t("panel_trial_inherit")}
+                  onChange={(v) => setOption("trial_gb", v && v > 0 ? Math.min(v, 102_400) : null)}
+                  allowEmpty
+                />
+              )}
+            </Field>
+            <Field label={t("panel_trial_mb")}>
+              {(id) => (
+                <NumberInput
+                  id={id}
+                  value={typeof form.options.trial_mb === "number" ? form.options.trial_mb : null}
+                  placeholder={t("panel_trial_inherit")}
+                  onChange={(v) => setOption("trial_mb", v && v > 0 ? Math.min(v, 102_400) : null)}
+                  allowEmpty
+                />
+              )}
+            </Field>
+          </div>
+          <p className="text-[0.78rem] leading-relaxed text-[var(--hint)]">{t("panel_trial_limits_hint")}</p>
+          <Field label={t("panel_trial_quota")} hint={t("panel_trial_quota_hint")}>
+            {(id) => (
+              <NumberInput
+                id={id}
+                value={typeof form.options.trial_daily_quota === "number" ? form.options.trial_daily_quota : null}
+                placeholder={t("unlimited")}
+                onChange={(v) => setOption("trial_daily_quota", v && v > 0 ? Math.min(v, 1_000_000) : null)}
+                allowEmpty
+              />
+            )}
+          </Field>
+        </section>
+
         <MoreSettings>
           {form.kind === "pasarguard" && (form.id || test) && (!test?.ok || !test.options?.length) && (
-            <>
-              <GroupIds value={form.options} onChange={(options) => set("options", options)} />
-              <GroupIds fieldKey="trial_group_ids" value={form.options} onChange={(options) => set("options", options)} />
-            </>
+            <GroupIds value={form.options} onChange={(options) => set("options", options)} />
           )}
           {["marzban", "marzneshin", "xui", "rebecca"].includes(form.kind) && (
             <Field label={t("panel_flow")}>
@@ -592,17 +726,6 @@ function PanelSheet({
             </Field>
           )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label={t("panel_trial_quota")}>
-              {(id) => (
-                <NumberInput
-                  id={id}
-                  value={typeof form.options.trial_daily_quota === "number" ? form.options.trial_daily_quota : null}
-                  placeholder={t("unlimited")}
-                  onChange={(v) => setOption("trial_daily_quota", v && v > 0 ? Math.min(v, 1_000_000) : null)}
-                  allowEmpty
-                />
-              )}
-            </Field>
             <Field label={t("panel_renew_mode")}>
               {(id) => (
                 <Select
